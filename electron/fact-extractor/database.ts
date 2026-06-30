@@ -9,15 +9,34 @@ const contextFieldSchema = new Schema({
   visibleToAI: { type: Boolean, required: true },
 }, { _id: false })
 
+const subAgentOpinionSchema = new Schema({
+  agentName: { type: String, required: true },
+  priority: { type: String, enum: ['high', 'medium', 'low'], required: true },
+  score: { type: Number, enum: [1, 0.5, 0], required: true },
+  reason: String,
+  rawResponse: String,
+}, { _id: false })
+
+const verifyResultSchema = new Schema({
+  score: { type: Number, enum: [1, 0.5, 0], required: true },
+  reason: String,
+  opinions: [subAgentOpinionSchema],
+  rawMergeResponse: String,
+  verifiedAt: Date,
+}, { _id: false })
+
 const splitClaimSchema = new Schema({
   claimId: { type: String, required: true },
   content: { type: String, required: true },
   category: String,
+  sourceAgent: String,
+  verifyResult: verifyResultSchema,
 }, { _id: false })
 
 const subAgentSplitRecordSchema = new Schema({
   agentName: { type: String, required: true },
-  claims: [{ content: String, category: String, _id: false }],
+  priority: { type: String, enum: ['high', 'medium', 'low'] },
+  claims: [{ content: String, category: String, sourceAgent: String, _id: false }],
   rawResponse: String,
 }, { _id: false })
 
@@ -34,6 +53,8 @@ const newsDocumentSchema = new Schema({
   context: { type: Map, of: contextFieldSchema },
   claims: { type: [splitClaimSchema], default: [] },
   splitMeta: splitMetaSchema,
+  confidence: Number,
+  confidenceUpdatedAt: Date,
 }, { timestamps: true })
 
 export const NewsModel = mongoose.model('News', newsDocumentSchema)

@@ -1,29 +1,22 @@
 // ==========================================
-// 事实拆分模块 — 类型与接口定义
+// 事实拆分模块 — 专有类型
 // ==========================================
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { Priority, SubAgentConfig, ExecutionMode } from '../shared/types'
+
+// 从 shared 重导出（方便模块内部 import）
+export type {
+  ContextField, NewsContext, VisibleContext,
+  Priority, Confidence, ExecutionMode,
+  PromptConfig, SubAgentConfig, RouteInstruction,
+} from '../shared/types'
 
 // ==========================================
-// 基础数据类型
+// 拆分专有类型
 // ==========================================
 
-/** 上下文字段 — 包装值和 AI 可见性 */
-export interface ContextField<T = string> {
-  value: T
-  visibleToAI: boolean
-}
-
-/** 新闻环境上下文 — 每个字段都是 ContextField */
-export interface NewsContext {
-  [key: string]: ContextField | undefined
-}
-
-/** 权重枚举 — 不信任 AI 给数值 */
-export type Priority = 'high' | 'medium' | 'low'
-
-/** Strategy / SubAgent 解析出的原始条目（未分配 ID） */
+/** SubAgent 解析出的原始条目（未分配 ID） */
 export interface RawClaim {
   content: string
   category?: string
@@ -58,44 +51,14 @@ export interface SplitMeta {
 export interface NewsDocument {
   _id: string
   content: string
-  context: NewsContext
+  context: import('../shared/types').NewsContext
   claims: SplitClaim[]
   splitMeta?: SplitMeta
+  confidence?: number
+  confidenceUpdatedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
-
-/** 从 context 中提取 AI 可见字段后的扁平结构 */
-export type VisibleContext = Record<string, string>
-
-/** 提示词配置（对应 prompts/ 下的 JSON 文件） */
-export interface PromptConfig {
-  description: string
-  content: string
-}
-
-// ==========================================
-// Agent 配置类型
-// ==========================================
-
-/** SubAgent 注册配置（per-agent model/tools/并发） */
-export interface SubAgentConfig {
-  name: string
-  promptPath: string
-  model?: BaseChatModel
-  tools?: StructuredToolInterface[]
-  maxConcurrency?: number
-}
-
-/** MainAgent route 返回的结构化路由指令 */
-export interface RouteInstruction {
-  agentName: string
-  priority: Priority
-  hint?: string
-}
-
-/** 执行模式 */
-export type ExecutionMode = 'auto' | 'human-in-loop'
 
 /** 拆分图构建配置 */
 export interface SplitGraphConfig {
