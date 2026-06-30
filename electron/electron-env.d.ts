@@ -22,5 +22,8 @@ declare namespace NodeJS {
     /** prompts 目录绝对路径（可选，优先于 APP_ROOT/prompts） */
     PROMPTS_ROOT?: string
     MONGO_URI?: string
+    DEEPSEEK_API_KEY?: string
+    DEEPSEEK_BASE_URL?: string
+    DEEPSEEK_MODEL?: string
   }
 }

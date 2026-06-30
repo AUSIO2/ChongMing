@@ -4,12 +4,20 @@ import type { SubAgentConfig } from '../shared/types'
 import type { SplitGraphConfig } from '../fact-extractor/types'
 import type { VerifyGraphConfig } from '../fact-verifier/types'
 
-/** 创建默认 ChatModel（从环境变量读取配置） */
+/** 创建默认 ChatModel — DeepSeek OpenAI 兼容接口 */
 export function createDefaultModel(): BaseChatModel {
+  const apiKey = process.env.DEEPSEEK_API_KEY
+  if (!apiKey) {
+    throw new Error('DEEPSEEK_API_KEY 未设置，请在项目根目录 .env 中配置')
+  }
+
   return new ChatOpenAI({
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-    apiKey: process.env.OPENAI_API_KEY,
+    model: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash',
+    apiKey,
     temperature: 0,
+    configuration: {
+      baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
+    },
   })
 }
 

@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { loadEnv } from './shared/load-env'
 import { registerIpcHandlers } from './api/register-handlers'
 import { connectDB } from './shared/database'
 import { setPromptsRoot } from './shared/prompt-loader'
@@ -8,6 +9,7 @@ import { setPromptsRoot } from './shared/prompt-loader'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 process.env.APP_ROOT = path.join(__dirname, '..')
+loadEnv(process.env.APP_ROOT)
 setPromptsRoot(path.join(process.env.APP_ROOT, 'prompts'))
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
