@@ -2,26 +2,54 @@
 
 > 本文档为总体架构概览，具体模块的详细设计见各自文档。
 
-## 整体流程
+## 技术栈
 
-```mermaid
-graph LR
-    A[原始文本] --> B[FactExtractor]
-    B -->|拆分| C["ExtractedClaim[]"]
-    C --> D[FactVerifier]
-    D -->|逐条核查| E["VerifiedClaim[]"]
-```
-
-两个阶段：
-
-| 阶段 | 模块 | 输入 | 输出 | 详细设计 |
-|------|------|------|------|---------|
-| **拆分** | FactExtractor | 原始文本 | ExtractedClaim[] | 见 `design-text-splitting.md` |
-| **核查** | FactVerifier | 单条 ExtractedClaim | VerifiedClaim | 见 `design-verification.md`（待设计） |
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| Agent 编排 | LangGraph.js | StateGraph + Send 扇出/汇聚 |
+| AI 调用 | LangChain ChatModel | 统一接口，一行换供应商 |
+| 数据库 | MongoDB + Mongoose | 本地/Atlas 一行切换 |
+| Prompt 管理 | 配置文件 (`prompts/`) | 路径 = 调用位置 |
 
 ---
 
-## 核查阶段架构（概要）
+## 拆分阶段 — 典型流程
+
+> 一篇新闻首先预处理为 context 和 content。
+> 对于 content，先交给 MainAgent，它决定给哪些 SubAgent 来拆分。
+> 这些 SubAgent 具备各自可配置的 skill。
+> 最后 MainAgent 来去重并验证拆分是否符合原文。
+
+```mermaid
+graph TB
+    News["原始新闻"] --> Pre["预处理<br/>→ context + content"]
+    Pre --> Route["MainAgent: route<br/>分析内容，决定调哪些 SubAgent"]
+    Route -->|"动态分配"| SA1["SubAgent 1<br/>(+ skills)"]
+    Route -->|"动态分配"| SA2["SubAgent 2<br/>(+ skills)"]
+    Route -->|"动态分配"| SAN["SubAgent N<br/>(+ skills)"]
+    SA1 --> Merge["MainAgent: merge<br/>去重 + 验证是否符合原文"]
+    SA2 --> Merge
+    SAN --> Merge
+    Merge --> Result["SplitClaim[]"]
+    Result --> Save["写回 MongoDB"]
+```
+
+### MainAgent 双职责
+
+| 阶段 | 职责 | prompt 配置 |
+|------|------|-------------|
+| **route** | 分析内容，决定调用哪些 SubAgent | `prompts/fact-extractor/main-agent-route.json` |
+| **merge** | 去重 + 验证拆分结果是否忠于原文 | `prompts/fact-extractor/main-agent-merge.json` |
+
+### SubAgent 能力
+
+- 每个 SubAgent 有独立的 prompt 配置（拆分视角）
+- 可调用 skills（搜索、计算等），通过 LangChain tool calling
+- 内部运行 ReAct 循环（AI 自主决定是否/何时调用 tools）
+
+---
+
+## 核查阶段 — 与拆分对称
 
 ### 置信度
 
@@ -31,59 +59,46 @@ graph LR
 | `0.5` | ⚠️ 不确定 |
 | `0` | ❌ 不可信 |
 
-### 多 SubAgent 扇出/汇聚
+### 流程
 
 ```mermaid
 graph TB
-    Claim[ExtractedClaim] --> Fan[FactVerifier]
-    Fan --> SA1[SubAgent: 逻辑一致性]
-    Fan --> SA2[SubAgent: 信源可靠性]
-    Fan --> SA3[SubAgent: ...]
-    SA1 -->|opinion| Agg[MainAgent 汇总]
-    SA2 -->|opinion| Agg
-    SA3 -->|opinion| Agg
-    Agg --> Result["VerifiedClaim（confidence + reasoning）"]
+    Claim["SplitClaim"] --> Route2["MainAgent: route<br/>决定从哪些角度核查"]
+    Route2 -->|"动态分配"| VA1["SubAgent 1<br/>(+ skills)"]
+    Route2 -->|"动态分配"| VA2["SubAgent 2<br/>(+ skills)"]
+    VA1 --> Merge2["MainAgent: merge<br/>汇总评分 + 理由"]
+    VA2 --> Merge2
+    Merge2 --> VResult["VerifyResult<br/>score: 1/0.5/0 + reason"]
 ```
-
-1. FactVerifier 将一条事实并发分发给多个 **SubAgent**
-2. 每个 SubAgent 有独立的视角和 prompt，从各自角度给出核查意见
-3. 所有意见收集后，交给 **MainAgent** 汇总，给出最终置信度 + 综合理由
-
-### 关键抽象
-
-| 接口 | 职责 |
-|------|------|
-| `SubAgent` | 单一视角的核查能力（`buildPrompt` + `parseResponse`） |
-| `MainAgent` | 汇总所有 SubAgent 意见，输出最终评分 |
-| `AIProvider` | 封装 AI API 调用，可切换供应商 |
 
 ---
 
-## 共享类型概览
+## 通用模式
 
-```typescript
-type Confidence = 1 | 0.5 | 0
+拆分和核查共用同一图结构：
 
-interface ExtractedClaim {
-  content: string     // 事实陈述
-  category: string    // 分类
-  context: string     // 原文上下文
-}
+```
+loadData → MainAgent route → 动态 Send[] SubAgent(+skills) → MainAgent merge → saveResults
+```
 
-interface SubAgentOpinion {
-  agentName: string
-  reasoning: string
-  rawResponse: string
-}
+---
 
-interface VerificationResult {
-  confidence: Confidence
-  reasoning: string
-  opinions: SubAgentOpinion[]
-  rawResponse: string
-}
+## 数据模型（单文档）
 
-interface VerifiedClaim extends ExtractedClaim {
-  verification: VerificationResult
+```
+NewsDocument {
+  _id: string
+  content: string
+  context: {
+    [key]: { value, visibleToAI }
+  }
+  claims: [
+    { claimId: "1", content: "...", category: "..." }
+  ]
+  splitMeta: { model, subAgentResults[], rawMergeResponse, splitAt }
+  createdAt, updatedAt
 }
 ```
+
+事实引用：`news-20260630-001#1`（文档 ID + `#` + claimId）
+

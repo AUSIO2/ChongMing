@@ -2,6 +2,13 @@
 // 事实拆分模块 — 类型与接口定义
 // ==========================================
 
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { StructuredToolInterface } from '@langchain/core/tools'
+
+// ==========================================
+// 基础数据类型
+// ==========================================
+
 /** 上下文字段 — 包装值和 AI 可见性 */
 export interface ContextField<T = string> {
   value: T
@@ -13,10 +20,14 @@ export interface NewsContext {
   [key: string]: ContextField | undefined
 }
 
+/** 权重枚举 — 不信任 AI 给数值 */
+export type Priority = 'high' | 'medium' | 'low'
+
 /** Strategy / SubAgent 解析出的原始条目（未分配 ID） */
 export interface RawClaim {
   content: string
   category?: string
+  sourceAgent?: string
 }
 
 /** 拆分出的单条可核查事实（嵌入子文档） */
@@ -24,11 +35,13 @@ export interface SplitClaim {
   claimId: string
   content: string
   category?: string
+  sourceAgent: string
 }
 
-/** 单个 SubAgent 的拆分记录 */
+/** 单个 SubAgent 的拆分记录（带权重） */
 export interface SubAgentSplitRecord {
   agentName: string
+  priority: Priority
   claims: RawClaim[]
   rawResponse: string
 }
@@ -62,26 +75,34 @@ export interface PromptConfig {
 }
 
 // ==========================================
-// 抽象接口
+// Agent 配置类型
 // ==========================================
 
-/** 拆分 SubAgent — 从特定角度拆分文本 */
-export interface SplitSubAgent {
+/** SubAgent 注册配置（per-agent model/tools/并发） */
+export interface SubAgentConfig {
   name: string
   promptPath: string
-  buildPrompt(content: string, visibleContext: VisibleContext): string
-  parseResponse(raw: string): RawClaim[]
+  model?: BaseChatModel
+  tools?: StructuredToolInterface[]
+  maxConcurrency?: number
 }
 
-/** 拆分 MainAgent — 汇总多个 SubAgent 的结果 */
-export interface SplitMainAgent {
-  promptPath: string
-  buildPrompt(content: string, subResults: SubAgentSplitRecord[]): string
-  parseResponse(raw: string): RawClaim[]
+/** MainAgent route 返回的结构化路由指令 */
+export interface RouteInstruction {
+  agentName: string
+  priority: Priority
+  hint?: string
 }
 
-/** AI 调用提供者 */
-export interface AIProvider {
-  name: string
-  complete(prompt: string): Promise<string>
+/** 执行模式 */
+export type ExecutionMode = 'auto' | 'human-in-loop'
+
+/** 拆分图构建配置 */
+export interface SplitGraphConfig {
+  defaultModel: BaseChatModel
+  availableAgents: SubAgentConfig[]
+  routePromptPath: string
+  mergePromptPath: string
+  mode?: ExecutionMode
+  maxConcurrency?: number
 }
