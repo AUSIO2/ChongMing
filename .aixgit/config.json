@@ -1,0 +1,24 @@
+{
+    "llm_provider": "deepseek",
+    "api_base_url": "https://api.deepseek.com",
+    "api_key": "sk-ed214a7fc58e4d859e7b09e84b692407",
+    "model": "deepseek-v4-flash",
+    "language": "zh",
+    "exclude_patterns": [
+        "**/__pycache__/**",
+        "**/*.pyc",
+        "**/*.pyo",
+        "**/*.egg-info/**",
+        "**/.DS_Store",
+        "**/node_modules/**",
+        "**/*.min.js",
+        "**/*.min.css",
+        "**/.idea/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.gradle/**",
+        "**/target/**",
+        "**/*.class"
+    ],
+    "auto_debug_on_error": true
+}
