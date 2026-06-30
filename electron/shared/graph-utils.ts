@@ -105,16 +105,31 @@ interface CompiledGraph<TState> {
   updateState: (config: { configurable: { thread_id: string } }, update: Partial<TState>) => Promise<unknown>
 }
 
+/** 运行时会话 — 支持运行中随时切换 mode */
+export interface GraphRunSession {
+  mode: ExecutionMode
+  graph?: CompiledGraph<{ mode?: ExecutionMode }>
+  config?: { configurable: { thread_id: string } }
+}
+
 /** HITL 编排循环 — auto / human-in-loop 模式通用 */
 export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMode }>(
   graph: CompiledGraph<TState>,
   input: Partial<TState>,
   callbacks: GraphInterruptCallbacks<TState>,
   threadId: string,
+  session?: GraphRunSession,
 ): Promise<TState> {
   const config = { configurable: { thread_id: threadId } }
 
-  await graph.invoke(input, config)
+  if (session) {
+    session.graph = graph as CompiledGraph<{ mode?: ExecutionMode }>
+    session.config = config
+    session.mode = input.mode ?? session.mode ?? 'auto'
+  }
+
+  const initialMode = session?.mode ?? input.mode ?? 'auto'
+  await graph.invoke({ ...input, mode: initialMode } as Partial<TState>, config)
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -126,10 +141,18 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
 
     const currentState = snapshot.values as TState
     const nextNode = snapshot.next[0]
+    const effectiveMode = session?.mode ?? currentState.mode ?? 'auto'
 
-    if (currentState.mode === 'human-in-loop') {
+    if (session && effectiveMode !== currentState.mode) {
+      await graph.updateState(config, { mode: effectiveMode } as Partial<TState>)
+    }
+
+    if (effectiveMode === 'human-in-loop') {
       const modifications = await callbacks.onInterrupt(currentState, nextNode)
       if (modifications) {
+        if (session && modifications.mode) {
+          session.mode = modifications.mode
+        }
         await graph.updateState(config, modifications)
       }
     }

@@ -13,6 +13,7 @@ import {
   createDynamicFanOut,
   createRouteNode,
   runGraphWithInterrupts,
+  type GraphRunSession,
 } from '../shared/graph-utils'
 import {
   invokeWithOptionalTools,
@@ -236,13 +237,15 @@ export async function runSplitGraph(
   graph: ReturnType<typeof buildSplitGraph>,
   input: { newsId: string; mode?: ExecutionMode },
   callbacks: SplitGraphCallbacks,
+  session?: GraphRunSession,
 ) {
   const threadId = `split-${input.newsId}-${Date.now()}`
 
   return runGraphWithInterrupts(
     graph,
-    { newsId: input.newsId, mode: input.mode ?? 'auto' },
+    { newsId: input.newsId, mode: input.mode ?? session?.mode ?? 'auto' },
     callbacks,
     threadId,
+    session,
   )
 }

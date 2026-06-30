@@ -12,6 +12,7 @@ import {
   createDynamicFanOut,
   createRouteNode,
   runGraphWithInterrupts,
+  type GraphRunSession,
 } from '../shared/graph-utils'
 import {
   invokeWithOptionalTools,
@@ -255,6 +256,7 @@ export async function runVerifyGraph(
   graph: ReturnType<typeof buildVerifyGraph>,
   input: { newsId: string; claimId: string; mode?: ExecutionMode },
   callbacks: VerifyGraphCallbacks,
+  session?: GraphRunSession,
 ) {
   const threadId = `verify-${input.newsId}-${input.claimId}-${Date.now()}`
 
@@ -263,9 +265,10 @@ export async function runVerifyGraph(
     {
       newsId: input.newsId,
       claimId: input.claimId,
-      mode: input.mode ?? 'auto',
+      mode: input.mode ?? session?.mode ?? 'auto',
     },
     callbacks,
     threadId,
+    session,
   )
 }

@@ -1,4 +1,4 @@
-/// <reference path="../electron/shared/electron-api.ts" />
+/// <reference path="../electron/api/types.ts" />
 
 declare module '*.vue' {
   import type { DefineComponent } from 'vue'

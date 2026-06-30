@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { registerIpcHandlers } from './api/register-handlers'
+import { connectDB } from './shared/database'
 import { setPromptsRoot } from './shared/prompt-loader'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -15,6 +17,10 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   : RENDERER_DIST
 
 let win: BrowserWindow | null
+
+function getWindow(): BrowserWindow | null {
+  return win
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -52,4 +58,9 @@ app.on('activate', () => {
   }
 })
 
-app.whenReady().then(createWindow)
+registerIpcHandlers(getWindow)
+
+app.whenReady().then(async () => {
+  await connectDB()
+  createWindow()
+})

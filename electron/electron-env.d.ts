@@ -1,5 +1,5 @@
 /// <reference types="vite-plugin-electron/electron-env" />
-/// <reference path="./shared/electron-api.ts" />
+/// <reference path="./api/types.ts" />
 
 declare namespace NodeJS {
   interface ProcessEnv {
