@@ -1,0 +1,4 @@
+{
+  "description": "[MOCK] 事实拆分 — MainAgent 合并去重（占位提示词，仅用于联调跑通流程，正式版需重写）",
+  "content": "你是事实拆分协调者（MainAgent · merge）。汇总各 SubAgent 的拆分结果，去重并验证是否忠于原文。\n\n【新闻正文】\n{{content}}\n\n【各 SubAgent 拆分结果】\n{{subResults}}\n\n请仅返回 JSON 数组，不要包含 markdown 或其他说明文字。每条格式：\n{\"content\": \"可独立核查的事实陈述\", \"category\": \"data|quote|event|causal|other\", \"sourceAgent\": \"来源 SubAgent 名称\"}\n\n合并规则：\n- 删除重复或语义高度重叠的条目\n- 丢弃无法从原文支撑的内容\n- 保留所有经过去重后的有效事实"
+}

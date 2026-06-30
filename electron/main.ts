@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { loadEnv } from './shared/load-env'
 import { registerIpcHandlers } from './api/register-handlers'
-import { connectDB } from './shared/database'
+import { connectDB, disconnectDB } from './shared/database'
 import { setPromptsRoot } from './shared/prompt-loader'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -61,6 +61,10 @@ app.on('activate', () => {
 })
 
 registerIpcHandlers(getWindow)
+
+app.on('before-quit', () => {
+  void disconnectDB()
+})
 
 app.whenReady().then(async () => {
   await connectDB()

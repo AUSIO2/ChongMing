@@ -63,19 +63,69 @@ export const NewsModel = mongoose.model('News', newsDocumentSchema)
 // 连接管理
 // ==========================================
 
-/**
- * 连接 MongoDB
- * 通过 uri 参数或 MONGO_URI 环境变量控制连接目标
- * 本地 / Atlas 一行切换
- */
-export async function connectDB(uri?: string): Promise<void> {
-  const dbUri = uri
-    ?? process.env.MONGO_URI
-    ?? 'mongodb://localhost:27017/chongming'
-  await mongoose.connect(dbUri)
+const CONNECT_TIMEOUT_MS = 3000
+
+let memoryServer: { stop: () => Promise<boolean>; getUri: () => string } | null = null
+let usingMemoryDB = false
+
+async function startMemoryServer(): Promise<string> {
+  const { MongoMemoryServer } = await import('mongodb-memory-server')
+  memoryServer = await MongoMemoryServer.create()
+  usingMemoryDB = true
+  return memoryServer.getUri()
 }
 
-/** 断开连接 */
+/** 当前是否使用内存数据库 */
+export function isUsingMemoryDB(): boolean {
+  return usingMemoryDB
+}
+
+/**
+ * 连接 MongoDB
+ * 优先级：参数 uri → MONGO_URI 环境变量 → localhost
+ * - MONGO_URI=memory：直接使用内存库
+ * - 连接失败：自动 fallback 到 mongodb-memory-server
+ */
+export async function connectDB(uri?: string): Promise<void> {
+  const configured = uri
+    ?? process.env.MONGO_URI
+    ?? 'mongodb://localhost:27017/chongming'
+
+  if (configured === 'memory') {
+    const memUri = await startMemoryServer()
+    await mongoose.connect(memUri)
+    console.log('[db] 使用内存数据库 (mongodb-memory-server)')
+    return
+  }
+
+  try {
+    await mongoose.connect(configured, {
+      serverSelectionTimeoutMS: CONNECT_TIMEOUT_MS,
+    })
+    usingMemoryDB = false
+    console.log(`[db] 已连接 MongoDB: ${configured}`)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.warn(`[db] 连接 ${configured} 失败 (${reason})，回退到内存数据库`)
+
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect()
+    }
+
+    const memUri = await startMemoryServer()
+    await mongoose.connect(memUri)
+    console.log('[db] 使用内存数据库 (fallback)')
+  }
+}
+
+/** 断开连接并停止内存数据库实例 */
 export async function disconnectDB(): Promise<void> {
-  await mongoose.disconnect()
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect()
+  }
+  if (memoryServer) {
+    await memoryServer.stop()
+    memoryServer = null
+  }
+  usingMemoryDB = false
 }
