@@ -7,8 +7,8 @@ import type {
   SubAgentSplitRecord, NewsContext, SplitGraphConfig,
   ExecutionMode,
 } from './types'
-import { NewsModel } from './database'
-import { loadPrompt, renderPrompt } from './prompt-loader'
+import { NewsModel } from '../shared/database'
+import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
 
 // ==========================================
 // State 定义

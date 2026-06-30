@@ -7,8 +7,8 @@ import type {
   SubAgentConfig, NewsContext,
 } from '../shared/types'
 import type { SubAgentOpinion, VerifyGraphConfig } from './types'
-import { NewsModel } from '../fact-extractor/database'
-import { loadPrompt, renderPrompt } from '../fact-extractor/prompt-loader'
+import { NewsModel } from '../shared/database'
+import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
 
 // ==========================================
 // State 定义
