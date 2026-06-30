@@ -1,5 +1,6 @@
 import { contextBridge } from 'electron'
+import type { ElectronAPI } from './shared/electron-api'
 
-// 通过 contextBridge 向渲染进程暴露 API
-// 后续在此添加业务 API
-contextBridge.exposeInMainWorld('electronAPI', {})
+const electronAPI: ElectronAPI = {}
+
+contextBridge.exposeInMainWorld('electronAPI', electronAPI)

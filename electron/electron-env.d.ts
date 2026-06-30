@@ -1,4 +1,5 @@
 /// <reference types="vite-plugin-electron/electron-env" />
+/// <reference path="./shared/electron-api.ts" />
 
 declare namespace NodeJS {
   interface ProcessEnv {
@@ -18,10 +19,8 @@ declare namespace NodeJS {
     APP_ROOT: string
     /** /dist/ or /public/ */
     VITE_PUBLIC: string
+    /** prompts 目录绝对路径（可选，优先于 APP_ROOT/prompts） */
+    PROMPTS_ROOT?: string
+    MONGO_URI?: string
   }
-}
-
-// Used in Renderer process, expose in `preload.ts`
-interface Window {
-  ipcRenderer: import('electron').IpcRenderer
 }
