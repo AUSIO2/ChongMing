@@ -5,6 +5,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   SubAgentConfig, RouteInstruction, RawClaim,
   SubAgentSplitRecord, NewsContext, SplitGraphConfig,
+  ExecutionMode,
 } from './types'
 import { NewsModel } from './database'
 import { loadPrompt, renderPrompt } from './prompt-loader'
@@ -15,6 +16,12 @@ import { loadPrompt, renderPrompt } from './prompt-loader'
 
 const SplitGraphState = Annotation.Root({
   newsId: Annotation<string>,
+
+  /** 执行模式 — 可运行时通过 updateState 切换 */
+  mode: Annotation<ExecutionMode>({
+    value: (_prev, next) => next,
+    default: () => 'auto' as ExecutionMode,
+  }),
 
   content: Annotation<string>,
   visibleContext: Annotation<Record<string, string>>({
@@ -248,22 +255,22 @@ async function saveResults(state: typeof SplitGraphState.State) {
  * 构建事实拆分图
  *
  * 流程：loadNews → route → 动态 Send[] subAgent ×N → merge → save
- * 支持 auto / human-in-loop 两种执行模式
+ * 始终编译全部中断点，mode 在 state 中运行时可切换
  */
-export function buildSplitGraph(config: SplitGraphConfig) {
+export function buildSplitGraph(config: Omit<SplitGraphConfig, 'mode'>) {
   const {
     defaultModel,
     availableAgents,
     routePromptPath,
     mergePromptPath,
-    mode = 'auto',
   } = config
 
   const checkpointer = new MemorySaver()
 
+  // 始终在所有可审核节点前设置中断点
+  // 运行时由 runSplitGraph 根据 state.mode 决定是否自动跳过
   type NodeName = 'loadNews' | 'route' | 'subAgent' | 'merge' | 'save'
-  const interruptPoints: NodeName[] =
-    mode === 'human-in-loop' ? ['subAgent', 'merge', 'save'] : []
+  const interruptPoints: NodeName[] = ['subAgent', 'merge', 'save']
 
   return new StateGraph(SplitGraphState)
     .addNode('loadNews', loadNews)
@@ -281,4 +288,64 @@ export function buildSplitGraph(config: SplitGraphConfig) {
     .addEdge('merge', 'save')
     .addEdge('save', END)
     .compile({ checkpointer, interruptBefore: interruptPoints })
+}
+
+// ==========================================
+// 编排层
+// ==========================================
+
+export interface SplitGraphCallbacks {
+  /** HITL 暂停时调用，返回用户修改后的 state 片段（或 null 跳过修改） */
+  onInterrupt: (
+    currentState: typeof SplitGraphState.State,
+    nextNode: string,
+  ) => Promise<Partial<typeof SplitGraphState.State> | null>
+}
+
+/**
+ * 运行拆分图（编排层）
+ *
+ * 在每个中断点检查 state.mode：
+ * - auto: 自动继续
+ * - human-in-loop: 调用 callbacks.onInterrupt 等人审核
+ *
+ * 用户可以在任意中断点通过 onInterrupt 修改 mode，下一个中断点立即生效。
+ */
+export async function runSplitGraph(
+  graph: ReturnType<typeof buildSplitGraph>,
+  input: { newsId: string; mode?: ExecutionMode },
+  callbacks: SplitGraphCallbacks,
+) {
+  const threadId = `split-${input.newsId}-${Date.now()}`
+  const config = { configurable: { thread_id: threadId } }
+
+  // 首次调用
+  await graph.invoke(
+    { newsId: input.newsId, mode: input.mode ?? 'auto' },
+    config,
+  )
+
+  // 循环处理中断点
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const snapshot = await graph.getState(config)
+
+    // 图已完成
+    if (!snapshot.next || snapshot.next.length === 0) {
+      return snapshot.values as typeof SplitGraphState.State
+    }
+
+    const currentState = snapshot.values as typeof SplitGraphState.State
+    const nextNode = snapshot.next[0]
+
+    if (currentState.mode === 'human-in-loop') {
+      // HITL 模式：等人审核
+      const modifications = await callbacks.onInterrupt(currentState, nextNode)
+      if (modifications) {
+        await graph.updateState(config, modifications)
+      }
+    }
+    // auto 模式或 HITL 审核完毕：继续执行
+    await graph.invoke(null, config)
+  }
 }
