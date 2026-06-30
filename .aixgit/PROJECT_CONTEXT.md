@@ -7,3 +7,4 @@
 - 实现IPC API层与图运行时会话
 - 切换到DeepSeek并加载环境变量
 - MongoDB连接失败自动回退内存库
+- MongoDB失败自动回退内存

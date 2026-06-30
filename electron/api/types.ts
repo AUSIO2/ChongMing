@@ -6,6 +6,8 @@ import type {
   RouteInstruction,
 } from '../shared/types'
 
+export type { Confidence, ExecutionMode, NewsContext, Priority, RouteInstruction }
+
 // ==========================================
 // 新闻 DTO
 // ==========================================

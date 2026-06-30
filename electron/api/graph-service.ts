@@ -133,12 +133,17 @@ async function executeSplitRun(
       graphType,
       state: serializeSplitState(result),
     }
+    console.log(
+      `[graph:split] 完成 newsId=${input.newsId} claims=${result.mergedClaims?.length ?? 0}`,
+    )
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[graph:split] 失败 runId=${runId}:`, message)
     const payload: GraphErrorPayload = {
       runId,
       graphType,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     }
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_ERROR, payload)
   } finally {
@@ -168,10 +173,12 @@ async function executeVerifyRun(
     }
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`[graph:verify] 失败 runId=${runId}:`, message)
     const payload: GraphErrorPayload = {
       runId,
       graphType,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     }
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_ERROR, payload)
   } finally {

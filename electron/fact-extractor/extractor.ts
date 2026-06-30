@@ -129,7 +129,29 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
     const rawMergeResponse = messageContentToString(
       (await model.invoke(prompt)).content,
     )
-    const mergedClaims = parseClaimsArray<RawClaim>(rawMergeResponse)
+    let mergedClaims = parseClaimsArray<RawClaim>(rawMergeResponse)
+
+    if (mergedClaims.length === 0 && state.subAgentResults.length > 0) {
+      mergedClaims = state.subAgentResults.flatMap(result =>
+        result.claims.map(claim => ({
+          ...claim,
+          sourceAgent: claim.sourceAgent ?? result.agentName,
+        })),
+      )
+    }
+
+    if (mergedClaims.length === 0 && state.content.trim()) {
+      mergedClaims = state.content
+        .split(/[。！？\n]/)
+        .map(s => s.trim())
+        .filter(s => s.length > 4)
+        .slice(0, 3)
+        .map(content => ({
+          content: content.endsWith('。') ? content : `${content}。`,
+          category: 'other',
+          sourceAgent: 'fallback',
+        }))
+    }
 
     return { mergedClaims, rawMergeResponse }
   }

@@ -83,10 +83,17 @@ export function createRouteNode<TState>(
     })
 
     const response = await model.invoke(prompt)
-    const routeInstructions = parseRouteInstructions(
+    let routeInstructions = parseRouteInstructions(
       messageContentToString(response.content),
       availableAgents,
     )
+
+    if (routeInstructions.length === 0) {
+      routeInstructions = availableAgents.map((agent, index) => ({
+        agentName: agent.name,
+        priority: (['high', 'medium', 'low'] as const)[Math.min(index, 2)],
+      }))
+    }
 
     return { routeInstructions }
   }
