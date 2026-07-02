@@ -20,12 +20,14 @@ import type {
   GraphCompletedPayload,
   GraphErrorPayload,
   GraphInterruptedPayload,
+  GraphProgressPayload,
   GraphStatePatch,
   GraphType,
   StartGraphResult,
   StartSplitInput,
   StartVerifyInput,
 } from './types'
+import type { GraphProgressEventLocal } from '../shared/graph-utils'
 
 type WindowGetter = () => BrowserWindow | null
 
@@ -33,6 +35,7 @@ interface ActiveRun extends GraphRunSession {
   graphType: GraphType
   cancelled: boolean
   resumeResolve: ((value: GraphStatePatch) => void) | null
+  runId: string
 }
 
 const activeRuns = new Map<string, ActiveRun>()
@@ -99,17 +102,39 @@ function createInterruptHandler(
   }
 }
 
+function sendProgress(
+  getWindow: WindowGetter,
+  runId: string,
+  graphType: GraphType,
+  event: GraphProgressEventLocal,
+): void {
+  const payload: GraphProgressPayload = { runId, graphType, ...event }
+  sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_PROGRESS, payload)
+}
+
+function attachProgressHandlers(
+  run: ActiveRun,
+  getWindow: WindowGetter,
+): void {
+  run.onProgress = event => sendProgress(getWindow, run.runId, run.graphType, event)
+}
+
 function createRunSession(
+  runId: string,
   graphType: GraphType,
   mode: ExecutionMode,
+  loadNode: string,
 ): ActiveRun {
   return {
+    runId,
     graphType,
     mode,
+    loadNode,
     cancelled: false,
     resumeResolve: null,
     graph: undefined,
     config: undefined,
+    fanoutEmitted: false,
   }
 }
 
@@ -120,6 +145,8 @@ async function executeSplitRun(
 ): Promise<void> {
   const run = activeRuns.get(runId)!
   const graphType: GraphType = 'split'
+  attachProgressHandlers(run, getWindow)
+  sendProgress(getWindow, runId, graphType, { event: 'node_enter', node: 'loadNews' })
   try {
     const graph = buildSplitGraph(getSplitGraphConfig())
     const result = await runSplitGraph(graph, input, {
@@ -158,6 +185,8 @@ async function executeVerifyRun(
 ): Promise<void> {
   const run = activeRuns.get(runId)!
   const graphType: GraphType = 'verify'
+  attachProgressHandlers(run, getWindow)
+  sendProgress(getWindow, runId, graphType, { event: 'node_enter', node: 'loadClaim' })
   try {
     const graph = buildVerifyGraph(getVerifyGraphConfig())
     const result = await runVerifyGraph(graph, input, {
@@ -191,7 +220,7 @@ export function startSplit(
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  activeRuns.set(runId, createRunSession('split', input.mode ?? 'auto'))
+  activeRuns.set(runId, createRunSession(runId, 'split', input.mode ?? 'auto', 'loadNews'))
   void executeSplitRun(runId, input, getWindow)
   return { runId }
 }
@@ -201,7 +230,7 @@ export function startVerify(
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  activeRuns.set(runId, createRunSession('verify', input.mode ?? 'auto'))
+  activeRuns.set(runId, createRunSession(runId, 'verify', input.mode ?? 'auto', 'loadClaim'))
   void executeVerifyRun(runId, input, getWindow)
   return { runId }
 }

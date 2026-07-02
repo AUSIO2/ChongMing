@@ -1,72 +1,74 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
+import { FLOW_PHASE_LABELS } from '../types/flow'
 
 const store = useWorkspaceStore()
-const { viewMode } = storeToRefs(store)
+const { flowPhase } = storeToRefs(store)
 
-function setView(mode: 'workspace' | 'flow') {
-  store.viewMode = mode
-}
+const statusText = computed(() => FLOW_PHASE_LABELS[flowPhase.value])
 </script>
 
 <template>
-  <header class="header">
-    <div class="brand">
-      <h1>崇明</h1>
-      <span>事实拆分与核查系统</span>
-    </div>
-    <div class="view-toggle">
-      <button
-        :class="{ active: viewMode === 'workspace' }"
-        @click="setView('workspace')"
-      >
-        工作台
-      </button>
-      <button
-        :class="{ active: viewMode === 'flow' }"
-        @click="setView('flow')"
-      >
-        流程图
-      </button>
+  <header class="top-bar">
+    <h1 class="brand">重明</h1>
+    <div class="status-area">
+      <span class="status-dot" :class="[flowPhase]" />
+      <span class="status-text">{{ statusText }}</span>
     </div>
   </header>
 </template>
 
 <style scoped>
-.header {
+.top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.25rem;
+  height: 28px;
+  padding: 0 var(--space-md);
+  background: var(--bg-header);
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  flex-shrink: 0;
 }
 
 .brand {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.brand h1 {
-  font-size: 1.125rem;
+  font-size: var(--ui-font-size-lg);
   font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
-.brand span {
-  font-size: 0.875rem;
+.status-area {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--ui-font-size);
   color: var(--text-muted);
 }
 
-.view-toggle {
-  display: flex;
-  gap: 0.25rem;
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
 }
 
-.view-toggle button.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
+.status-dot.running,
+.status-dot.awaitingSplit,
+.status-dot.awaitingVerifyRoute { background: var(--warning); }
+.status-dot.awaitingSplitCommit,
+.status-dot.awaitingVerifyCommit { background: var(--warning); }
+.status-dot.completed,
+.status-dot.idle { background: var(--text-dim); }
+.status-dot.error { background: var(--danger); }
+.status-dot.selectClaims { background: var(--warning); }
+
+.status-dot.running { background: var(--accent); }
+
+.graph-tag {
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding-left: var(--space-sm);
+  border-left: 1px solid var(--border-subtle);
 }
 </style>

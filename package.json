@@ -5,6 +5,7 @@
   "description": "崇明 — 事实核查智能体",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE vite",
+    "dev:web": "VITE_MOCK_ELECTRON=1 vite --config vite.config.web.ts",
     "build": "vue-tsc && vite build && electron-builder",
     "preview": "vite preview"
   },

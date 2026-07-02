@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
+import PanelRegion from './shell/PanelRegion.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
@@ -9,18 +10,17 @@ const { newsList, currentNewsId, loading } = storeToRefs(store)
 onMounted(() => store.loadNewsList())
 
 function preview(content: string) {
-  return content.length > 48 ? `${content.slice(0, 48)}…` : content
+  return content.length > 36 ? `${content.slice(0, 36)}…` : content
 }
 </script>
 
 <template>
-  <aside class="sidebar panel">
-    <div class="sidebar-head">
-      <h2 class="panel-title">新闻列表</h2>
+  <PanelRegion title="新闻" class="sidebar">
+    <template #actions>
       <button class="primary" :disabled="loading" @click="store.createSampleNews()">
-        + 示例
+        + 演示案例
       </button>
-    </div>
+    </template>
 
     <ul v-if="newsList.length" class="news-list">
       <li
@@ -30,64 +30,58 @@ function preview(content: string) {
         @click="store.selectNews(item._id)"
       >
         <p class="preview">{{ preview(item.content) }}</p>
-        <span class="meta">{{ item.claimCount }} 条事实</span>
+        <span class="meta">{{ item.claimCount }} 条</span>
       </li>
     </ul>
-    <p v-else class="empty">暂无新闻，点击「+ 示例」创建</p>
-  </aside>
+    <p v-else class="empty">暂无新闻</p>
+  </PanelRegion>
 </template>
 
 <style scoped>
 .sidebar {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
 }
 
-.sidebar-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--border);
+.sidebar :deep(.panel-region-head) {
+  gap: var(--space-sm);
 }
 
 .news-list {
   list-style: none;
-  overflow-y: auto;
-  flex: 1;
 }
 
 .news-list li {
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
+  min-height: 28px;
 }
 
 .news-list li:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 
 .news-list li.active {
-  background: #eff6ff;
-  border-left: 3px solid var(--primary);
+  background: var(--bg-hover);
+  border-left: 3px solid var(--accent);
+  padding-left: calc(var(--space-md) - 3px);
 }
 
 .preview {
-  font-size: 0.875rem;
-  line-height: 1.4;
-  margin-bottom: 0.25rem;
+  font-size: var(--ui-font-size-md);
+  line-height: 1.35;
+  margin-bottom: 1px;
 }
 
 .meta {
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  font-size: var(--ui-font-size);
+  color: var(--text-dim);
 }
 
 .empty {
-  padding: 1rem;
-  color: var(--text-muted);
-  font-size: 0.875rem;
+  padding: var(--space-md);
+  color: var(--text-dim);
 }
 </style>

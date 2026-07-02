@@ -169,6 +169,17 @@ export interface GraphErrorPayload {
   error: string
 }
 
+export type GraphProgressEvent = 'node_enter' | 'node_exit' | 'fanout_spawn'
+
+export interface GraphProgressPayload {
+  runId: string
+  graphType: GraphType
+  event: GraphProgressEvent
+  node: string
+  agentName?: string
+  spawnIndex?: number
+}
+
 export type SplitStatePatch = Partial<SplitGraphStateDTO>
 export type VerifyStatePatch = Partial<VerifyGraphStateDTO>
 export type GraphStatePatch = SplitStatePatch | VerifyStatePatch | null
@@ -203,6 +214,7 @@ export interface GraphEventAPI {
   onInterrupted(callback: (payload: GraphInterruptedPayload) => void): () => void
   onCompleted(callback: (payload: GraphCompletedPayload) => void): () => void
   onError(callback: (payload: GraphErrorPayload) => void): () => void
+  onProgress(callback: (payload: GraphProgressPayload) => void): () => void
 }
 
 export interface ElectronAPI {

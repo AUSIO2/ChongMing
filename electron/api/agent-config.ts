@@ -3,6 +3,14 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { SubAgentConfig } from '../shared/types'
 import type { SplitGraphConfig } from '../fact-extractor/types'
 import type { VerifyGraphConfig } from '../fact-verifier/types'
+import {
+  SPLIT_SUB_AGENT_CATALOG,
+  VERIFY_SUB_AGENT_CATALOG,
+} from './sub-agent-catalog'
+
+function toSubAgentConfig(entry: { name: string; promptPath: string }): SubAgentConfig {
+  return { name: entry.name, promptPath: entry.promptPath }
+}
 
 /** 创建默认 ChatModel — DeepSeek OpenAI 兼容接口 */
 export function createDefaultModel(): BaseChatModel {
@@ -21,35 +29,9 @@ export function createDefaultModel(): BaseChatModel {
   })
 }
 
-export const SPLIT_SUB_AGENTS: SubAgentConfig[] = [
-  {
-    name: '数据事实',
-    promptPath: 'fact-extractor/sub-agents/data-claims',
-  },
-  {
-    name: '引用观点',
-    promptPath: 'fact-extractor/sub-agents/quote-claims',
-  },
-  {
-    name: '因果关系',
-    promptPath: 'fact-extractor/sub-agents/causal-claims',
-  },
-]
+export const SPLIT_SUB_AGENTS: SubAgentConfig[] = SPLIT_SUB_AGENT_CATALOG.map(toSubAgentConfig)
 
-export const VERIFY_SUB_AGENTS: SubAgentConfig[] = [
-  {
-    name: '来源可信度',
-    promptPath: 'fact-verifier/sub-agents/source-credibility',
-  },
-  {
-    name: '逻辑一致性',
-    promptPath: 'fact-verifier/sub-agents/logic-consistency',
-  },
-  {
-    name: '数据可验证性',
-    promptPath: 'fact-verifier/sub-agents/data-verifiability',
-  },
-]
+export const VERIFY_SUB_AGENTS: SubAgentConfig[] = VERIFY_SUB_AGENT_CATALOG.map(toSubAgentConfig)
 
 export function getSplitGraphConfig(): Omit<SplitGraphConfig, 'mode'> {
   return {

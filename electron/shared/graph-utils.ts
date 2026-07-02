@@ -113,10 +113,20 @@ interface CompiledGraph<TState> {
 }
 
 /** 运行时会话 — 支持运行中随时切换 mode */
+export interface GraphProgressEventLocal {
+  event: 'node_enter' | 'node_exit' | 'fanout_spawn'
+  node: string
+  agentName?: string
+  spawnIndex?: number
+}
+
 export interface GraphRunSession {
   mode: ExecutionMode
   graph?: CompiledGraph<{ mode?: ExecutionMode }>
   config?: { configurable: { thread_id: string } }
+  loadNode?: string
+  onProgress?: (event: GraphProgressEventLocal) => void
+  fanoutEmitted?: boolean
 }
 
 /** HITL 编排循环 — auto / human-in-loop 模式通用 */
@@ -138,11 +148,19 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
   const initialMode = session?.mode ?? input.mode ?? 'auto'
   await graph.invoke({ ...input, mode: initialMode } as Partial<TState>, config)
 
+  if (session?.onProgress && session.loadNode) {
+    session.onProgress({ event: 'node_exit', node: session.loadNode })
+    session.onProgress({ event: 'node_exit', node: 'route' })
+  }
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const snapshot = await graph.getState(config)
 
     if (!snapshot.next || snapshot.next.length === 0) {
+      if (session?.onProgress) {
+        session.onProgress({ event: 'node_exit', node: 'save' })
+      }
       return snapshot.values as TState
     }
 
@@ -152,6 +170,26 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
 
     if (session && effectiveMode !== currentState.mode) {
       await graph.updateState(config, { mode: effectiveMode } as Partial<TState>)
+    }
+
+    if (
+      session?.onProgress
+      && nextNode === 'subAgent'
+      && !session.fanoutEmitted
+      && typeof currentState === 'object'
+      && currentState !== null
+      && 'routeInstructions' in currentState
+    ) {
+      const instructions = (currentState as { routeInstructions: RouteInstruction[] }).routeInstructions
+      instructions.forEach((instruction, index) => {
+        session.onProgress!({
+          event: 'fanout_spawn',
+          node: 'subAgent',
+          agentName: instruction.agentName,
+          spawnIndex: index,
+        })
+      })
+      session.fanoutEmitted = true
     }
 
     if (effectiveMode === 'human-in-loop') {
@@ -164,6 +202,8 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
       }
     }
 
+    session?.onProgress?.({ event: 'node_enter', node: nextNode })
     await graph.invoke(null, config)
+    session?.onProgress?.({ event: 'node_exit', node: nextNode })
   }
 }

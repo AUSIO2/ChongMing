@@ -58,6 +58,15 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeListener(IPC_CHANNELS.GRAPH_ERROR, listener)
       }
     },
+    onProgress: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        callback(payload as Parameters<typeof callback>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.GRAPH_PROGRESS, listener)
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.GRAPH_PROGRESS, listener)
+      }
+    },
   },
 }
 
