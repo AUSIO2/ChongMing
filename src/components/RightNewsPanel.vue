@@ -3,9 +3,12 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import PanelRegion from './shell/PanelRegion.vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useFlowMapStore } from '../stores/flow-map'
 
 const store = useWorkspaceStore()
+const flowMap = useFlowMapStore()
 const { currentNews } = storeToRefs(store)
+const { snapshot } = storeToRefs(flowMap)
 
 const contextRows = computed(() => {
   if (!currentNews.value) return []
@@ -13,6 +16,36 @@ const contextRows = computed(() => {
     key,
     value: field ? String(field.value) : '',
     visible: field?.visibleToAI ?? false,
+  }))
+})
+
+/** Map 有 claim 时以 Map 为准（含 shouldSave=false）；DB 按 id 补 score。 */
+const displayClaims = computed(() => {
+  const persisted = currentNews.value?.claims ?? []
+  const byId = new Map(persisted.map(c => [c.claimId, c]))
+  const mapClaims = (snapshot.value?.nodes ?? []).filter(n => n.kind === 'claim')
+
+  if (mapClaims.length > 0) {
+    return mapClaims.map(n => {
+      const db = byId.get(n.id)
+      return {
+        id: n.id,
+        content: n.params.content,
+        category: n.params.category,
+        score: db?.verifyResult?.score,
+        rejected: !n.shouldSave,
+        pending: n.shouldSave && n.dataPhase === 'workerOut',
+      }
+    })
+  }
+
+  return persisted.map(c => ({
+    id: c.claimId,
+    content: c.content,
+    category: c.category,
+    score: c.verifyResult?.score,
+    rejected: false,
+    pending: false,
   }))
 })
 
@@ -43,17 +76,19 @@ function scoreClass(score?: number) {
         <article class="content">{{ currentNews.content }}</article>
       </PanelRegion>
 
-      <PanelRegion :title="`事实 (${currentNews.claims.length})`" class="section claims-section">
-        <ul v-if="currentNews.claims.length" class="claims">
-          <li v-for="claim in currentNews.claims" :key="claim.claimId">
+      <PanelRegion :title="`事实 (${displayClaims.length})`" class="section claims-section">
+        <ul v-if="displayClaims.length" class="claims">
+          <li v-for="claim in displayClaims" :key="claim.id">
             <div class="claim-head">
-              <span class="claim-id">#{{ claim.claimId }}</span>
+              <span class="claim-id">#{{ claim.id }}</span>
               <span v-if="claim.category" class="tag">{{ claim.category }}</span>
+              <span v-if="claim.rejected" class="tag rejected">不保存</span>
+              <span v-else-if="claim.pending" class="tag pending">待保存</span>
               <span
-                v-if="claim.verifyResult"
-                :class="scoreClass(claim.verifyResult.score)"
+                v-if="claim.score !== undefined"
+                :class="scoreClass(claim.score)"
               >
-                {{ claim.verifyResult.score }}
+                {{ claim.score }}
               </span>
             </div>
             <p class="claim-text">{{ claim.content }}</p>
@@ -151,6 +186,19 @@ function scoreClass(score?: number) {
   padding: 0 4px;
   border-radius: var(--radius);
   font-size: var(--ui-font-size);
+}
+
+.tag.pending {
+  color: var(--warning, #d97706);
+  border: 1px solid var(--warning, #d97706);
+  background: transparent;
+}
+
+.tag.rejected {
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: transparent;
+  text-decoration: line-through;
 }
 
 .claim-text {

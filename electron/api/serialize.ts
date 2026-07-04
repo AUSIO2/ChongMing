@@ -3,6 +3,7 @@ import { toNewsContext } from '../shared/context'
 import type {
   DisplayNews,
   DisplayNewsSummary,
+  DisplaySplitMeta,
   GraphSplitState,
   DisplayOpinion,
   GraphSplitRecordDto,
@@ -32,6 +33,7 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
   const raw = typeof record.toObject === 'function' ? record.toObject() : record
   const splitMetaRaw = raw.splitMeta as {
     model?: string
+    routeInstructions?: DisplaySplitMeta['routeInstructions']
     subAgentResults?: GraphSplitRecordDto[]
     rawMergeResponse?: string
     splitAt?: unknown
@@ -40,6 +42,7 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
   const splitMeta = splitMetaRaw
     ? {
         model: splitMetaRaw.model ?? 'langgraph',
+        routeInstructions: splitMetaRaw.routeInstructions,
         subAgentResults: splitMetaRaw.subAgentResults ?? [],
         rawMergeResponse: splitMetaRaw.rawMergeResponse ?? '',
         splitAt: toIsoString(splitMetaRaw.splitAt) ?? new Date().toISOString(),

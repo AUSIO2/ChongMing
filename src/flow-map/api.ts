@@ -31,7 +31,7 @@ export interface UpdateNodeParamsInput {
  * Map 层对前端暴露的唯一 API。
  * 所有后端形态（LangGraph / IPC / HTTP）都通过实现该接口的 Adapter 暴露。
  *
- * 能力判定（能否加槽 / 编辑 / 删除）是快照上的纯函数（graph-ops），不走本接口。
+ * 能力判定（能否加槽 / 编辑 / 删除）是快照上的纯函数（graph-doc），不走本接口。
  */
 export interface MapAPI {
   getSnapshot(newsId: string): Promise<MapSnapshot>

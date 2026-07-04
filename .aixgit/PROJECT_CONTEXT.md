@@ -13,3 +13,4 @@
 - Map层按条保存与焦点推导
 - Map按条保存与焦点推导
 - 全局AppError异常体系
+- 添加confirmRoute中断点，统一路由槽配置

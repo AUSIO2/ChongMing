@@ -16,7 +16,9 @@ export {
   canAddSubAgent,
   canEditNode,
   canRemoveNode,
-} from './graph-ops'
+  toSnapshot,
+  type MapGraphDoc,
+} from './graph-doc'
 export {
   layoutMapSnapshot,
   type MapLayoutNode,

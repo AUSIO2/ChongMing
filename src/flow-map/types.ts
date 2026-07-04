@@ -86,6 +86,11 @@ export interface MapClaimNode extends MapNodeBase {
   kind: 'claim'
   params: MapClaimParams
   dataPhase: MapDataPhase
+  /**
+   * 草稿是否保留待落库。默认 true；仅 merge 可改为 false。
+   * 与 dataPhase 正交：人审确认后 shouldSave=false 的节点会被剔除。
+   */
+  shouldSave: boolean
 }
 
 export interface MapOpinionNode extends MapNodeBase {

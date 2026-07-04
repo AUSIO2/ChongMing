@@ -20,6 +20,8 @@ export interface GraphClaim {
   content: string
   category?: string
   sourceAgent?: string
+  /** 是否保留待落库；默认 true；仅 merge 可改为 false */
+  shouldSave?: boolean
 }
 
 /** 拆分出的单条可核查事实（嵌入子文档） */
@@ -34,6 +36,7 @@ export interface PersistClaim {
 export interface GraphSplitRecord {
   agentName: string
   priority: Priority
+  instanceId?: string
   claims: GraphClaim[]
   rawResponse: string
 }
@@ -41,6 +44,7 @@ export interface GraphSplitRecord {
 /** 拆分过程元数据 */
 export interface PersistSplitMeta {
   model: string
+  routeInstructions?: import('../shared/types').MapSubAgentParams[]
   subAgentResults: GraphSplitRecord[]
   rawMergeResponse: string
   splitAt: Date

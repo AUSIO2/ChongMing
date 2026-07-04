@@ -43,3 +43,15 @@ export function edgeId(from: string, to: string): string {
 export function verifyInstanceId(claimId: string, agentName: string, seq = 1): string {
   return seq <= 1 ? `${claimId}:${agentName}` : `${claimId}:${agentName}#${seq}`
 }
+
+/**
+ * 将 route 规范为 claim 作用域内唯一 instanceId。
+ * 保留 route 自带的后缀（如 agentName#2），允许同一 claim 下多个同名 SubAgent。
+ */
+export function scopedVerifyInstanceId(
+  claimId: string,
+  route: Pick<MapSubAgentParams, 'agentName' | 'instanceId'>,
+): string {
+  const base = routeInstanceId(route)
+  return base.startsWith(`${claimId}:`) ? base : `${claimId}:${base}`
+}

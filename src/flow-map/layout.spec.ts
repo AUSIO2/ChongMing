@@ -37,6 +37,7 @@ describe('layout', () => {
           parentId: 'sub:a',
           params: { content: 'c1' },
           dataPhase: 'workerOut',
+          shouldSave: true,
         },
         {
           id: 'claim:a:1',
@@ -44,6 +45,7 @@ describe('layout', () => {
           parentId: 'sub:a',
           params: { content: 'c2' },
           dataPhase: 'workerOut',
+          shouldSave: true,
         },
       ],
       edges: [
@@ -77,6 +79,7 @@ describe('layout', () => {
           parentId: 'sub:a',
           params: { content: 'c' },
           dataPhase: 'persisted',
+          shouldSave: true,
         },
         {
           id: 'sub:v',

@@ -59,6 +59,9 @@ function nodeClasses(ln: MapLayoutNode) {
   if (n.kind === 'claim' || n.kind === 'opinion') {
     cls[`phase-${n.dataPhase}`] = true
   }
+  if (n.kind === 'claim' && !n.shouldSave) {
+    cls['should-not-save'] = true
+  }
   return cls
 }
 
@@ -228,6 +231,8 @@ function onCanvasClick() {
 
 .fm-node.phase-workerOut .fm-rect { stroke-dasharray: 4 3; }
 .fm-node.phase-persisted .fm-rect { stroke-width: 1.5; }
+.fm-node.should-not-save .fm-rect { opacity: 0.45; }
+.fm-node.should-not-save .fm-label { opacity: 0.55; }
 
 .fm-node.active .fm-rect  { stroke: var(--warning, #d97706); stroke-width: 2; }
 .fm-node.selected .fm-rect { stroke: var(--accent, #2563eb); stroke-width: 2; }

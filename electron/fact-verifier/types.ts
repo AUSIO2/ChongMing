@@ -18,6 +18,8 @@ export type {
 /** SubAgent 核查意见 */
 export interface GraphOpinion {
   agentName: string
+  /** 与 routeInstructions 槽位对应，同名多槽时区分父节点 */
+  instanceId?: string
   priority: Priority
   score: Confidence
   reason: string

@@ -8,4 +8,5 @@ export {
   opinionNodeId,
   edgeId,
   verifyInstanceId,
+  scopedVerifyInstanceId,
 } from '../../electron/shared/map-ids'

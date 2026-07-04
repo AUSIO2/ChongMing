@@ -37,12 +37,23 @@ const splitClaimSchema = new Schema({
 const subAgentSplitRecordSchema = new Schema({
   agentName: { type: String, required: true },
   priority: { type: String, enum: ['high', 'medium', 'low'] },
+  instanceId: String,
   claims: [{ content: String, category: String, sourceAgent: String, _id: false }],
   rawResponse: String,
 }, { _id: false })
 
+/** 拆分槽位历史，用于从 DB 重建 Map 拓扑 */
+const routeInstructionSchema = new Schema({
+  agentName: { type: String, required: true },
+  priority: { type: String, enum: ['high', 'medium', 'low'], required: true },
+  hint: String,
+  instanceId: String,
+}, { _id: false })
+
 const splitMetaSchema = new Schema({
   model: String,
+  /** AI/人工确认后的拆分 SubAgent 槽（含 instanceId） */
+  routeInstructions: [routeInstructionSchema],
   subAgentResults: [subAgentSplitRecordSchema],
   rawMergeResponse: String,
   splitAt: Date,
