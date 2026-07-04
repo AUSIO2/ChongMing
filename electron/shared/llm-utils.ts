@@ -115,6 +115,51 @@ export function parseJsonObjectFromLLM<T extends Record<string, unknown>>(
   return isRecord(parsed) ? { ...fallback, ...parsed } as T : fallback
 }
 
+/** 从 tool schema 提取参数说明（JSON Schema；Zod 等无 properties 时跳过） */
+function formatToolSchemaParams(schema: unknown): string {
+  if (!schema || typeof schema !== 'object') return ''
+  const record = schema as {
+    properties?: Record<string, { type?: unknown; description?: unknown }>
+    required?: unknown
+  }
+  const properties = record.properties
+  if (!properties || typeof properties !== 'object') return ''
+
+  const required = new Set(
+    Array.isArray(record.required)
+      ? record.required.filter((item): item is string => typeof item === 'string')
+      : [],
+  )
+
+  return Object.entries(properties)
+    .map(([name, prop]) => {
+      const type = typeof prop?.type === 'string' ? prop.type : 'any'
+      const req = required.has(name) ? 'required' : 'optional'
+      const desc = typeof prop?.description === 'string' && prop.description
+        ? ` — ${prop.description}`
+        : ''
+      return `  - ${name} (${type}, ${req})${desc}`
+    })
+    .join('\n')
+}
+
+/** 将可用 tool 列表格式化为系统提示词 */
+export function formatToolsSystemPrompt(tools: StructuredToolInterface[]): string {
+  const entries = tools.map((t) => {
+    const header = `- ${t.name}: ${t.description}`
+    const params = formatToolSchemaParams(t.schema)
+    return params ? `${header}\n  参数:\n${params}` : header
+  })
+
+  return [
+    '你可以使用以下工具。需要时通过 tool calling 调用；不需要时直接回答。',
+    '调用工具后根据返回结果继续推理，最终给出完整答复。',
+    '',
+    '可用工具：',
+    ...entries,
+  ].join('\n')
+}
+
 /** 有 tools 时走 ReAct，否则直接 invoke */
 export async function invokeWithOptionalTools(
   model: BaseChatModel,
@@ -122,7 +167,11 @@ export async function invokeWithOptionalTools(
   prompt: string,
 ): Promise<string> {
   if (tools.length > 0) {
-    const agent = createReactAgent({ llm: model, tools })
+    const agent = createReactAgent({
+      llm: model,
+      tools,
+      prompt: formatToolsSystemPrompt(tools),
+    })
     const result = await agent.invoke({
       messages: [{ role: 'user', content: prompt }],
     })

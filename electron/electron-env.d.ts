@@ -25,5 +25,7 @@ declare namespace NodeJS {
     DEEPSEEK_API_KEY?: string
     DEEPSEEK_BASE_URL?: string
     DEEPSEEK_MODEL?: string
+    /** Tavily Search API key（web_search tool） */
+    TAVILY_API_KEY?: string
   }
 }

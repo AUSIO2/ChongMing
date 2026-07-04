@@ -1,15 +1,27 @@
 import { ChatOpenAI } from '@langchain/openai'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { AppError, ErrorCode } from '../shared/errors'
 import type { GraphConfig, AgentRuntimeConfig } from '../shared/types'
+import { webSearchTool } from '../tools'
 import {
   SPLIT_SUB_AGENT_CATALOG,
   VERIFY_SUB_AGENT_CATALOG,
   type CatalogSubAgentEntry,
 } from './sub-agent-catalog'
 
+/** 需要外网检索的 SubAgent（按 agentName） */
+const AGENT_TOOLS: Partial<Record<string, StructuredToolInterface[]>> = {
+  来源可信度: [webSearchTool],
+  数据可验证性: [webSearchTool],
+}
+
 function toSubAgentConfig(entry: CatalogSubAgentEntry): AgentRuntimeConfig {
-  return { name: entry.agentName, promptPath: entry.promptPath }
+  return {
+    name: entry.agentName,
+    promptPath: entry.promptPath,
+    tools: AGENT_TOOLS[entry.agentName],
+  }
 }
 
 /** 创建默认 ChatModel — DeepSeek OpenAI 兼容接口 */
