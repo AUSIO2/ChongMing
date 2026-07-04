@@ -8,6 +8,8 @@ import {
   edgeId,
   mergedClaimNodeId,
   opinionNodeId,
+  routeInstanceId,
+  routeNodeId,
   subAgentId,
   verifyInstanceId,
 } from '../ids'
@@ -17,38 +19,36 @@ import {
   canRemoveNode as canRemoveNodePure,
 } from '../graph-ops'
 import type {
-  ClaimMapNode,
+  MapClaimNode,
   ExecutionMode,
   MapEdge,
   MapNode,
   MapSnapshot,
-  NewsMapNode,
-  OpinionMapNode,
+  MapNewsNode,
+  MapOpinionNode,
   Priority,
-  RunPhase,
-  SubAgentEntry,
-  SubAgentMapNode,
-  SubAgentParams,
-  ToolKind,
+  MapSubAgentParams,
+  MapRunPhase,
+  MapSubAgentNode,
+  MapToolKind,
 } from '../types'
 import type {
-  ActiveRunDTO,
+  GraphActiveRun,
   ElectronAPI,
-  RouteInstruction,
-  SplitGraphStateDTO,
-  VerifyGraphStateDTO,
+  GraphSplitState,
+  GraphVerifyState,
 } from '../../../electron/api/types'
 
+/** 人工预置槽：完整 MapSubAgentParams（instanceId 已定）。 */
 interface PendingSlot {
   parentNodeId: string
-  params: SubAgentParams
-  instanceId: string
+  route: MapSubAgentParams
 }
 
 interface NewsMeta {
   mode: ExecutionMode
   /** 双图切换时保持 running/completed，避免闪回 idle */
-  phase?: RunPhase
+  phase?: MapRunPhase
   error?: string
 }
 
@@ -63,7 +63,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
   /** idle / invoke 配置期人工预置槽 */
   const pendingByNews = new Map<string, PendingSlot[]>()
   /** 最近一次 interrupt / 活跃 run */
-  const lastRun = new Map<string, ActiveRunDTO>()
+  const lastRun = new Map<string, GraphActiveRun>()
   const metaByNews = new Map<string, NewsMeta>()
 
   function emit(newsId: string) {
@@ -82,8 +82,8 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
   function attachFocus(
     nodes: MapNode[],
     activeNodeId: string | undefined,
-    pendingTool: ToolKind | undefined,
-    runPhase: RunPhase,
+    pendingTool: MapToolKind | undefined,
+    runPhase: MapRunPhase,
   ): void {
     if (!activeNodeId || !pendingTool) return
     const focus = nodes.find(n => n.id === activeNodeId)
@@ -98,12 +98,13 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
   function resolveClaimParent(
     nodes: MapNode[],
     sourceAgent: string | undefined,
-    splitRoutes: RouteInstruction[],
+    splitRoutes: MapSubAgentParams[],
   ): string {
     const source = sourceAgent ?? 'merge'
     const route = splitRoutes.find(r => r.agentName === source)
-    const instanceId = route?.instanceId ?? source
-    const parentId = subAgentId(instanceId)
+    const parentId = route
+      ? routeNodeId(route)
+      : subAgentId(source)
     return nodes.some(n => n.id === parentId) ? parentId : NEWS_ROOT_ID
   }
 
@@ -116,11 +117,11 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       content: string
       category?: string
       sourceAgent?: string
-      dataPhase: ClaimMapNode['dataPhase']
+      dataPhase: MapClaimNode['dataPhase']
     },
   ): void {
     if (nodes.some(n => n.id === opts.id)) return
-    const node: ClaimMapNode = {
+    const node: MapClaimNode = {
       id: opts.id,
       kind: 'claim',
       parentId: opts.parentId,
@@ -142,24 +143,25 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
   function pushSubAgent(
     nodes: MapNode[],
     edges: MapEdge[],
-    opts: {
-      instanceId: string
-      parentId: string
-      params: SubAgentParams
-    },
+    parentId: string,
+    route: MapSubAgentParams,
   ): void {
-    const id = subAgentId(opts.instanceId)
+    const id = routeNodeId(route)
     if (nodes.some(n => n.id === id)) return
-    const node: SubAgentMapNode = {
+    const params: MapSubAgentParams = {
+      ...route,
+      instanceId: routeInstanceId(route),
+    }
+    const node: MapSubAgentNode = {
       id,
       kind: 'subAgent',
-      parentId: opts.parentId,
-      params: { ...opts.params },
+      parentId,
+      params,
     }
     nodes.push(node)
     edges.push({
-      id: edgeId(opts.parentId, id),
-      from: opts.parentId,
+      id: edgeId(parentId, id),
+      from: parentId,
       to: id,
     })
   }
@@ -184,7 +186,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     const nodes: MapNode[] = []
     const edges: MapEdge[] = []
 
-    const newsNode: NewsMapNode = {
+    const newsNode: MapNewsNode = {
       id: NEWS_ROOT_ID,
       kind: 'news',
       params: { content: news.content },
@@ -193,36 +195,21 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
 
     const pending = pendingByNews.get(newsId) ?? []
     const splitState = active?.graphType === 'split'
-      ? active.state as SplitGraphStateDTO | undefined
+      ? active.state as GraphSplitState | undefined
       : undefined
     const verifyState = active?.graphType === 'verify'
-      ? active.state as VerifyGraphStateDTO | undefined
+      ? active.state as GraphVerifyState | undefined
       : undefined
 
     // —— 拆分 SubAgent ——
-    const splitRoutes: RouteInstruction[] = splitState?.routeInstructions?.length
+    const splitRoutes: MapSubAgentParams[] = splitState?.routeInstructions?.length
       ? splitState.routeInstructions
       : pending
         .filter(p => p.parentNodeId === NEWS_ROOT_ID)
-        .map(p => ({
-          agentName: p.params.agentName,
-          priority: p.params.priority,
-          hint: p.params.hint,
-          instanceId: p.instanceId,
-        }))
+        .map(p => p.route)
 
     for (const route of splitRoutes) {
-      const instanceId = route.instanceId ?? route.agentName
-      pushSubAgent(nodes, edges, {
-        instanceId,
-        parentId: NEWS_ROOT_ID,
-        params: {
-          agentName: route.agentName,
-          displayLabel: route.agentName,
-          priority: route.priority,
-          hint: route.hint,
-        },
-      })
+      pushSubAgent(nodes, edges, NEWS_ROOT_ID, route)
     }
 
     // —— Claims：优先 merge 游标（与 focus id 对齐），否则已落库 ——
@@ -258,39 +245,29 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     if (verifyState) {
       const claimNodeId = verifyState.claimId
       for (const route of verifyState.routeInstructions) {
-        const instanceId = route.instanceId
-          ?? verifyInstanceId(claimNodeId, route.agentName)
-        pushSubAgent(nodes, edges, {
-          instanceId,
-          parentId: claimNodeId,
-          params: {
-            agentName: route.agentName,
-            displayLabel: route.agentName,
-            priority: route.priority,
-            hint: route.hint,
-          },
+        pushSubAgent(nodes, edges, claimNodeId, {
+          ...route,
+          instanceId: route.instanceId
+            ?? verifyInstanceId(claimNodeId, route.agentName),
         })
       }
 
       verifyState.subAgentOpinions.forEach((op, index) => {
         const route = verifyState.routeInstructions.find(r => r.agentName === op.agentName)
-        const instanceId = route?.instanceId
-          ?? verifyInstanceId(claimNodeId, op.agentName)
-        const parentId = subAgentId(instanceId)
+        const routeForOp: MapSubAgentParams = {
+          agentName: op.agentName,
+          priority: route?.priority ?? op.priority,
+          hint: route?.hint,
+          instanceId: route?.instanceId
+            ?? verifyInstanceId(claimNodeId, op.agentName),
+        }
+        const parentId = routeNodeId(routeForOp)
         if (!nodes.some(n => n.id === parentId)) {
-          pushSubAgent(nodes, edges, {
-            instanceId,
-            parentId: claimNodeId,
-            params: {
-              agentName: op.agentName,
-              displayLabel: op.agentName,
-              priority: op.priority,
-            },
-          })
+          pushSubAgent(nodes, edges, claimNodeId, routeForOp)
         }
         const id = opinionNodeId(claimNodeId, index)
         const persisted = index < verifyState.opinionSaveIndex
-        const node: OpinionMapNode = {
+        const node: MapOpinionNode = {
           id,
           kind: 'opinion',
           parentId,
@@ -308,22 +285,18 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       for (const c of news.claims) {
         const opinions = c.verifyResult?.opinions ?? []
         opinions.forEach((op, index) => {
-          const instanceId = verifyInstanceId(c.claimId, op.agentName)
-          const parentId = subAgentId(instanceId)
+          const routeForOp: MapSubAgentParams = {
+            agentName: op.agentName,
+            priority: op.priority,
+            instanceId: verifyInstanceId(c.claimId, op.agentName),
+          }
+          const parentId = routeNodeId(routeForOp)
           if (!nodes.some(n => n.id === parentId)) {
-            pushSubAgent(nodes, edges, {
-              instanceId,
-              parentId: c.claimId,
-              params: {
-                agentName: op.agentName,
-                displayLabel: op.agentName,
-                priority: op.priority,
-              },
-            })
+            pushSubAgent(nodes, edges, c.claimId, routeForOp)
           }
           const id = opinionNodeId(c.claimId, index)
           if (nodes.some(n => n.id === id)) return
-          const node: OpinionMapNode = {
+          const node: MapOpinionNode = {
             id,
             kind: 'opinion',
             parentId,
@@ -348,21 +321,17 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
           n =>
             n.kind === 'subAgent'
             && n.parentId === p.parentNodeId
-            && n.params.agentName === p.params.agentName,
+            && n.params.agentName === p.route.agentName,
         )
       ) {
         continue
       }
-      pushSubAgent(nodes, edges, {
-        instanceId: p.instanceId,
-        parentId: p.parentNodeId,
-        params: p.params,
-      })
+      pushSubAgent(nodes, edges, p.parentNodeId, p.route)
     }
 
-    let runPhase: RunPhase = meta.phase ?? 'idle'
+    let runPhase: MapRunPhase = meta.phase ?? 'idle'
     let activeNodeId: string | undefined
-    let pendingTool: ToolKind | undefined
+    let pendingTool: MapToolKind | undefined
     let mode: ExecutionMode = meta.mode
 
     if (meta.error) {
@@ -397,15 +366,10 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
   function pendingRoutesFor(
     newsId: string,
     parentNodeId: string,
-  ): RouteInstruction[] {
+  ): MapSubAgentParams[] {
     return (pendingByNews.get(newsId) ?? [])
       .filter(p => p.parentNodeId === parentNodeId)
-      .map(p => ({
-        agentName: p.params.agentName,
-        priority: p.params.priority,
-        hint: p.params.hint,
-        instanceId: p.instanceId,
-      }))
+      .map(p => p.route)
   }
 
   async function startNextVerify(newsId: string): Promise<void> {
@@ -502,13 +466,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
 
     async getSubAgentCatalog(parentNodeId) {
       const module = parentNodeId === NEWS_ROOT_ID ? 'split' : 'verify'
-      const list = await api.catalog.list(module)
-      return list.map((e): SubAgentEntry => ({
-        agentName: e.agentName,
-        displayLabel: e.displayLabel,
-        description: e.description,
-        defaultPriority: e.defaultPriority,
-      }))
+      return api.catalog.list(module)
     },
 
     async addSubAgent(input: AddSubAgentInput) {
@@ -516,13 +474,15 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       if (!canAddSubAgentPure(snap, input.parentNodeId)) {
         throw new Error(`cannot add SubAgent under ${input.parentNodeId}`)
       }
-      const instanceId = nextInstanceId(input.params.agentName)
+      const route: MapSubAgentParams = {
+        agentName: input.params.agentName,
+        priority: input.params.priority,
+        hint: input.params.hint,
+        instanceId: input.params.instanceId
+          ?? nextInstanceId(input.params.agentName),
+      }
       const list = pendingByNews.get(input.newsId) ?? []
-      list.push({
-        parentNodeId: input.parentNodeId,
-        params: input.params,
-        instanceId,
-      })
+      list.push({ parentNodeId: input.parentNodeId, route })
       pendingByNews.set(input.newsId, list)
 
       const active = lastRun.get(input.newsId)
@@ -531,14 +491,10 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         && 'routeInstructions' in active.state
         && active.pendingTool === 'invoke'
       ) {
-        const routes = [...active.state.routeInstructions]
-        routes.push({
-          agentName: input.params.agentName,
-          priority: input.params.priority,
-          hint: input.params.hint,
-          instanceId,
-        })
-        active.state = { ...active.state, routeInstructions: routes }
+        active.state = {
+          ...active.state,
+          routeInstructions: [...active.state.routeInstructions, route],
+        }
         lastRun.set(input.newsId, active)
       }
 
@@ -558,12 +514,11 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         const content = (input.params as { content?: string }).content
         if (content !== undefined) await api.news.update(input.newsId, { content })
       } else if (node.kind === 'subAgent') {
+        const patch = input.params as Partial<Pick<MapSubAgentParams, 'priority' | 'hint'>>
         const active = lastRun.get(input.newsId)
         if (active?.state && 'routeInstructions' in active.state) {
-          const patch = input.params as Partial<SubAgentParams>
           const routes = active.state.routeInstructions.map((r) => {
-            const rid = subAgentId(r.instanceId ?? r.agentName)
-            if (rid !== input.nodeId) return r
+            if (routeNodeId(r) !== input.nodeId) return r
             return {
               ...r,
               priority: (patch.priority ?? r.priority) as Priority,
@@ -575,8 +530,9 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         }
         const pending = pendingByNews.get(input.newsId) ?? []
         for (const p of pending) {
-          if (subAgentId(p.instanceId) === input.nodeId) {
-            Object.assign(p.params, input.params)
+          if (routeNodeId(p.route) === input.nodeId) {
+            if (patch.priority !== undefined) p.route.priority = patch.priority
+            if (patch.hint !== undefined) p.route.hint = patch.hint
           }
         }
       } else if (node.kind === 'claim' && node.dataPhase === 'workerOut') {
@@ -609,7 +565,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       const pending = pendingByNews.get(input.newsId) ?? []
       pendingByNews.set(
         input.newsId,
-        pending.filter(p => subAgentId(p.instanceId) !== input.nodeId),
+        pending.filter(p => routeNodeId(p.route) !== input.nodeId),
       )
       const active = lastRun.get(input.newsId)
       if (
@@ -619,10 +575,9 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       ) {
         active.state = {
           ...active.state,
-          routeInstructions: active.state.routeInstructions.filter((r) => {
-            const id = subAgentId(r.instanceId ?? r.agentName)
-            return id !== input.nodeId
-          }),
+          routeInstructions: active.state.routeInstructions.filter(
+            r => routeNodeId(r) !== input.nodeId,
+          ),
         }
         lastRun.set(input.newsId, active)
       }

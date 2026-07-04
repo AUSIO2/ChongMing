@@ -1,12 +1,12 @@
 import type { NewsContext } from '../shared/types'
 import { toNewsContext } from '../shared/context'
 import type {
-  NewsDocumentDTO,
-  NewsDocumentSummaryDTO,
-  SplitGraphStateDTO,
-  SubAgentOpinionDTO,
-  SubAgentSplitRecordDTO,
-  VerifyGraphStateDTO,
+  DisplayNews,
+  DisplayNewsSummary,
+  GraphSplitState,
+  DisplayOpinion,
+  GraphSplitRecordDto,
+  GraphVerifyState,
 } from './types'
 
 function toIsoString(value: unknown): string | undefined {
@@ -16,7 +16,7 @@ function toIsoString(value: unknown): string | undefined {
 }
 
 /** Mongoose 文档 → 前端 DTO */
-export function serializeNewsDocument(doc: unknown): NewsDocumentDTO {
+export function serializeNewsDocument(doc: unknown): DisplayNews {
   const record = doc as {
     toObject?: () => Record<string, unknown>
     _id: unknown
@@ -32,7 +32,7 @@ export function serializeNewsDocument(doc: unknown): NewsDocumentDTO {
   const raw = typeof record.toObject === 'function' ? record.toObject() : record
   const splitMetaRaw = raw.splitMeta as {
     model?: string
-    subAgentResults?: SubAgentSplitRecordDTO[]
+    subAgentResults?: GraphSplitRecordDto[]
     rawMergeResponse?: string
     splitAt?: unknown
   } | null | undefined
@@ -50,7 +50,7 @@ export function serializeNewsDocument(doc: unknown): NewsDocumentDTO {
     _id: String(raw._id ?? record._id),
     content: String(raw.content ?? record.content),
     context: toNewsContext(raw.context ?? record.context),
-    claims: (raw.claims ?? record.claims ?? []) as NewsDocumentDTO['claims'],
+    claims: (raw.claims ?? record.claims ?? []) as DisplayNews['claims'],
     splitMeta,
     confidence: typeof (raw.confidence ?? record.confidence) === 'number'
       ? (raw.confidence ?? record.confidence) as number
@@ -67,7 +67,7 @@ export function serializeNewsSummary(doc: {
   claims?: unknown[]
   createdAt?: unknown
   updatedAt?: unknown
-}): NewsDocumentSummaryDTO {
+}): DisplayNewsSummary {
   return {
     _id: String(doc._id),
     content: doc.content,
@@ -79,15 +79,15 @@ export function serializeNewsSummary(doc: {
 
 export function serializeSplitState(state: {
   newsId: string
-  mode: SplitGraphStateDTO['mode']
+  mode: GraphSplitState['mode']
   content: string
   visibleContext: Record<string, string>
-  routeInstructions: SplitGraphStateDTO['routeInstructions']
-  subAgentResults: SubAgentSplitRecordDTO[]
-  mergedClaims: SplitGraphStateDTO['mergedClaims']
+  routeInstructions: GraphSplitState['routeInstructions']
+  subAgentResults: GraphSplitRecordDto[]
+  mergedClaims: GraphSplitState['mergedClaims']
   rawMergeResponse: string
   saveIndex?: number
-}): SplitGraphStateDTO {
+}): GraphSplitState {
   return {
     newsId: state.newsId,
     mode: state.mode,
@@ -104,17 +104,17 @@ export function serializeSplitState(state: {
 export function serializeVerifyState(state: {
   newsId: string
   claimId: string
-  mode: VerifyGraphStateDTO['mode']
+  mode: GraphVerifyState['mode']
   claimContent: string
   originalContent: string
   visibleContext: Record<string, string>
-  routeInstructions: VerifyGraphStateDTO['routeInstructions']
-  subAgentOpinions: SubAgentOpinionDTO[]
-  finalScore: VerifyGraphStateDTO['finalScore']
+  routeInstructions: GraphVerifyState['routeInstructions']
+  subAgentOpinions: DisplayOpinion[]
+  finalScore: GraphVerifyState['finalScore']
   finalReason: string
   rawMergeResponse: string
   opinionSaveIndex?: number
-}): VerifyGraphStateDTO {
+}): GraphVerifyState {
   return {
     newsId: state.newsId,
     claimId: state.claimId,

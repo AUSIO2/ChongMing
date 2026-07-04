@@ -1,17 +1,12 @@
 <script setup lang="ts">
 import RightNewsPanel from './RightNewsPanel.vue'
-import FlowNodeInspector from './flow/FlowNodeInspector.vue'
 import FlowMapInspector from './flow/FlowMapInspector.vue'
-import { USE_MAP_FLOW } from '../config/map-flow'
-
-const useMapFlow = USE_MAP_FLOW
 </script>
 
 <template>
   <div class="right-sidebar">
     <RightNewsPanel />
-    <FlowMapInspector v-if="useMapFlow" class="inspector" />
-    <FlowNodeInspector v-else class="inspector" />
+    <FlowMapInspector class="inspector" />
   </div>
 </template>
 

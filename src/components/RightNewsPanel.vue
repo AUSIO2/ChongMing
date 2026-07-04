@@ -5,7 +5,7 @@ import PanelRegion from './shell/PanelRegion.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
-const { currentNews, selectedClaimId } = storeToRefs(store)
+const { currentNews } = storeToRefs(store)
 
 const contextRows = computed(() => {
   if (!currentNews.value) return []
@@ -44,24 +44,9 @@ function scoreClass(score?: number) {
       </PanelRegion>
 
       <PanelRegion :title="`事实 (${currentNews.claims.length})`" class="section claims-section">
-        <p v-if="store.isSelectingClaims" class="select-hint">
-          勾选要核查的事实，然后点击底部「继续核查」
-        </p>
         <ul v-if="currentNews.claims.length" class="claims">
-          <li
-            v-for="claim in currentNews.claims"
-            :key="claim.claimId"
-            :class="{ selected: claim.claimId === selectedClaimId }"
-            @click="store.selectedClaimId = claim.claimId"
-          >
+          <li v-for="claim in currentNews.claims" :key="claim.claimId">
             <div class="claim-head">
-              <input
-                v-if="store.isSelectingClaims"
-                type="checkbox"
-                :checked="store.claimsToVerify.includes(claim.claimId)"
-                @click.stop
-                @change="store.toggleClaimToVerify(claim.claimId)"
-              >
               <span class="claim-id">#{{ claim.claimId }}</span>
               <span v-if="claim.category" class="tag">{{ claim.category }}</span>
               <span
@@ -147,25 +132,6 @@ function scoreClass(score?: number) {
 .claims li {
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border-subtle);
-  cursor: pointer;
-}
-
-.claims li:hover {
-  background: var(--bg-hover);
-}
-
-.claims li.selected {
-  background: var(--bg-hover);
-  border-left: 3px solid var(--accent);
-  padding-left: calc(var(--space-md) - 3px);
-}
-
-.select-hint {
-  padding: var(--space-sm) var(--space-md);
-  font-size: var(--ui-font-size);
-  color: var(--warning);
-  background: #fff8ee;
-  border-bottom: 1px solid var(--border-subtle);
 }
 
 .claim-head {
@@ -174,11 +140,6 @@ function scoreClass(score?: number) {
   gap: var(--space-sm);
   margin-bottom: 2px;
   font-size: var(--ui-font-size);
-}
-
-.claim-head input[type="checkbox"] {
-  width: auto;
-  margin: 0;
 }
 
 .claim-id {

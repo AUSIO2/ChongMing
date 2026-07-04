@@ -1,4 +1,4 @@
-import type { MapEdge, MapNode, MapSnapshot, NodeKind } from './types'
+import type { MapEdge, MapNode, MapSnapshot, MapNodeKind } from './types'
 
 /**
  * 布局仅依赖节点拓扑（parentId + edges），无 split/verify 分支。
@@ -9,14 +9,14 @@ const PAD_Y = 60
 const GAP_X = 260
 const GAP_Y = 120
 
-const NODE_SIZE: Record<NodeKind, { width: number; height: number }> = {
+const NODE_SIZE: Record<MapNodeKind, { width: number; height: number }> = {
   news: { width: 260, height: 120 },
   subAgent: { width: 200, height: 96 },
   claim: { width: 220, height: 72 },
   opinion: { width: 220, height: 72 },
 }
 
-export interface LayoutNode {
+export interface MapLayoutNode {
   node: MapNode
   x: number
   y: number
@@ -26,7 +26,7 @@ export interface LayoutNode {
   depth: number
 }
 
-export interface LayoutEdge {
+export interface MapLayoutEdge {
   id: string
   from: string
   to: string
@@ -36,9 +36,9 @@ export interface LayoutEdge {
   y2: number
 }
 
-export interface LayoutSnapshot {
-  nodes: LayoutNode[]
-  edges: LayoutEdge[]
+export interface MapLayoutSnapshot {
+  nodes: MapLayoutNode[]
+  edges: MapLayoutEdge[]
   width: number
   height: number
 }
@@ -48,7 +48,7 @@ export interface LayoutSnapshot {
  *   x = PAD_X + depth * GAP_X
  * 同一 parent 下的子节点纵向分行；父节点自身在 y 方向居中于其子行。
  */
-export function layoutMapSnapshot(snapshot: MapSnapshot): LayoutSnapshot {
+export function layoutMapSnapshot(snapshot: MapSnapshot): MapLayoutSnapshot {
   const { nodes, edges } = snapshot
 
   const childrenByParent = groupChildren(nodes)
@@ -56,7 +56,7 @@ export function layoutMapSnapshot(snapshot: MapSnapshot): LayoutSnapshot {
   // 拓扑根：所有 parentId 为空的节点。news 节点通常在这里。
   const roots = nodes.filter(n => !n.parentId)
 
-  const layoutByNodeId = new Map<string, LayoutNode>()
+  const layoutByNodeId = new Map<string, MapLayoutNode>()
 
   // 递归计算：先给自己占一行，再递归子树；父的 y 取子树 y 的中值
   let cursorRow = 0
@@ -127,7 +127,7 @@ export function layoutMapSnapshot(snapshot: MapSnapshot): LayoutSnapshot {
 
   const laidOutNodes = [...layoutByNodeId.values()]
 
-  const laidOutEdges: LayoutEdge[] = edges.map(e => edgeLayout(e, layoutByNodeId))
+  const laidOutEdges: MapLayoutEdge[] = edges.map(e => edgeLayout(e, layoutByNodeId))
 
   const maxRight = laidOutNodes.reduce((m, n) => Math.max(m, n.x + n.width), 0)
   const maxBottom = laidOutNodes.reduce((m, n) => Math.max(m, n.y + n.height), 0)
@@ -152,7 +152,7 @@ function groupChildren(nodes: MapNode[]): Map<string, MapNode[]> {
   return map
 }
 
-function edgeLayout(edge: MapEdge, byId: Map<string, LayoutNode>): LayoutEdge {
+function edgeLayout(edge: MapEdge, byId: Map<string, MapLayoutNode>): MapLayoutEdge {
   const from = byId.get(edge.from)
   const to = byId.get(edge.to)
   const x1 = from ? from.x + from.width : 0

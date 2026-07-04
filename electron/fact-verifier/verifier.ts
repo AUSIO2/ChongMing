@@ -2,9 +2,9 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph'
 import { MemorySaver } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
-  Confidence, ExecutionMode, RouteInstruction,
+  Confidence, ExecutionMode, MapSubAgentParams,
 } from '../shared/types'
-import type { SubAgentOpinion, VerifyGraphConfig } from './types'
+import type { GraphOpinion, GraphConfig } from './types'
 import { NewsModel } from '../shared/database'
 import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
 import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
@@ -40,12 +40,12 @@ const VerifyGraphState = Annotation.Root({
     default: () => ({}),
   }),
 
-  routeInstructions: Annotation<RouteInstruction[]>({
+  routeInstructions: Annotation<MapSubAgentParams[]>({
     value: (_prev, next) => next,
     default: () => [],
   }),
 
-  subAgentOpinions: Annotation<SubAgentOpinion[]>({
+  subAgentOpinions: Annotation<GraphOpinion[]>({
     value: (prev, next) => [...prev, ...next],
     default: () => [],
   }),
@@ -101,9 +101,9 @@ async function loadClaim(state: typeof VerifyGraphState.State) {
 function createVerifySubAgentNode(defaultModel: BaseChatModel) {
   return async (state: typeof VerifyGraphState.State) => {
     const agentConfig = (state as Record<string, unknown>)
-      ._agentConfig as import('../shared/types').SubAgentConfig
+      ._agentConfig as import('../shared/types').AgentRuntimeConfig
     const instruction = (state as Record<string, unknown>)
-      ._routeInstruction as RouteInstruction
+      ._routeInstruction as MapSubAgentParams
     const promptConfig = loadPrompt(agentConfig.promptPath)
 
     const prompt = renderPrompt(promptConfig.content, {
@@ -229,7 +229,7 @@ function routeAfterOpinionSave(state: typeof VerifyGraphState.State): string {
 // 图构建
 // ==========================================
 
-export function buildVerifyGraph(config: VerifyGraphConfig) {
+export function buildVerifyGraph(config: GraphConfig) {
   const {
     defaultModel,
     availableAgents,
@@ -291,7 +291,7 @@ export async function runVerifyGraph(
     claimId: string
     mode?: ExecutionMode
     /** 人工预置槽，与 AI route 合并 */
-    routeInstructions?: RouteInstruction[]
+    routeInstructions?: MapSubAgentParams[]
   },
   callbacks: VerifyGraphCallbacks,
   session?: GraphRunSession,

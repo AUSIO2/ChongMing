@@ -1,54 +1,36 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppHeader from '../components/AppHeader.vue'
 import AppShell from '../components/shell/AppShell.vue'
 import NewsSidebar from '../components/NewsSidebar.vue'
 import RightSidebar from '../components/RightSidebar.vue'
-import FlowTopology from '../components/flow/FlowTopology.vue'
 import FlowMapTopology from '../components/flow/FlowMapTopology.vue'
-import WorkflowControls from '../components/WorkflowControls.vue'
+import FlowMapControls from '../components/flow/FlowMapControls.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
-import { USE_MAP_FLOW } from '../config/map-flow'
+import { isMapAPIInstalled } from '../flow-map'
 
 const store = useWorkspaceStore()
 const flowMapStore = useFlowMapStore()
-const {
-  graphError,
-  isRunning,
-  currentNews,
-} = storeToRefs(store)
+const { currentNews } = storeToRefs(store)
 const { errorMessage: mapError, snapshot: mapSnapshot } = storeToRefs(flowMapStore)
 const mapRunError = computed(() => mapSnapshot.value?.error ?? mapError.value)
 
-const isMock = import.meta.env.VITE_MOCK_ELECTRON
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
-const canRun = computed(() => hasElectron)
-const useMapFlow = USE_MAP_FLOW
+const canRun = computed(() => hasElectron && isMapAPIInstalled())
 const currentNewsId = computed(() => currentNews.value?._id ?? null)
 
 onMounted(async () => {
   if (!canRun.value) return
-  store.initGraphEvents()
-  if (isMock) {
-    await store.loadNewsList()
-    const first = store.newsList[0]
-    if (first) await store.selectNews(first._id)
-  }
+  await store.loadNewsList()
 })
-
-onUnmounted(() => store.disposeGraphEvents())
 </script>
 
 <template>
   <div class="app-root">
-    <div v-if="isMock" class="mock-banner">
-      Web 预览（Mock）— 热更新可用
-    </div>
-
     <div v-if="!canRun" class="no-electron panel">
-      请运行 <code>npm run dev</code> 或 <code>npm run dev:web</code>
+      请运行 <code>npm run dev</code> 启动 Electron
     </div>
 
     <AppShell v-else class="shell">
@@ -62,11 +44,8 @@ onUnmounted(() => store.disposeGraphEvents())
 
       <template #center>
         <div class="viewport">
-          <FlowMapTopology v-if="useMapFlow" :news-id="currentNewsId" />
-          <FlowTopology v-else />
-          <p v-if="useMapFlow && mapRunError" class="viewport-msg error">{{ mapRunError }}</p>
-          <p v-else-if="!useMapFlow && graphError" class="viewport-msg error">{{ graphError }}</p>
-          <p v-else-if="!useMapFlow && isRunning" class="viewport-msg">流程执行中…</p>
+          <FlowMapTopology :news-id="currentNewsId" />
+          <p v-if="mapRunError" class="viewport-msg error">{{ mapRunError }}</p>
         </div>
       </template>
 
@@ -75,7 +54,7 @@ onUnmounted(() => store.disposeGraphEvents())
       </template>
 
       <template #bottom>
-        <WorkflowControls />
+        <FlowMapControls />
       </template>
     </AppShell>
   </div>
@@ -114,16 +93,6 @@ onUnmounted(() => store.disposeGraphEvents())
 .viewport-msg.error {
   color: var(--danger);
   border-style: solid;
-}
-
-.mock-banner {
-  padding: 2px var(--space-md);
-  font-size: var(--ui-font-size);
-  text-align: center;
-  color: #7c5a00;
-  background: #fff8e6;
-  border-bottom: 1px solid #e8c84a;
-  flex-shrink: 0;
 }
 
 .no-electron {

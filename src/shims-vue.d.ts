@@ -2,8 +2,7 @@
 /// <reference path="../electron/api/types.ts" />
 
 interface ImportMetaEnv {
-  readonly VITE_MOCK_ELECTRON?: string
-  readonly VITE_USE_MAP_FLOW?: string
+  // reserved for future Vite env flags
 }
 
 interface ImportMeta {

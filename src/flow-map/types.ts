@@ -1,3 +1,11 @@
+import type {
+  CatalogSubAgent,
+  Confidence,
+  ExecutionMode,
+  Priority,
+  MapSubAgentParams,
+} from '../../electron/api/types'
+
 /**
  * Map 层 Port —— 前端唯一可见的图与工具语义。
  *
@@ -6,61 +14,43 @@
  *   - 工具 = 无参动作（只能 continue / cancel），挂在 runtime / 快照级 pendingTool
  *   - 一次 interrupt 对应一个焦点节点（activeNodeId 唯一）
  *
+ * SubAgent 节点参数唯一来源：`MapSubAgentParams`（与图状态 routeInstructions 同形）。
+ *
  * 硬边界（NEVER 出现在本文件）：
- *   - split / verify 阶段名、GraphType、routeInstructions、
+ *   - split / verify 阶段名、GraphType、
  *     subAgentResults、pendingValidatedClaims、verifyByClaimId、FlowScope
  *   - isBridge、edge.kind
  */
 
-export type NodeKind = 'news' | 'subAgent' | 'claim' | 'opinion'
+export type { MapSubAgentParams, Priority, Confidence, ExecutionMode, CatalogSubAgent }
+
+export type MapNodeKind = 'news' | 'subAgent' | 'claim' | 'opinion'
 
 /** 工具：无 params，不是图上的独立实体。 */
-export type ToolKind = 'invoke' | 'validate' | 'save'
+export type MapToolKind = 'invoke' | 'validate' | 'save'
 
-export type DataPhase = 'workerOut' | 'pendingValidated' | 'persisted'
+export type MapDataPhase = 'workerOut' | 'persisted'
 
-export type RunPhase = 'idle' | 'running' | 'interrupted' | 'completed' | 'error'
-
-export type ExecutionMode = 'auto' | 'human-in-loop'
-
-export type Priority = 'high' | 'medium' | 'low'
-
-export type Confidence = 1 | 0.5 | 0
+export type MapRunPhase = 'idle' | 'running' | 'interrupted' | 'completed' | 'error'
 
 // ---------- 参数（节点的可编辑数据） ----------
 
-export interface NewsParams {
-  title?: string
+export interface MapNewsParams {
   content: string
 }
 
-/**
- * SubAgent 槽位参数 — 对齐后端 RouteInstruction 可编辑面。
- * promptPath / model / tools 属注册表，不在此。
- */
-export interface SubAgentParams {
-  agentName: string
-  displayLabel: string
-  description?: string
-  /** route 必填；扇出排序与 merge 加权 */
-  priority: Priority
-  /** route 可选；注入 SubAgent prompt 的 {{hint}} */
-  hint?: string
-}
-
-/** 对齐 RawClaim / SplitClaim（priority 在槽上，不在 claim 上） */
-export interface ClaimParams {
+/** 对齐 GraphClaim / PersistClaim（priority 在槽上，不在 claim 上） */
+export interface MapClaimParams {
   content: string
   category?: string
   sourceAgent?: string
 }
 
-/** 对齐 SubAgentOpinion：reason→content，score→confidence */
-export interface OpinionParams {
+/** 对齐 GraphOpinion：reason→content，score→confidence（只读投影） */
+export interface MapOpinionParams {
   content: string
   confidence: Confidence
   priority: Priority
-  evidence?: string
 }
 
 // ---------- 节点 ----------
@@ -75,35 +65,36 @@ interface MapNodeBase {
    */
   runtime?: {
     /** 当前正在执行的工具（正在跑）。无工具参数。 */
-    activeTool?: ToolKind
+    activeTool?: MapToolKind
     /** 等待确认的工具（焦点节点上）。无工具参数。 */
-    pendingTool?: ToolKind
+    pendingTool?: MapToolKind
   }
 }
 
-export interface NewsMapNode extends MapNodeBase {
+export interface MapNewsNode extends MapNodeBase {
   kind: 'news'
-  params: NewsParams
+  params: MapNewsParams
 }
 
-export interface SubAgentMapNode extends MapNodeBase {
+export interface MapSubAgentNode extends MapNodeBase {
   kind: 'subAgent'
-  params: SubAgentParams
+  /** 与后端 routeInstructions 条目同形，唯一槽位参数来源。 */
+  params: MapSubAgentParams
 }
 
-export interface ClaimMapNode extends MapNodeBase {
+export interface MapClaimNode extends MapNodeBase {
   kind: 'claim'
-  params: ClaimParams
-  dataPhase: DataPhase
+  params: MapClaimParams
+  dataPhase: MapDataPhase
 }
 
-export interface OpinionMapNode extends MapNodeBase {
+export interface MapOpinionNode extends MapNodeBase {
   kind: 'opinion'
-  params: OpinionParams
-  dataPhase: DataPhase
+  params: MapOpinionParams
+  dataPhase: MapDataPhase
 }
 
-export type MapNode = NewsMapNode | SubAgentMapNode | ClaimMapNode | OpinionMapNode
+export type MapNode = MapNewsNode | MapSubAgentNode | MapClaimNode | MapOpinionNode
 
 // ---------- 边 ----------
 
@@ -119,7 +110,7 @@ export interface MapSnapshot {
   newsId: string
   nodes: MapNode[]
   edges: MapEdge[]
-  runPhase: RunPhase
+  runPhase: MapRunPhase
   mode: ExecutionMode
   /**
    * HITL 焦点节点 id。
@@ -127,17 +118,7 @@ export interface MapSnapshot {
    */
   activeNodeId?: string
   /** 焦点节点上等待确认的工具（无参）。 */
-  pendingTool?: ToolKind
+  pendingTool?: MapToolKind
   /** 最近一次运行/API 错误；runPhase 可为 error，拓扑仍保留。 */
   error?: string
-}
-
-// ---------- Catalog（可添加的 SubAgent 目录） ----------
-
-export interface SubAgentEntry {
-  agentName: string
-  displayLabel: string
-  description?: string
-  /** catalog 默认 priority，加槽时写入 SubAgentParams */
-  defaultPriority?: Priority
 }

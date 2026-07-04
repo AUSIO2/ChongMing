@@ -2,13 +2,12 @@
 // 事实核查模块 — 专有类型
 // ==========================================
 
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { Confidence, Priority, SubAgentConfig } from '../shared/types'
+import type { Confidence, Priority } from '../shared/types'
 
 // 从 shared 重导出（方便模块内部 import）
 export type {
   Confidence, Priority, ExecutionMode,
-  SubAgentConfig, RouteInstruction,
+  AgentRuntimeConfig, MapSubAgentParams, GraphConfig,
   ContextField, NewsContext, VisibleContext, PromptConfig,
 } from '../shared/types'
 
@@ -17,7 +16,7 @@ export type {
 // ==========================================
 
 /** SubAgent 核查意见 */
-export interface SubAgentOpinion {
+export interface GraphOpinion {
   agentName: string
   priority: Priority
   score: Confidence
@@ -26,19 +25,11 @@ export interface SubAgentOpinion {
 }
 
 /** 核查结果（写回 claim 子文档） */
-export interface VerifyResult {
+export interface PersistVerifyResult {
   score: Confidence
   reason: string
-  opinions: SubAgentOpinion[]
+  opinions: GraphOpinion[]
   rawMergeResponse: string
   verifiedAt: Date
 }
 
-/** 核查图构建配置 */
-export interface VerifyGraphConfig {
-  defaultModel: BaseChatModel
-  availableAgents: SubAgentConfig[]
-  routePromptPath: string
-  mergePromptPath: string
-  maxConcurrency?: number
-}

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFlowMap } from '../../composables/use-flow-map'
-import type { LayoutNode } from '../../flow-map'
+import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
 import { isParamsLocked } from '../../flow-map'
 
@@ -19,8 +19,8 @@ const isActive = (id: string) => snapshot.value?.activeNodeId === id
 const isSelected = (id: string) => selectedNodeId.value === id
 
 function nodeLabel(n: MapNode): string {
-  if (n.kind === 'news') return n.params.title ?? '新闻'
-  if (n.kind === 'subAgent') return n.params.displayLabel
+  if (n.kind === 'news') return '新闻'
+  if (n.kind === 'subAgent') return n.params.agentName
   return n.params.content
 }
 
@@ -46,7 +46,7 @@ function nodeToolBadge(n: MapNode): string | null {
   return t === 'save' ? '保存' : t === 'validate' ? '校验' : '调用'
 }
 
-function nodeClasses(ln: LayoutNode) {
+function nodeClasses(ln: MapLayoutNode) {
   const n = ln.node
   const snap = snapshot.value
   const cls: Record<string, boolean> = {
@@ -227,7 +227,6 @@ function onCanvasClick() {
 }
 
 .fm-node.phase-workerOut .fm-rect { stroke-dasharray: 4 3; }
-.fm-node.phase-pendingValidated .fm-rect { stroke-width: 1.5; }
 .fm-node.phase-persisted .fm-rect { stroke-width: 1.5; }
 
 .fm-node.active .fm-rect  { stroke: var(--warning, #d97706); stroke-width: 2; }

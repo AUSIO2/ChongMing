@@ -17,8 +17,8 @@ function preview(content: string) {
 <template>
   <PanelRegion title="新闻" class="sidebar">
     <template #actions>
-      <button class="primary" :disabled="loading" @click="store.createSampleNews()">
-        + 演示案例
+      <button class="primary" :disabled="loading" @click="store.createNews()">
+        + 新建
       </button>
     </template>
 

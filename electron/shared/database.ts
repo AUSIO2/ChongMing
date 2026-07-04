@@ -1,4 +1,5 @@
 import mongoose, { Schema } from 'mongoose'
+import { errorMessage } from './errors'
 
 // ==========================================
 // Mongoose Schema 定义
@@ -66,18 +67,11 @@ export const NewsModel = mongoose.model('News', newsDocumentSchema)
 const CONNECT_TIMEOUT_MS = 3000
 
 let memoryServer: { stop: () => Promise<boolean>; getUri: () => string } | null = null
-let usingMemoryDB = false
 
 async function startMemoryServer(): Promise<string> {
   const { MongoMemoryServer } = await import('mongodb-memory-server')
   memoryServer = await MongoMemoryServer.create()
-  usingMemoryDB = true
   return memoryServer.getUri()
-}
-
-/** 当前是否使用内存数据库 */
-export function isUsingMemoryDB(): boolean {
-  return usingMemoryDB
 }
 
 /**
@@ -102,10 +96,9 @@ export async function connectDB(uri?: string): Promise<void> {
     await mongoose.connect(configured, {
       serverSelectionTimeoutMS: CONNECT_TIMEOUT_MS,
     })
-    usingMemoryDB = false
     console.log(`[db] 已连接 MongoDB: ${configured}`)
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
+    const reason = errorMessage(error)
     console.warn(`[db] 连接 ${configured} 失败 (${reason})，回退到内存数据库`)
 
     if (mongoose.connection.readyState !== 0) {
@@ -127,5 +120,4 @@ export async function disconnectDB(): Promise<void> {
     await memoryServer.stop()
     memoryServer = null
   }
-  usingMemoryDB = false
 }

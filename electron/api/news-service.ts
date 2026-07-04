@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { NewsModel } from '../shared/database'
 import type {
   CreateNewsInput,
-  NewsDocumentDTO,
-  NewsDocumentSummaryDTO,
+  DisplayNews,
+  DisplayNewsSummary,
   UpdateNewsInput,
 } from './types'
 import {
@@ -12,7 +12,7 @@ import {
   serializeNewsSummary,
 } from './serialize'
 
-export async function createNews(input: CreateNewsInput): Promise<NewsDocumentDTO> {
+export async function createNews(input: CreateNewsInput): Promise<DisplayNews> {
   const _id = input._id ?? randomUUID()
   const doc = await NewsModel.create({
     _id,
@@ -23,12 +23,12 @@ export async function createNews(input: CreateNewsInput): Promise<NewsDocumentDT
   return serializeNewsDocument(doc)
 }
 
-export async function listNews(): Promise<NewsDocumentSummaryDTO[]> {
+export async function listNews(): Promise<DisplayNewsSummary[]> {
   const docs = await NewsModel.find().sort({ updatedAt: -1 }).lean()
   return docs.map(doc => serializeNewsSummary(doc))
 }
 
-export async function getNews(newsId: string): Promise<NewsDocumentDTO | null> {
+export async function getNews(newsId: string): Promise<DisplayNews | null> {
   const doc = await NewsModel.findById(newsId)
   if (!doc) return null
   return serializeNewsDocument(doc)
@@ -37,7 +37,7 @@ export async function getNews(newsId: string): Promise<NewsDocumentDTO | null> {
 export async function updateNews(
   newsId: string,
   patch: UpdateNewsInput,
-): Promise<NewsDocumentDTO> {
+): Promise<DisplayNews> {
   const doc = await NewsModel.findById(newsId)
   if (!doc) throw new Error(`News not found: ${newsId}`)
 
@@ -46,10 +46,6 @@ export async function updateNews(
   }
   if (patch.context !== undefined) {
     doc.set('context', contextToMap(patch.context))
-  }
-  if (patch.claims !== undefined) {
-    doc.set('claims', patch.claims)
-    doc.markModified('claims')
   }
 
   await doc.save()

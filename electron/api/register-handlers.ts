@@ -2,17 +2,14 @@ import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
 import * as newsService from './news-service'
-import * as claimsService from './claims-service'
 import * as graphService from './graph-service'
 import { listCatalogEntries } from './sub-agent-catalog'
 import type { ExecutionMode } from '../shared/types'
 import type {
-  CreateClaimInput,
   CreateNewsInput,
   GraphStatePatch,
   StartSplitInput,
   StartVerifyInput,
-  UpdateClaimInput,
   UpdateNewsInput,
 } from './types'
 
@@ -38,29 +35,6 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     IPC_CHANNELS.NEWS_UPDATE,
     (_event, newsId: string, patch: UpdateNewsInput) =>
       newsService.updateNews(newsId, patch),
-  )
-
-  ipcMain.handle(
-    IPC_CHANNELS.CLAIMS_LIST,
-    (_event, newsId: string) => claimsService.listClaims(newsId),
-  )
-
-  ipcMain.handle(
-    IPC_CHANNELS.CLAIMS_CREATE,
-    (_event, newsId: string, input: CreateClaimInput) =>
-      claimsService.createClaim(newsId, input),
-  )
-
-  ipcMain.handle(
-    IPC_CHANNELS.CLAIMS_UPDATE,
-    (_event, newsId: string, claimId: string, patch: UpdateClaimInput) =>
-      claimsService.updateClaim(newsId, claimId, patch),
-  )
-
-  ipcMain.handle(
-    IPC_CHANNELS.CLAIMS_DELETE,
-    (_event, newsId: string, claimId: string) =>
-      claimsService.deleteClaim(newsId, claimId),
   )
 
   ipcMain.handle(

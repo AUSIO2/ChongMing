@@ -4,20 +4,17 @@ import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
 import { NEWS_ROOT_ID, canAddSubAgent, canEditNode, canRemoveNode } from '../../flow-map'
 import type {
-  ClaimParams,
   MapNode,
-  NewsParams,
-  OpinionParams,
   Priority,
-  SubAgentEntry,
-  SubAgentParams,
+  MapSubAgentParams,
+  CatalogSubAgent,
 } from '../../flow-map'
 
 const store = useFlowMapStore()
 const { snapshot, selectedNode, selectedNodeId, catalog, catalogParent, errorMessage } = storeToRefs(store)
 
 const showAddPanel = ref(false)
-const draftAgent = ref<SubAgentEntry | null>(null)
+const draftAgent = ref<CatalogSubAgent | null>(null)
 
 // 若选中变化，同步 catalog（news 节点 或 已持久化 claim）
 watch(selectedNodeId, async (id) => {
@@ -73,10 +70,8 @@ function beginAddFor(parentNodeId: string) {
 
 async function confirmAdd(parentNodeId: string) {
   if (!draftAgent.value) return
-  const params: SubAgentParams = {
+  const params: MapSubAgentParams = {
     agentName: draftAgent.value.agentName,
-    displayLabel: draftAgent.value.displayLabel,
-    description: draftAgent.value.description,
     priority: draftAgent.value.defaultPriority ?? 'medium',
   }
   await store.addSubAgent(parentNodeId, params)
@@ -84,51 +79,41 @@ async function confirmAdd(parentNodeId: string) {
   draftAgent.value = null
 }
 
+function agentLabel(agentName: string): string {
+  return catalog.value.find(c => c.agentName === agentName)?.displayLabel ?? agentName
+}
+
+function agentDescription(agentName: string): string | undefined {
+  return catalog.value.find(c => c.agentName === agentName)?.description
+}
+
 function isNews(n: MapNode): n is Extract<MapNode, { kind: 'news' }> { return n.kind === 'news' }
 function isSubAgent(n: MapNode): n is Extract<MapNode, { kind: 'subAgent' }> { return n.kind === 'subAgent' }
 function isClaim(n: MapNode): n is Extract<MapNode, { kind: 'claim' }> { return n.kind === 'claim' }
 function isOpinion(n: MapNode): n is Extract<MapNode, { kind: 'opinion' }> { return n.kind === 'opinion' }
 
-async function onNewsTitleInput(node: MapNode, ev: Event) {
-  if (!isNews(node)) return
-  const val = (ev.target as HTMLInputElement).value
-  await store.updateNodeParams(node.id, { title: val } as Partial<NewsParams>)
-}
-
 async function onNewsContentInput(node: MapNode, ev: Event) {
   if (!isNews(node)) return
   const val = (ev.target as HTMLTextAreaElement).value
-  await store.updateNodeParams(node.id, { content: val } as Partial<NewsParams>)
-}
-
-async function onSubAgentLabelInput(node: MapNode, ev: Event) {
-  if (!isSubAgent(node)) return
-  const val = (ev.target as HTMLInputElement).value
-  await store.updateNodeParams(node.id, { displayLabel: val } as Partial<SubAgentParams>)
+  await store.updateNodeParams(node.id, { content: val })
 }
 
 async function onSubAgentPriorityChange(node: MapNode, ev: Event) {
   if (!isSubAgent(node)) return
   const val = (ev.target as HTMLSelectElement).value as Priority
-  await store.updateNodeParams(node.id, { priority: val } as Partial<SubAgentParams>)
+  await store.updateNodeParams(node.id, { priority: val })
 }
 
 async function onSubAgentHintInput(node: MapNode, ev: Event) {
   if (!isSubAgent(node)) return
   const val = (ev.target as HTMLTextAreaElement).value
-  await store.updateNodeParams(node.id, { hint: val } as Partial<SubAgentParams>)
+  await store.updateNodeParams(node.id, { hint: val })
 }
 
 async function onClaimContentInput(node: MapNode, ev: Event) {
   if (!isClaim(node)) return
   const val = (ev.target as HTMLTextAreaElement).value
-  await store.updateNodeParams(node.id, { content: val } as Partial<ClaimParams>)
-}
-
-async function onOpinionContentInput(node: MapNode, ev: Event) {
-  if (!isOpinion(node)) return
-  const val = (ev.target as HTMLTextAreaElement).value
-  await store.updateNodeParams(node.id, { content: val } as Partial<OpinionParams>)
+  await store.updateNodeParams(node.id, { content: val })
 }
 
 async function onRemove(node: MapNode) {
@@ -144,7 +129,6 @@ const kindLabel: Record<MapNode['kind'], string> = {
 
 const phaseLabel: Record<string, string> = {
   workerOut: '产出中',
-  pendingValidated: '待验证',
   persisted: '已保存',
 }
 </script>
@@ -179,15 +163,6 @@ const phaseLabel: Record<string, string> = {
 
         <!-- News -->
         <div v-if="isNews(selectedNode)" class="form">
-          <label>
-            标题
-            <input
-              type="text"
-              :value="selectedNode.params.title ?? ''"
-              :disabled="!canEditSelected"
-              @change="onNewsTitleInput(selectedNode, $event)"
-            />
-          </label>
           <label>
             正文
             <textarea
@@ -226,17 +201,11 @@ const phaseLabel: Record<string, string> = {
           </div>
         </div>
 
-        <!-- SubAgent：对齐 RouteInstruction（priority / hint 可改） -->
+        <!-- SubAgent：params = MapSubAgentParams（仅 priority / hint 可改） -->
         <div v-else-if="isSubAgent(selectedNode)" class="form">
-          <label>
-            名称
-            <input
-              type="text"
-              :value="selectedNode.params.displayLabel"
-              :disabled="!canEditSelected"
-              @change="onSubAgentLabelInput(selectedNode, $event)"
-            />
-          </label>
+          <div class="row">
+            <span class="k">名称</span><span>{{ agentLabel(selectedNode.params.agentName) }}</span>
+          </div>
           <div class="row">
             <span class="k">Agent</span><span>{{ selectedNode.params.agentName }}</span>
           </div>
@@ -262,8 +231,8 @@ const phaseLabel: Record<string, string> = {
               @change="onSubAgentHintInput(selectedNode, $event)"
             />
           </label>
-          <p v-if="selectedNode.params.description" class="muted small">
-            {{ selectedNode.params.description }}
+          <p v-if="agentDescription(selectedNode.params.agentName)" class="muted small">
+            {{ agentDescription(selectedNode.params.agentName) }}
           </p>
           <div class="row-actions">
             <button
@@ -322,26 +291,15 @@ const phaseLabel: Record<string, string> = {
           </div>
         </div>
 
-        <!-- Opinion -->
+        <!-- Opinion：只读投影 -->
         <div v-else-if="isOpinion(selectedNode)" class="form">
-          <label>
-            意见内容
-            <textarea
-              :value="selectedNode.params.content"
-              :disabled="!canEditSelected"
-              rows="4"
-              @change="onOpinionContentInput(selectedNode, $event)"
-            />
-          </label>
+          <p class="opinion-body">{{ selectedNode.params.content }}</p>
           <div class="row">
             <span class="k">置信度</span><span>{{ selectedNode.params.confidence }}</span>
           </div>
           <div class="row">
             <span class="k">优先级</span><span>{{ selectedNode.params.priority }}</span>
           </div>
-          <p v-if="selectedNode.params.evidence" class="muted small">
-            证据：{{ selectedNode.params.evidence }}
-          </p>
         </div>
       </section>
     </template>
@@ -390,6 +348,7 @@ const phaseLabel: Record<string, string> = {
 .row-actions { display: flex; justify-content: flex-end; }
 .muted { color: var(--text-muted); }
 .small { font-size: 12px; }
+.opinion-body { margin: 0; font-size: var(--ui-font-size); line-height: 1.45; white-space: pre-wrap; }
 
 .add-section { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .add-panel { display: flex; flex-direction: column; gap: 6px; }

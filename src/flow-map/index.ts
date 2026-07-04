@@ -1,38 +1,31 @@
 export * from './types'
-export type { MapAPI, AddSubAgentInput, UpdateNodeParamsInput } from './api'
+export type {
+  MapAPI,
+  AddSubAgentInput,
+  UpdateNodeParamsInput,
+  UpdateNodeParamsPatch,
+} from './api'
 export {
   NEWS_ROOT_ID,
-  subAgentId,
-  claimId,
-  opinionId,
-  mergedClaimNodeId,
-  workerClaimNodeId,
-  opinionNodeId,
-  edgeId,
-  verifyInstanceId,
+  routeInstanceId,
+  routeNodeId,
 } from './ids'
+export { RUN_PHASE_LABEL } from './labels'
 export {
   isParamsLocked,
   canAddSubAgent,
   canEditNode,
   canRemoveNode,
-  hasDescendants,
 } from './graph-ops'
 export {
   layoutMapSnapshot,
-  type LayoutNode,
-  type LayoutEdge,
-  type LayoutSnapshot,
+  type MapLayoutNode,
+  type MapLayoutEdge,
+  type MapLayoutSnapshot,
 } from './layout'
 export {
   installMapAPI,
   getMapAPI,
   isMapAPIInstalled,
-  __resetMapAPIForTests,
 } from './port'
-export { createLangGraphMockAdapter } from './adapters/langgraph-mock'
 export { createElectronIpcMapAdapter } from './adapters/electron-ipc'
-export {
-  buildSplitSubAgentCatalog,
-  buildVerifySubAgentCatalog,
-} from './fixtures/demo'

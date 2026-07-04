@@ -5,11 +5,6 @@ export const IPC_CHANNELS = {
   NEWS_GET: 'news:get',
   NEWS_UPDATE: 'news:update',
 
-  CLAIMS_LIST: 'claims:list',
-  CLAIMS_CREATE: 'claims:create',
-  CLAIMS_UPDATE: 'claims:update',
-  CLAIMS_DELETE: 'claims:delete',
-
   CATALOG_LIST: 'catalog:list',
 
   GRAPH_START_SPLIT: 'graph:start-split',

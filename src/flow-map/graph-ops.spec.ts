@@ -92,13 +92,13 @@ describe('graph-ops', () => {
       kind: 'claim',
       parentId: 'sub:x',
       params: { content: 'c' },
-      dataPhase: 'pendingValidated',
+      dataPhase: 'workerOut',
     }
     const snap = baseSnapshot({ nodes: [claim] })
     expect(canAddSubAgent(snap, 'claim:x:0')).toBe(false)
   })
 
-  it('claim 一旦离开 workerOut 就锁定参数', () => {
+  it('claim 一旦离开 workerOut 就锁定参数；opinion 始终锁定', () => {
     const workerOut: MapSnapshot['nodes'][number] = {
       id: 'claim:x:0',
       kind: 'claim',
@@ -107,16 +107,24 @@ describe('graph-ops', () => {
       dataPhase: 'workerOut',
     }
     const persisted = { ...workerOut, dataPhase: 'persisted' as const }
-    const snap = baseSnapshot({ nodes: [workerOut, persisted] })
+    const opinion: MapSnapshot['nodes'][number] = {
+      id: 'opinion:x:0',
+      kind: 'opinion',
+      parentId: 'sub:x',
+      params: { content: 'o', confidence: 1, priority: 'medium' },
+      dataPhase: 'workerOut',
+    }
+    const snap = baseSnapshot({ nodes: [workerOut, persisted, opinion] })
     expect(isParamsLocked(snap, workerOut)).toBe(false)
     expect(isParamsLocked(snap, persisted)).toBe(true)
+    expect(isParamsLocked(snap, opinion)).toBe(true)
   })
 
   it('subAgent 只要下游有产出就锁定，即使产出仍处于 workerOut', () => {
     const sa: MapSnapshot['nodes'][number] = {
       id: 'sub:x',
       kind: 'subAgent',
-      params: { agentName: 'a', displayLabel: 'A', priority: 'medium' },
+      params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
     }
     const child: MapSnapshot['nodes'][number] = {
       id: 'claim:x:0',
@@ -136,7 +144,7 @@ describe('graph-ops', () => {
       id: 'sub:x',
       kind: 'subAgent',
       parentId: NEWS_ROOT_ID,
-      params: { agentName: 'a', displayLabel: 'A', priority: 'medium' },
+      params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
     }
     expect(canRemoveNode(baseSnapshot({ nodes: [sa] }), sa.id)).toBe(true)
     expect(canRemoveNode(

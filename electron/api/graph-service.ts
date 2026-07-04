@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindow } from 'electron'
 import type { ExecutionMode } from '../shared/types'
+import { errorMessage } from '../shared/errors'
 import type { GraphRunSession } from '../shared/graph-utils'
 import {
   buildSplitGraph,
@@ -17,7 +18,7 @@ import {
   serializeVerifyState,
 } from './serialize'
 import type {
-  ActiveRunDTO,
+  GraphActiveRun,
   GraphCompletedPayload,
   GraphErrorPayload,
   GraphInterruptFocus,
@@ -25,12 +26,12 @@ import type {
   GraphProgressPayload,
   GraphStatePatch,
   GraphType,
-  MapToolKind,
-  SplitGraphStateDTO,
+  GraphToolKind,
+  GraphSplitState,
   StartGraphResult,
   StartSplitInput,
   StartVerifyInput,
-  VerifyGraphStateDTO,
+  GraphVerifyState,
 } from './types'
 import type { GraphProgressEventLocal } from '../shared/graph-utils'
 import {
@@ -58,31 +59,31 @@ const activeRuns = new Map<string, ActiveRun>()
 function deriveInterruptFocus(
   graphType: GraphType,
   nextNode: string,
-  state: SplitGraphStateDTO | VerifyGraphStateDTO,
-): { focus?: GraphInterruptFocus; pendingTool?: MapToolKind } {
+  state: GraphSplitState | GraphVerifyState,
+): { focus?: GraphInterruptFocus; pendingTool?: GraphToolKind } {
   if (nextNode === 'subAgent') {
     if (graphType === 'split') {
       return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'invoke' }
     }
-    const vs = state as VerifyGraphStateDTO
+    const vs = state as GraphVerifyState
     return { focus: { kind: 'claim', id: vs.claimId }, pendingTool: 'invoke' }
   }
   if (nextNode === 'merge') {
     if (graphType === 'split') {
       return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'validate' }
     }
-    const vs = state as VerifyGraphStateDTO
+    const vs = state as GraphVerifyState
     return { focus: { kind: 'claim', id: vs.claimId }, pendingTool: 'validate' }
   }
   if (nextNode === 'save') {
     if (graphType === 'split') {
-      const ss = state as SplitGraphStateDTO
+      const ss = state as GraphSplitState
       return {
         focus: { kind: 'claim', id: mergedClaimNodeId(ss.saveIndex) },
         pendingTool: 'save',
       }
     }
-    const vs = state as VerifyGraphStateDTO
+    const vs = state as GraphVerifyState
     const index = vs.opinionSaveIndex
     return {
       focus: { kind: 'opinion', id: opinionNodeId(vs.claimId, index) },
@@ -198,72 +199,40 @@ function createRunSession(
   }
 }
 
-async function executeSplitRun(
-  runId: string,
-  input: StartSplitInput,
-  getWindow: WindowGetter,
-): Promise<void> {
+async function executeRun<TState>(opts: {
+  runId: string
+  graphType: GraphType
+  getWindow: WindowGetter
+  loadNode: string
+  runGraph: (
+    onInterrupt: ReturnType<typeof createInterruptHandler>,
+    session: ActiveRun,
+  ) => Promise<TState>
+  serialize: (state: TState) => GraphCompletedPayload['state']
+  logDone?: (state: TState) => string
+}): Promise<void> {
+  const { runId, graphType, getWindow, loadNode } = opts
   const run = activeRuns.get(runId)!
-  const graphType: GraphType = 'split'
   attachProgressHandlers(run, getWindow)
-  sendProgress(getWindow, runId, graphType, { event: 'node_enter', node: 'loadNews' })
+  sendProgress(getWindow, runId, graphType, { event: 'node_enter', node: loadNode })
   try {
-    const graph = buildSplitGraph(getSplitGraphConfig())
-    const result = await runSplitGraph(graph, input, {
-      onInterrupt: createInterruptHandler(runId, graphType, getWindow),
-    }, run)
-
-    if (activeRuns.get(runId)?.cancelled) return
-
-    const payload: GraphCompletedPayload = {
-      runId,
-      graphType,
-      state: serializeSplitState(result),
-    }
-    console.log(
-      `[graph:split] 完成 newsId=${input.newsId} claims=${result.mergedClaims?.length ?? 0}`,
+    const result = await opts.runGraph(
+      createInterruptHandler(runId, graphType, getWindow),
+      run,
     )
-    sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`[graph:split] 失败 runId=${runId}:`, message)
-    const payload: GraphErrorPayload = {
-      runId,
-      graphType,
-      error: message,
-    }
-    sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_ERROR, payload)
-  } finally {
-    activeRuns.delete(runId)
-  }
-}
-
-async function executeVerifyRun(
-  runId: string,
-  input: StartVerifyInput,
-  getWindow: WindowGetter,
-): Promise<void> {
-  const run = activeRuns.get(runId)!
-  const graphType: GraphType = 'verify'
-  attachProgressHandlers(run, getWindow)
-  sendProgress(getWindow, runId, graphType, { event: 'node_enter', node: 'loadClaim' })
-  try {
-    const graph = buildVerifyGraph(getVerifyGraphConfig())
-    const result = await runVerifyGraph(graph, input, {
-      onInterrupt: createInterruptHandler(runId, graphType, getWindow),
-    }, run)
 
     if (activeRuns.get(runId)?.cancelled) return
 
     const payload: GraphCompletedPayload = {
       runId,
       graphType,
-      state: serializeVerifyState(result),
+      state: opts.serialize(result),
     }
+    if (opts.logDone) console.log(opts.logDone(result))
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`[graph:verify] 失败 runId=${runId}:`, message)
+    const message = errorMessage(error)
+    console.error(`[graph:${graphType}] 失败 runId=${runId}:`, message)
     const payload: GraphErrorPayload = {
       runId,
       graphType,
@@ -284,7 +253,22 @@ export function startSplit(
     runId,
     createRunSession(runId, 'split', input.newsId, input.mode ?? 'auto', 'loadNews'),
   )
-  void executeSplitRun(runId, input, getWindow)
+  void executeRun({
+    runId,
+    graphType: 'split',
+    getWindow,
+    loadNode: 'loadNews',
+    runGraph: (onInterrupt, session) =>
+      runSplitGraph(
+        buildSplitGraph(getSplitGraphConfig()),
+        input,
+        { onInterrupt },
+        session,
+      ),
+    serialize: serializeSplitState,
+    logDone: (state) =>
+      `[graph:split] 完成 newsId=${input.newsId} claims=${state.mergedClaims?.length ?? 0}`,
+  })
   return { runId }
 }
 
@@ -297,11 +281,24 @@ export function startVerify(
     runId,
     createRunSession(runId, 'verify', input.newsId, input.mode ?? 'auto', 'loadClaim'),
   )
-  void executeVerifyRun(runId, input, getWindow)
+  void executeRun({
+    runId,
+    graphType: 'verify',
+    getWindow,
+    loadNode: 'loadClaim',
+    runGraph: (onInterrupt, session) =>
+      runVerifyGraph(
+        buildVerifyGraph(getVerifyGraphConfig()),
+        input,
+        { onInterrupt },
+        session,
+      ),
+    serialize: serializeVerifyState,
+  })
   return { runId }
 }
 
-export function getActiveRun(newsId: string): ActiveRunDTO | null {
+export function getActiveRun(newsId: string): GraphActiveRun | null {
   for (const run of activeRuns.values()) {
     if (run.newsId !== newsId || run.cancelled) continue
     return {

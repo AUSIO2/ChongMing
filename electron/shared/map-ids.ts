@@ -7,23 +7,27 @@
  * - opinion：opinion:${claimId}:${index}
  */
 
+import type { MapSubAgentParams } from './types'
+
 export const NEWS_ROOT_ID = '__news_root__'
 
 export function subAgentId(instanceId: string): string {
   return `sub:${instanceId}`
 }
 
+/** MapSubAgentParams → 稳定 instanceId（缺省用 agentName）。 */
+export function routeInstanceId(route: Pick<MapSubAgentParams, 'agentName' | 'instanceId'>): string {
+  return route.instanceId ?? route.agentName
+}
+
+/** MapSubAgentParams → Map subAgent 节点 id。 */
+export function routeNodeId(route: Pick<MapSubAgentParams, 'agentName' | 'instanceId'>): string {
+  return subAgentId(routeInstanceId(route))
+}
+
 /** merge 后 / 落库 claim 的节点 id（saveIndex 为 mergedClaims 下标）。 */
 export function mergedClaimNodeId(saveIndex: number): string {
   return String(saveIndex + 1)
-}
-
-/**
- * Mock 等非 merge 路径下，挂在某个 SubAgent 下的临时 claim id。
- * 真机 save 焦点不会使用此格式。
- */
-export function workerClaimNodeId(instanceId: string, index: number): string {
-  return `claim:${instanceId}:${index}`
 }
 
 /** opinion 节点 id；claimId 为父 claim 的 Map 节点 id。 */

@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../stores/workspace'
-import { FLOW_PHASE_LABELS } from '../types/flow'
+import { useFlowMapStore } from '../stores/flow-map'
+import { RUN_PHASE_LABEL } from '../flow-map'
 
-const store = useWorkspaceStore()
-const { flowPhase } = storeToRefs(store)
+const store = useFlowMapStore()
+const { runPhase } = storeToRefs(store)
 
-const statusText = computed(() => FLOW_PHASE_LABELS[flowPhase.value])
+const statusText = computed(() => RUN_PHASE_LABEL[runPhase.value])
 </script>
 
 <template>
   <header class="top-bar">
     <h1 class="brand">重明</h1>
     <div class="status-area">
-      <span class="status-dot" :class="[flowPhase]" />
+      <span class="status-dot" :class="[runPhase]" />
       <span class="status-text">{{ statusText }}</span>
     </div>
   </header>
@@ -54,21 +54,9 @@ const statusText = computed(() => FLOW_PHASE_LABELS[flowPhase.value])
 }
 
 .status-dot.running,
-.status-dot.awaitingSplit,
-.status-dot.awaitingVerifyRoute { background: var(--warning); }
-.status-dot.awaitingSplitCommit,
-.status-dot.awaitingVerifyCommit { background: var(--warning); }
+.status-dot.interrupted { background: var(--warning); }
 .status-dot.completed,
 .status-dot.idle { background: var(--text-dim); }
 .status-dot.error { background: var(--danger); }
-.status-dot.selectClaims { background: var(--warning); }
-
 .status-dot.running { background: var(--accent); }
-
-.graph-tag {
-  text-transform: uppercase;
-  color: var(--text-dim);
-  padding-left: var(--space-sm);
-  border-left: 1px solid var(--border-subtle);
-}
 </style>

@@ -2,8 +2,8 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph'
 import { MemorySaver } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
-  RouteInstruction, RawClaim,
-  SubAgentSplitRecord, SplitGraphConfig,
+  MapSubAgentParams, GraphClaim,
+  GraphSplitRecord, GraphConfig,
   ExecutionMode,
 } from './types'
 import { NewsModel } from '../shared/database'
@@ -41,17 +41,17 @@ const SplitGraphState = Annotation.Root({
     default: () => ({}),
   }),
 
-  routeInstructions: Annotation<RouteInstruction[]>({
+  routeInstructions: Annotation<MapSubAgentParams[]>({
     value: (_prev, next) => next,
     default: () => [],
   }),
 
-  subAgentResults: Annotation<SubAgentSplitRecord[]>({
+  subAgentResults: Annotation<GraphSplitRecord[]>({
     value: (prev, next) => [...prev, ...next],
     default: () => [],
   }),
 
-  mergedClaims: Annotation<RawClaim[]>({
+  mergedClaims: Annotation<GraphClaim[]>({
     value: (_prev, next) => next,
     default: () => [],
   }),
@@ -85,9 +85,9 @@ async function loadNews(state: typeof SplitGraphState.State) {
 function createSubAgentNode(defaultModel: BaseChatModel) {
   return async (state: typeof SplitGraphState.State) => {
     const agentConfig = (state as Record<string, unknown>)
-      ._agentConfig as import('../shared/types').SubAgentConfig
+      ._agentConfig as import('../shared/types').AgentRuntimeConfig
     const instruction = (state as Record<string, unknown>)
-      ._routeInstruction as RouteInstruction
+      ._routeInstruction as MapSubAgentParams
     const promptConfig = loadPrompt(agentConfig.promptPath)
 
     const prompt = renderPrompt(promptConfig.content, {
@@ -100,7 +100,7 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
     const tools = agentConfig.tools ?? []
     const rawResponse = await invokeWithOptionalTools(model, tools, prompt)
 
-    const claims = parseClaimsArray<RawClaim>(rawResponse)
+    const claims = parseClaimsArray<GraphClaim>(rawResponse)
       .map(c => ({ ...c, sourceAgent: agentConfig.name }))
 
     return {
@@ -135,7 +135,7 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
     const rawMergeResponse = messageContentToString(
       (await model.invoke(prompt)).content,
     )
-    let mergedClaims = parseClaimsArray<RawClaim>(rawMergeResponse)
+    let mergedClaims = parseClaimsArray<GraphClaim>(rawMergeResponse)
 
     if (mergedClaims.length === 0 && state.subAgentResults.length > 0) {
       mergedClaims = state.subAgentResults.flatMap(result =>
@@ -218,7 +218,7 @@ function routeAfterSave(state: typeof SplitGraphState.State): string {
  * 流程：loadNews → route → subAgent×N → merge → save（按条循环）
  * interruptBefore save：每次只焦点一条 claim
  */
-export function buildSplitGraph(config: Omit<SplitGraphConfig, 'mode'>) {
+export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
   const {
     defaultModel,
     availableAgents,
@@ -288,7 +288,7 @@ export async function runSplitGraph(
     newsId: string
     mode?: ExecutionMode
     /** 人工预置槽，与 AI route 合并 */
-    routeInstructions?: RouteInstruction[]
+    routeInstructions?: MapSubAgentParams[]
   },
   callbacks: SplitGraphCallbacks,
   session?: GraphRunSession,

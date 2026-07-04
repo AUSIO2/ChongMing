@@ -29,7 +29,7 @@ describe('layout', () => {
           id: 'sub:a',
           kind: 'subAgent',
           parentId: NEWS_ROOT_ID,
-          params: { agentName: 'a', displayLabel: 'A', priority: 'medium' },
+          params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
         },
         {
           id: 'claim:a:0',
@@ -69,7 +69,7 @@ describe('layout', () => {
           id: 'sub:a',
           kind: 'subAgent',
           parentId: NEWS_ROOT_ID,
-          params: { agentName: 'a', displayLabel: 'A', priority: 'medium' },
+          params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
         },
         {
           id: 'claim:a:0',
@@ -82,7 +82,7 @@ describe('layout', () => {
           id: 'sub:v',
           kind: 'subAgent',
           parentId: 'claim:a:0',
-          params: { agentName: 'v', displayLabel: 'V', priority: 'high' },
+          params: { agentName: 'v', priority: 'high', instanceId: 'v' },
         },
       ],
       edges: [

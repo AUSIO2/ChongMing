@@ -1,16 +1,15 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import type {
-  ClaimParams,
   ExecutionMode,
   MapNode,
   MapSnapshot,
-  NewsParams,
-  OpinionParams,
-  SubAgentEntry,
-  SubAgentParams,
+  MapSubAgentParams,
+  CatalogSubAgent,
+  UpdateNodeParamsPatch,
 } from '../flow-map'
 import { NEWS_ROOT_ID, getMapAPI } from '../flow-map'
+import { errorMessage as toErrorMessage } from '../../electron/shared/errors'
 
 /**
  * Map 层 Pinia store。
@@ -20,7 +19,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   const currentNewsId = ref<string | null>(null)
   const snapshot = shallowRef<MapSnapshot | null>(null)
   const selectedNodeId = ref<string | null>(null)
-  const catalog = shallowRef<SubAgentEntry[]>([])
+  const catalog = shallowRef<CatalogSubAgent[]>([])
   const catalogParent = ref<string | null>(null)
   const errorMessage = ref<string | null>(null)
 
@@ -48,7 +47,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = await getMapAPI().getSnapshot(newsId)
       errorMessage.value = null
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -62,7 +61,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       catalog.value = await getMapAPI().getSubAgentCatalog(parentNodeId)
       catalogParent.value = parentNodeId
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -70,30 +69,23 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     await loadCatalogFor(NEWS_ROOT_ID)
   }
 
-  async function addSubAgent(parentNodeId: string, params: SubAgentParams) {
+  async function addSubAgent(parentNodeId: string, params: MapSubAgentParams) {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
       snapshot.value = await getMapAPI().addSubAgent({ newsId, parentNodeId, params })
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
-  async function updateNodeParams(
-    nodeId: string,
-    params:
-      | Partial<NewsParams>
-      | Partial<SubAgentParams>
-      | Partial<ClaimParams>
-      | Partial<OpinionParams>,
-  ) {
+  async function updateNodeParams(nodeId: string, params: UpdateNodeParamsPatch) {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
       snapshot.value = await getMapAPI().updateNodeParams({ newsId, nodeId, params })
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -104,7 +96,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = await getMapAPI().removeNode({ newsId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -115,7 +107,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       const { snapshot: next } = await getMapAPI().startRun(newsId, mode.value)
       snapshot.value = next
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -125,7 +117,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().continueStep(newsId)
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -135,7 +127,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().cancel(newsId)
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -145,7 +137,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().setMode(newsId, next)
     } catch (e) {
-      errorMessage.value = errorText(e)
+      errorMessage.value = toErrorMessage(e)
     }
   }
 
@@ -175,8 +167,3 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     setMode,
   }
 })
-
-function errorText(e: unknown): string {
-  if (e instanceof Error) return e.message
-  return String(e)
-}

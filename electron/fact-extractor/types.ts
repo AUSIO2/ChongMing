@@ -2,14 +2,13 @@
 // 事实拆分模块 — 专有类型
 // ==========================================
 
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { Priority, SubAgentConfig, ExecutionMode } from '../shared/types'
+import type { Priority } from '../shared/types'
 
 // 从 shared 重导出（方便模块内部 import）
 export type {
   ContextField, NewsContext, VisibleContext,
   Priority, Confidence, ExecutionMode,
-  PromptConfig, SubAgentConfig, RouteInstruction,
+  PromptConfig, AgentRuntimeConfig, MapSubAgentParams, GraphConfig,
 } from '../shared/types'
 
 // ==========================================
@@ -17,14 +16,14 @@ export type {
 // ==========================================
 
 /** SubAgent 解析出的原始条目（未分配 ID） */
-export interface RawClaim {
+export interface GraphClaim {
   content: string
   category?: string
   sourceAgent?: string
 }
 
 /** 拆分出的单条可核查事实（嵌入子文档） */
-export interface SplitClaim {
+export interface PersistClaim {
   claimId: string
   content: string
   category?: string
@@ -32,40 +31,31 @@ export interface SplitClaim {
 }
 
 /** 单个 SubAgent 的拆分记录（带权重） */
-export interface SubAgentSplitRecord {
+export interface GraphSplitRecord {
   agentName: string
   priority: Priority
-  claims: RawClaim[]
+  claims: GraphClaim[]
   rawResponse: string
 }
 
 /** 拆分过程元数据 */
-export interface SplitMeta {
+export interface PersistSplitMeta {
   model: string
-  subAgentResults: SubAgentSplitRecord[]
+  subAgentResults: GraphSplitRecord[]
   rawMergeResponse: string
   splitAt: Date
 }
 
 /** 顶层文档 — 一条新闻 + 拆分结果 */
-export interface NewsDocument {
+export interface PersistNews {
   _id: string
   content: string
   context: import('../shared/types').NewsContext
-  claims: SplitClaim[]
-  splitMeta?: SplitMeta
+  claims: PersistClaim[]
+  splitMeta?: PersistSplitMeta
   confidence?: number
   confidenceUpdatedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
 
-/** 拆分图构建配置 */
-export interface SplitGraphConfig {
-  defaultModel: BaseChatModel
-  availableAgents: SubAgentConfig[]
-  routePromptPath: string
-  mergePromptPath: string
-  mode?: ExecutionMode
-  maxConcurrency?: number
-}

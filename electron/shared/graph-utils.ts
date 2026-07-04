@@ -1,12 +1,12 @@
 import { Send } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { ExecutionMode, RouteInstruction, SubAgentConfig } from './types'
+import type { ExecutionMode, MapSubAgentParams, AgentRuntimeConfig } from './types'
 import { loadPrompt, renderPrompt } from './prompt-loader'
 import { parseRouteInstructions, messageContentToString } from './llm-utils'
 
 export const DEFAULT_MAX_CONCURRENCY = 3
 
-const PRIORITY_ORDER: Record<RouteInstruction['priority'], number> = {
+const PRIORITY_ORDER: Record<MapSubAgentParams['priority'], number> = {
   high: 0,
   medium: 1,
   low: 2,
@@ -14,16 +14,16 @@ const PRIORITY_ORDER: Record<RouteInstruction['priority'], number> = {
 
 /** 按 priority 排序后截取，控制扇出并发数 */
 export function limitRouteInstructions(
-  instructions: RouteInstruction[],
+  instructions: MapSubAgentParams[],
   maxConcurrency: number,
-): RouteInstruction[] {
+): MapSubAgentParams[] {
   return [...instructions]
     .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority])
     .slice(0, maxConcurrency)
 }
 
 export interface DynamicFanOutOptions {
-  availableAgents: SubAgentConfig[]
+  availableAgents: AgentRuntimeConfig[]
   maxConcurrency?: number
   subAgentNode?: string
   mergeNode?: string
@@ -33,7 +33,7 @@ export interface DynamicFanOutOptions {
  * 动态扇出：基于路由指令创建 Send[]
  * 空路由时直接跳转 merge，避免图异常终止
  */
-export function createDynamicFanOut<T extends { routeInstructions: RouteInstruction[] }>(
+export function createDynamicFanOut<T extends { routeInstructions: MapSubAgentParams[] }>(
   options: DynamicFanOutOptions,
 ) {
   const {
@@ -67,7 +67,7 @@ export function createDynamicFanOut<T extends { routeInstructions: RouteInstruct
   }
 }
 
-function withInstanceIds(instructions: RouteInstruction[]): RouteInstruction[] {
+function withInstanceIds(instructions: MapSubAgentParams[]): MapSubAgentParams[] {
   return instructions.map((inst, index) => ({
     ...inst,
     instanceId: inst.instanceId ?? `${inst.agentName}#${index + 1}`,
@@ -81,11 +81,11 @@ function withInstanceIds(instructions: RouteInstruction[]): RouteInstruction[] {
 export function createRouteNode<TState>(
   model: BaseChatModel,
   routePromptPath: string,
-  availableAgents: SubAgentConfig[],
+  availableAgents: AgentRuntimeConfig[],
   buildVars: (state: TState) => Record<string, string>,
 ) {
   return async (state: TState) => {
-    const preseeded = (state as { routeInstructions?: RouteInstruction[] }).routeInstructions ?? []
+    const preseeded = (state as { routeInstructions?: MapSubAgentParams[] }).routeInstructions ?? []
 
     const promptConfig = loadPrompt(routePromptPath)
     const agentList = availableAgents.map(a => `- ${a.name}`).join('\n')
@@ -203,7 +203,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
       && currentState !== null
       && 'routeInstructions' in currentState
     ) {
-      const instructions = (currentState as { routeInstructions: RouteInstruction[] }).routeInstructions
+      const instructions = (currentState as { routeInstructions: MapSubAgentParams[] }).routeInstructions
       instructions.forEach((instruction, index) => {
         session.onProgress!({
           event: 'fanout_spawn',

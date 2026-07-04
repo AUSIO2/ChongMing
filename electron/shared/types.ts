@@ -42,8 +42,8 @@ export interface PromptConfig {
 // Agent 配置类型
 // ==========================================
 
-/** SubAgent 注册配置（per-agent model/tools/并发） */
-export interface SubAgentConfig {
+/** Agent 运行时配置（per-agent model/tools/并发） */
+export interface AgentRuntimeConfig {
   name: string
   promptPath: string
   model?: BaseChatModel
@@ -51,11 +51,24 @@ export interface SubAgentConfig {
   maxConcurrency?: number
 }
 
-/** MainAgent route 返回的结构化路由指令 */
-export interface RouteInstruction {
+/** 拆分 / 核查图共用构建配置（mode 仅 split 使用）。 */
+export interface GraphConfig {
+  defaultModel: BaseChatModel
+  availableAgents: AgentRuntimeConfig[]
+  routePromptPath: string
+  mergePromptPath: string
+  maxConcurrency?: number
+  mode?: ExecutionMode
+}
+
+/**
+ * Map SubAgent 槽位参数 — 前后端唯一来源。
+ * 图状态 routeInstructions 与 Map 节点 params 同形（字段名暂不改）。
+ */
+export interface MapSubAgentParams {
   agentName: string
   priority: Priority
   hint?: string
-  /** 稳定实例 id（Map 节点 id 对齐）；缺省由 route / Adapter 补齐 */
+  /** 稳定实例 id（Map 节点 id = subAgentId(instanceId)）；缺省由 route / Adapter 补齐 */
   instanceId?: string
 }

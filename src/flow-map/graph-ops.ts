@@ -5,14 +5,16 @@ import { NEWS_ROOT_ID } from './ids'
  * 参数是否已锁定（不可再编辑）。
  * 规则：
  *   - runPhase 为 running 时全部锁
- *   - claim / opinion 一旦进入 pendingValidated 或 persisted 就锁
+ *   - claim 一旦进入 persisted 就锁；opinion 始终只读
  *   - subAgent 只要有已产出的下游 claim/opinion（任何 dataPhase）就锁
  *   - news 一旦挂上 subAgent 就锁（避免拆分中途改新闻正文）
  */
 export function isParamsLocked(snapshot: MapSnapshot, node: MapNode): boolean {
   if (snapshot.runPhase === 'running') return true
 
-  if (node.kind === 'claim' || node.kind === 'opinion') {
+  if (node.kind === 'opinion') return true
+
+  if (node.kind === 'claim') {
     return node.dataPhase !== 'workerOut'
   }
 
@@ -79,7 +81,6 @@ export function canRemoveNode(snapshot: MapSnapshot, nodeId: string): boolean {
   return !hasDescendants(snapshot, nodeId)
 }
 
-/** 移除某节点后是否留下悬空子节点（供 UI 提示用）。 */
-export function hasDescendants(snapshot: MapSnapshot, nodeId: string): boolean {
+function hasDescendants(snapshot: MapSnapshot, nodeId: string): boolean {
   return snapshot.nodes.some(n => n.parentId === nodeId)
 }

@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { getMapAPI, isMapAPIInstalled, layoutMapSnapshot } from '../flow-map'
 import { useFlowMapStore } from '../stores/flow-map'
+import { useWorkspaceStore } from '../stores/workspace'
 
 /**
  * 组合式：绑定当前新闻到 Map 层 store，并订阅 Port 的 onUpdated。
@@ -9,18 +10,8 @@ import { useFlowMapStore } from '../stores/flow-map'
  */
 export function useFlowMap(newsIdRef: () => string | null) {
   const store = useFlowMapStore()
-  const {
-    snapshot,
-    selectedNodeId,
-    selectedNode,
-    catalog,
-    catalogParent,
-    errorMessage,
-    runPhase,
-    mode,
-    isRunning,
-    isInterrupted,
-  } = storeToRefs(store)
+  const workspace = useWorkspaceStore()
+  const { snapshot, selectedNodeId } = storeToRefs(store)
 
   const layout = computed(() =>
     snapshot.value ? layoutMapSnapshot(snapshot.value) : null,
@@ -36,7 +27,9 @@ export function useFlowMap(newsIdRef: () => string | null) {
       await store.attachNews(newsId)
       unsub?.()
       unsub = getMapAPI().onUpdated((id: string) => {
-        if (id === newsId) void store.refresh()
+        if (id !== newsId) return
+        void store.refresh()
+        void workspace.refreshCurrentNews()
       })
     },
     { immediate: true },
@@ -51,14 +44,6 @@ export function useFlowMap(newsIdRef: () => string | null) {
     store,
     snapshot,
     selectedNodeId,
-    selectedNode,
-    catalog,
-    catalogParent,
-    errorMessage,
-    runPhase,
-    mode,
-    isRunning,
-    isInterrupted,
     layout,
   }
 }

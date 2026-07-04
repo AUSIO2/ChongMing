@@ -10,15 +10,6 @@ const electronAPI: ElectronAPI = {
     update: (newsId, patch) =>
       ipcRenderer.invoke(IPC_CHANNELS.NEWS_UPDATE, newsId, patch),
   },
-  claims: {
-    list: newsId => ipcRenderer.invoke(IPC_CHANNELS.CLAIMS_LIST, newsId),
-    create: (newsId, input) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAIMS_CREATE, newsId, input),
-    update: (newsId, claimId, patch) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAIMS_UPDATE, newsId, claimId, patch),
-    delete: (newsId, claimId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAIMS_DELETE, newsId, claimId),
-  },
   catalog: {
     list: module => ipcRenderer.invoke(IPC_CHANNELS.CATALOG_LIST, module),
   },

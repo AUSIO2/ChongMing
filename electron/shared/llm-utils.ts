@@ -1,7 +1,7 @@
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { RouteInstruction, SubAgentConfig } from './types'
+import type { MapSubAgentParams, AgentRuntimeConfig } from './types'
 
 const JSON_CODE_BLOCK_RE = /```(?:json)?\s*([\s\S]*?)```/i
 
@@ -60,8 +60,8 @@ const VALID_PRIORITIES = new Set(['high', 'medium', 'low'])
 /** 解析并校验 route 节点返回的路由指令 */
 export function parseRouteInstructions(
   raw: string,
-  availableAgents: SubAgentConfig[],
-): RouteInstruction[] {
+  availableAgents: AgentRuntimeConfig[],
+): MapSubAgentParams[] {
   const parsed = parseJsonFromLLM<unknown>(raw)
   if (!Array.isArray(parsed)) return []
 
@@ -82,7 +82,7 @@ export function parseRouteInstructions(
     }
     return [{
       agentName,
-      priority: priority as RouteInstruction['priority'],
+      priority: priority as MapSubAgentParams['priority'],
       hint: typeof record.hint === 'string' ? record.hint : undefined,
     }]
   })

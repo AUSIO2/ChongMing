@@ -2,18 +2,11 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import type { ExecutionMode, RunPhase } from '../../flow-map'
+import { RUN_PHASE_LABEL } from '../../flow-map'
+import type { ExecutionMode } from '../../flow-map'
 
 const store = useFlowMapStore()
 const { snapshot, runPhase, mode, isRunning, isInterrupted } = storeToRefs(store)
-
-const RUN_PHASE_LABEL: Record<RunPhase, string> = {
-  idle: '空闲',
-  running: '运行中',
-  interrupted: '中断（待人工确认）',
-  completed: '已完成',
-  error: '出错',
-}
 
 const label = computed(() => RUN_PHASE_LABEL[runPhase.value])
 const canRun = computed(() => !!snapshot.value && runPhase.value === 'idle')
@@ -38,8 +31,9 @@ const focusText = computed(() => {
   if (!n) return `焦点 · ${s.activeNodeId}`
   const t = s.pendingTool ? `（${s.pendingTool}）` : ''
   const name =
-    n.kind === 'subAgent' ? n.params.displayLabel :
+    n.kind === 'subAgent' ? n.params.agentName :
     n.kind === 'claim'    ? '事实' :
+    n.kind === 'news'     ? '新闻' :
     '意见'
   return `焦点 · ${name}${t}`
 })

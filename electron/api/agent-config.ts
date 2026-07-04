@@ -1,15 +1,14 @@
 import { ChatOpenAI } from '@langchain/openai'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { SubAgentConfig } from '../shared/types'
-import type { SplitGraphConfig } from '../fact-extractor/types'
-import type { VerifyGraphConfig } from '../fact-verifier/types'
+import type { GraphConfig, AgentRuntimeConfig } from '../shared/types'
 import {
   SPLIT_SUB_AGENT_CATALOG,
   VERIFY_SUB_AGENT_CATALOG,
+  type CatalogSubAgentEntry,
 } from './sub-agent-catalog'
 
-function toSubAgentConfig(entry: { name: string; promptPath: string }): SubAgentConfig {
-  return { name: entry.name, promptPath: entry.promptPath }
+function toSubAgentConfig(entry: CatalogSubAgentEntry): AgentRuntimeConfig {
+  return { name: entry.agentName, promptPath: entry.promptPath }
 }
 
 /** 创建默认 ChatModel — DeepSeek OpenAI 兼容接口 */
@@ -29,11 +28,11 @@ export function createDefaultModel(): BaseChatModel {
   })
 }
 
-export const SPLIT_SUB_AGENTS: SubAgentConfig[] = SPLIT_SUB_AGENT_CATALOG.map(toSubAgentConfig)
+export const SPLIT_SUB_AGENTS: AgentRuntimeConfig[] = SPLIT_SUB_AGENT_CATALOG.map(toSubAgentConfig)
 
-export const VERIFY_SUB_AGENTS: SubAgentConfig[] = VERIFY_SUB_AGENT_CATALOG.map(toSubAgentConfig)
+export const VERIFY_SUB_AGENTS: AgentRuntimeConfig[] = VERIFY_SUB_AGENT_CATALOG.map(toSubAgentConfig)
 
-export function getSplitGraphConfig(): Omit<SplitGraphConfig, 'mode'> {
+export function getSplitGraphConfig(): Omit<GraphConfig, 'mode'> {
   return {
     defaultModel: createDefaultModel(),
     availableAgents: SPLIT_SUB_AGENTS,
@@ -43,7 +42,7 @@ export function getSplitGraphConfig(): Omit<SplitGraphConfig, 'mode'> {
   }
 }
 
-export function getVerifyGraphConfig(): VerifyGraphConfig {
+export function getVerifyGraphConfig(): GraphConfig {
   return {
     defaultModel: createDefaultModel(),
     availableAgents: VERIFY_SUB_AGENTS,
