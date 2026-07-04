@@ -3,33 +3,33 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PromptConfig } from './types'
 
-let configuredPromptsRoot: string | null = null
+let configuredRoot: string | null = null
 
 /**
- * 解析 prompts 根目录
- * 优先级：setPromptsRoot > PROMPTS_ROOT > APP_ROOT/prompts > 相对模块路径
+ * 解析 subagentconfig 根目录
+ * 优先级：setSubAgentConfigRoot > SUBAGENT_CONFIG_ROOT > APP_ROOT/subagentconfig > 相对模块路径
  */
-export function resolvePromptsRoot(): string {
-  if (configuredPromptsRoot) return configuredPromptsRoot
-  if (process.env.PROMPTS_ROOT) return process.env.PROMPTS_ROOT
-  if (process.env.APP_ROOT) return path.join(process.env.APP_ROOT, 'prompts')
+export function resolveSubAgentConfigRoot(): string {
+  if (configuredRoot) return configuredRoot
+  if (process.env.SUBAGENT_CONFIG_ROOT) return process.env.SUBAGENT_CONFIG_ROOT
+  if (process.env.APP_ROOT) return path.join(process.env.APP_ROOT, 'subagentconfig')
 
   const moduleDir = path.dirname(fileURLToPath(import.meta.url))
-  return path.join(moduleDir, '../../prompts')
+  return path.join(moduleDir, '../../subagentconfig')
 }
 
-/** 显式设置 prompts 根目录（CLI / 测试 / Electron 启动时调用） */
-export function setPromptsRoot(root: string): void {
-  configuredPromptsRoot = root
+/** 显式设置 subagentconfig 根目录（CLI / 测试 / Electron 启动时调用） */
+export function setSubAgentConfigRoot(root: string): void {
+  configuredRoot = root
 }
 
 /**
  * 加载提示词配置文件
  * @param promptPath 相对路径（不含 .json），如 "fact-extractor/sub-agents/data-claims"
- *                   对应文件 prompts/fact-extractor/sub-agents/data-claims.json
+ *                   对应文件 subagentconfig/fact-extractor/sub-agents/data-claims.json
  */
 export function loadPrompt(promptPath: string): PromptConfig {
-  const fullPath = path.join(resolvePromptsRoot(), `${promptPath}.json`)
+  const fullPath = path.join(resolveSubAgentConfigRoot(), `${promptPath}.json`)
   const raw = readFileSync(fullPath, 'utf-8')
   return JSON.parse(raw) as PromptConfig
 }

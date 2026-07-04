@@ -19,8 +19,9 @@ declare namespace NodeJS {
     APP_ROOT: string
     /** /dist/ or /public/ */
     VITE_PUBLIC: string
-    /** prompts 目录绝对路径（可选，优先于 APP_ROOT/prompts） */
-    PROMPTS_ROOT?: string
+    /** subagentconfig 目录绝对路径（可选，优先于 APP_ROOT/subagentconfig） */
+    SUBAGENT_CONFIG_ROOT?: string
+
     MONGO_URI?: string
     DEEPSEEK_API_KEY?: string
     DEEPSEEK_BASE_URL?: string

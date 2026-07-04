@@ -15,8 +15,9 @@ trigger: always_on
   - `description`：提示词的用途说明
   - `content`：提示词模板内容
 - **配置文件的路径必须能够代表该提示词被实际调用的位置**。例如：
-  - 拆分模块的默认策略 prompt → `prompts/fact-extractor/default-strategy.json`
-  - 核查模块的逻辑一致性 SubAgent prompt → `prompts/fact-verifier/logic-consistency.json`
+  - 拆分模块的默认策略 prompt → `subagentconfig/fact-extractor/default-strategy.json`
+  - 核查模块的逻辑一致性 SubAgent prompt → `subagentconfig/fact-verifier/sub-agents/logic-consistency.json`
+- SubAgent 配置可额外包含 catalog 字段（`agentName` / `displayLabel` / `defaultPriority` / `tools`），由 `sub-agent-catalog` 扫描加载；`tools` 为工具名字符串数组（如 `["web_search"]`）
 
 ### 配置文件格式示例
 

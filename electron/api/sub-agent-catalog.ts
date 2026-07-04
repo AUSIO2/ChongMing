@@ -1,12 +1,16 @@
-/** SubAgent 注册表 — 前后端共用的名称与环节映射（不含 LLM 配置） */
+/** SubAgent 注册表 — 从 subagentconfig 扫描加载（不含 LLM 实例） */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import type { Priority } from '../shared/types'
+import { resolveSubAgentConfigRoot } from '../shared/prompt-loader'
+import { AppError, ErrorCode } from '../shared/errors'
 
 export type SubAgentModule = 'split' | 'verify'
 
 /**
  * Catalog 唯一形状。
- * IPC / Map 列表暴露时去掉 promptPath（运行时配置不进渲染进程）。
+ * IPC / Map 列表暴露时去掉 promptPath / tools（运行时配置不进渲染进程）。
  */
 export interface CatalogSubAgentEntry {
   agentName: string
@@ -15,69 +19,125 @@ export interface CatalogSubAgentEntry {
   displayLabel: string
   defaultPriority?: Priority
   description?: string
+  tools?: string[]
 }
 
-/** 给渲染进程 / Map 的目录项（无 promptPath）。 */
-export type CatalogSubAgent = Omit<CatalogSubAgentEntry, 'promptPath'>
+/** 给渲染进程 / Map 的目录项（无 promptPath / tools）。 */
+export type CatalogSubAgent = Omit<CatalogSubAgentEntry, 'promptPath' | 'tools'>
 
-export const SPLIT_SUB_AGENT_CATALOG: CatalogSubAgentEntry[] = [
-  {
-    agentName: '数据事实',
-    module: 'split',
-    promptPath: 'fact-extractor/sub-agents/data-claims',
-    displayLabel: '数据事实',
-    defaultPriority: 'high',
-    description: '提取数值、统计、日期等数据型事实',
-  },
-  {
-    agentName: '引用观点',
-    module: 'split',
-    promptPath: 'fact-extractor/sub-agents/quote-claims',
-    displayLabel: '引用观点',
-    defaultPriority: 'medium',
-    description: '抽取直接引语与当事人表态',
-  },
-  {
-    agentName: '因果关系',
-    module: 'split',
-    promptPath: 'fact-extractor/sub-agents/causal-claims',
-    displayLabel: '因果关系',
-    defaultPriority: 'low',
-    description: '提取因果与推断类陈述',
-  },
-]
+const MODULE_SUBAGENT_DIRS: Record<SubAgentModule, string> = {
+  split: 'fact-extractor/sub-agents',
+  verify: 'fact-verifier/sub-agents',
+}
 
-export const VERIFY_SUB_AGENT_CATALOG: CatalogSubAgentEntry[] = [
-  {
-    agentName: '来源可信度',
-    module: 'verify',
-    promptPath: 'fact-verifier/sub-agents/source-credibility',
-    displayLabel: '来源可信度',
-    defaultPriority: 'high',
-    description: '核对报道来源与原始出处',
-  },
-  {
-    agentName: '逻辑一致性',
-    module: 'verify',
-    promptPath: 'fact-verifier/sub-agents/logic-consistency',
-    displayLabel: '逻辑一致性',
-    defaultPriority: 'medium',
-    description: '检查事实内部逻辑是否自洽',
-  },
-  {
-    agentName: '数据可验证性',
-    module: 'verify',
-    promptPath: 'fact-verifier/sub-agents/data-verifiability',
-    displayLabel: '数据可验证性',
-    defaultPriority: 'low',
-    description: '核对数据是否可独立验证',
-  },
-]
+const PRIORITIES = new Set<Priority>(['high', 'medium', 'low'])
+
+const PRIORITY_RANK: Record<Priority, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+}
+
+
+interface SubAgentConfigFile {
+  agentName?: unknown
+  displayLabel?: unknown
+  defaultPriority?: unknown
+  description?: unknown
+  tools?: unknown
+  content?: unknown
+}
+
+const catalogCache = new Map<SubAgentModule, CatalogSubAgentEntry[]>()
+
+function isPriority(value: unknown): value is Priority {
+  return typeof value === 'string' && PRIORITIES.has(value as Priority)
+}
+
+function parseTools(raw: unknown, promptPath: string): string[] | undefined {
+  if (raw === undefined) return undefined
+  if (!Array.isArray(raw) || !raw.every((t) => typeof t === 'string')) {
+    throw new AppError(
+      ErrorCode.CONFIG_INVALID_SUBAGENT,
+      `Invalid tools in ${promptPath}.json: expected string[]`,
+    )
+  }
+  return raw.length > 0 ? raw : undefined
+}
+
+function loadModuleCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
+  const relativeDir = MODULE_SUBAGENT_DIRS[module]
+  const dir = path.join(resolveSubAgentConfigRoot(), relativeDir)
+  const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
+
+  const entries = files.map((file) => {
+    const promptPath = `${relativeDir}/${file.slice(0, -'.json'.length)}`
+    const fullPath = path.join(dir, file)
+    const raw = JSON.parse(readFileSync(fullPath, 'utf-8')) as SubAgentConfigFile
+
+    if (typeof raw.agentName !== 'string' || !raw.agentName.trim()) {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Missing agentName in ${promptPath}.json`,
+      )
+    }
+    if (typeof raw.displayLabel !== 'string' || !raw.displayLabel.trim()) {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Missing displayLabel in ${promptPath}.json`,
+      )
+    }
+    if (typeof raw.content !== 'string') {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Missing content in ${promptPath}.json`,
+      )
+    }
+    if (raw.defaultPriority !== undefined && !isPriority(raw.defaultPriority)) {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Invalid defaultPriority in ${promptPath}.json`,
+      )
+    }
+    if (raw.description !== undefined && typeof raw.description !== 'string') {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Invalid description in ${promptPath}.json`,
+      )
+    }
+
+    return {
+      agentName: raw.agentName,
+      module,
+      promptPath,
+      displayLabel: raw.displayLabel,
+      defaultPriority: isPriority(raw.defaultPriority) ? raw.defaultPriority : undefined,
+      description: typeof raw.description === 'string' ? raw.description : undefined,
+      tools: parseTools(raw.tools, promptPath),
+    }
+  })
+
+  return entries.sort((a, b) => {
+    const ra = a.defaultPriority ? PRIORITY_RANK[a.defaultPriority] : 99
+    const rb = b.defaultPriority ? PRIORITY_RANK[b.defaultPriority] : 99
+    return ra - rb || a.agentName.localeCompare(b.agentName, 'zh')
+  })
+}
 
 export function getSubAgentCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
-  return module === 'split' ? SPLIT_SUB_AGENT_CATALOG : VERIFY_SUB_AGENT_CATALOG
+  let entries = catalogCache.get(module)
+  if (!entries) {
+    entries = loadModuleCatalog(module)
+    catalogCache.set(module, entries)
+  }
+  return entries
+}
+
+/** 测试 / 热重载时清空缓存 */
+export function clearSubAgentCatalogCache(): void {
+  catalogCache.clear()
 }
 
 export function listCatalogEntries(module: SubAgentModule): CatalogSubAgent[] {
-  return getSubAgentCatalog(module).map(({ promptPath: _p, ...item }) => item)
+  return getSubAgentCatalog(module).map(({ promptPath: _p, tools: _t, ...item }) => item)
 }

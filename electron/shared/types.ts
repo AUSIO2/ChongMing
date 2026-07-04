@@ -32,9 +32,9 @@ export type Confidence = 1 | 0.5 | 0
 /** 执行模式 */
 export type ExecutionMode = 'auto' | 'human-in-loop'
 
-/** 提示词配置（对应 prompts/ 下的 JSON 文件） */
+/** 提示词配置（对应 subagentconfig/ 下的 JSON 文件；SubAgent 可含额外 catalog 字段） */
 export interface PromptConfig {
-  description: string
+  description?: string
   content: string
 }
 
@@ -63,12 +63,13 @@ export interface GraphConfig {
 
 /**
  * Map SubAgent 槽位参数 — 前后端唯一来源。
- * 图状态 routeInstructions 与 Map 节点 params 同形（字段名暂不改）。
+ * 图状态 routeInstructions 与 Map 节点 params 同形。
+ * instanceId 在 route 节点（withInstanceIds）或 Adapter addSubAgent 写入时补齐。
  */
 export interface MapSubAgentParams {
   agentName: string
   priority: Priority
   hint?: string
-  /** 稳定实例 id（Map 节点 id = subAgentId(instanceId)）；缺省由 route / Adapter 补齐 */
-  instanceId?: string
+  /** 稳定实例 id（Map 节点 id = subAgentId(instanceId)） */
+  instanceId: string
 }
