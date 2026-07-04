@@ -6,6 +6,7 @@ import type {
 } from '../shared/types'
 import type { GraphOpinion, GraphConfig } from './types'
 import { NewsModel } from '../shared/database'
+import { AppError, ErrorCode } from '../shared/errors'
 import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
 import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
 import {
@@ -81,11 +82,18 @@ function toConfidence(score: number): Confidence {
 /** 从 DB 加载 claim + 原文 + visibleContext */
 async function loadClaim(state: typeof VerifyGraphState.State) {
   const doc = await NewsModel.findById(state.newsId)
-  if (!doc) throw new Error(`News not found: ${state.newsId}`)
+  if (!doc) {
+    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
+  }
 
   const claims = doc.claims as unknown as Array<{ claimId: string; content: string }>
   const claim = claims.find(c => c.claimId === state.claimId)
-  if (!claim) throw new Error(`Claim not found: ${state.claimId} in news ${state.newsId}`)
+  if (!claim) {
+    throw new AppError(
+      ErrorCode.CLAIM_NOT_FOUND,
+      `Claim not found: ${state.claimId} in news ${state.newsId}`,
+    )
+  }
 
   const context = readNewsContext(doc)
   const visibleContext = extractVisibleContext(context)
@@ -197,7 +205,9 @@ async function writeVerifyResult(
   includeFinal = true,
 ) {
   const doc = await NewsModel.findById(state.newsId)
-  if (!doc) throw new Error(`News not found: ${state.newsId}`)
+  if (!doc) {
+    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
+  }
 
   const claims = doc.claims as unknown as Array<{
     claimId: string
@@ -205,7 +215,10 @@ async function writeVerifyResult(
   }>
   const claimIndex = claims.findIndex(c => c.claimId === state.claimId)
   if (claimIndex === -1) {
-    throw new Error(`Claim not found: ${state.claimId}`)
+    throw new AppError(
+      ErrorCode.CLAIM_NOT_FOUND,
+      `Claim not found: ${state.claimId}`,
+    )
   }
 
   claims[claimIndex].verifyResult = {

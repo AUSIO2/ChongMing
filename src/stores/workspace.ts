@@ -51,7 +51,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.loading = true
       try {
         const news = await api.news.create({
-          content: '',
+          content: '（请在此粘贴或编辑新闻正文）',
           context: {},
         })
         await this.loadNewsList()

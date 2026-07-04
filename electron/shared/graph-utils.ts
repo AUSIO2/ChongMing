@@ -1,6 +1,7 @@
-import { Send } from '@langchain/langgraph'
+import { Send, isGraphInterrupt } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ExecutionMode, MapSubAgentParams, AgentRuntimeConfig } from './types'
+import { ErrorCode, normalizeError } from './errors'
 import { loadPrompt, renderPrompt } from './prompt-loader'
 import { parseRouteInstructions, messageContentToString } from './llm-utils'
 
@@ -150,6 +151,20 @@ export interface GraphRunSession {
   loadNode?: string
   onProgress?: (event: GraphProgressEventLocal) => void
   fanoutEmitted?: boolean
+  /** 协作式取消：编排循环在安全点检查并退出 */
+  cancelled?: boolean
+}
+
+/** 单步执行 LangGraph API，失败时规范为 AppError 并附带 failedNode。 */
+async function graphStep<T>(failedNode: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (error) {
+    // interruptBefore / interrupt() 通过 GraphInterrupt 冒泡；invoke 通常会吞掉，
+    // 若仍漏出则绝不能当成业务失败。
+    if (isGraphInterrupt(error)) throw error
+    throw normalizeError(error, ErrorCode.GRAPH_EXECUTION_FAILED, { failedNode })
+  }
 }
 
 /** HITL 编排循环 — auto / human-in-loop 模式通用 */
@@ -169,7 +184,16 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
   }
 
   const initialMode = session?.mode ?? input.mode ?? 'auto'
-  await graph.invoke({ ...input, mode: initialMode } as Partial<TState>, config)
+  const loadLabel = session?.loadNode ?? 'load'
+
+  // 首段 invoke 跑 load + route（route 含 LLM，可能较久）；失败时标 load 节点
+  session?.onProgress?.({ event: 'node_enter', node: 'route' })
+  await graphStep(loadLabel, () =>
+    graph.invoke({ ...input, mode: initialMode } as Partial<TState>, config),
+  )
+  if (session?.cancelled) {
+    return (await graph.getState(config)).values as TState
+  }
 
   if (session?.onProgress && session.loadNode) {
     session.onProgress({ event: 'node_exit', node: session.loadNode })
@@ -178,7 +202,11 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const snapshot = await graph.getState(config)
+    if (session?.cancelled) {
+      return (await graph.getState(config)).values as TState
+    }
+
+    const snapshot = await graphStep('checkpoint', () => graph.getState(config))
 
     if (!snapshot.next || snapshot.next.length === 0) {
       if (session?.onProgress) {
@@ -192,7 +220,9 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
     const effectiveMode = session?.mode ?? currentState.mode ?? 'auto'
 
     if (session && effectiveMode !== currentState.mode) {
-      await graph.updateState(config, { mode: effectiveMode } as Partial<TState>)
+      await graphStep(nextNode, () =>
+        graph.updateState(config, { mode: effectiveMode } as Partial<TState>),
+      )
     }
 
     if (
@@ -217,16 +247,23 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
 
     if (effectiveMode === 'human-in-loop') {
       const modifications = await callbacks.onInterrupt(currentState, nextNode)
+      // 取消：interrupt 返回后立刻退出，禁止继续 invoke
+      if (session?.cancelled) {
+        return currentState
+      }
       if (modifications) {
         if (session && modifications.mode) {
           session.mode = modifications.mode
         }
-        await graph.updateState(config, modifications)
+        await graphStep(nextNode, () => graph.updateState(config, modifications))
       }
     }
 
     session?.onProgress?.({ event: 'node_enter', node: nextNode })
-    await graph.invoke(null, config)
+    await graphStep(nextNode, () => graph.invoke(null, config))
+    if (session?.cancelled) {
+      return (await graph.getState(config)).values as TState
+    }
     session?.onProgress?.({ event: 'node_exit', node: nextNode })
   }
 }

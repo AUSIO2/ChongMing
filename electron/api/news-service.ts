@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { NewsModel } from '../shared/database'
+import { AppError, ErrorCode } from '../shared/errors'
 import type {
   CreateNewsInput,
   DisplayNews,
@@ -39,7 +40,9 @@ export async function updateNews(
   patch: UpdateNewsInput,
 ): Promise<DisplayNews> {
   const doc = await NewsModel.findById(newsId)
-  if (!doc) throw new Error(`News not found: ${newsId}`)
+  if (!doc) {
+    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${newsId}`)
+  }
 
   if (patch.content !== undefined) {
     doc.set('content', patch.content)

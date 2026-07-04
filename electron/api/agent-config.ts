@@ -1,5 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import { AppError, ErrorCode } from '../shared/errors'
 import type { GraphConfig, AgentRuntimeConfig } from '../shared/types'
 import {
   SPLIT_SUB_AGENT_CATALOG,
@@ -15,13 +16,18 @@ function toSubAgentConfig(entry: CatalogSubAgentEntry): AgentRuntimeConfig {
 export function createDefaultModel(): BaseChatModel {
   const apiKey = process.env.DEEPSEEK_API_KEY
   if (!apiKey) {
-    throw new Error('DEEPSEEK_API_KEY 未设置，请在项目根目录 .env 中配置')
+    throw new AppError(
+      ErrorCode.CONFIG_API_KEY_MISSING,
+      'DEEPSEEK_API_KEY 未设置，请在项目根目录 .env 中配置',
+    )
   }
 
   return new ChatOpenAI({
     model: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash',
     apiKey,
     temperature: 0,
+    timeout: 60_000,
+    maxRetries: 1,
     configuration: {
       baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
     },

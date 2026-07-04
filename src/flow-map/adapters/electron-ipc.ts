@@ -2,6 +2,7 @@
  * Electron IPC Adapter — 把真实 LangGraph 双图投影为 MapSnapshot。
  * UI / Port 永不直接碰 startSplit / startVerify / routeInstructions。
  */
+import { AppError, ErrorCode, toAppError } from '../../../electron/shared/errors'
 import type { AddSubAgentInput, MapAPI, UpdateNodeParamsInput } from '../api'
 import {
   NEWS_ROOT_ID,
@@ -212,7 +213,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       pushSubAgent(nodes, edges, NEWS_ROOT_ID, route)
     }
 
-    // —— Claims：优先 merge 游标（与 focus id 对齐），否则已落库 ——
+    // —— Claims：merge 结果 → SubAgent 草稿（merge 前）→ 已落库 ——
     if (splitState?.mergedClaims?.length) {
       splitState.mergedClaims.forEach((c, index) => {
         const id = mergedClaimNodeId(index)
@@ -227,6 +228,22 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
           dataPhase: persisted ? 'persisted' : 'workerOut',
         })
       })
+    } else if (splitState?.subAgentResults?.length) {
+      // interrupt before merge：SubAgent 已产出，挂在对应 subAgent 下供校验
+      let draftSeq = 0
+      for (const result of splitState.subAgentResults) {
+        const parentId = resolveClaimParent(nodes, result.agentName, splitRoutes)
+        for (const c of result.claims) {
+          pushClaim(nodes, edges, {
+            id: `draft:${draftSeq++}`,
+            parentId,
+            content: c.content,
+            category: c.category,
+            sourceAgent: c.sourceAgent ?? result.agentName,
+            dataPhase: 'workerOut',
+          })
+        }
+      }
     } else {
       for (const c of news.claims) {
         const parentId = resolveClaimParent(nodes, c.sourceAgent, splitRoutes)
@@ -433,27 +450,37 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         } catch (e) {
           const meta = getMeta(newsId)
           meta.phase = 'error'
-          meta.error = e instanceof Error ? e.message : String(e)
+          meta.error = toAppError(e).msg
         }
         emit(newsId)
       })()
     })
 
     api.events.onError((payload) => {
-      for (const [newsId, run] of lastRun) {
-        if (run.runId !== payload.runId) continue
-        const meta = getMeta(newsId)
-        meta.phase = 'error'
-        meta.error = payload.error
-        emit(newsId)
-        break
-      }
+      const meta = getMeta(payload.newsId)
+      meta.phase = 'error'
+      meta.error = payload.failedNode
+        ? `[${payload.failedNode}] ${payload.msg}`
+        : payload.msg
+      lastRun.delete(payload.newsId)
+      emit(payload.newsId)
     })
 
     api.events.onProgress((payload) => {
-      for (const [newsId, run] of lastRun) {
-        if (run.runId === payload.runId) emit(newsId)
+      const meta = getMeta(payload.newsId)
+      if (!meta.error && meta.phase !== 'interrupted' && meta.phase !== 'completed') {
+        meta.phase = 'running'
       }
+      // 确保 progress 早于 startRun 返回时也能刷新（不依赖 lastRun 竞态）
+      if (!lastRun.has(payload.newsId)) {
+        lastRun.set(payload.newsId, {
+          runId: payload.runId,
+          newsId: payload.newsId,
+          graphType: payload.graphType,
+          mode: meta.mode,
+        })
+      }
+      emit(payload.newsId)
     })
   }
 
@@ -472,7 +499,10 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     async addSubAgent(input: AddSubAgentInput) {
       const snap = await project(input.newsId)
       if (!canAddSubAgentPure(snap, input.parentNodeId)) {
-        throw new Error(`cannot add SubAgent under ${input.parentNodeId}`)
+        throw new AppError(
+          ErrorCode.MAP_CANNOT_ADD_SUBAGENT,
+          `cannot add SubAgent under ${input.parentNodeId}`,
+        )
       }
       const route: MapSubAgentParams = {
         agentName: input.params.agentName,
@@ -505,10 +535,18 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     async updateNodeParams(input: UpdateNodeParamsInput) {
       const snap = await project(input.newsId)
       if (!canEditNodePure(snap, input.nodeId)) {
-        throw new Error(`cannot edit ${input.nodeId}`)
+        throw new AppError(
+          ErrorCode.MAP_CANNOT_EDIT_NODE,
+          `cannot edit ${input.nodeId}`,
+        )
       }
       const node = snap.nodes.find(n => n.id === input.nodeId)
-      if (!node) throw new Error(`node not found: ${input.nodeId}`)
+      if (!node) {
+        throw new AppError(
+          ErrorCode.MAP_NODE_NOT_FOUND,
+          `node not found: ${input.nodeId}`,
+        )
+      }
 
       if (node.kind === 'news') {
         const content = (input.params as { content?: string }).content
@@ -560,7 +598,10 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     async removeNode(input) {
       const snap = await project(input.newsId)
       if (!canRemoveNodePure(snap, input.nodeId)) {
-        throw new Error(`cannot remove ${input.nodeId}`)
+        throw new AppError(
+          ErrorCode.MAP_CANNOT_REMOVE_NODE,
+          `cannot remove ${input.nodeId}`,
+        )
       }
       const pending = pendingByNews.get(input.newsId) ?? []
       pendingByNews.set(
@@ -590,26 +631,39 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       if (mode) meta.mode = mode
       meta.error = undefined
       meta.phase = 'running'
+      lastRun.delete(newsId)
 
-      const routeInstructions = pendingRoutesFor(newsId, NEWS_ROOT_ID)
-      const { runId } = await api.graph.startSplit({
-        newsId,
-        mode: meta.mode,
-        ...(routeInstructions.length ? { routeInstructions } : {}),
-      })
-      lastRun.set(newsId, {
-        runId,
-        newsId,
-        graphType: 'split',
-        mode: meta.mode,
-      })
-      emit(newsId)
-      return { runId, snapshot: await project(newsId) }
+      try {
+        const routeInstructions = pendingRoutesFor(newsId, NEWS_ROOT_ID)
+        const { runId } = await api.graph.startSplit({
+          newsId,
+          mode: meta.mode,
+          ...(routeInstructions.length ? { routeInstructions } : {}),
+        })
+        lastRun.set(newsId, {
+          runId,
+          newsId,
+          graphType: 'split',
+          mode: meta.mode,
+        })
+        emit(newsId)
+        return { runId, snapshot: await project(newsId) }
+      } catch (e) {
+        meta.phase = 'error'
+        meta.error = toAppError(e).msg
+        lastRun.delete(newsId)
+        emit(newsId)
+        throw e
+      }
     },
 
     async continueStep(newsId) {
       const active = (await api.graph.getActiveRun(newsId)) ?? lastRun.get(newsId)
       if (!active?.runId) return project(newsId)
+      // 已在执行中（无焦点）→ 忽略连点
+      if (active.focus == null && getMeta(newsId).phase === 'running') {
+        return project(newsId)
+      }
 
       const cached = lastRun.get(newsId)
       const state = cached?.state
@@ -620,7 +674,16 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
           }
         : null
 
+      // 先切到 running 并清焦点，再 resume，避免 UI 仍显示 interrupted
       getMeta(newsId).phase = 'running'
+      lastRun.set(newsId, {
+        runId: active.runId,
+        newsId,
+        graphType: active.graphType,
+        mode: active.mode,
+        state: cached?.state,
+      })
+      emit(newsId)
       await api.graph.resume(active.runId, modifications)
       return project(newsId)
     },

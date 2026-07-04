@@ -9,21 +9,37 @@ const store = useFlowMapStore()
 const { snapshot, runPhase, mode, isRunning, isInterrupted } = storeToRefs(store)
 
 const label = computed(() => RUN_PHASE_LABEL[runPhase.value])
-const canRun = computed(() => !!snapshot.value && runPhase.value === 'idle')
-const runDisabledReason = computed(() => {
-  if (!snapshot.value) return '等待新闻加载…'
-  if (runPhase.value === 'running' || runPhase.value === 'interrupted') return '流程进行中'
-  if (runPhase.value === 'completed') return '已完成（取消可回到空闲）'
-  if (runPhase.value === 'error') return '出错（取消可回到空闲）'
+
+/** 主按钮：idle/error → 运行；interrupted → 继续 */
+const primaryAction = computed<'run' | 'continue' | null>(() => {
+  if (!snapshot.value) return null
+  if (runPhase.value === 'idle' || runPhase.value === 'error') return 'run'
+  if (runPhase.value === 'interrupted') return 'continue'
   return null
 })
-const canContinue = computed(() => isInterrupted.value)
+
+const primaryLabel = computed(() =>
+  primaryAction.value === 'continue' ? '继续' : '运行',
+)
+
+const primaryDisabled = computed(() => primaryAction.value == null)
+
+const primaryHint = computed(() => {
+  if (!snapshot.value) return '等待新闻加载…'
+  if (runPhase.value === 'running') return '执行中（调用模型，请稍候或取消）'
+  if (runPhase.value === 'interrupted') return '已暂停，点主按钮推进下一步'
+  if (runPhase.value === 'completed') return '已完成（取消可回到空闲）'
+  if (runPhase.value === 'error') return '上次出错，可重新运行'
+  return null
+})
+
 const canCancel = computed(
   () => runPhase.value === 'running'
     || runPhase.value === 'interrupted'
     || runPhase.value === 'completed'
     || runPhase.value === 'error',
 )
+
 const focusText = computed(() => {
   const s = snapshot.value
   if (!s?.activeNodeId) return ''
@@ -42,6 +58,16 @@ function onModeChange(ev: Event) {
   const v = (ev.target as HTMLSelectElement).value as ExecutionMode
   void store.setMode(v)
 }
+
+function onPrimary() {
+  if (primaryAction.value === 'continue') {
+    void store.continueStep()
+    return
+  }
+  if (primaryAction.value === 'run') {
+    void store.startRun()
+  }
+}
 </script>
 
 <template>
@@ -59,18 +85,18 @@ function onModeChange(ev: Event) {
     <div class="btn-row">
       <button
         class="primary"
-        :disabled="!canRun"
-        :title="runDisabledReason ?? ''"
-        @click="store.startRun()"
+        :class="{ continue: isInterrupted }"
+        :disabled="primaryDisabled"
+        :title="primaryHint ?? ''"
+        @click="onPrimary"
       >
-        运行
+        {{ primaryLabel }}
       </button>
-      <button class="primary" :disabled="!canContinue" @click="store.continueStep()">继续</button>
       <button v-if="canCancel" @click="store.cancelRun()">取消</button>
     </div>
 
     <span v-if="focusText" class="graph-tag">{{ focusText }}</span>
-    <span v-else-if="runDisabledReason" class="graph-tag">{{ runDisabledReason }}</span>
+    <span v-else-if="primaryHint" class="graph-tag">{{ primaryHint }}</span>
   </div>
 </template>
 
@@ -105,6 +131,7 @@ function onModeChange(ev: Event) {
 
 button { cursor: pointer; padding: 4px 10px; border-radius: 3px; border: 1px solid var(--border-subtle); background: var(--bg-panel); }
 button.primary { background: var(--accent, #2563eb); color: #fff; border: none; }
+button.primary.continue { background: var(--warning, #d97706); }
 button[disabled] { opacity: 0.5; cursor: not-allowed; }
 
 .graph-tag { font-size: var(--ui-font-size); color: var(--text-dim); }

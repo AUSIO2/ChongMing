@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from './channels'
 import * as newsService from './news-service'
 import * as graphService from './graph-service'
 import { listCatalogEntries } from './sub-agent-catalog'
+import { normalizeError, serializeAppError } from '../shared/errors'
 import type { ExecutionMode } from '../shared/types'
 import type {
   CreateNewsInput,
@@ -15,68 +16,78 @@ import type {
 
 type WindowGetter = () => BrowserWindow | null
 
+/** IPC 全局异常捕获：业务抛 AppError，未知错误规范化后序列化给渲染进程。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handle(channel: string, fn: (...args: any[]) => unknown): void {
+  ipcMain.handle(channel, async (_event, ...args) => {
+    try {
+      return await fn(...args)
+    } catch (error) {
+      throw serializeAppError(normalizeError(error))
+    }
+  })
+}
+
 export function registerIpcHandlers(getWindow: WindowGetter): void {
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.NEWS_CREATE,
-    (_event, input: CreateNewsInput) => newsService.createNews(input),
+    (input: CreateNewsInput) => newsService.createNews(input),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.NEWS_LIST,
     () => newsService.listNews(),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.NEWS_GET,
-    (_event, newsId: string) => newsService.getNews(newsId),
+    (newsId: string) => newsService.getNews(newsId),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.NEWS_UPDATE,
-    (_event, newsId: string, patch: UpdateNewsInput) =>
+    (newsId: string, patch: UpdateNewsInput) =>
       newsService.updateNews(newsId, patch),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.CATALOG_LIST,
-    (_event, module: 'split' | 'verify') => listCatalogEntries(module),
+    (module: 'split' | 'verify') => listCatalogEntries(module),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.GRAPH_START_SPLIT,
-    (_event, input: StartSplitInput) =>
-      graphService.startSplit(input, getWindow),
+    (input: StartSplitInput) => graphService.startSplit(input, getWindow),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.GRAPH_START_VERIFY,
-    (_event, input: StartVerifyInput) =>
-      graphService.startVerify(input, getWindow),
+    (input: StartVerifyInput) => graphService.startVerify(input, getWindow),
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.GRAPH_RESUME,
-    (_event, runId: string, modifications: GraphStatePatch) => {
+    (runId: string, modifications: GraphStatePatch) => {
       graphService.resumeGraph(runId, modifications)
     },
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.GRAPH_SET_MODE,
-    async (_event, runId: string, mode: ExecutionMode) => {
+    async (runId: string, mode: ExecutionMode) => {
       await graphService.setGraphMode(runId, mode)
     },
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.GRAPH_CANCEL,
-    (_event, runId: string) => {
+    (runId: string) => {
       graphService.cancelGraph(runId)
     },
   )
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN,
-    (_event, newsId: string) => graphService.getActiveRun(newsId),
+    (newsId: string) => graphService.getActiveRun(newsId),
   )
 }

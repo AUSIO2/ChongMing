@@ -9,7 +9,7 @@ import type {
   UpdateNodeParamsPatch,
 } from '../flow-map'
 import { NEWS_ROOT_ID, getMapAPI } from '../flow-map'
-import { errorMessage as toErrorMessage } from '../../electron/shared/errors'
+import { toAppError } from '../../electron/shared/errors'
 
 /**
  * Map 层 Pinia store。
@@ -47,7 +47,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = await getMapAPI().getSnapshot(newsId)
       errorMessage.value = null
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
@@ -61,7 +61,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       catalog.value = await getMapAPI().getSubAgentCatalog(parentNodeId)
       catalogParent.value = parentNodeId
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
@@ -75,7 +75,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().addSubAgent({ newsId, parentNodeId, params })
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
@@ -85,7 +85,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().updateNodeParams({ newsId, nodeId, params })
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
@@ -96,7 +96,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = await getMapAPI().removeNode({ newsId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
@@ -107,17 +107,23 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       const { snapshot: next } = await getMapAPI().startRun(newsId, mode.value)
       snapshot.value = next
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
+  let continueInFlight = false
+
   async function continueStep() {
     const newsId = currentNewsId.value
-    if (!newsId) return
+    if (!newsId || continueInFlight) return
+    if (runPhase.value !== 'interrupted') return
+    continueInFlight = true
     try {
       snapshot.value = await getMapAPI().continueStep(newsId)
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
+    } finally {
+      continueInFlight = false
     }
   }
 
@@ -127,7 +133,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().cancel(newsId)
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 
@@ -137,7 +143,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await getMapAPI().setMode(newsId, next)
     } catch (e) {
-      errorMessage.value = toErrorMessage(e)
+      errorMessage.value = toAppError(e).msg
     }
   }
 

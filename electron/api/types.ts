@@ -5,6 +5,7 @@ import type {
   Priority,
   MapSubAgentParams,
 } from '../shared/types'
+import type { ErrorCode } from '../shared/errors'
 import type { CatalogSubAgent } from './sub-agent-catalog'
 
 export type { Confidence, ExecutionMode, NewsContext, Priority, MapSubAgentParams }
@@ -184,14 +185,18 @@ export interface GraphCompletedPayload {
 
 export interface GraphErrorPayload {
   runId: string
+  newsId: string
   graphType: GraphType
-  error: string
+  code: ErrorCode
+  msg: string
+  failedNode?: string
 }
 
 export type GraphProgressEvent = 'node_enter' | 'node_exit' | 'fanout_spawn'
 
 export interface GraphProgressPayload {
   runId: string
+  newsId: string
   graphType: GraphType
   event: GraphProgressEvent
   node: string

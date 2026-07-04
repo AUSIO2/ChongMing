@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindow } from 'electron'
 import type { ExecutionMode } from '../shared/types'
-import { errorMessage } from '../shared/errors'
+import { AppError, ErrorCode, normalizeError } from '../shared/errors'
 import type { GraphRunSession } from '../shared/graph-utils'
 import {
   buildSplitGraph,
@@ -149,6 +149,9 @@ function createInterruptHandler(
       state,
     }
 
+    console.log(
+      `[graph:${graphType}] interrupt runId=${runId} next=${payload.nextNode}`,
+    )
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_INTERRUPTED, payload)
 
     const modifications = await waitForResume(runId)
@@ -163,11 +166,15 @@ function createInterruptHandler(
 
 function sendProgress(
   getWindow: WindowGetter,
-  runId: string,
-  graphType: GraphType,
+  run: ActiveRun,
   event: GraphProgressEventLocal,
 ): void {
-  const payload: GraphProgressPayload = { runId, graphType, ...event }
+  const payload: GraphProgressPayload = {
+    runId: run.runId,
+    newsId: run.newsId,
+    graphType: run.graphType,
+    ...event,
+  }
   sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_PROGRESS, payload)
 }
 
@@ -175,7 +182,7 @@ function attachProgressHandlers(
   run: ActiveRun,
   getWindow: WindowGetter,
 ): void {
-  run.onProgress = event => sendProgress(getWindow, run.runId, run.graphType, event)
+  run.onProgress = event => sendProgress(getWindow, run, event)
 }
 
 function createRunSession(
@@ -214,14 +221,18 @@ async function executeRun<TState>(opts: {
   const { runId, graphType, getWindow, loadNode } = opts
   const run = activeRuns.get(runId)!
   attachProgressHandlers(run, getWindow)
-  sendProgress(getWindow, runId, graphType, { event: 'node_enter', node: loadNode })
+  console.log(`[graph:${graphType}] 开始 runId=${runId} newsId=${run.newsId}`)
+  sendProgress(getWindow, run, { event: 'node_enter', node: loadNode })
   try {
     const result = await opts.runGraph(
       createInterruptHandler(runId, graphType, getWindow),
       run,
     )
 
-    if (activeRuns.get(runId)?.cancelled) return
+    if (activeRuns.get(runId)?.cancelled) {
+      console.log(`[graph:${graphType}] 已取消 runId=${runId}`)
+      return
+    }
 
     const payload: GraphCompletedPayload = {
       runId,
@@ -231,12 +242,21 @@ async function executeRun<TState>(opts: {
     if (opts.logDone) console.log(opts.logDone(result))
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
   } catch (error) {
-    const message = errorMessage(error)
-    console.error(`[graph:${graphType}] 失败 runId=${runId}:`, message)
+    const appError = normalizeError(error, ErrorCode.GRAPH_EXECUTION_FAILED)
+    console.error(
+      `[graph:${graphType}] 失败 runId=${runId} code=${appError.code}`
+      + (appError.failedNode ? ` node=${appError.failedNode}` : '')
+      + `:`,
+      appError.msg,
+      appError.cause ?? '',
+    )
     const payload: GraphErrorPayload = {
       runId,
+      newsId: run.newsId,
       graphType,
-      error: message,
+      code: appError.code,
+      msg: appError.msg,
+      ...(appError.failedNode ? { failedNode: appError.failedNode } : {}),
     }
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_ERROR, payload)
   } finally {
@@ -315,11 +335,17 @@ export function getActiveRun(newsId: string): GraphActiveRun | null {
   return null
 }
 
+/** 恢复挂起的 interrupt。重复 resume 视为幂等 no-op（避免连点报错）。 */
 export function resumeGraph(runId: string, modifications: GraphStatePatch): void {
   const run = activeRuns.get(runId)
-  if (!run?.resumeResolve) {
-    throw new Error(`No pending interrupt for run: ${runId}`)
+  if (!run) {
+    throw new AppError(ErrorCode.GRAPH_RUN_NOT_FOUND, `Run not found: ${runId}`)
   }
+  if (!run.resumeResolve) {
+    return
+  }
+  // 立刻清焦点，避免 getActiveRun 仍返回 interrupted 导致可连点「继续」
+  run.lastInterrupt = undefined
   const resolve = run.resumeResolve
   run.resumeResolve = null
   resolve(modifications)
@@ -328,7 +354,9 @@ export function resumeGraph(runId: string, modifications: GraphStatePatch): void
 /** 运行中随时切换 auto / human-in-loop */
 export async function setGraphMode(runId: string, mode: ExecutionMode): Promise<void> {
   const run = activeRuns.get(runId)
-  if (!run) throw new Error(`Run not found: ${runId}`)
+  if (!run) {
+    throw new AppError(ErrorCode.GRAPH_RUN_NOT_FOUND, `Run not found: ${runId}`)
+  }
 
   run.mode = mode
 
@@ -338,6 +366,7 @@ export async function setGraphMode(runId: string, mode: ExecutionMode): Promise<
 
   // 切到 auto 且当前正挂起等待审核 → 自动继续
   if (mode === 'auto' && run.resumeResolve) {
+    run.lastInterrupt = undefined
     const resolve = run.resumeResolve
     run.resumeResolve = null
     resolve({ mode: 'auto' })
@@ -349,6 +378,7 @@ export function cancelGraph(runId: string): void {
   if (!run) return
 
   run.cancelled = true
+  run.lastInterrupt = undefined
   if (run.resumeResolve) {
     const resolve = run.resumeResolve
     run.resumeResolve = null

@@ -7,6 +7,7 @@ import type {
   ExecutionMode,
 } from './types'
 import { NewsModel } from '../shared/database'
+import { AppError, ErrorCode } from '../shared/errors'
 import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
 import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
 import {
@@ -73,7 +74,9 @@ const SplitGraphState = Annotation.Root({
 /** 从 DB 加载文档，提取 visibleContext */
 async function loadNews(state: typeof SplitGraphState.State) {
   const doc = await NewsModel.findById(state.newsId)
-  if (!doc) throw new Error(`News not found: ${state.newsId}`)
+  if (!doc) {
+    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
+  }
 
   const context = readNewsContext(doc)
   const visibleContext = extractVisibleContext(context)
@@ -173,7 +176,9 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
   if (!raw) return { saveIndex: index }
 
   const doc = await NewsModel.findById(state.newsId)
-  if (!doc) throw new Error(`News not found: ${state.newsId}`)
+  if (!doc) {
+    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
+  }
 
   const claimId = mergedClaimNodeId(index)
   const existing = (doc.get('claims') as Array<{ claimId: string }> | undefined) ?? []
