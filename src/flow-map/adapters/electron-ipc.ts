@@ -233,10 +233,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       // 核查槽：instanceId 带 claimId，同名多槽不碰撞，且与 applyVerifyState 一致
       const parent = doc.nodes.find(n => n.id === input.parentNodeId)
       if (parent?.kind === 'claim') {
-        instanceId = scopedVerifyInstanceId(parent.id, {
-          agentName: input.params.agentName,
-          instanceId,
-        })
+        instanceId = scopedVerifyInstanceId(parent.id, { instanceId })
       }
       const route: MapSubAgentParams = {
         agentName: input.params.agentName,

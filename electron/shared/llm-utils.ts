@@ -57,11 +57,16 @@ export function parseJsonFromLLM<T>(raw: string): T | null {
 
 const VALID_PRIORITIES = new Set(['high', 'medium', 'low'])
 
+/** AI route 输出（尚无 instanceId；由 withInstanceIds 补齐）。 */
+export type RouteInstructionDraft = Omit<MapSubAgentParams, 'instanceId'> & {
+  instanceId?: string
+}
+
 /** 解析并校验 route 节点返回的路由指令 */
 export function parseRouteInstructions(
   raw: string,
   availableAgents: AgentRuntimeConfig[],
-): MapSubAgentParams[] {
+): RouteInstructionDraft[] {
   const parsed = parseJsonFromLLM<unknown>(raw)
   if (!Array.isArray(parsed)) return []
 
@@ -84,6 +89,7 @@ export function parseRouteInstructions(
       agentName,
       priority: priority as MapSubAgentParams['priority'],
       hint: typeof record.hint === 'string' ? record.hint : undefined,
+      instanceId: typeof record.instanceId === 'string' ? record.instanceId : undefined,
     }]
   })
 }

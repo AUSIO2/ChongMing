@@ -11,8 +11,8 @@ export interface AddSubAgentInput {
   newsId: string
   /** 父节点 id：NEWS_ROOT_ID → 新增拆分 SubAgent；已持久化 claim id → 该事实的核查 SubAgent。 */
   parentNodeId: string
-  /** 槽位参数；instanceId 可由调用方省略，Adapter 补齐。 */
-  params: MapSubAgentParams
+  /** 槽位参数；instanceId 省略时由 Adapter 补齐。 */
+  params: Omit<MapSubAgentParams, 'instanceId'> & { instanceId?: string }
 }
 
 /** SubAgent 仅允许改 priority / hint；agentName / instanceId 加槽后固定。 */

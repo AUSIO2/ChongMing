@@ -135,7 +135,7 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
       subAgentOpinions: [
         {
           agentName: agentConfig.name,
-          instanceId: instruction.instanceId ?? agentConfig.name,
+          instanceId: instruction.instanceId,
           priority: instruction.priority,
           score: toConfidence(Number(opinion.score)),
           reason: typeof opinion.reason === 'string' ? opinion.reason : '',

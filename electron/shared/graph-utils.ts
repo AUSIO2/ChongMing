@@ -68,7 +68,10 @@ export function createDynamicFanOut<T extends { routeInstructions: MapSubAgentPa
   }
 }
 
-function withInstanceIds(instructions: MapSubAgentParams[]): MapSubAgentParams[] {
+/** 写路径唯一补齐：AI route 常不带 instanceId。 */
+function withInstanceIds(
+  instructions: Array<Omit<MapSubAgentParams, 'instanceId'> & { instanceId?: string }>,
+): MapSubAgentParams[] {
   return instructions.map((inst, index) => ({
     ...inst,
     instanceId: inst.instanceId ?? `${inst.agentName}#${index + 1}`,

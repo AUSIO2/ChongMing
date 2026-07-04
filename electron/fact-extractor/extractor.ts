@@ -113,7 +113,7 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
         {
           agentName: agentConfig.name,
           priority: instruction.priority,
-          instanceId: instruction.instanceId ?? agentConfig.name,
+          instanceId: instruction.instanceId,
           claims,
           rawResponse,
         },
@@ -194,11 +194,17 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
 
   const claimId = mergedClaimNodeId(index)
   const existing = (doc.get('claims') as Array<{ claimId: string }> | undefined) ?? []
+  if (!raw.sourceAgent) {
+    throw new AppError(
+      ErrorCode.GRAPH_EXECUTION_FAILED,
+      `Claim missing sourceAgent at saveIndex ${index}`,
+    )
+  }
   const entry = {
     claimId,
     content: raw.content,
     category: raw.category,
-    sourceAgent: raw.sourceAgent ?? 'merge',
+    sourceAgent: raw.sourceAgent,
   }
   const nextClaims = existing.filter(c => c.claimId !== claimId)
   nextClaims.push(entry)
@@ -209,20 +215,10 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
   const nextIndex = index + 1
   if (nextIndex >= state.mergedClaims.length) {
     // 槽位历史 + SubAgent 产出，供 Map 从 DB 重建完整拓扑
-    const routes = state.routeInstructions ?? []
-    const subAgentResults = state.subAgentResults.map((r) => {
-      const match = routes.find(
-        inst => inst.instanceId === r.instanceId || inst.agentName === r.agentName,
-      )
-      return {
-        ...r,
-        instanceId: r.instanceId ?? match?.instanceId ?? r.agentName,
-      }
-    })
     doc.set('splitMeta', {
       model: 'langgraph',
-      routeInstructions: routes,
-      subAgentResults,
+      routeInstructions: state.routeInstructions,
+      subAgentResults: state.subAgentResults,
       rawMergeResponse: state.rawMergeResponse,
       splitAt: new Date(),
     })

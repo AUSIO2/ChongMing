@@ -11,10 +11,7 @@ import type {
 import { NEWS_ROOT_ID, getMapAPI } from '../flow-map'
 import { toAppError } from '../../electron/shared/errors'
 
-/**
- * Map 层 Pinia store。
- * 完全基于 MapAPI，不引用 legacy workspace store 或 flow-graph store。
- */
+/** Map 层 Pinia store（基于 MapAPI）。 */
 export const useFlowMapStore = defineStore('flow-map', () => {
   const currentNewsId = ref<string | null>(null)
   const snapshot = shallowRef<MapSnapshot | null>(null)
@@ -69,7 +66,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     await loadCatalogFor(NEWS_ROOT_ID)
   }
 
-  async function addSubAgent(parentNodeId: string, params: MapSubAgentParams) {
+  async function addSubAgent(
+    parentNodeId: string,
+    params: Omit<MapSubAgentParams, 'instanceId'> & { instanceId?: string },
+  ) {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {

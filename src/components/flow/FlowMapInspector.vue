@@ -6,7 +6,6 @@ import { NEWS_ROOT_ID, canAddSubAgent, canEditNode, canRemoveNode } from '../../
 import type {
   MapNode,
   Priority,
-  MapSubAgentParams,
   CatalogSubAgent,
 } from '../../flow-map'
 
@@ -70,11 +69,10 @@ function beginAddFor(parentNodeId: string) {
 
 async function confirmAdd(parentNodeId: string) {
   if (!draftAgent.value) return
-  const params: MapSubAgentParams = {
+  await store.addSubAgent(parentNodeId, {
     agentName: draftAgent.value.agentName,
     priority: draftAgent.value.defaultPriority ?? 'medium',
-  }
-  await store.addSubAgent(parentNodeId, params)
+  })
   showAddPanel.value = false
   draftAgent.value = null
 }

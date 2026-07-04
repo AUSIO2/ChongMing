@@ -15,14 +15,14 @@ export function subAgentId(instanceId: string): string {
   return `sub:${instanceId}`
 }
 
-/** MapSubAgentParams → 稳定 instanceId（缺省用 agentName）。 */
-export function routeInstanceId(route: Pick<MapSubAgentParams, 'agentName' | 'instanceId'>): string {
-  return route.instanceId ?? route.agentName
+/** MapSubAgentParams → 稳定 instanceId。 */
+export function routeInstanceId(route: Pick<MapSubAgentParams, 'instanceId'>): string {
+  return route.instanceId
 }
 
 /** MapSubAgentParams → Map subAgent 节点 id。 */
-export function routeNodeId(route: Pick<MapSubAgentParams, 'agentName' | 'instanceId'>): string {
-  return subAgentId(routeInstanceId(route))
+export function routeNodeId(route: Pick<MapSubAgentParams, 'instanceId'>): string {
+  return subAgentId(route.instanceId)
 }
 
 /** merge 后 / 落库 claim 的节点 id（saveIndex 为 mergedClaims 下标）。 */
@@ -45,13 +45,13 @@ export function verifyInstanceId(claimId: string, agentName: string, seq = 1): s
 }
 
 /**
- * 将 route 规范为 claim 作用域内唯一 instanceId。
- * 保留 route 自带的后缀（如 agentName#2），允许同一 claim 下多个同名 SubAgent。
+ * 将 route 的 instanceId 规范为 claim 作用域内唯一 id。
+ * AI route（withInstanceIds）产出未加前缀的 id；Map Adapter / draft 同步后可能已带 claimId: 前缀。
  */
 export function scopedVerifyInstanceId(
   claimId: string,
-  route: Pick<MapSubAgentParams, 'agentName' | 'instanceId'>,
+  route: Pick<MapSubAgentParams, 'instanceId'>,
 ): string {
-  const base = routeInstanceId(route)
+  const base = route.instanceId
   return base.startsWith(`${claimId}:`) ? base : `${claimId}:${base}`
 }

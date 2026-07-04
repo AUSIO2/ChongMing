@@ -19,7 +19,7 @@ export type {
 export interface GraphOpinion {
   agentName: string
   /** 与 routeInstructions 槽位对应，同名多槽时区分父节点 */
-  instanceId?: string
+  instanceId: string
   priority: Priority
   score: Confidence
   reason: string

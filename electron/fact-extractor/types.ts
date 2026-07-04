@@ -36,7 +36,7 @@ export interface PersistClaim {
 export interface GraphSplitRecord {
   agentName: string
   priority: Priority
-  instanceId?: string
+  instanceId: string
   claims: GraphClaim[]
   rawResponse: string
 }

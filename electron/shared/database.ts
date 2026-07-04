@@ -13,6 +13,7 @@ const contextFieldSchema = new Schema({
 const subAgentOpinionSchema = new Schema({
   agentName: { type: String, required: true },
   priority: { type: String, enum: ['high', 'medium', 'low'], required: true },
+  instanceId: { type: String, required: true },
   score: { type: Number, enum: [1, 0.5, 0], required: true },
   reason: String,
   rawResponse: String,
@@ -37,7 +38,7 @@ const splitClaimSchema = new Schema({
 const subAgentSplitRecordSchema = new Schema({
   agentName: { type: String, required: true },
   priority: { type: String, enum: ['high', 'medium', 'low'] },
-  instanceId: String,
+  instanceId: { type: String, required: true },
   claims: [{ content: String, category: String, sourceAgent: String, _id: false }],
   rawResponse: String,
 }, { _id: false })
@@ -47,7 +48,7 @@ const routeInstructionSchema = new Schema({
   agentName: { type: String, required: true },
   priority: { type: String, enum: ['high', 'medium', 'low'], required: true },
   hint: String,
-  instanceId: String,
+  instanceId: { type: String, required: true },
 }, { _id: false })
 
 const splitMetaSchema = new Schema({

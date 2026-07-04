@@ -92,7 +92,11 @@ export function bootstrapFromNews(
   }
 
   for (const c of news.claims) {
-    const claimParent = resolveClaimParent(doc.nodes, c.sourceAgent, splitRoutes)
+    const claimParent = resolveClaimParent(
+      doc.nodes,
+      { agentName: c.sourceAgent },
+      splitRoutes,
+    )
     upsertClaim(doc, {
       id: c.claimId,
       parentId: claimParent,
@@ -104,18 +108,11 @@ export function bootstrapFromNews(
     })
 
     const opinions = c.verifyResult?.opinions ?? []
-    const agentSeq = new Map<string, number>()
     opinions.forEach((op, index) => {
-      const seq = (agentSeq.get(op.agentName) ?? 0) + 1
-      agentSeq.set(op.agentName, seq)
       const route: MapSubAgentParams = {
         agentName: op.agentName,
         priority: op.priority,
-        instanceId: scopedVerifyInstanceId(c.claimId, {
-          agentName: op.agentName,
-          instanceId: op.instanceId
-            ?? (seq <= 1 ? op.agentName : `${op.agentName}#${seq}`),
-        }),
+        instanceId: scopedVerifyInstanceId(c.claimId, op),
       }
       ensureSubAgent(doc, c.claimId, route)
       upsertOpinion(doc, {
@@ -135,42 +132,16 @@ export function bootstrapFromNews(
   return doc
 }
 
-/** 从 splitMeta / claims 还原拆分槽位历史。 */
+/** 从 splitMeta.routeInstructions 还原拆分槽位。 */
 function resolveSplitRoutesFromNews(news: DisplayNews): MapSubAgentParams[] {
-  const meta = news.splitMeta
-  if (meta?.routeInstructions?.length) {
-    return meta.routeInstructions.map(r => ({
-      agentName: r.agentName,
-      priority: r.priority,
-      hint: r.hint,
-      instanceId: r.instanceId ?? r.agentName,
-    }))
-  }
-
-  const seen = new Set<string>()
-  const routes: MapSubAgentParams[] = []
-
-  for (const r of meta?.subAgentResults ?? []) {
-    const instanceId = r.instanceId ?? r.agentName
-    if (seen.has(instanceId)) continue
-    seen.add(instanceId)
-    routes.push({
-      agentName: r.agentName,
-      priority: r.priority,
-      instanceId,
-    })
-  }
-
-  if (routes.length === 0) {
-    for (const c of news.claims) {
-      const name = c.sourceAgent
-      if (!name || name === 'merge' || name === 'fallback' || seen.has(name)) continue
-      seen.add(name)
-      routes.push({ agentName: name, priority: 'medium', instanceId: name })
-    }
-  }
-
-  return routes
+  const routes = news.splitMeta?.routeInstructions
+  if (!routes?.length) return []
+  return routes.map(r => ({
+    agentName: r.agentName,
+    priority: r.priority,
+    hint: r.hint,
+    instanceId: r.instanceId,
+  }))
 }
 
 export function applyProgress(doc: MapGraphDoc, runId: string, graphType: GraphType): void {
@@ -476,15 +447,11 @@ export function ensureSubAgent(
   parentId: string,
   route: MapSubAgentParams,
 ): string {
-  const params: MapSubAgentParams = {
-    ...route,
-    instanceId: routeInstanceId(route),
-  }
-  const id = routeNodeId(params)
+  const id = routeNodeId(route)
   const existing = doc.nodes.find((n): n is MapSubAgentNode => n.id === id)
   if (existing) {
     const prevParent = existing.parentId
-    existing.params = params
+    existing.params = route
     existing.parentId = parentId
     if (prevParent && prevParent !== parentId) {
       doc.edges = doc.edges.filter(e => !(e.to === id && e.from === prevParent))
@@ -496,17 +463,14 @@ export function ensureSubAgent(
     id,
     kind: 'subAgent',
     parentId,
-    params,
+    params: route,
   }
   doc.nodes.push(node)
   ensureEdge(doc, parentId, id)
   return id
 }
 
-/**
- * 核查槽 instanceId：加 claimId 前缀防跨 claim 碰撞；
- * 保留 route 自带后缀（agentName#2），允许同名多槽。
- */
+/** 核查槽 instanceId：加 claimId 前缀防跨 claim 碰撞。 */
 function scopedVerifyRoute(claimId: string, route: MapSubAgentParams): MapSubAgentParams {
   return {
     ...route,
@@ -514,25 +478,16 @@ function scopedVerifyRoute(claimId: string, route: MapSubAgentParams): MapSubAge
   }
 }
 
-/** 将 opinion 挂到对应核查槽；同名多槽按 instanceId，否则按 agentName 顺序消费。 */
+/** 将 opinion 挂到对应核查槽（按 instanceId）。 */
 function resolveOpinionParentRoute(
   routes: MapSubAgentParams[],
   claimId: string,
-  op: { agentName: string; instanceId?: string; priority: Priority },
+  op: { agentName: string; instanceId: string; priority: Priority },
   used: Set<string>,
 ): MapSubAgentParams {
-  if (op.instanceId) {
-    const want = scopedVerifyInstanceId(claimId, {
-      agentName: op.agentName,
-      instanceId: op.instanceId,
-    })
-    const byId = routes.find(r => routeInstanceId(r) === want && !used.has(routeInstanceId(r)))
-    if (byId) return byId
-  }
-  const byName = routes.find(
-    r => r.agentName === op.agentName && !used.has(routeInstanceId(r)),
-  )
-  if (byName) return byName
+  const want = scopedVerifyInstanceId(claimId, op)
+  const byId = routes.find(r => r.instanceId === want && !used.has(r.instanceId))
+  if (byId) return byId
   return scopedVerifyRoute(claimId, {
     agentName: op.agentName,
     priority: op.priority,
@@ -626,18 +581,29 @@ function ensureEdge(doc: MapGraphDoc, from: string, to: string): void {
 
 function resolveClaimParent(
   nodes: MapNode[],
-  sourceAgent: string | undefined,
+  source: { instanceId?: string; agentName?: string },
   splitRoutes: MapSubAgentParams[],
 ): string {
-  const source = sourceAgent?.trim()
-  if (source && source !== 'merge' && source !== 'fallback') {
-    const route = splitRoutes.find(r => r.agentName === source)
+  if (source.instanceId) {
+    const route = splitRoutes.find(r => r.instanceId === source.instanceId)
+    if (route) {
+      const id = routeNodeId(route)
+      if (nodes.some(n => n.id === id)) return id
+    }
+    const byId = nodes.find(
+      n => n.kind === 'subAgent' && n.params.instanceId === source.instanceId,
+    )
+    if (byId) return byId.id
+  }
+  const agentName = source.agentName?.trim()
+  if (agentName) {
+    const route = splitRoutes.find(r => r.agentName === agentName)
     if (route) {
       const id = routeNodeId(route)
       if (nodes.some(n => n.id === id)) return id
     }
     const byName = nodes.find(
-      n => n.kind === 'subAgent' && n.params.agentName === source,
+      n => n.kind === 'subAgent' && n.params.agentName === agentName,
     )
     if (byName) return byName.id
   }
@@ -649,7 +615,11 @@ function materializeDraftClaims(doc: MapGraphDoc, state: GraphSplitState): void 
   const routes = state.routeInstructions ?? []
   let draftSeq = 0
   for (const result of state.subAgentResults ?? []) {
-    const parentId = resolveClaimParent(doc.nodes, result.agentName, routes)
+    const parentId = resolveClaimParent(
+      doc.nodes,
+      { instanceId: result.instanceId, agentName: result.agentName },
+      routes,
+    )
     for (const c of result.claims) {
       upsertClaim(doc, {
         id: `draft:${draftSeq++}`,
@@ -705,7 +675,7 @@ function applySplitState(doc: MapGraphDoc, state: GraphSplitState): void {
     state.mergedClaims.forEach((c, index) => {
       const id = mergedClaimNodeId(index)
       const persisted = index < state.saveIndex
-      const parentId = resolveClaimParent(doc.nodes, c.sourceAgent, routes)
+      const parentId = resolveClaimParent(doc.nodes, { agentName: c.sourceAgent }, routes)
       upsertClaim(doc, {
         id,
         parentId,
@@ -747,7 +717,7 @@ function applyVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
 
   const routes = (state.routeInstructions ?? []).map(r => scopedVerifyRoute(claimId, r))
   const routeNodeIds = new Set(routes.map(r => routeNodeId(r)))
-  // 去掉本 claim 下不在当前 route 中的旧槽（例如未加 claimId 前缀的历史节点）
+  // 去掉本 claim 下不在当前 route 中的槽
   const staleIds = new Set(
     doc.nodes
       .filter(n => n.kind === 'subAgent' && n.parentId === claimId && !routeNodeIds.has(n.id))

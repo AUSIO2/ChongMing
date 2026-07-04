@@ -43,11 +43,11 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
 
   const splitMeta = splitMetaRaw
     ? {
-        model: splitMetaRaw.model ?? 'langgraph',
+        model: String(splitMetaRaw.model),
         routeInstructions: splitMetaRaw.routeInstructions,
-        subAgentResults: splitMetaRaw.subAgentResults ?? [],
-        rawMergeResponse: splitMetaRaw.rawMergeResponse ?? '',
-        splitAt: toIsoString(splitMetaRaw.splitAt) ?? new Date().toISOString(),
+        subAgentResults: splitMetaRaw.subAgentResults as GraphSplitRecordDto[],
+        rawMergeResponse: String(splitMetaRaw.rawMergeResponse),
+        splitAt: toIsoString(splitMetaRaw.splitAt) as string,
       }
     : undefined
 
