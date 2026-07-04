@@ -10,6 +10,7 @@ import { AppError, ErrorCode } from '../shared/errors'
 import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
 import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
 import {
+  confirmRoutePassthrough,
   createDynamicFanOut,
   createRouteNode,
   runGraphWithInterrupts,
@@ -134,6 +135,7 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
       subAgentOpinions: [
         {
           agentName: agentConfig.name,
+          instanceId: instruction.instanceId ?? agentConfig.name,
           priority: instruction.priority,
           score: toConfidence(Number(opinion.score)),
           reason: typeof opinion.reason === 'string' ? opinion.reason : '',
@@ -253,8 +255,16 @@ export function buildVerifyGraph(config: GraphConfig) {
 
   const checkpointer = new MemorySaver()
 
-  type NodeName = 'loadClaim' | 'route' | 'subAgent' | 'merge' | 'save'
-  const interruptPoints: NodeName[] = ['subAgent', 'merge', 'save']
+  type NodeName =
+    | 'loadClaim'
+    | 'route'
+    | 'confirmRoute'
+    | 'subAgent'
+    | 'merge'
+    | 'validate'
+    | 'save'
+  // 人审中断点 = 工具；merge 仅 LLM，不中断、不投影为 Map 节点
+  const interruptPoints: NodeName[] = ['confirmRoute', 'validate', 'save']
 
   return new StateGraph(VerifyGraphState)
     .addNode('loadClaim', loadClaim)
@@ -271,17 +281,21 @@ export function buildVerifyGraph(config: GraphConfig) {
         }),
       ),
     )
+    .addNode('confirmRoute', confirmRoutePassthrough)
     .addNode('subAgent', createVerifySubAgentNode(defaultModel))
     .addNode('merge', createVerifyMergeNode(defaultModel, mergePromptPath))
+    .addNode('validate', confirmRoutePassthrough)
     .addNode('save', saveOneOpinion)
     .addEdge(START, 'loadClaim')
     .addEdge('loadClaim', 'route')
+    .addEdge('route', 'confirmRoute')
     .addConditionalEdges(
-      'route',
+      'confirmRoute',
       createDynamicFanOut({ availableAgents, maxConcurrency }),
     )
     .addEdge('subAgent', 'merge')
-    .addEdge('merge', 'save')
+    .addEdge('merge', 'validate')
+    .addEdge('validate', 'save')
     .addConditionalEdges('save', routeAfterOpinionSave)
     .compile({ checkpointer, interruptBefore: interruptPoints })
 }
@@ -303,8 +317,6 @@ export async function runVerifyGraph(
     newsId: string
     claimId: string
     mode?: ExecutionMode
-    /** 人工预置槽，与 AI route 合并 */
-    routeInstructions?: MapSubAgentParams[]
   },
   callbacks: VerifyGraphCallbacks,
   session?: GraphRunSession,
@@ -317,9 +329,6 @@ export async function runVerifyGraph(
       newsId: input.newsId,
       claimId: input.claimId,
       mode: input.mode ?? session?.mode ?? 'auto',
-      ...(input.routeInstructions?.length
-        ? { routeInstructions: input.routeInstructions }
-        : {}),
     },
     callbacks,
     threadId,

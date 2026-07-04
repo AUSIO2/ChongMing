@@ -141,7 +141,7 @@ const phaseLabel: Record<string, string> = {
     <template v-if="!selectedNode">
       <section class="panel">
         <h4>Map 层</h4>
-        <p class="muted">未选中节点。可直接「运行」：Route Agent 会先配槽，确认 invoke 前仍可加槽；也可先点「新闻」预置。</p>
+        <p class="muted">未选中节点。请先点「新闻」编辑正文并失焦保存，再点「运行」：系统会加载正文并自动 AI 配槽，暂停后可增删 SubAgent。</p>
       </section>
     </template>
 
@@ -156,8 +156,17 @@ const phaseLabel: Record<string, string> = {
           >
             {{ phaseLabel[selectedNode.dataPhase] }}
           </span>
+          <span
+            v-if="selectedNode.kind === 'claim' && !selectedNode.shouldSave"
+            class="phase rejected"
+          >
+            不保存
+          </span>
           <span v-if="selectedNode.runtime?.pendingTool" class="tool">
             等待 · {{ selectedNode.runtime.pendingTool }}
+          </span>
+          <span v-else-if="selectedNode.runtime?.activeTool" class="tool">
+            执行 · {{ selectedNode.runtime.activeTool }}
           </span>
         </div>
 
@@ -330,6 +339,7 @@ const phaseLabel: Record<string, string> = {
 .head { display: flex; gap: 6px; align-items: center; }
 .tag { padding: 1px 6px; border-radius: 3px; background: var(--bg-viewport); border: 1px solid var(--border-subtle); font-size: 12px; }
 .phase { color: var(--text-muted); font-size: 12px; }
+.phase.rejected { color: var(--text-dim); text-decoration: line-through; }
 .tool { color: var(--warning, #d97706); font-size: 12px; }
 
 .form { display: flex; flex-direction: column; gap: var(--space-sm); }

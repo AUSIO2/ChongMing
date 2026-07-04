@@ -11,6 +11,7 @@ import { AppError, ErrorCode } from '../shared/errors'
 import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
 import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
 import {
+  confirmRoutePassthrough,
   createDynamicFanOut,
   createRouteNode,
   runGraphWithInterrupts,
@@ -20,6 +21,7 @@ import {
   invokeWithOptionalTools,
   messageContentToString,
   parseClaimsArray,
+  parseJsonFromLLM,
 } from '../shared/llm-utils'
 import { mergedClaimNodeId } from '../shared/map-ids'
 
@@ -111,6 +113,7 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
         {
           agentName: agentConfig.name,
           priority: instruction.priority,
+          instanceId: instruction.instanceId ?? agentConfig.name,
           claims,
           rawResponse,
         },
@@ -119,16 +122,36 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
   }
 }
 
-/** MainAgent Merge：汇总 SubAgent 结果 */
+/** 与 Map draft:N 同序的扁平草稿。 */
+function flattenDraftClaims(state: typeof SplitGraphState.State): GraphClaim[] {
+  return state.subAgentResults.flatMap(result =>
+    result.claims.map(claim => ({
+      content: claim.content,
+      category: claim.category,
+      sourceAgent: claim.sourceAgent ?? result.agentName,
+      shouldSave: true,
+    })),
+  )
+}
+
+/** 解析 merge 返回的 shouldSave 标记数组（无 content 字段）。 */
+function parseShouldSaveFlags(raw: string): Array<{ draftIndex?: number; shouldSave?: boolean }> {
+  const parsed = parseJsonFromLLM<unknown>(raw)
+  const candidates = Array.isArray(parsed) ? parsed : []
+  return candidates.filter(
+    (item): item is { draftIndex?: number; shouldSave?: boolean } =>
+      item !== null && typeof item === 'object' && !Array.isArray(item),
+  )
+}
+
+/** MainAgent Merge：只标记各草稿是否保留（shouldSave），不改写正文 / sourceAgent。 */
 function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
   return async (state: typeof SplitGraphState.State) => {
+    const drafts = flattenDraftClaims(state)
     const promptConfig = loadPrompt(mergePromptPath)
-    const subResultsText = state.subAgentResults
-      .map(
-        r =>
-          `【${r.agentName}】(priority: ${r.priority})\n${r.claims.map(c => `  - ${c.content}`).join('\n')}`,
-      )
-      .join('\n\n')
+    const subResultsText = drafts
+      .map((c, i) => `[${i}] (${c.sourceAgent ?? '?'}) ${c.content}`)
+      .join('\n')
 
     const prompt = renderPrompt(promptConfig.content, {
       content: state.content,
@@ -138,29 +161,18 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
     const rawMergeResponse = messageContentToString(
       (await model.invoke(prompt)).content,
     )
-    let mergedClaims = parseClaimsArray<GraphClaim>(rawMergeResponse)
 
-    if (mergedClaims.length === 0 && state.subAgentResults.length > 0) {
-      mergedClaims = state.subAgentResults.flatMap(result =>
-        result.claims.map(claim => ({
-          ...claim,
-          sourceAgent: claim.sourceAgent ?? result.agentName,
-        })),
-      )
-    }
+    const flags = parseShouldSaveFlags(rawMergeResponse)
+    const byIndex = new Map<number, boolean>()
+    flags.forEach((f, i) => {
+      const idx = typeof f.draftIndex === 'number' ? f.draftIndex : i
+      byIndex.set(idx, f.shouldSave !== false)
+    })
 
-    if (mergedClaims.length === 0 && state.content.trim()) {
-      mergedClaims = state.content
-        .split(/[。！？\n]/)
-        .map(s => s.trim())
-        .filter(s => s.length > 4)
-        .slice(0, 3)
-        .map(content => ({
-          content: content.endsWith('。') ? content : `${content}。`,
-          category: 'other',
-          sourceAgent: 'fallback',
-        }))
-    }
+    const mergedClaims = drafts.map((draft, i) => ({
+      ...draft,
+      shouldSave: byIndex.has(i) ? byIndex.get(i)! : true,
+    }))
 
     return { mergedClaims, rawMergeResponse, saveIndex: 0 }
   }
@@ -196,9 +208,21 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
 
   const nextIndex = index + 1
   if (nextIndex >= state.mergedClaims.length) {
+    // 槽位历史 + SubAgent 产出，供 Map 从 DB 重建完整拓扑
+    const routes = state.routeInstructions ?? []
+    const subAgentResults = state.subAgentResults.map((r) => {
+      const match = routes.find(
+        inst => inst.instanceId === r.instanceId || inst.agentName === r.agentName,
+      )
+      return {
+        ...r,
+        instanceId: r.instanceId ?? match?.instanceId ?? r.agentName,
+      }
+    })
     doc.set('splitMeta', {
       model: 'langgraph',
-      subAgentResults: state.subAgentResults,
+      routeInstructions: routes,
+      subAgentResults,
       rawMergeResponse: state.rawMergeResponse,
       splitAt: new Date(),
     })
@@ -220,8 +244,9 @@ function routeAfterSave(state: typeof SplitGraphState.State): string {
 /**
  * 构建事实拆分图
  *
- * 流程：loadNews → route → subAgent×N → merge → save（按条循环）
- * interruptBefore save：每次只焦点一条 claim
+ * 流程：loadNews → route(AI) → confirmRoute（工具 invoke）→ subAgent×N
+ *       → merge（LLM，只标 shouldSave，非 Map 节点）→ validate（工具）→ save（工具）
+ * 正文须在 idle 编辑并落库后，再点运行触发 loadNews。
  */
 export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
   const {
@@ -234,8 +259,16 @@ export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
 
   const checkpointer = new MemorySaver()
 
-  type NodeName = 'loadNews' | 'route' | 'subAgent' | 'merge' | 'save'
-  const interruptPoints: NodeName[] = ['subAgent', 'merge', 'save']
+  type NodeName =
+    | 'loadNews'
+    | 'route'
+    | 'confirmRoute'
+    | 'subAgent'
+    | 'merge'
+    | 'validate'
+    | 'save'
+  // 人审中断点 = 工具名（validate/save）或 confirmRoute→invoke；merge 仅 LLM，不中断
+  const interruptPoints: NodeName[] = ['confirmRoute', 'validate', 'save']
 
   return new StateGraph(SplitGraphState)
     .addNode('loadNews', loadNews)
@@ -251,17 +284,21 @@ export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
         }),
       ),
     )
+    .addNode('confirmRoute', confirmRoutePassthrough)
     .addNode('subAgent', createSubAgentNode(defaultModel))
     .addNode('merge', createMergeNode(defaultModel, mergePromptPath))
+    .addNode('validate', confirmRoutePassthrough)
     .addNode('save', saveOneClaim)
     .addEdge(START, 'loadNews')
     .addEdge('loadNews', 'route')
+    .addEdge('route', 'confirmRoute')
     .addConditionalEdges(
-      'route',
+      'confirmRoute',
       createDynamicFanOut({ availableAgents, maxConcurrency }),
     )
     .addEdge('subAgent', 'merge')
-    .addEdge('merge', 'save')
+    .addEdge('merge', 'validate')
+    .addEdge('validate', 'save')
     .addConditionalEdges('save', routeAfterSave)
     .compile({ checkpointer, interruptBefore: interruptPoints })
 }
@@ -292,8 +329,6 @@ export async function runSplitGraph(
   input: {
     newsId: string
     mode?: ExecutionMode
-    /** 人工预置槽，与 AI route 合并 */
-    routeInstructions?: MapSubAgentParams[]
   },
   callbacks: SplitGraphCallbacks,
   session?: GraphRunSession,
@@ -305,9 +340,6 @@ export async function runSplitGraph(
     {
       newsId: input.newsId,
       mode: input.mode ?? session?.mode ?? 'auto',
-      ...(input.routeInstructions?.length
-        ? { routeInstructions: input.routeInstructions }
-        : {}),
     },
     callbacks,
     threadId,

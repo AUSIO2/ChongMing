@@ -25,6 +25,8 @@ export interface DisplayClaim {
 
 export interface DisplayOpinion {
   agentName: string
+  /** 与 routeInstructions 槽位对应，同名多槽时区分父节点 */
+  instanceId?: string
   priority: Priority
   score: Confidence
   reason: string
@@ -42,12 +44,15 @@ export interface DisplayVerifyResult {
 export interface GraphSplitRecordDto {
   agentName: string
   priority: Priority
+  instanceId?: string
   claims: Array<{ content: string; category?: string; sourceAgent?: string }>
   rawResponse: string
 }
 
 export interface DisplaySplitMeta {
   model: string
+  /** 拆分槽位历史，bootstrap Map 图用 */
+  routeInstructions?: MapSubAgentParams[]
   subAgentResults: GraphSplitRecordDto[]
   rawMergeResponse: string
   splitAt: string
@@ -89,8 +94,21 @@ export interface UpdateNewsInput {
 // ==========================================
 
 export type GraphType = 'split' | 'verify'
-export type GraphInterruptNode = 'subAgent' | 'merge' | 'save'
+/**
+ * LangGraph 中断点名称。对人/Map 而言对应工具（非 Map 节点）：
+ *   confirmRoute → invoke；validate → validate；save → save。
+ * merge 是图内 LLM 步骤，不做人审中断点，也不投影为 Map 节点。
+ */
+export type GraphInterruptNode = 'confirmRoute' | 'validate' | 'save'
 export type GraphToolKind = 'invoke' | 'validate' | 'save'
+
+/**
+ * 当前暂停点是否允许 resume 时写入 routeInstructions。
+ * 仅 pendingTool=invoke（confirmRoute）为 true。
+ */
+export function canWriteRouteInstructions(pendingTool?: GraphToolKind): boolean {
+  return pendingTool === 'invoke'
+}
 
 /** interrupt 焦点：一次中断对应一个 Map 节点 */
 export interface GraphInterruptFocus {
@@ -102,6 +120,8 @@ export interface GraphClaimDto {
   content: string
   category?: string
   sourceAgent?: string
+  /** 是否保留待落库；默认 true；仅 merge 可改为 false */
+  shouldSave?: boolean
 }
 
 export interface GraphSplitState {
@@ -136,19 +156,12 @@ export interface GraphVerifyState {
 export interface StartSplitInput {
   newsId: string
   mode?: ExecutionMode
-  /**
-   * 可选人工预置路由，与 AI Route Agent 结果合并（不替代 route）。
-   * 每条含 agentName / priority / hint? / instanceId?。
-   */
-  routeInstructions?: MapSubAgentParams[]
 }
 
 export interface StartVerifyInput {
   newsId: string
   claimId: string
   mode?: ExecutionMode
-  /** 可选人工预置核查槽，与 AI Route Agent 结果合并 */
-  routeInstructions?: MapSubAgentParams[]
 }
 
 export interface StartGraphResult {

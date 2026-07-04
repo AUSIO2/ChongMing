@@ -17,21 +17,22 @@ import {
   serializeSplitState,
   serializeVerifyState,
 } from './serialize'
-import type {
-  GraphActiveRun,
-  GraphCompletedPayload,
-  GraphErrorPayload,
-  GraphInterruptFocus,
-  GraphInterruptedPayload,
-  GraphProgressPayload,
-  GraphStatePatch,
-  GraphType,
-  GraphToolKind,
-  GraphSplitState,
-  StartGraphResult,
-  StartSplitInput,
-  StartVerifyInput,
-  GraphVerifyState,
+import {
+  canWriteRouteInstructions,
+  type GraphActiveRun,
+  type GraphCompletedPayload,
+  type GraphErrorPayload,
+  type GraphInterruptFocus,
+  type GraphInterruptedPayload,
+  type GraphProgressPayload,
+  type GraphStatePatch,
+  type GraphType,
+  type GraphToolKind,
+  type GraphSplitState,
+  type StartGraphResult,
+  type StartSplitInput,
+  type StartVerifyInput,
+  type GraphVerifyState,
 } from './types'
 import type { GraphProgressEventLocal } from '../shared/graph-utils'
 import {
@@ -61,14 +62,15 @@ function deriveInterruptFocus(
   nextNode: string,
   state: GraphSplitState | GraphVerifyState,
 ): { focus?: GraphInterruptFocus; pendingTool?: GraphToolKind } {
-  if (nextNode === 'subAgent') {
+  if (nextNode === 'confirmRoute' || nextNode === 'subAgent') {
     if (graphType === 'split') {
       return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'invoke' }
     }
     const vs = state as GraphVerifyState
     return { focus: { kind: 'claim', id: vs.claimId }, pendingTool: 'invoke' }
   }
-  if (nextNode === 'merge') {
+  // validate 工具：merge LLM 之后的人审（图内节点名与工具同名；merge 本身不是中断点/Map 节点）
+  if (nextNode === 'validate' || nextNode === 'merge') {
     if (graphType === 'split') {
       return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'validate' }
     }
@@ -281,7 +283,7 @@ export function startSplit(
     runGraph: (onInterrupt, session) =>
       runSplitGraph(
         buildSplitGraph(getSplitGraphConfig()),
-        input,
+        { newsId: input.newsId, mode: input.mode },
         { onInterrupt },
         session,
       ),
@@ -309,7 +311,7 @@ export function startVerify(
     runGraph: (onInterrupt, session) =>
       runVerifyGraph(
         buildVerifyGraph(getVerifyGraphConfig()),
-        input,
+        { newsId: input.newsId, claimId: input.claimId, mode: input.mode },
         { onInterrupt },
         session,
       ),
@@ -344,11 +346,23 @@ export function resumeGraph(runId: string, modifications: GraphStatePatch): void
   if (!run.resumeResolve) {
     return
   }
+
+  const pendingTool = run.lastInterrupt?.pendingTool
+  let patch = modifications
+  if (
+    patch
+    && 'routeInstructions' in patch
+    && !canWriteRouteInstructions(pendingTool)
+  ) {
+    const { routeInstructions: _drop, ...rest } = patch
+    patch = Object.keys(rest).length > 0 ? (rest as GraphStatePatch) : null
+  }
+
   // 立刻清焦点，避免 getActiveRun 仍返回 interrupted 导致可连点「继续」
   run.lastInterrupt = undefined
   const resolve = run.resumeResolve
   run.resumeResolve = null
-  resolve(modifications)
+  resolve(patch)
 }
 
 /** 运行中随时切换 auto / human-in-loop */

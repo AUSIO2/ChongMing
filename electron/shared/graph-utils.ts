@@ -77,7 +77,7 @@ function withInstanceIds(instructions: MapSubAgentParams[]): MapSubAgentParams[]
 
 /**
  * 通用 MainAgent route 节点。
- * 始终跑 AI route；若 state 里已有人工预置槽，按 instanceId/agentName 合并进去（不覆盖 route，人工可继续加槽）。
+ * 只跑 AI route；人工加槽在 confirmRoute 暂停点通过 updateState 写入，再扇出。
  */
 export function createRouteNode<TState>(
   model: BaseChatModel,
@@ -86,8 +86,6 @@ export function createRouteNode<TState>(
   buildVars: (state: TState) => Record<string, string>,
 ) {
   return async (state: TState) => {
-    const preseeded = (state as { routeInstructions?: MapSubAgentParams[] }).routeInstructions ?? []
-
     const promptConfig = loadPrompt(routePromptPath)
     const agentList = availableAgents.map(a => `- ${a.name}`).join('\n')
     const prompt = renderPrompt(promptConfig.content, {
@@ -108,19 +106,13 @@ export function createRouteNode<TState>(
       }))
     }
 
-    // route 结果为主，保留人工预置里尚未出现的槽
-    const merged = [...routeInstructions]
-    for (const extra of preseeded) {
-      const exists = merged.some(
-        r =>
-          (extra.instanceId && r.instanceId === extra.instanceId)
-          || (!extra.instanceId && r.agentName === extra.agentName),
-      )
-      if (!exists) merged.push(extra)
-    }
-
-    return { routeInstructions: withInstanceIds(merged) }
+    return { routeInstructions: withInstanceIds(routeInstructions) }
   }
+}
+
+/** route 与扇出之间的空节点，供 interruptBefore 做人审（改槽后再 fan-out）。 */
+export async function confirmRoutePassthrough(): Promise<Record<string, never>> {
+  return {}
 }
 
 export interface GraphInterruptCallbacks<TState> {
@@ -227,7 +219,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
 
     if (
       session?.onProgress
-      && nextNode === 'subAgent'
+      && (nextNode === 'confirmRoute' || nextNode === 'subAgent')
       && !session.fanoutEmitted
       && typeof currentState === 'object'
       && currentState !== null
