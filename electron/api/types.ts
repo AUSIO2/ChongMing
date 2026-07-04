@@ -64,6 +64,8 @@ export interface DisplayNews {
   context: NewsContext
   claims: DisplayClaim[]
   splitMeta?: DisplaySplitMeta
+  mapRun?: MapRunPersist
+  mapGraph?: MapGraphPersist
   confidence?: number
   confidenceUpdatedAt?: string
   createdAt: string
@@ -153,6 +155,35 @@ export interface GraphVerifyState {
   opinionSaveIndex: number
 }
 
+/** News.mapRun — 未完成运行会话 */
+export interface MapRunPersist {
+  runId: string
+  threadId: string
+  graphType: GraphType
+  mode: ExecutionMode
+  gate?: GraphInterruptNode
+  pendingTool?: GraphToolKind
+  activeNodeId?: string
+  status: 'running' | 'interrupted' | 'error'
+  claimId?: string
+  updatedAt: string
+}
+
+/** News.mapGraph — Map 图快照（可 hydrate 为 MapGraphDoc） */
+export interface MapGraphPersist {
+  nodes: unknown[]
+  edges: unknown[]
+  runPhase: string
+  mode: ExecutionMode
+  activeNodeId?: string
+  pendingTool?: GraphToolKind
+  nextNode?: GraphInterruptNode
+  graphType?: GraphType
+  draft?: GraphSplitState | GraphVerifyState
+  error?: string
+  updatedAt: string
+}
+
 export interface StartSplitInput {
   newsId: string
   mode?: ExecutionMode
@@ -184,6 +215,7 @@ export interface GraphActiveRun {
   newsId: string
   graphType: GraphType
   mode: ExecutionMode
+  threadId?: string
   nextNode?: GraphInterruptNode
   focus?: GraphInterruptFocus
   pendingTool?: GraphToolKind
@@ -230,10 +262,29 @@ export interface NewsAPI {
   list(): Promise<DisplayNewsSummary[]>
   get(newsId: string): Promise<DisplayNews | null>
   update(newsId: string, patch: UpdateNewsInput): Promise<DisplayNews>
+  saveMapPersistence(
+    newsId: string,
+    data: {
+      mapRun?: MapRunPersist | null
+      mapGraph?: MapGraphPersist | null
+    },
+  ): Promise<void>
 }
 
 export interface CatalogAPI {
   list(module: 'split' | 'verify'): Promise<CatalogSubAgent[]>
+}
+
+export interface RestoreRunInput {
+  newsId: string
+  runId: string
+  threadId: string
+  graphType: GraphType
+  mode: ExecutionMode
+  gate: GraphInterruptNode
+  pendingTool?: GraphToolKind
+  activeNodeId?: string
+  draft: GraphSplitState | GraphVerifyState
 }
 
 export interface GraphAPI {
@@ -243,6 +294,8 @@ export interface GraphAPI {
   setMode(runId: string, mode: ExecutionMode): Promise<void>
   cancel(runId: string): Promise<void>
   getActiveRun(newsId: string): Promise<GraphActiveRun | null>
+  /** 从 News.mapRun 恢复 HITL 等待循环 */
+  restore(input: RestoreRunInput): Promise<StartGraphResult>
 }
 
 export interface GraphEventAPI {

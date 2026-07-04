@@ -28,11 +28,14 @@ import type {
 import {
   canWriteRouteInstructions,
   type DisplayNews,
+  type GraphInterruptNode,
   type GraphInterruptedPayload,
   type GraphSplitState,
   type GraphStatePatch,
   type GraphType,
   type GraphVerifyState,
+  type MapGraphPersist,
+  type MapRunPersist,
 } from '../../electron/api/types'
 
 export interface MapGraphDoc {
@@ -43,7 +46,10 @@ export interface MapGraphDoc {
   mode: ExecutionMode
   activeNodeId?: string
   pendingTool?: MapToolKind
+  /** LangGraph 中断门闩，与 pendingTool 对应 */
+  nextNode?: GraphInterruptNode
   runId?: string
+  threadId?: string
   graphType?: GraphType
   draft?: GraphSplitState | GraphVerifyState
   error?: string
@@ -197,6 +203,7 @@ export function applyInterrupted(doc: MapGraphDoc, payload: GraphInterruptedPayl
   doc.mode = payload.mode
   doc.runId = payload.runId
   doc.graphType = payload.graphType
+  doc.nextNode = payload.nextNode
   doc.pendingTool = payload.pendingTool
   doc.activeNodeId = payload.focus?.id
   doc.draft = payload.state
@@ -239,10 +246,82 @@ export function markRunCompleted(doc: MapGraphDoc): void {
   markClaimsPersisted(doc)
   doc.runPhase = 'completed'
   doc.runId = undefined
+  doc.threadId = undefined
   doc.graphType = undefined
+  doc.nextNode = undefined
   doc.draft = undefined
   doc.error = undefined
   clearFocus(doc)
+}
+
+/** 从 News.mapGraph 恢复内存图 */
+export function hydrateFromPersist(
+  newsId: string,
+  persist: MapGraphPersist,
+  mapRun?: MapRunPersist,
+): MapGraphDoc {
+  return {
+    newsId,
+    nodes: (persist.nodes ?? []) as MapNode[],
+    edges: (persist.edges ?? []) as MapEdge[],
+    runPhase: (persist.runPhase as MapRunPhase) ?? 'idle',
+    mode: persist.mode ?? 'human-in-loop',
+    activeNodeId: persist.activeNodeId,
+    pendingTool: persist.pendingTool,
+    nextNode: persist.nextNode,
+    graphType: persist.graphType,
+    draft: persist.draft,
+    error: persist.error,
+    runId: mapRun?.runId,
+    threadId: mapRun?.threadId,
+  }
+}
+
+/** 序列化内存图供写入 News.mapGraph */
+export function toMapGraphPersist(doc: MapGraphDoc): MapGraphPersist {
+  return {
+    nodes: doc.nodes,
+    edges: doc.edges,
+    runPhase: doc.runPhase,
+    mode: doc.mode,
+    activeNodeId: doc.activeNodeId,
+    pendingTool: doc.pendingTool,
+    nextNode: doc.nextNode,
+    graphType: doc.graphType,
+    draft: doc.draft,
+    error: doc.error,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+/** 序列化运行会话供写入 News.mapRun */
+export function toMapRunPersist(doc: MapGraphDoc): MapRunPersist | null {
+  if (!doc.runId || !doc.threadId || !doc.graphType) return null
+  const status =
+    doc.runPhase === 'error'
+      ? 'error'
+      : doc.runPhase === 'interrupted'
+        ? 'interrupted'
+        : doc.runPhase === 'running'
+          ? 'running'
+          : null
+  if (!status) return null
+
+  const claimId =
+    doc.draft && 'claimId' in doc.draft ? doc.draft.claimId : undefined
+
+  return {
+    runId: doc.runId,
+    threadId: doc.threadId,
+    graphType: doc.graphType,
+    mode: doc.mode,
+    gate: doc.nextNode,
+    pendingTool: doc.pendingTool,
+    activeNodeId: doc.activeNodeId,
+    status,
+    claimId,
+    updatedAt: new Date().toISOString(),
+  }
 }
 
 /** 用 DB 新闻重建 idle 图，清空运行态字段。 */
@@ -256,7 +335,9 @@ export function resetIdleFromNews(doc: MapGraphDoc, news: DisplayNews): void {
   doc.mode = mode
   doc.activeNodeId = undefined
   doc.pendingTool = undefined
+  doc.nextNode = undefined
   doc.runId = undefined
+  doc.threadId = undefined
   doc.graphType = undefined
   doc.draft = undefined
   doc.error = undefined
@@ -351,6 +432,7 @@ export function syncDraftFromNodes(doc: MapGraphDoc): void {
 export function clearFocus(doc: MapGraphDoc): void {
   doc.activeNodeId = undefined
   doc.pendingTool = undefined
+  doc.nextNode = undefined
   clearNodeRuntimes(doc)
 }
 

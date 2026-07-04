@@ -5,6 +5,8 @@ import type {
   CreateNewsInput,
   DisplayNews,
   DisplayNewsSummary,
+  MapGraphPersist,
+  MapRunPersist,
   UpdateNewsInput,
 } from './types'
 import {
@@ -53,4 +55,40 @@ export async function updateNews(
 
   await doc.save()
   return serializeNewsDocument(doc)
+}
+
+/** 持久化 Map 运行会话与图快照（断点恢复）。传 null 表示 $unset。 */
+export async function saveMapPersistence(
+  newsId: string,
+  data: {
+    mapRun?: MapRunPersist | null
+    mapGraph?: MapGraphPersist | null
+  },
+): Promise<void> {
+  const exists = await NewsModel.exists({ _id: newsId })
+  if (!exists) {
+    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${newsId}`)
+  }
+
+  const $set: Record<string, unknown> = {}
+  const $unset: Record<string, 1> = {}
+
+  if (data.mapRun === null) {
+    $unset.mapRun = 1
+  } else if (data.mapRun !== undefined) {
+    $set.mapRun = { ...data.mapRun, updatedAt: new Date(data.mapRun.updatedAt) }
+  }
+
+  if (data.mapGraph === null) {
+    $unset.mapGraph = 1
+  } else if (data.mapGraph !== undefined) {
+    $set.mapGraph = { ...data.mapGraph, updatedAt: new Date(data.mapGraph.updatedAt) }
+  }
+
+  const update: Record<string, unknown> = {}
+  if (Object.keys($set).length) update.$set = $set
+  if (Object.keys($unset).length) update.$unset = $unset
+  if (Object.keys(update).length === 0) return
+
+  await NewsModel.updateOne({ _id: newsId }, update)
 }

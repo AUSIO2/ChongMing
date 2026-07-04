@@ -1,5 +1,5 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph'
-import { MemorySaver } from '@langchain/langgraph'
+import { getCheckpointer } from '../shared/checkpointer'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   Confidence, ExecutionMode, MapSubAgentParams,
@@ -253,7 +253,7 @@ export function buildVerifyGraph(config: GraphConfig) {
     maxConcurrency,
   } = config
 
-  const checkpointer = new MemorySaver()
+  const checkpointer = getCheckpointer()
 
   type NodeName =
     | 'loadClaim'
@@ -317,11 +317,14 @@ export async function runVerifyGraph(
     newsId: string
     claimId: string
     mode?: ExecutionMode
+    threadId?: string
   },
   callbacks: VerifyGraphCallbacks,
   session?: GraphRunSession,
+  options?: { skipInitialInvoke?: boolean },
 ) {
-  const threadId = `verify-${input.newsId}-${input.claimId}-${Date.now()}`
+  const threadId =
+    input.threadId ?? `verify-${input.newsId}-${input.claimId}-${Date.now()}`
 
   return runGraphWithInterrupts(
     graph,
@@ -333,5 +336,6 @@ export async function runVerifyGraph(
     callbacks,
     threadId,
     session,
+    options,
   )
 }

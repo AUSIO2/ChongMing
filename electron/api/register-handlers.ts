@@ -9,6 +9,9 @@ import type { ExecutionMode } from '../shared/types'
 import type {
   CreateNewsInput,
   GraphStatePatch,
+  MapGraphPersist,
+  MapRunPersist,
+  RestoreRunInput,
   StartSplitInput,
   StartVerifyInput,
   UpdateNewsInput,
@@ -51,6 +54,17 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   )
 
   handle(
+    IPC_CHANNELS.NEWS_SAVE_MAP,
+    (
+      newsId: string,
+      data: {
+        mapRun?: MapRunPersist | null
+        mapGraph?: MapGraphPersist | null
+      },
+    ) => newsService.saveMapPersistence(newsId, data),
+  )
+
+  handle(
     IPC_CHANNELS.CATALOG_LIST,
     (module: 'split' | 'verify') => listCatalogEntries(module),
   )
@@ -89,5 +103,10 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   handle(
     IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN,
     (newsId: string) => graphService.getActiveRun(newsId),
+  )
+
+  handle(
+    IPC_CHANNELS.GRAPH_RESTORE,
+    (input: RestoreRunInput) => graphService.restoreRun(input, getWindow),
   )
 }

@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   NEWS_LIST: 'news:list',
   NEWS_GET: 'news:get',
   NEWS_UPDATE: 'news:update',
+  NEWS_SAVE_MAP: 'news:save-map',
 
   CATALOG_LIST: 'catalog:list',
 
@@ -13,6 +14,7 @@ export const IPC_CHANNELS = {
   GRAPH_SET_MODE: 'graph:set-mode',
   GRAPH_CANCEL: 'graph:cancel',
   GRAPH_GET_ACTIVE_RUN: 'graph:get-active-run',
+  GRAPH_RESTORE: 'graph:restore',
 
   GRAPH_INTERRUPTED: 'graph:interrupted',
   GRAPH_COMPLETED: 'graph:completed',

@@ -59,12 +59,47 @@ const splitMetaSchema = new Schema({
   splitAt: Date,
 }, { _id: false })
 
+/** 未完成 run 会话（断点恢复） */
+const mapRunSchema = new Schema({
+  runId: { type: String, required: true },
+  threadId: { type: String, required: true },
+  graphType: { type: String, enum: ['split', 'verify'], required: true },
+  mode: { type: String, enum: ['auto', 'human-in-loop'], required: true },
+  gate: { type: String, enum: ['confirmRoute', 'validate', 'save'] },
+  pendingTool: { type: String, enum: ['invoke', 'validate', 'save'] },
+  activeNodeId: String,
+  status: {
+    type: String,
+    enum: ['running', 'interrupted', 'error'],
+    required: true,
+  },
+  claimId: String,
+  updatedAt: { type: Date, default: Date.now },
+}, { _id: false })
+
+/** Map 图快照（断点恢复） */
+const mapGraphSchema = new Schema({
+  nodes: { type: Schema.Types.Mixed, default: [] },
+  edges: { type: Schema.Types.Mixed, default: [] },
+  runPhase: String,
+  mode: String,
+  activeNodeId: String,
+  pendingTool: String,
+  nextNode: String,
+  graphType: String,
+  draft: Schema.Types.Mixed,
+  error: String,
+  updatedAt: { type: Date, default: Date.now },
+}, { _id: false })
+
 const newsDocumentSchema = new Schema({
   _id: { type: String, required: true },
   content: { type: String, required: true },
   context: { type: Map, of: contextFieldSchema },
   claims: { type: [splitClaimSchema], default: [] },
   splitMeta: splitMetaSchema,
+  mapRun: mapRunSchema,
+  mapGraph: mapGraphSchema,
   confidence: Number,
   confidenceUpdatedAt: Date,
 }, { timestamps: true })

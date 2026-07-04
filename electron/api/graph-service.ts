@@ -33,6 +33,7 @@ import {
   type StartSplitInput,
   type StartVerifyInput,
   type GraphVerifyState,
+  type RestoreRunInput,
 } from './types'
 import type { GraphProgressEventLocal } from '../shared/graph-utils'
 import {
@@ -62,15 +63,14 @@ function deriveInterruptFocus(
   nextNode: string,
   state: GraphSplitState | GraphVerifyState,
 ): { focus?: GraphInterruptFocus; pendingTool?: GraphToolKind } {
-  if (nextNode === 'confirmRoute' || nextNode === 'subAgent') {
+  if (nextNode === 'confirmRoute') {
     if (graphType === 'split') {
       return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'invoke' }
     }
     const vs = state as GraphVerifyState
     return { focus: { kind: 'claim', id: vs.claimId }, pendingTool: 'invoke' }
   }
-  // validate 工具：merge LLM 之后的人审（图内节点名与工具同名；merge 本身不是中断点/Map 节点）
-  if (nextNode === 'validate' || nextNode === 'merge') {
+  if (nextNode === 'validate') {
     if (graphType === 'split') {
       return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'validate' }
     }
@@ -271,21 +271,27 @@ export function startSplit(
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  activeRuns.set(
+  const threadId = `split-${input.newsId}-${runId}`
+  const session = createRunSession(
     runId,
-    createRunSession(runId, 'split', input.newsId, input.mode ?? 'auto', 'loadNews'),
+    'split',
+    input.newsId,
+    input.mode ?? 'auto',
+    'loadNews',
   )
+  session.threadId = threadId
+  activeRuns.set(runId, session)
   void executeRun({
     runId,
     graphType: 'split',
     getWindow,
     loadNode: 'loadNews',
-    runGraph: (onInterrupt, session) =>
+    runGraph: (onInterrupt, sess) =>
       runSplitGraph(
         buildSplitGraph(getSplitGraphConfig()),
-        { newsId: input.newsId, mode: input.mode },
+        { newsId: input.newsId, mode: input.mode, threadId },
         { onInterrupt },
-        session,
+        sess,
       ),
     serialize: serializeSplitState,
     logDone: (state) =>
@@ -299,25 +305,121 @@ export function startVerify(
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  activeRuns.set(
+  const threadId = `verify-${input.newsId}-${input.claimId}-${runId}`
+  const session = createRunSession(
     runId,
-    createRunSession(runId, 'verify', input.newsId, input.mode ?? 'auto', 'loadClaim'),
+    'verify',
+    input.newsId,
+    input.mode ?? 'auto',
+    'loadClaim',
   )
+  session.threadId = threadId
+  activeRuns.set(runId, session)
   void executeRun({
     runId,
     graphType: 'verify',
     getWindow,
     loadNode: 'loadClaim',
-    runGraph: (onInterrupt, session) =>
+    runGraph: (onInterrupt, sess) =>
       runVerifyGraph(
         buildVerifyGraph(getVerifyGraphConfig()),
-        { newsId: input.newsId, claimId: input.claimId, mode: input.mode },
+        {
+          newsId: input.newsId,
+          claimId: input.claimId,
+          mode: input.mode,
+          threadId,
+        },
         { onInterrupt },
-        session,
+        sess,
       ),
     serialize: serializeVerifyState,
   })
   return { runId }
+}
+
+/**
+ * 从 News.mapRun + MongoDBSaver checkpoint 恢复 HITL 等待循环（进程重启后）。
+ */
+export function restoreRun(
+  input: RestoreRunInput,
+  getWindow: WindowGetter,
+): StartGraphResult {
+  if (activeRuns.has(input.runId)) {
+    return { runId: input.runId }
+  }
+
+  const loadNode = input.graphType === 'split' ? 'loadNews' : 'loadClaim'
+  const session = createRunSession(
+    input.runId,
+    input.graphType,
+    input.newsId,
+    input.mode,
+    loadNode,
+  )
+  session.threadId = input.threadId
+  session.fanoutEmitted = input.gate !== 'confirmRoute'
+  const { focus, pendingTool } = deriveInterruptFocus(
+    input.graphType,
+    input.gate,
+    input.draft,
+  )
+  session.lastInterrupt = {
+    nextNode: input.gate,
+    focus: focus ?? (input.activeNodeId
+      ? { kind: 'news', id: input.activeNodeId }
+      : undefined),
+    pendingTool: pendingTool ?? input.pendingTool,
+    state: input.draft,
+  }
+  activeRuns.set(input.runId, session)
+
+  // MongoDBSaver 按 threadId 持久化；恢复时 skipInitialInvoke，直接进入 interrupt 循环
+  if (input.graphType === 'split') {
+    void executeRun({
+      runId: input.runId,
+      graphType: 'split',
+      getWindow,
+      loadNode,
+      runGraph: (onInterrupt, sess) =>
+        runSplitGraph(
+          buildSplitGraph(getSplitGraphConfig()),
+          {
+            newsId: input.newsId,
+            mode: input.mode,
+            threadId: input.threadId,
+          },
+          { onInterrupt },
+          sess,
+          { skipInitialInvoke: true },
+        ),
+      serialize: serializeSplitState,
+    })
+  } else {
+    const claimId =
+      'claimId' in input.draft ? input.draft.claimId : ''
+    void executeRun({
+      runId: input.runId,
+      graphType: 'verify',
+      getWindow,
+      loadNode,
+      runGraph: (onInterrupt, sess) =>
+        runVerifyGraph(
+          buildVerifyGraph(getVerifyGraphConfig()),
+          {
+            newsId: input.newsId,
+            claimId,
+            mode: input.mode,
+            threadId: input.threadId,
+          },
+          { onInterrupt },
+          sess,
+          { skipInitialInvoke: true },
+        ),
+      serialize: serializeVerifyState,
+    })
+  }
+
+  return { runId: input.runId }
 }
 
 export function getActiveRun(newsId: string): GraphActiveRun | null {
@@ -328,6 +430,7 @@ export function getActiveRun(newsId: string): GraphActiveRun | null {
       newsId: run.newsId,
       graphType: run.graphType,
       mode: run.mode,
+      threadId: run.threadId,
       nextNode: run.lastInterrupt?.nextNode,
       focus: run.lastInterrupt?.focus,
       pendingTool: run.lastInterrupt?.pendingTool,
@@ -397,6 +500,11 @@ export function cancelGraph(runId: string): void {
     const resolve = run.resumeResolve
     run.resumeResolve = null
     resolve(null)
+  }
+  if (run.threadId) {
+    void import('../shared/checkpointer').then(({ deleteCheckpointThread }) =>
+      deleteCheckpointThread(run.threadId!),
+    )
   }
 }
 

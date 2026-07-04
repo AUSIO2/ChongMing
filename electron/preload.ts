@@ -9,6 +9,8 @@ const electronAPI: ElectronAPI = {
     get: newsId => ipcRenderer.invoke(IPC_CHANNELS.NEWS_GET, newsId),
     update: (newsId, patch) =>
       ipcRenderer.invoke(IPC_CHANNELS.NEWS_UPDATE, newsId, patch),
+    saveMapPersistence: (newsId, data) =>
+      ipcRenderer.invoke(IPC_CHANNELS.NEWS_SAVE_MAP, newsId, data),
   },
   catalog: {
     list: module => ipcRenderer.invoke(IPC_CHANNELS.CATALOG_LIST, module),
@@ -25,6 +27,7 @@ const electronAPI: ElectronAPI = {
     cancel: runId => ipcRenderer.invoke(IPC_CHANNELS.GRAPH_CANCEL, runId),
     getActiveRun: newsId =>
       ipcRenderer.invoke(IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN, newsId),
+    restore: input => ipcRenderer.invoke(IPC_CHANNELS.GRAPH_RESTORE, input),
   },
   events: {
     onInterrupted: (callback) => {

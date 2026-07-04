@@ -125,7 +125,10 @@ export interface GraphInterruptCallbacks<TState> {
 interface CompiledGraph<TState> {
   invoke: (input: Partial<TState> | null, config: { configurable: { thread_id: string } }) => Promise<unknown>
   getState: (config: { configurable: { thread_id: string } }) => Promise<{ next?: string[]; values: unknown }>
-  updateState: (config: { configurable: { thread_id: string } }, update: Partial<TState>) => Promise<unknown>
+  updateState: (
+    config: { configurable: { thread_id: string } },
+    update: Partial<TState>,
+  ) => Promise<unknown>
 }
 
 /** 运行时会话 — 支持运行中随时切换 mode */
@@ -145,6 +148,8 @@ export interface GraphRunSession {
   fanoutEmitted?: boolean
   /** 协作式取消：编排循环在安全点检查并退出 */
   cancelled?: boolean
+  /** 稳定 thread id，用于断点恢复 */
+  threadId?: string
 }
 
 /** 单步执行 LangGraph API，失败时规范为 AppError 并附带 failedNode。 */
@@ -159,6 +164,11 @@ async function graphStep<T>(failedNode: string, fn: () => Promise<T>): Promise<T
   }
 }
 
+export interface RunGraphOptions {
+  /** 从已 seed 的 checkpoint/state 恢复，跳过首段 load+route invoke */
+  skipInitialInvoke?: boolean
+}
+
 /** HITL 编排循环 — auto / human-in-loop 模式通用 */
 export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMode }>(
   graph: CompiledGraph<TState>,
@@ -166,6 +176,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
   callbacks: GraphInterruptCallbacks<TState>,
   threadId: string,
   session?: GraphRunSession,
+  options?: RunGraphOptions,
 ): Promise<TState> {
   const config = { configurable: { thread_id: threadId } }
 
@@ -175,21 +186,23 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
     session.mode = input.mode ?? session.mode ?? 'auto'
   }
 
-  const initialMode = session?.mode ?? input.mode ?? 'auto'
-  const loadLabel = session?.loadNode ?? 'load'
+  if (!options?.skipInitialInvoke) {
+    const initialMode = session?.mode ?? input.mode ?? 'auto'
+    const loadLabel = session?.loadNode ?? 'load'
 
-  // 首段 invoke 跑 load + route（route 含 LLM，可能较久）；失败时标 load 节点
-  session?.onProgress?.({ event: 'node_enter', node: 'route' })
-  await graphStep(loadLabel, () =>
-    graph.invoke({ ...input, mode: initialMode } as Partial<TState>, config),
-  )
-  if (session?.cancelled) {
-    return (await graph.getState(config)).values as TState
-  }
+    // 首段 invoke 跑 load + route（route 含 LLM，可能较久）；失败时标 load 节点
+    session?.onProgress?.({ event: 'node_enter', node: 'route' })
+    await graphStep(loadLabel, () =>
+      graph.invoke({ ...input, mode: initialMode } as Partial<TState>, config),
+    )
+    if (session?.cancelled) {
+      return (await graph.getState(config)).values as TState
+    }
 
-  if (session?.onProgress && session.loadNode) {
-    session.onProgress({ event: 'node_exit', node: session.loadNode })
-    session.onProgress({ event: 'node_exit', node: 'route' })
+    if (session?.onProgress && session.loadNode) {
+      session.onProgress({ event: 'node_exit', node: session.loadNode })
+      session.onProgress({ event: 'node_exit', node: 'route' })
+    }
   }
 
   // eslint-disable-next-line no-constant-condition
@@ -219,7 +232,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
 
     if (
       session?.onProgress
-      && (nextNode === 'confirmRoute' || nextNode === 'subAgent')
+      && nextNode === 'confirmRoute'
       && !session.fanoutEmitted
       && typeof currentState === 'object'
       && currentState !== null

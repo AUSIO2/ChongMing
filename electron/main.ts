@@ -4,6 +4,7 @@ import path from 'node:path'
 import { loadEnv } from './shared/load-env'
 import { registerIpcHandlers } from './api/register-handlers'
 import { connectDB, disconnectDB } from './shared/database'
+import { initCheckpointer } from './shared/checkpointer'
 import { setPromptsRoot } from './shared/prompt-loader'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -68,5 +69,6 @@ app.on('before-quit', () => {
 
 app.whenReady().then(async () => {
   await connectDB()
+  await initCheckpointer()
   createWindow()
 })

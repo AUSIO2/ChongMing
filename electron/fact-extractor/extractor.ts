@@ -1,5 +1,5 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph'
-import { MemorySaver } from '@langchain/langgraph'
+import { getCheckpointer } from '../shared/checkpointer'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   MapSubAgentParams, GraphClaim,
@@ -257,7 +257,7 @@ export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
     maxConcurrency,
   } = config
 
-  const checkpointer = new MemorySaver()
+  const checkpointer = getCheckpointer()
 
   type NodeName =
     | 'loadNews'
@@ -329,11 +329,13 @@ export async function runSplitGraph(
   input: {
     newsId: string
     mode?: ExecutionMode
+    threadId?: string
   },
   callbacks: SplitGraphCallbacks,
   session?: GraphRunSession,
+  options?: { skipInitialInvoke?: boolean },
 ) {
-  const threadId = `split-${input.newsId}-${Date.now()}`
+  const threadId = input.threadId ?? `split-${input.newsId}-${Date.now()}`
 
   return runGraphWithInterrupts(
     graph,
@@ -344,5 +346,6 @@ export async function runSplitGraph(
     callbacks,
     threadId,
     session,
+    options,
   )
 }

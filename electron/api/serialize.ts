@@ -8,6 +8,8 @@ import type {
   DisplayOpinion,
   GraphSplitRecordDto,
   GraphVerifyState,
+  MapGraphPersist,
+  MapRunPersist,
 } from './types'
 
 function toIsoString(value: unknown): string | undefined {
@@ -49,12 +51,34 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
       }
     : undefined
 
+  const extra = raw as Record<string, unknown>
+  const mapRunRaw = (extra.mapRun ?? (record as { mapRun?: unknown }).mapRun) as
+    | MapRunPersist
+    | null
+    | undefined
+  const mapGraphRaw = (extra.mapGraph ?? (record as { mapGraph?: unknown }).mapGraph) as
+    | MapGraphPersist
+    | null
+    | undefined
+
   return {
     _id: String(raw._id ?? record._id),
     content: String(raw.content ?? record.content),
     context: toNewsContext(raw.context ?? record.context),
     claims: (raw.claims ?? record.claims ?? []) as DisplayNews['claims'],
     splitMeta,
+    mapRun: mapRunRaw
+      ? {
+          ...mapRunRaw,
+          updatedAt: toIsoString(mapRunRaw.updatedAt) ?? new Date().toISOString(),
+        }
+      : undefined,
+    mapGraph: mapGraphRaw
+      ? {
+          ...mapGraphRaw,
+          updatedAt: toIsoString(mapGraphRaw.updatedAt) ?? new Date().toISOString(),
+        }
+      : undefined,
     confidence: typeof (raw.confidence ?? record.confidence) === 'number'
       ? (raw.confidence ?? record.confidence) as number
       : undefined,

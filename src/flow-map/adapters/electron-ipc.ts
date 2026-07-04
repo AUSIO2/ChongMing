@@ -16,11 +16,14 @@ import {
   clearFocus,
   createEmptyDoc,
   ensureSubAgent,
+  hydrateFromPersist,
   markRunCompleted,
   prepareForVerify,
   pruneRejectedClaims,
   resetIdleFromNews,
   syncDraftFromNodes,
+  toMapGraphPersist,
+  toMapRunPersist,
   toSnapshot,
   type MapGraphDoc,
 } from '../graph-doc'
@@ -53,6 +56,23 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     return doc
   }
 
+  async function persistDoc(doc: MapGraphDoc): Promise<void> {
+    try {
+      const mapGraph = toMapGraphPersist(doc)
+      const mapRun = toMapRunPersist(doc)
+      if (mapRun) {
+        await api.news.saveMapPersistence(doc.newsId, { mapRun, mapGraph })
+      } else {
+        await api.news.saveMapPersistence(doc.newsId, {
+          mapRun: null,
+          mapGraph,
+        })
+      }
+    } catch (e) {
+      console.error('[map] persist failed', e)
+    }
+  }
+
   async function ensureGraph(newsId: string): Promise<MapGraphDoc> {
     const existing = graphs.get(newsId)
     if (existing && existing.nodes.length > 0) return existing
@@ -64,6 +84,45 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       graphs.set(newsId, doc)
       return doc
     }
+
+    // 优先从 News.mapGraph 恢复内存图
+    if (news.mapGraph && Array.isArray(news.mapGraph.nodes) && news.mapGraph.nodes.length > 0) {
+      const doc = hydrateFromPersist(newsId, news.mapGraph, news.mapRun)
+      if (news.mapRun?.status === 'running') {
+        // 退出时卡在 LLM：降为 interrupted，等待用户继续或取消
+        doc.runPhase = 'interrupted'
+      }
+      graphs.set(newsId, doc)
+
+      const run = news.mapRun
+      if (
+        run
+        && (run.status === 'interrupted' || run.status === 'running')
+        && run.gate
+        && news.mapGraph.draft
+      ) {
+        try {
+          await api.graph.restore({
+            newsId,
+            runId: run.runId,
+            threadId: run.threadId,
+            graphType: run.graphType,
+            mode: run.mode,
+            gate: run.gate,
+            pendingTool: run.pendingTool,
+            activeNodeId: run.activeNodeId,
+            draft: news.mapGraph.draft,
+          })
+          doc.runPhase = 'interrupted'
+          doc.runId = run.runId
+          doc.threadId = run.threadId
+        } catch (e) {
+          applyError(doc, toAppError(e).msg)
+        }
+      }
+      return doc
+    }
+
     const doc = bootstrapFromNews(news, existing?.mode ?? 'human-in-loop')
     graphs.set(newsId, doc)
     return doc
@@ -82,6 +141,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
     const next = news.claims.find(c => !c.verifyResult)
     if (!next) {
       markRunCompleted(doc)
+      await persistDoc(doc)
       return
     }
 
@@ -94,6 +154,8 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       mode: doc.mode,
     })
     doc.runId = runId
+    doc.threadId = `verify-${newsId}-${next.claimId}-${runId}`
+    await persistDoc(doc)
   }
 
   function wireEvents() {
@@ -101,6 +163,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       const newsId = payload.state.newsId
       const doc = getDoc(newsId)
       applyInterrupted(doc, payload)
+      void persistDoc(doc)
       emit(newsId)
     })
 
@@ -108,6 +171,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       const newsId = payload.state.newsId
       const doc = getDoc(newsId)
       doc.runId = undefined
+      doc.threadId = undefined
       doc.runPhase = 'running'
       clearFocus(doc)
       void (async () => {
@@ -115,6 +179,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
           await startNextVerify(newsId)
         } catch (e) {
           applyError(doc, toAppError(e).msg)
+          await persistDoc(doc)
         }
         emit(newsId)
       })()
@@ -129,6 +194,8 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
           : payload.msg,
       )
       doc.runId = undefined
+      doc.threadId = undefined
+      void persistDoc(doc)
       emit(payload.newsId)
     })
 
@@ -179,6 +246,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       }
       ensureSubAgent(doc, input.parentNodeId, route)
       syncDraftFromNodes(doc)
+      await persistDoc(doc)
       emit(input.newsId)
       return snapshotOf(input.newsId)
     },
@@ -224,6 +292,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         syncDraftFromNodes(doc)
       }
 
+      await persistDoc(doc)
       emit(input.newsId)
       return snapshotOf(input.newsId)
     },
@@ -242,6 +311,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         e => e.from !== input.nodeId && e.to !== input.nodeId,
       )
       syncDraftFromNodes(doc)
+      await persistDoc(doc)
       emit(input.newsId)
       return snapshotOf(input.newsId)
     },
@@ -264,12 +334,16 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
           mode: doc.mode,
         })
         doc.runId = runId
+        doc.threadId = `split-${newsId}-${runId}`
         doc.graphType = 'split'
+        await persistDoc(doc)
         emit(newsId)
         return { runId, snapshot: snapshotOf(newsId) }
       } catch (e) {
         applyError(doc, toAppError(e).msg)
         doc.runId = undefined
+        doc.threadId = undefined
+        await persistDoc(doc)
         emit(newsId)
         throw e
       }
@@ -293,6 +367,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
 
       doc.runPhase = 'running'
       clearFocus(doc)
+      await persistDoc(doc)
       emit(newsId)
       await api.graph.resume(doc.runId, modifications)
       return snapshotOf(newsId)
@@ -310,10 +385,12 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
         doc.runPhase = 'idle'
         doc.error = undefined
         doc.runId = undefined
+        doc.threadId = undefined
         doc.graphType = undefined
         doc.draft = undefined
         clearFocus(doc)
       }
+      await persistDoc(doc)
       emit(newsId)
       return snapshotOf(newsId)
     },
@@ -322,6 +399,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
       const doc = await ensureGraph(newsId)
       doc.mode = mode
       if (doc.runId) await api.graph.setMode(doc.runId, mode)
+      await persistDoc(doc)
       emit(newsId)
       return snapshotOf(newsId)
     },
