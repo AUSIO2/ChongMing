@@ -6,18 +6,27 @@ import AppShell from '../components/shell/AppShell.vue'
 import NewsSidebar from '../components/NewsSidebar.vue'
 import RightSidebar from '../components/RightSidebar.vue'
 import FlowTopology from '../components/flow/FlowTopology.vue'
+import FlowMapTopology from '../components/flow/FlowMapTopology.vue'
 import WorkflowControls from '../components/WorkflowControls.vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useFlowMapStore } from '../stores/flow-map'
+import { USE_MAP_FLOW } from '../config/map-flow'
 
 const store = useWorkspaceStore()
+const flowMapStore = useFlowMapStore()
 const {
   graphError,
   isRunning,
+  currentNews,
 } = storeToRefs(store)
+const { errorMessage: mapError, snapshot: mapSnapshot } = storeToRefs(flowMapStore)
+const mapRunError = computed(() => mapSnapshot.value?.error ?? mapError.value)
 
 const isMock = import.meta.env.VITE_MOCK_ELECTRON
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
 const canRun = computed(() => hasElectron)
+const useMapFlow = USE_MAP_FLOW
+const currentNewsId = computed(() => currentNews.value?._id ?? null)
 
 onMounted(async () => {
   if (!canRun.value) return
@@ -53,9 +62,11 @@ onUnmounted(() => store.disposeGraphEvents())
 
       <template #center>
         <div class="viewport">
-          <FlowTopology />
-          <p v-if="graphError" class="viewport-msg error">{{ graphError }}</p>
-          <p v-else-if="isRunning" class="viewport-msg">流程执行中…</p>
+          <FlowMapTopology v-if="useMapFlow" :news-id="currentNewsId" />
+          <FlowTopology v-else />
+          <p v-if="useMapFlow && mapRunError" class="viewport-msg error">{{ mapRunError }}</p>
+          <p v-else-if="!useMapFlow && graphError" class="viewport-msg error">{{ graphError }}</p>
+          <p v-else-if="!useMapFlow && isRunning" class="viewport-msg">流程执行中…</p>
         </div>
       </template>
 

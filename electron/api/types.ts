@@ -102,6 +102,13 @@ export interface UpdateClaimInput {
 
 export type GraphType = 'split' | 'verify'
 export type GraphInterruptNode = 'subAgent' | 'merge' | 'save'
+export type MapToolKind = 'invoke' | 'validate' | 'save'
+
+/** interrupt 焦点：一次中断对应一个 Map 节点 */
+export interface GraphInterruptFocus {
+  kind: 'news' | 'subAgent' | 'claim' | 'opinion'
+  id: string
+}
 
 export interface RawClaimDTO {
   content: string
@@ -118,6 +125,8 @@ export interface SplitGraphStateDTO {
   subAgentResults: SubAgentSplitRecordDTO[]
   mergedClaims: RawClaimDTO[]
   rawMergeResponse: string
+  /** 按条 save 的游标（下一条待落盘的 mergedClaims 下标） */
+  saveIndex: number
 }
 
 export interface VerifyGraphStateDTO {
@@ -132,17 +141,26 @@ export interface VerifyGraphStateDTO {
   finalScore: Confidence
   finalReason: string
   rawMergeResponse: string
+  /** 按条 opinion save 游标 */
+  opinionSaveIndex: number
 }
 
 export interface StartSplitInput {
   newsId: string
   mode?: ExecutionMode
+  /**
+   * 可选人工预置路由，与 AI Route Agent 结果合并（不替代 route）。
+   * 每条含 agentName / priority / hint? / instanceId?。
+   */
+  routeInstructions?: RouteInstruction[]
 }
 
 export interface StartVerifyInput {
   newsId: string
   claimId: string
   mode?: ExecutionMode
+  /** 可选人工预置核查槽，与 AI Route Agent 结果合并 */
+  routeInstructions?: RouteInstruction[]
 }
 
 export interface StartGraphResult {
@@ -155,6 +173,20 @@ export interface GraphInterruptedPayload {
   nextNode: GraphInterruptNode
   mode: ExecutionMode
   state: SplitGraphStateDTO | VerifyGraphStateDTO
+  /** Map 焦点：一次 interrupt 一个节点 */
+  focus?: GraphInterruptFocus
+  pendingTool?: MapToolKind
+}
+
+export interface ActiveRunDTO {
+  runId: string
+  newsId: string
+  graphType: GraphType
+  mode: ExecutionMode
+  nextNode?: GraphInterruptNode
+  focus?: GraphInterruptFocus
+  pendingTool?: MapToolKind
+  state?: SplitGraphStateDTO | VerifyGraphStateDTO
 }
 
 export interface GraphCompletedPayload {
@@ -202,12 +234,25 @@ export interface ClaimsAPI {
   delete(newsId: string, claimId: string): Promise<void>
 }
 
+export interface CatalogEntryDTO {
+  agentName: string
+  displayLabel: string
+  description?: string
+  defaultPriority?: Priority
+  module: 'split' | 'verify'
+}
+
+export interface CatalogAPI {
+  list(module: 'split' | 'verify'): Promise<CatalogEntryDTO[]>
+}
+
 export interface GraphAPI {
   startSplit(input: StartSplitInput): Promise<StartGraphResult>
   startVerify(input: StartVerifyInput): Promise<StartGraphResult>
   resume(runId: string, modifications: GraphStatePatch): Promise<void>
   setMode(runId: string, mode: ExecutionMode): Promise<void>
   cancel(runId: string): Promise<void>
+  getActiveRun(newsId: string): Promise<ActiveRunDTO | null>
 }
 
 export interface GraphEventAPI {
@@ -220,6 +265,7 @@ export interface GraphEventAPI {
 export interface ElectronAPI {
   news: NewsAPI
   claims: ClaimsAPI
+  catalog: CatalogAPI
   graph: GraphAPI
   events: GraphEventAPI
 }

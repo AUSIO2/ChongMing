@@ -20,6 +20,7 @@ import {
   messageContentToString,
   parseClaimsArray,
 } from '../shared/llm-utils'
+import { mergedClaimNodeId } from '../shared/map-ids'
 
 // ==========================================
 // State 定义
@@ -57,6 +58,11 @@ const SplitGraphState = Annotation.Root({
   rawMergeResponse: Annotation<string>({
     value: (_prev, next) => next,
     default: () => '',
+  }),
+  /** 下一条待落盘的 mergedClaims 下标 */
+  saveIndex: Annotation<number>({
+    value: (_prev, next) => next,
+    default: () => 0,
   }),
 })
 
@@ -153,32 +159,53 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
         }))
     }
 
-    return { mergedClaims, rawMergeResponse }
+    return { mergedClaims, rawMergeResponse, saveIndex: 0 }
   }
 }
 
-/** 分配 claimId + 写回 MongoDB */
-async function saveResults(state: typeof SplitGraphState.State) {
+/**
+ * 按条落盘：只写 mergedClaims[saveIndex] 一条，然后 saveIndex++。
+ * interruptBefore save → 一次 interrupt 对应一个 claim。
+ */
+async function saveOneClaim(state: typeof SplitGraphState.State) {
+  const index = state.saveIndex
+  const raw = state.mergedClaims[index]
+  if (!raw) return { saveIndex: index }
+
   const doc = await NewsModel.findById(state.newsId)
   if (!doc) throw new Error(`News not found: ${state.newsId}`)
 
-  const claims = state.mergedClaims.map((raw, i) => ({
-    claimId: String(i + 1),
+  const claimId = mergedClaimNodeId(index)
+  const existing = (doc.get('claims') as Array<{ claimId: string }> | undefined) ?? []
+  const entry = {
+    claimId,
     content: raw.content,
     category: raw.category,
     sourceAgent: raw.sourceAgent ?? 'merge',
-  }))
+  }
+  const nextClaims = existing.filter(c => c.claimId !== claimId)
+  nextClaims.push(entry)
+  // 保持 claimId 数字序
+  nextClaims.sort((a, b) => Number(a.claimId) - Number(b.claimId))
+  doc.set('claims', nextClaims)
 
-  doc.set('claims', claims)
-  doc.set('splitMeta', {
-    model: 'langgraph',
-    subAgentResults: state.subAgentResults,
-    rawMergeResponse: state.rawMergeResponse,
-    splitAt: new Date(),
-  })
+  const nextIndex = index + 1
+  if (nextIndex >= state.mergedClaims.length) {
+    doc.set('splitMeta', {
+      model: 'langgraph',
+      subAgentResults: state.subAgentResults,
+      rawMergeResponse: state.rawMergeResponse,
+      splitAt: new Date(),
+    })
+  }
   await doc.save()
 
-  return {}
+  return { saveIndex: nextIndex }
+}
+
+function routeAfterSave(state: typeof SplitGraphState.State): string {
+  if (state.saveIndex < state.mergedClaims.length) return 'save'
+  return END
 }
 
 // ==========================================
@@ -188,8 +215,8 @@ async function saveResults(state: typeof SplitGraphState.State) {
 /**
  * 构建事实拆分图
  *
- * 流程：loadNews → route → 动态 Send[] subAgent ×N → merge → save
- * 始终编译全部中断点，mode 在 state 中运行时可切换
+ * 流程：loadNews → route → subAgent×N → merge → save（按条循环）
+ * interruptBefore save：每次只焦点一条 claim
  */
 export function buildSplitGraph(config: Omit<SplitGraphConfig, 'mode'>) {
   const {
@@ -221,7 +248,7 @@ export function buildSplitGraph(config: Omit<SplitGraphConfig, 'mode'>) {
     )
     .addNode('subAgent', createSubAgentNode(defaultModel))
     .addNode('merge', createMergeNode(defaultModel, mergePromptPath))
-    .addNode('save', saveResults)
+    .addNode('save', saveOneClaim)
     .addEdge(START, 'loadNews')
     .addEdge('loadNews', 'route')
     .addConditionalEdges(
@@ -230,7 +257,7 @@ export function buildSplitGraph(config: Omit<SplitGraphConfig, 'mode'>) {
     )
     .addEdge('subAgent', 'merge')
     .addEdge('merge', 'save')
-    .addEdge('save', END)
+    .addConditionalEdges('save', routeAfterSave)
     .compile({ checkpointer, interruptBefore: interruptPoints })
 }
 
@@ -257,7 +284,12 @@ export interface SplitGraphCallbacks {
  */
 export async function runSplitGraph(
   graph: ReturnType<typeof buildSplitGraph>,
-  input: { newsId: string; mode?: ExecutionMode },
+  input: {
+    newsId: string
+    mode?: ExecutionMode
+    /** 人工预置槽，与 AI route 合并 */
+    routeInstructions?: RouteInstruction[]
+  },
   callbacks: SplitGraphCallbacks,
   session?: GraphRunSession,
 ) {
@@ -265,7 +297,13 @@ export async function runSplitGraph(
 
   return runGraphWithInterrupts(
     graph,
-    { newsId: input.newsId, mode: input.mode ?? session?.mode ?? 'auto' },
+    {
+      newsId: input.newsId,
+      mode: input.mode ?? session?.mode ?? 'auto',
+      ...(input.routeInstructions?.length
+        ? { routeInstructions: input.routeInstructions }
+        : {}),
+    },
     callbacks,
     threadId,
     session,

@@ -86,6 +86,7 @@ export function serializeSplitState(state: {
   subAgentResults: SubAgentSplitRecordDTO[]
   mergedClaims: SplitGraphStateDTO['mergedClaims']
   rawMergeResponse: string
+  saveIndex?: number
 }): SplitGraphStateDTO {
   return {
     newsId: state.newsId,
@@ -96,6 +97,7 @@ export function serializeSplitState(state: {
     subAgentResults: state.subAgentResults,
     mergedClaims: state.mergedClaims,
     rawMergeResponse: state.rawMergeResponse,
+    saveIndex: state.saveIndex ?? 0,
   }
 }
 
@@ -111,6 +113,7 @@ export function serializeVerifyState(state: {
   finalScore: VerifyGraphStateDTO['finalScore']
   finalReason: string
   rawMergeResponse: string
+  opinionSaveIndex?: number
 }): VerifyGraphStateDTO {
   return {
     newsId: state.newsId,
@@ -124,6 +127,7 @@ export function serializeVerifyState(state: {
     finalScore: state.finalScore,
     finalReason: state.finalReason,
     rawMergeResponse: state.rawMergeResponse,
+    opinionSaveIndex: state.opinionSaveIndex ?? 0,
   }
 }
 

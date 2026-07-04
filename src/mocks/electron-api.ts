@@ -132,6 +132,7 @@ export function createMockElectronAPI(): ElectronAPI {
       })),
       mergedClaims: DEMO_MERGED_CLAIMS.map(c => ({ ...c })),
       rawMergeResponse: '[]',
+      saveIndex: 0,
     }
   }
 
@@ -249,6 +250,7 @@ export function createMockElectronAPI(): ElectronAPI {
       finalScore: verifyDemo.finalScore,
       finalReason: verifyDemo.finalReason,
       rawMergeResponse: '{}',
+      opinionSaveIndex: 0,
     }
 
     try {
@@ -352,6 +354,22 @@ export function createMockElectronAPI(): ElectronAPI {
         return updated
       },
     },
+    catalog: {
+      list: async (module) => {
+        if (module === 'split') {
+          return [
+            { agentName: '数据事实', displayLabel: '数据事实', defaultPriority: 'high' as const, module: 'split' as const },
+            { agentName: '引用观点', displayLabel: '引用观点', defaultPriority: 'medium' as const, module: 'split' as const },
+            { agentName: '因果关系', displayLabel: '因果关系', defaultPriority: 'low' as const, module: 'split' as const },
+          ]
+        }
+        return [
+          { agentName: '来源可信度', displayLabel: '来源可信度', defaultPriority: 'high' as const, module: 'verify' as const },
+          { agentName: '逻辑一致性', displayLabel: '逻辑一致性', defaultPriority: 'medium' as const, module: 'verify' as const },
+          { agentName: '数据可验证性', displayLabel: '数据可验证性', defaultPriority: 'low' as const, module: 'verify' as const },
+        ]
+      },
+    },
     claims: {
       list: async newsId => newsDb.get(newsId)?.claims ?? [],
       create: async (newsId, input) => {
@@ -434,6 +452,9 @@ export function createMockElectronAPI(): ElectronAPI {
         }
         runs.delete(runId)
       },
+      async getActiveRun(_newsId: string) {
+        return null
+      },
     },
     events: {
       onInterrupted(callback) {
@@ -456,13 +477,23 @@ export function createMockElectronAPI(): ElectronAPI {
   }
 }
 
-export function installMockElectronAPI(): void {
+export interface InstallMockElectronOptions {
+  /** 若提供则用它们初始化新闻；否则用内置示例。 */
+  initialNews?: Array<{ _id?: string; content: string; context?: NewsDocumentDTO['context'] }>
+}
+
+export function installMockElectronAPI(options: InstallMockElectronOptions = {}): void {
   if (typeof window === 'undefined' || window.electronAPI) return
   window.electronAPI = createMockElectronAPI()
 
-  // 预置一条示例新闻，打开即可预览
-  void window.electronAPI.news.create({
-    content: sampleContent(),
-    context: sampleContext(),
-  })
+  const seeds = options.initialNews ?? [
+    { content: sampleContent(), context: sampleContext() },
+  ]
+  for (const s of seeds) {
+    void window.electronAPI.news.create({
+      _id: s._id,
+      content: s.content,
+      context: s.context ?? sampleContext(),
+    })
+  }
 }

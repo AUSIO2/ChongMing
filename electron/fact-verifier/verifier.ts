@@ -62,6 +62,10 @@ const VerifyGraphState = Annotation.Root({
     value: (_prev, next) => next,
     default: () => '',
   }),
+  opinionSaveIndex: Annotation<number>({
+    value: (_prev, next) => next,
+    default: () => 0,
+  }),
 })
 
 const VALID_SCORES = new Set<number>([1, 0.5, 0])
@@ -161,12 +165,37 @@ function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
       finalScore: toConfidence(Number(result.score)),
       finalReason: typeof result.reason === 'string' ? result.reason : '',
       rawMergeResponse,
+      opinionSaveIndex: 0,
     }
   }
 }
 
-/** 写回核查结果到 claim 子文档 */
-async function saveVerifyResult(state: typeof VerifyGraphState.State) {
+/**
+ * 按条确认 opinion：interruptBefore save 时焦点为 subAgentOpinions[opinionSaveIndex]。
+ * 每确认一条写入已确认的 opinions 前缀；最后一条时写入完整 verifyResult。
+ */
+async function saveOneOpinion(state: typeof VerifyGraphState.State) {
+  const index = state.opinionSaveIndex
+  const opinions = state.subAgentOpinions
+  if (opinions.length === 0) {
+    await writeVerifyResult(state, [])
+    return { opinionSaveIndex: 0 }
+  }
+  if (index >= opinions.length) {
+    return { opinionSaveIndex: index }
+  }
+
+  const confirmed = opinions.slice(0, index + 1)
+  const isLast = index + 1 >= opinions.length
+  await writeVerifyResult(state, confirmed, isLast)
+  return { opinionSaveIndex: index + 1 }
+}
+
+async function writeVerifyResult(
+  state: typeof VerifyGraphState.State,
+  opinions: typeof state.subAgentOpinions,
+  includeFinal = true,
+) {
   const doc = await NewsModel.findById(state.newsId)
   if (!doc) throw new Error(`News not found: ${state.newsId}`)
 
@@ -180,17 +209,20 @@ async function saveVerifyResult(state: typeof VerifyGraphState.State) {
   }
 
   claims[claimIndex].verifyResult = {
-    score: state.finalScore,
-    reason: state.finalReason,
-    opinions: state.subAgentOpinions,
+    score: includeFinal ? state.finalScore : (claims[claimIndex].verifyResult as { score?: number } | undefined)?.score ?? 0.5,
+    reason: includeFinal ? state.finalReason : (claims[claimIndex].verifyResult as { reason?: string } | undefined)?.reason ?? '',
+    opinions,
     rawMergeResponse: state.rawMergeResponse,
     verifiedAt: new Date(),
   }
 
   doc.markModified('claims')
   await doc.save()
+}
 
-  return {}
+function routeAfterOpinionSave(state: typeof VerifyGraphState.State): string {
+  if (state.opinionSaveIndex < state.subAgentOpinions.length) return 'save'
+  return END
 }
 
 // ==========================================
@@ -228,7 +260,7 @@ export function buildVerifyGraph(config: VerifyGraphConfig) {
     )
     .addNode('subAgent', createVerifySubAgentNode(defaultModel))
     .addNode('merge', createVerifyMergeNode(defaultModel, mergePromptPath))
-    .addNode('save', saveVerifyResult)
+    .addNode('save', saveOneOpinion)
     .addEdge(START, 'loadClaim')
     .addEdge('loadClaim', 'route')
     .addConditionalEdges(
@@ -237,7 +269,7 @@ export function buildVerifyGraph(config: VerifyGraphConfig) {
     )
     .addEdge('subAgent', 'merge')
     .addEdge('merge', 'save')
-    .addEdge('save', END)
+    .addConditionalEdges('save', routeAfterOpinionSave)
     .compile({ checkpointer, interruptBefore: interruptPoints })
 }
 
@@ -254,7 +286,13 @@ export interface VerifyGraphCallbacks {
 
 export async function runVerifyGraph(
   graph: ReturnType<typeof buildVerifyGraph>,
-  input: { newsId: string; claimId: string; mode?: ExecutionMode },
+  input: {
+    newsId: string
+    claimId: string
+    mode?: ExecutionMode
+    /** 人工预置槽，与 AI route 合并 */
+    routeInstructions?: RouteInstruction[]
+  },
   callbacks: VerifyGraphCallbacks,
   session?: GraphRunSession,
 ) {
@@ -266,6 +304,9 @@ export async function runVerifyGraph(
       newsId: input.newsId,
       claimId: input.claimId,
       mode: input.mode ?? session?.mode ?? 'auto',
+      ...(input.routeInstructions?.length
+        ? { routeInstructions: input.routeInstructions }
+        : {}),
     },
     callbacks,
     threadId,

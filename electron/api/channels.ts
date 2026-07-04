@@ -10,11 +10,14 @@ export const IPC_CHANNELS = {
   CLAIMS_UPDATE: 'claims:update',
   CLAIMS_DELETE: 'claims:delete',
 
+  CATALOG_LIST: 'catalog:list',
+
   GRAPH_START_SPLIT: 'graph:start-split',
   GRAPH_START_VERIFY: 'graph:start-verify',
   GRAPH_RESUME: 'graph:resume',
   GRAPH_SET_MODE: 'graph:set-mode',
   GRAPH_CANCEL: 'graph:cancel',
+  GRAPH_GET_ACTIVE_RUN: 'graph:get-active-run',
 
   GRAPH_INTERRUPTED: 'graph:interrupted',
   GRAPH_COMPLETED: 'graph:completed',

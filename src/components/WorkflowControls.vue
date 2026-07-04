@@ -3,7 +3,10 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
 import { FLOW_PHASE_LABELS } from '../types/flow'
+import { USE_MAP_FLOW } from '../config/map-flow'
+import FlowMapControls from './flow/FlowMapControls.vue'
 
+const useMapFlow = USE_MAP_FLOW
 const store = useWorkspaceStore()
 const {
   currentNews,
@@ -28,7 +31,8 @@ function onModeChange(event: Event) {
 </script>
 
 <template>
-  <div class="workflow-controls">
+  <FlowMapControls v-if="useMapFlow" />
+  <div v-else class="workflow-controls">
     <span class="status" :class="[flowPhase]">{{ statusText }}</span>
 
     <label class="mode-select">

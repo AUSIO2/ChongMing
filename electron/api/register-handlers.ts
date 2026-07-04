@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from './channels'
 import * as newsService from './news-service'
 import * as claimsService from './claims-service'
 import * as graphService from './graph-service'
+import { listCatalogEntries } from './sub-agent-catalog'
 import type { ExecutionMode } from '../shared/types'
 import type {
   CreateClaimInput,
@@ -63,6 +64,11 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   )
 
   ipcMain.handle(
+    IPC_CHANNELS.CATALOG_LIST,
+    (_event, module: 'split' | 'verify') => listCatalogEntries(module),
+  )
+
+  ipcMain.handle(
     IPC_CHANNELS.GRAPH_START_SPLIT,
     (_event, input: StartSplitInput) =>
       graphService.startSplit(input, getWindow),
@@ -93,5 +99,10 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     (_event, runId: string) => {
       graphService.cancelGraph(runId)
     },
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN,
+    (_event, newsId: string) => graphService.getActiveRun(newsId),
   )
 }

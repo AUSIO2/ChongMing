@@ -1,0 +1,415 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useFlowMapStore } from '../../stores/flow-map'
+import { NEWS_ROOT_ID, canAddSubAgent, canEditNode, canRemoveNode } from '../../flow-map'
+import type {
+  ClaimParams,
+  MapNode,
+  NewsParams,
+  OpinionParams,
+  Priority,
+  SubAgentEntry,
+  SubAgentParams,
+} from '../../flow-map'
+
+const store = useFlowMapStore()
+const { snapshot, selectedNode, selectedNodeId, catalog, catalogParent, errorMessage } = storeToRefs(store)
+
+const showAddPanel = ref(false)
+const draftAgent = ref<SubAgentEntry | null>(null)
+
+// 若选中变化，同步 catalog（news 节点 或 已持久化 claim）
+watch(selectedNodeId, async (id) => {
+  showAddPanel.value = false
+  draftAgent.value = null
+  if (!id) {
+    await store.loadRootCatalog()
+    return
+  }
+  const node = snapshot.value?.nodes.find(n => n.id === id)
+  if (!node) return
+  if (node.kind === 'news') {
+    await store.loadRootCatalog()
+    return
+  }
+  if (node.kind === 'claim' && node.dataPhase === 'persisted') {
+    await store.loadCatalogFor(id)
+  }
+})
+
+const isRootAddable = computed(() => {
+  const s = snapshot.value
+  if (!s) return false
+  return canAddSubAgent(s, NEWS_ROOT_ID)
+})
+
+const isSelectedClaimAddable = computed(() => {
+  const s = snapshot.value
+  const id = selectedNodeId.value
+  if (!s || !id) return false
+  return canAddSubAgent(s, id)
+})
+
+const canEditSelected = computed(() => {
+  const s = snapshot.value
+  const id = selectedNodeId.value
+  if (!s || !id) return false
+  return canEditNode(s, id)
+})
+
+const canRemoveSelected = computed(() => {
+  const s = snapshot.value
+  const id = selectedNodeId.value
+  if (!s || !id) return false
+  return canRemoveNode(s, id)
+})
+
+function beginAddFor(parentNodeId: string) {
+  void store.loadCatalogFor(parentNodeId)
+  showAddPanel.value = true
+  draftAgent.value = null
+}
+
+async function confirmAdd(parentNodeId: string) {
+  if (!draftAgent.value) return
+  const params: SubAgentParams = {
+    agentName: draftAgent.value.agentName,
+    displayLabel: draftAgent.value.displayLabel,
+    description: draftAgent.value.description,
+    priority: draftAgent.value.defaultPriority ?? 'medium',
+  }
+  await store.addSubAgent(parentNodeId, params)
+  showAddPanel.value = false
+  draftAgent.value = null
+}
+
+function isNews(n: MapNode): n is Extract<MapNode, { kind: 'news' }> { return n.kind === 'news' }
+function isSubAgent(n: MapNode): n is Extract<MapNode, { kind: 'subAgent' }> { return n.kind === 'subAgent' }
+function isClaim(n: MapNode): n is Extract<MapNode, { kind: 'claim' }> { return n.kind === 'claim' }
+function isOpinion(n: MapNode): n is Extract<MapNode, { kind: 'opinion' }> { return n.kind === 'opinion' }
+
+async function onNewsTitleInput(node: MapNode, ev: Event) {
+  if (!isNews(node)) return
+  const val = (ev.target as HTMLInputElement).value
+  await store.updateNodeParams(node.id, { title: val } as Partial<NewsParams>)
+}
+
+async function onNewsContentInput(node: MapNode, ev: Event) {
+  if (!isNews(node)) return
+  const val = (ev.target as HTMLTextAreaElement).value
+  await store.updateNodeParams(node.id, { content: val } as Partial<NewsParams>)
+}
+
+async function onSubAgentLabelInput(node: MapNode, ev: Event) {
+  if (!isSubAgent(node)) return
+  const val = (ev.target as HTMLInputElement).value
+  await store.updateNodeParams(node.id, { displayLabel: val } as Partial<SubAgentParams>)
+}
+
+async function onSubAgentPriorityChange(node: MapNode, ev: Event) {
+  if (!isSubAgent(node)) return
+  const val = (ev.target as HTMLSelectElement).value as Priority
+  await store.updateNodeParams(node.id, { priority: val } as Partial<SubAgentParams>)
+}
+
+async function onSubAgentHintInput(node: MapNode, ev: Event) {
+  if (!isSubAgent(node)) return
+  const val = (ev.target as HTMLTextAreaElement).value
+  await store.updateNodeParams(node.id, { hint: val } as Partial<SubAgentParams>)
+}
+
+async function onClaimContentInput(node: MapNode, ev: Event) {
+  if (!isClaim(node)) return
+  const val = (ev.target as HTMLTextAreaElement).value
+  await store.updateNodeParams(node.id, { content: val } as Partial<ClaimParams>)
+}
+
+async function onOpinionContentInput(node: MapNode, ev: Event) {
+  if (!isOpinion(node)) return
+  const val = (ev.target as HTMLTextAreaElement).value
+  await store.updateNodeParams(node.id, { content: val } as Partial<OpinionParams>)
+}
+
+async function onRemove(node: MapNode) {
+  await store.removeNode(node.id)
+}
+
+const kindLabel: Record<MapNode['kind'], string> = {
+  news: '新闻',
+  subAgent: 'SubAgent',
+  claim: '事实',
+  opinion: '意见',
+}
+
+const phaseLabel: Record<string, string> = {
+  workerOut: '产出中',
+  pendingValidated: '待验证',
+  persisted: '已保存',
+}
+</script>
+
+<template>
+  <div class="flow-map-inspector">
+    <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+
+    <!-- 无选中：提示点新闻节点 -->
+    <template v-if="!selectedNode">
+      <section class="panel">
+        <h4>Map 层</h4>
+        <p class="muted">未选中节点。可直接「运行」：Route Agent 会先配槽，确认 invoke 前仍可加槽；也可先点「新闻」预置。</p>
+      </section>
+    </template>
+
+    <!-- 有选中 -->
+    <template v-else>
+      <section class="panel">
+        <div class="head">
+          <span class="tag">{{ kindLabel[selectedNode.kind] }}</span>
+          <span
+            v-if="selectedNode.kind === 'claim' || selectedNode.kind === 'opinion'"
+            class="phase"
+          >
+            {{ phaseLabel[selectedNode.dataPhase] }}
+          </span>
+          <span v-if="selectedNode.runtime?.pendingTool" class="tool">
+            等待 · {{ selectedNode.runtime.pendingTool }}
+          </span>
+        </div>
+
+        <!-- News -->
+        <div v-if="isNews(selectedNode)" class="form">
+          <label>
+            标题
+            <input
+              type="text"
+              :value="selectedNode.params.title ?? ''"
+              :disabled="!canEditSelected"
+              @change="onNewsTitleInput(selectedNode, $event)"
+            />
+          </label>
+          <label>
+            正文
+            <textarea
+              :value="selectedNode.params.content"
+              :disabled="!canEditSelected"
+              rows="6"
+              @change="onNewsContentInput(selectedNode, $event)"
+            />
+          </label>
+
+          <div class="add-section">
+            <button
+              class="primary"
+              :disabled="!isRootAddable"
+              @click="beginAddFor(NEWS_ROOT_ID)"
+            >
+              添加拆分 SubAgent
+            </button>
+            <div v-if="showAddPanel && catalogParent === NEWS_ROOT_ID" class="add-panel">
+              <ul class="catalog">
+                <li
+                  v-for="c in catalog"
+                  :key="c.agentName"
+                  :class="{ selected: draftAgent?.agentName === c.agentName }"
+                  @click="draftAgent = c"
+                >
+                  <div class="cat-label">{{ c.displayLabel }}</div>
+                  <div class="cat-desc muted">{{ c.description }}</div>
+                </li>
+              </ul>
+              <div class="add-actions">
+                <button :disabled="!draftAgent" @click="confirmAdd(NEWS_ROOT_ID)">确认添加</button>
+                <button class="ghost" @click="showAddPanel = false">取消</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SubAgent：对齐 RouteInstruction（priority / hint 可改） -->
+        <div v-else-if="isSubAgent(selectedNode)" class="form">
+          <label>
+            名称
+            <input
+              type="text"
+              :value="selectedNode.params.displayLabel"
+              :disabled="!canEditSelected"
+              @change="onSubAgentLabelInput(selectedNode, $event)"
+            />
+          </label>
+          <div class="row">
+            <span class="k">Agent</span><span>{{ selectedNode.params.agentName }}</span>
+          </div>
+          <label>
+            优先级
+            <select
+              :value="selectedNode.params.priority"
+              :disabled="!canEditSelected"
+              @change="onSubAgentPriorityChange(selectedNode, $event)"
+            >
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+          <label>
+            提示 (hint)
+            <textarea
+              :value="selectedNode.params.hint ?? ''"
+              :disabled="!canEditSelected"
+              rows="3"
+              placeholder="Route / 人工给该 SubAgent 的提示"
+              @change="onSubAgentHintInput(selectedNode, $event)"
+            />
+          </label>
+          <p v-if="selectedNode.params.description" class="muted small">
+            {{ selectedNode.params.description }}
+          </p>
+          <div class="row-actions">
+            <button
+              class="danger"
+              :disabled="!canRemoveSelected"
+              @click="onRemove(selectedNode)"
+            >
+              删除
+            </button>
+          </div>
+        </div>
+
+        <!-- Claim -->
+        <div v-else-if="isClaim(selectedNode)" class="form">
+          <label>
+            内容
+            <textarea
+              :value="selectedNode.params.content"
+              :disabled="!canEditSelected"
+              rows="4"
+              @change="onClaimContentInput(selectedNode, $event)"
+            />
+          </label>
+          <div v-if="selectedNode.params.sourceAgent" class="row">
+            <span class="k">来源</span><span>{{ selectedNode.params.sourceAgent }}</span>
+          </div>
+          <div v-if="selectedNode.params.category" class="row">
+            <span class="k">类别</span><span>{{ selectedNode.params.category }}</span>
+          </div>
+
+          <div v-if="selectedNode.dataPhase === 'persisted'" class="add-section">
+            <button
+              class="primary"
+              :disabled="!isSelectedClaimAddable"
+              @click="beginAddFor(selectedNode.id)"
+            >
+              为此事实添加核查 SubAgent
+            </button>
+            <div v-if="showAddPanel && catalogParent === selectedNode.id" class="add-panel">
+              <ul class="catalog">
+                <li
+                  v-for="c in catalog"
+                  :key="c.agentName"
+                  :class="{ selected: draftAgent?.agentName === c.agentName }"
+                  @click="draftAgent = c"
+                >
+                  <div class="cat-label">{{ c.displayLabel }}</div>
+                  <div class="cat-desc muted">{{ c.description }}</div>
+                </li>
+              </ul>
+              <div class="add-actions">
+                <button :disabled="!draftAgent" @click="confirmAdd(selectedNode.id)">确认添加</button>
+                <button class="ghost" @click="showAddPanel = false">取消</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Opinion -->
+        <div v-else-if="isOpinion(selectedNode)" class="form">
+          <label>
+            意见内容
+            <textarea
+              :value="selectedNode.params.content"
+              :disabled="!canEditSelected"
+              rows="4"
+              @change="onOpinionContentInput(selectedNode, $event)"
+            />
+          </label>
+          <div class="row">
+            <span class="k">置信度</span><span>{{ selectedNode.params.confidence }}</span>
+          </div>
+          <div class="row">
+            <span class="k">优先级</span><span>{{ selectedNode.params.priority }}</span>
+          </div>
+          <p v-if="selectedNode.params.evidence" class="muted small">
+            证据：{{ selectedNode.params.evidence }}
+          </p>
+        </div>
+      </section>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.flow-map-inspector {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.head { display: flex; gap: 6px; align-items: center; }
+.tag { padding: 1px 6px; border-radius: 3px; background: var(--bg-viewport); border: 1px solid var(--border-subtle); font-size: 12px; }
+.phase { color: var(--text-muted); font-size: 12px; }
+.tool { color: var(--warning, #d97706); font-size: 12px; }
+
+.form { display: flex; flex-direction: column; gap: var(--space-sm); }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--ui-font-size); color: var(--text-muted); }
+.form input, .form select, .form textarea {
+  padding: 4px 6px; font: inherit;
+  background: var(--bg-viewport);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text);
+}
+.form textarea { resize: vertical; }
+
+.row { display: flex; justify-content: space-between; font-size: var(--ui-font-size); }
+.row .k { color: var(--text-muted); }
+.row-actions { display: flex; justify-content: flex-end; }
+.muted { color: var(--text-muted); }
+.small { font-size: 12px; }
+
+.add-section { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.add-panel { display: flex; flex-direction: column; gap: 6px; }
+.catalog { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.catalog li {
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.catalog li.selected { border-color: var(--accent, #2563eb); background: var(--bg-viewport); }
+.cat-label { font-weight: 500; font-size: var(--ui-font-size); }
+.cat-desc  { font-size: 12px; }
+.add-actions { display: flex; gap: 6px; }
+
+button { cursor: pointer; }
+button.primary { background: var(--accent, #2563eb); color: #fff; border: none; padding: 4px 10px; border-radius: 3px; }
+button.primary[disabled] { opacity: 0.5; cursor: not-allowed; }
+button.ghost { background: transparent; border: 1px solid var(--border-subtle); padding: 4px 10px; border-radius: 3px; }
+button.danger { background: transparent; border: 1px solid var(--danger, #dc2626); color: var(--danger, #dc2626); padding: 4px 10px; border-radius: 3px; }
+
+.error { color: var(--danger, #dc2626); font-size: var(--ui-font-size); }
+</style>

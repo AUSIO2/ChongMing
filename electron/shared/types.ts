@@ -56,4 +56,6 @@ export interface RouteInstruction {
   agentName: string
   priority: Priority
   hint?: string
+  /** 稳定实例 id（Map 节点 id 对齐）；缺省由 route / Adapter 补齐 */
+  instanceId?: string
 }

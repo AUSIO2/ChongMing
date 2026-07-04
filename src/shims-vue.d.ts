@@ -3,6 +3,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_MOCK_ELECTRON?: string
+  readonly VITE_USE_MAP_FLOW?: string
 }
 
 interface ImportMeta {

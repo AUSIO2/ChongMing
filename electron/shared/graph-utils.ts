@@ -67,7 +67,17 @@ export function createDynamicFanOut<T extends { routeInstructions: RouteInstruct
   }
 }
 
-/** 通用 MainAgent route 节点 */
+function withInstanceIds(instructions: RouteInstruction[]): RouteInstruction[] {
+  return instructions.map((inst, index) => ({
+    ...inst,
+    instanceId: inst.instanceId ?? `${inst.agentName}#${index + 1}`,
+  }))
+}
+
+/**
+ * 通用 MainAgent route 节点。
+ * 始终跑 AI route；若 state 里已有人工预置槽，按 instanceId/agentName 合并进去（不覆盖 route，人工可继续加槽）。
+ */
 export function createRouteNode<TState>(
   model: BaseChatModel,
   routePromptPath: string,
@@ -75,6 +85,8 @@ export function createRouteNode<TState>(
   buildVars: (state: TState) => Record<string, string>,
 ) {
   return async (state: TState) => {
+    const preseeded = (state as { routeInstructions?: RouteInstruction[] }).routeInstructions ?? []
+
     const promptConfig = loadPrompt(routePromptPath)
     const agentList = availableAgents.map(a => `- ${a.name}`).join('\n')
     const prompt = renderPrompt(promptConfig.content, {
@@ -95,7 +107,18 @@ export function createRouteNode<TState>(
       }))
     }
 
-    return { routeInstructions }
+    // route 结果为主，保留人工预置里尚未出现的槽
+    const merged = [...routeInstructions]
+    for (const extra of preseeded) {
+      const exists = merged.some(
+        r =>
+          (extra.instanceId && r.instanceId === extra.instanceId)
+          || (!extra.instanceId && r.agentName === extra.agentName),
+      )
+      if (!exists) merged.push(extra)
+    }
+
+    return { routeInstructions: withInstanceIds(merged) }
   }
 }
 

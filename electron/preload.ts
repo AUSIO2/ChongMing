@@ -19,6 +19,9 @@ const electronAPI: ElectronAPI = {
     delete: (newsId, claimId) =>
       ipcRenderer.invoke(IPC_CHANNELS.CLAIMS_DELETE, newsId, claimId),
   },
+  catalog: {
+    list: module => ipcRenderer.invoke(IPC_CHANNELS.CATALOG_LIST, module),
+  },
   graph: {
     startSplit: input =>
       ipcRenderer.invoke(IPC_CHANNELS.GRAPH_START_SPLIT, input),
@@ -29,6 +32,8 @@ const electronAPI: ElectronAPI = {
     setMode: (runId, mode) =>
       ipcRenderer.invoke(IPC_CHANNELS.GRAPH_SET_MODE, runId, mode),
     cancel: runId => ipcRenderer.invoke(IPC_CHANNELS.GRAPH_CANCEL, runId),
+    getActiveRun: newsId =>
+      ipcRenderer.invoke(IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN, newsId),
   },
   events: {
     onInterrupted: (callback) => {

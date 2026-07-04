@@ -17,28 +17,80 @@ import {
   serializeVerifyState,
 } from './serialize'
 import type {
+  ActiveRunDTO,
   GraphCompletedPayload,
   GraphErrorPayload,
+  GraphInterruptFocus,
   GraphInterruptedPayload,
   GraphProgressPayload,
   GraphStatePatch,
   GraphType,
+  MapToolKind,
+  SplitGraphStateDTO,
   StartGraphResult,
   StartSplitInput,
   StartVerifyInput,
+  VerifyGraphStateDTO,
 } from './types'
 import type { GraphProgressEventLocal } from '../shared/graph-utils'
+import {
+  NEWS_ROOT_ID,
+  mergedClaimNodeId,
+  opinionNodeId,
+} from '../shared/map-ids'
 
 type WindowGetter = () => BrowserWindow | null
 
 interface ActiveRun extends GraphRunSession {
   graphType: GraphType
+  newsId: string
   cancelled: boolean
   resumeResolve: ((value: GraphStatePatch) => void) | null
   runId: string
+  lastInterrupt?: Pick<
+    GraphInterruptedPayload,
+    'nextNode' | 'focus' | 'pendingTool' | 'state'
+  >
 }
 
 const activeRuns = new Map<string, ActiveRun>()
+
+function deriveInterruptFocus(
+  graphType: GraphType,
+  nextNode: string,
+  state: SplitGraphStateDTO | VerifyGraphStateDTO,
+): { focus?: GraphInterruptFocus; pendingTool?: MapToolKind } {
+  if (nextNode === 'subAgent') {
+    if (graphType === 'split') {
+      return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'invoke' }
+    }
+    const vs = state as VerifyGraphStateDTO
+    return { focus: { kind: 'claim', id: vs.claimId }, pendingTool: 'invoke' }
+  }
+  if (nextNode === 'merge') {
+    if (graphType === 'split') {
+      return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'validate' }
+    }
+    const vs = state as VerifyGraphStateDTO
+    return { focus: { kind: 'claim', id: vs.claimId }, pendingTool: 'validate' }
+  }
+  if (nextNode === 'save') {
+    if (graphType === 'split') {
+      const ss = state as SplitGraphStateDTO
+      return {
+        focus: { kind: 'claim', id: mergedClaimNodeId(ss.saveIndex) },
+        pendingTool: 'save',
+      }
+    }
+    const vs = state as VerifyGraphStateDTO
+    const index = vs.opinionSaveIndex
+    return {
+      focus: { kind: 'opinion', id: opinionNodeId(vs.claimId, index) },
+      pendingTool: 'save',
+    }
+  }
+  return {}
+}
 
 function sendToRenderer(
   getWindow: WindowGetter,
@@ -74,21 +126,27 @@ function createInterruptHandler(
     if (!run || run.cancelled) return null
 
     const mode = run.mode
-    const payload: GraphInterruptedPayload = graphType === 'split'
-      ? {
-          runId,
-          graphType,
-          nextNode: nextNode as GraphInterruptedPayload['nextNode'],
-          mode,
-          state: serializeSplitState(currentState as Parameters<typeof serializeSplitState>[0]),
-        }
-      : {
-          runId,
-          graphType,
-          nextNode: nextNode as GraphInterruptedPayload['nextNode'],
-          mode,
-          state: serializeVerifyState(currentState as Parameters<typeof serializeVerifyState>[0]),
-        }
+    const state = graphType === 'split'
+      ? serializeSplitState(currentState as Parameters<typeof serializeSplitState>[0])
+      : serializeVerifyState(currentState as Parameters<typeof serializeVerifyState>[0])
+    const { focus, pendingTool } = deriveInterruptFocus(graphType, nextNode, state)
+
+    const payload: GraphInterruptedPayload = {
+      runId,
+      graphType,
+      nextNode: nextNode as GraphInterruptedPayload['nextNode'],
+      mode,
+      state,
+      focus,
+      pendingTool,
+    }
+
+    run.lastInterrupt = {
+      nextNode: payload.nextNode,
+      focus,
+      pendingTool,
+      state,
+    }
 
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_INTERRUPTED, payload)
 
@@ -122,12 +180,14 @@ function attachProgressHandlers(
 function createRunSession(
   runId: string,
   graphType: GraphType,
+  newsId: string,
   mode: ExecutionMode,
   loadNode: string,
 ): ActiveRun {
   return {
     runId,
     graphType,
+    newsId,
     mode,
     loadNode,
     cancelled: false,
@@ -220,7 +280,10 @@ export function startSplit(
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  activeRuns.set(runId, createRunSession(runId, 'split', input.mode ?? 'auto', 'loadNews'))
+  activeRuns.set(
+    runId,
+    createRunSession(runId, 'split', input.newsId, input.mode ?? 'auto', 'loadNews'),
+  )
   void executeSplitRun(runId, input, getWindow)
   return { runId }
 }
@@ -230,9 +293,29 @@ export function startVerify(
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  activeRuns.set(runId, createRunSession(runId, 'verify', input.mode ?? 'auto', 'loadClaim'))
+  activeRuns.set(
+    runId,
+    createRunSession(runId, 'verify', input.newsId, input.mode ?? 'auto', 'loadClaim'),
+  )
   void executeVerifyRun(runId, input, getWindow)
   return { runId }
+}
+
+export function getActiveRun(newsId: string): ActiveRunDTO | null {
+  for (const run of activeRuns.values()) {
+    if (run.newsId !== newsId || run.cancelled) continue
+    return {
+      runId: run.runId,
+      newsId: run.newsId,
+      graphType: run.graphType,
+      mode: run.mode,
+      nextNode: run.lastInterrupt?.nextNode,
+      focus: run.lastInterrupt?.focus,
+      pendingTool: run.lastInterrupt?.pendingTool,
+      state: run.lastInterrupt?.state,
+    }
+  }
+  return null
 }
 
 export function resumeGraph(runId: string, modifications: GraphStatePatch): void {
