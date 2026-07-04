@@ -50,7 +50,6 @@ export const useFlowMapStore = defineStore('flow-map', () => {
 
   async function selectNode(nodeId: string | null) {
     selectedNodeId.value = nodeId
-    if (nodeId) await loadCatalogFor(nodeId)
   }
 
   async function loadCatalogFor(parentNodeId: string) {

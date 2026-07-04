@@ -51,21 +51,20 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
       }
     : undefined
 
-  const extra = raw as Record<string, unknown>
-  const mapRunRaw = (extra.mapRun ?? (record as { mapRun?: unknown }).mapRun) as
+  const mapRunRaw = (raw as Record<string, unknown>).mapRun as
     | MapRunPersist
     | null
     | undefined
-  const mapGraphRaw = (extra.mapGraph ?? (record as { mapGraph?: unknown }).mapGraph) as
+  const mapGraphRaw = (raw as Record<string, unknown>).mapGraph as
     | MapGraphPersist
     | null
     | undefined
 
   return {
-    _id: String(raw._id ?? record._id),
-    content: String(raw.content ?? record.content),
-    context: toNewsContext(raw.context ?? record.context),
-    claims: (raw.claims ?? record.claims ?? []) as DisplayNews['claims'],
+    _id: String(raw._id),
+    content: String(raw.content),
+    context: toNewsContext(raw.context),
+    claims: (raw.claims ?? []) as DisplayNews['claims'],
     splitMeta,
     mapRun: mapRunRaw
       ? {
@@ -79,12 +78,10 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
           updatedAt: toIsoString(mapGraphRaw.updatedAt) ?? new Date().toISOString(),
         }
       : undefined,
-    confidence: typeof (raw.confidence ?? record.confidence) === 'number'
-      ? (raw.confidence ?? record.confidence) as number
-      : undefined,
-    confidenceUpdatedAt: toIsoString(raw.confidenceUpdatedAt ?? record.confidenceUpdatedAt),
-    createdAt: toIsoString(raw.createdAt ?? record.createdAt) ?? new Date().toISOString(),
-    updatedAt: toIsoString(raw.updatedAt ?? record.updatedAt) ?? new Date().toISOString(),
+    confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+    confidenceUpdatedAt: toIsoString(raw.confidenceUpdatedAt),
+    createdAt: toIsoString(raw.createdAt) ?? new Date().toISOString(),
+    updatedAt: toIsoString(raw.updatedAt) ?? new Date().toISOString(),
   }
 }
 

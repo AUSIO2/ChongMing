@@ -111,8 +111,8 @@ function loadModuleCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
       module,
       promptPath,
       displayLabel: raw.displayLabel,
-      defaultPriority: isPriority(raw.defaultPriority) ? raw.defaultPriority : undefined,
-      description: typeof raw.description === 'string' ? raw.description : undefined,
+      defaultPriority: raw.defaultPriority as Priority | undefined,
+      description: raw.description as string | undefined,
       tools: parseTools(raw.tools, promptPath),
     }
   })

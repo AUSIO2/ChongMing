@@ -250,18 +250,17 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
 
     async updateNodeParams(input: UpdateNodeParamsInput) {
       const doc = await ensureGraph(input.newsId)
-      const snap = toSnapshot(doc)
-      if (!canEditNodePure(snap, input.nodeId)) {
-        throw new AppError(
-          ErrorCode.MAP_CANNOT_EDIT_NODE,
-          `cannot edit ${input.nodeId}`,
-        )
-      }
       const node = doc.nodes.find(n => n.id === input.nodeId)
       if (!node) {
         throw new AppError(
           ErrorCode.MAP_NODE_NOT_FOUND,
           `node not found: ${input.nodeId}`,
+        )
+      }
+      if (!canEditNodePure(toSnapshot(doc), input.nodeId)) {
+        throw new AppError(
+          ErrorCode.MAP_CANNOT_EDIT_NODE,
+          `cannot edit ${input.nodeId}`,
         )
       }
 

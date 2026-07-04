@@ -180,15 +180,11 @@ export function applyInterrupted(doc: MapGraphDoc, payload: GraphInterruptedPayl
   doc.draft = payload.state
 
   if (payload.graphType === 'split') {
-    const newsContent =
-      'content' in payload.state && typeof payload.state.content === 'string'
-        ? payload.state.content
-        : (doc.nodes.find(n => n.kind === 'news') as MapNewsNode | undefined)?.params.content
-          ?? ''
+    const splitState = payload.state as GraphSplitState
     doc.nodes = []
     doc.edges = []
-    upsertNews(doc, newsContent)
-    applySplitState(doc, payload.state as GraphSplitState)
+    upsertNews(doc, splitState.content)
+    applySplitState(doc, splitState)
   } else {
     markClaimsPersisted(doc)
     applyVerifyState(doc, payload.state as GraphVerifyState)

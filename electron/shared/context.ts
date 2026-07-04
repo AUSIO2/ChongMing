@@ -32,36 +32,22 @@ function isContextField(value: unknown): value is { value: unknown; visibleToAI:
  * 避免 doc.context 在 Map 与 Record 之间行为不一致
  */
 export function toNewsContext(raw: unknown): NewsContext {
-  if (!raw) return {}
+  if (!raw || typeof raw !== 'object') return {}
 
-  if (raw instanceof Map) {
-    const context: NewsContext = {}
-    for (const [key, value] of raw.entries()) {
-      if (isContextField(value)) {
-        context[String(key)] = {
-          value: value.value as ContextField['value'],
-          visibleToAI: Boolean(value.visibleToAI),
-        }
+  const entries: Iterable<[unknown, unknown]> = raw instanceof Map
+    ? raw.entries()
+    : Object.entries(raw as Record<string, unknown>)
+
+  const context: NewsContext = {}
+  for (const [key, value] of entries) {
+    if (isContextField(value)) {
+      context[String(key)] = {
+        value: value.value as ContextField['value'],
+        visibleToAI: Boolean(value.visibleToAI),
       }
     }
-    return context
   }
-
-  if (typeof raw === 'object') {
-    const context: NewsContext = {}
-    const record = raw as Record<string, unknown>
-    for (const [key, value] of Object.entries(record)) {
-      if (isContextField(value)) {
-        context[key] = {
-          value: value.value as ContextField['value'],
-          visibleToAI: Boolean(value.visibleToAI),
-        }
-      }
-    }
-    return context
-  }
-
-  return {}
+  return context
 }
 
 /** 从 Mongoose 文档读取并规范化 context */
