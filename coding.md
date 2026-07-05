@@ -87,7 +87,7 @@
 | `err` | `electron/shared/errors.ts` |
 | `ctx` | `electron/shared/context.ts` |
 | `prompt` | `electron/shared/prompt-loader.ts` |
-| `news` | `electron/api/news-service.ts` |
+| `map` | `electron/api/map-service.ts` |
 | `serial` | `electron/api/serialize.ts` |
 | `catalog` | `electron/api/sub-agent-catalog.ts` |
 | `agent` | `electron/api/agent-config.ts` |
@@ -119,3 +119,48 @@
 
 新增内部函数时必须遵循本规范；详细迁移记录见 `develop-docs/020-函数命名规范.md`。
 
+## 4. 不做向前兼容
+
+迁移或重构时，**不要**为旧 API、旧字段、旧命名保留并行路径或 shim。
+
+### 规则
+
+- 一次性改全栈调用方（类型、IPC、DB 字段、前端 adapter），而不是在边界层做「双读双写」长期共存
+- 禁止新增「读时兼容旧字段、写时只写新字段」之类过渡逻辑，除非当前任务明确要求且有过期删除节点
+- 废弃即删除：旧 handler、旧 channel、旧类型名、旧集合名，随迁移 PR 一并移除，不保留转发别名
+- 数据迁移用**一次性脚本**升级存量文档，而不是在运行时代码里永久分支
+
+### 正反例
+
+| 差 | 优 |
+|----|-----|
+| `mapRead` 内 `newsId ?? mapId` 双读 | 全库改 `mapId`，迁移脚本处理存量 |
+| 保留 `news:*` IPC 转发半年 | 同 PR 改 preload + renderer |
+| `NEWS_ROOT_ID` 与新 `news:default` 长期并存 | 迁移节点 id 后只保留一种 |
+
+## 5. 兜底与类型检查：先问是否必要
+
+写 `??`、`?.`、宽泛 `typeof`/`in` 判断、`as` 断言、try/catch 吞错、多分支 fallback 之前，**先判断这条路径是否真实存在**。
+
+### 规则
+
+- 若类型系统或调用契约已保证不变式，**不要**再写运行时重复校验
+- 若某状态按设计不可能出现，应修数据流或类型定义，而不是加 silent fallback
+- 允许防御的场景：外部输入（IPC、文件、网络、用户编辑）、Mongo 存量脏数据的一次性迁移边界
+- 类型检查优先收窄来源（解析函数、zod/显式 DTO），避免在业务深处堆 `if (x && typeof x === 'object')`
+- 禁止用兜底掩盖 bug：「取不到就用默认值」若会隐藏错误，应 `throw` 明确错误码
+
+### 自问清单（写之前过一遍）
+
+1. 调用方能否保证该字段存在？
+2. 这是公开边界还是内部已类型化的路径？
+3. fallback 会让错误更晚、更难排查吗？
+4. 删掉这段代码，测试/类型检查是否会失败？若不会，多半不必写
+
+### 正反例
+
+| 差 | 优 |
+|----|-----|
+| 每个节点 `kind` 后接五层 optional chaining | `graph-doc` 入口校验一次，内部用窄类型 |
+| `parentNodeId ?? NEWS_ROOT_ID ?? mapId` 链式默认 | 启动 `runTransition` 时必填，缺则 `MAP_INVALID_SCOPE` |
+| `catch { return [] }` 隐藏 DB 失败 | `AppError` 向上抛，adapter 统一展示 |

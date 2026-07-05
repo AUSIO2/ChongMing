@@ -3,30 +3,28 @@ import { IPC_CHANNELS } from './api/channels'
 import type { ElectronAPI } from './api/types'
 
 const electronAPI: ElectronAPI = {
-  news: {
-    create: input => ipcRenderer.invoke(IPC_CHANNELS.NEWS_CREATE, input),
-    list: () => ipcRenderer.invoke(IPC_CHANNELS.NEWS_LIST),
-    get: newsId => ipcRenderer.invoke(IPC_CHANNELS.NEWS_GET, newsId),
-    update: (newsId, patch) =>
-      ipcRenderer.invoke(IPC_CHANNELS.NEWS_UPDATE, newsId, patch),
-    saveMapPersistence: (newsId, data) =>
-      ipcRenderer.invoke(IPC_CHANNELS.NEWS_SAVE_MAP, newsId, data),
+  map: {
+    create: input => ipcRenderer.invoke(IPC_CHANNELS.MAP_CREATE, input),
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.MAP_LIST),
+    get: mapId => ipcRenderer.invoke(IPC_CHANNELS.MAP_GET, mapId),
+    update: (mapId, patch) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_UPDATE, mapId, patch),
+    saveMapPersistence: (mapId, data) =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_SAVE, mapId, data),
   },
   catalog: {
     list: module => ipcRenderer.invoke(IPC_CHANNELS.CATALOG_LIST, module),
   },
   graph: {
-    startSplit: input =>
-      ipcRenderer.invoke(IPC_CHANNELS.GRAPH_START_SPLIT, input),
-    startVerify: input =>
-      ipcRenderer.invoke(IPC_CHANNELS.GRAPH_START_VERIFY, input),
+    runTransition: input =>
+      ipcRenderer.invoke(IPC_CHANNELS.GRAPH_RUN_TRANSITION, input),
     resume: (runId, modifications) =>
       ipcRenderer.invoke(IPC_CHANNELS.GRAPH_RESUME, runId, modifications),
     setMode: (runId, mode) =>
       ipcRenderer.invoke(IPC_CHANNELS.GRAPH_SET_MODE, runId, mode),
     cancel: runId => ipcRenderer.invoke(IPC_CHANNELS.GRAPH_CANCEL, runId),
-    getActiveRun: newsId =>
-      ipcRenderer.invoke(IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN, newsId),
+    getActiveRun: mapId =>
+      ipcRenderer.invoke(IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN, mapId),
     restore: input => ipcRenderer.invoke(IPC_CHANNELS.GRAPH_RESTORE, input),
   },
   events: {

@@ -11,9 +11,8 @@ import type {
 import { NEWS_ROOT_ID, portReadApi } from '../flow-map'
 import { errReadApp } from '../../electron/shared/errors'
 
-/** Map 层 Pinia store（基于 MapAPI）。 */
 export const useFlowMapStore = defineStore('flow-map', () => {
-  const currentNewsId = ref<string | null>(null)
+  const currentMapId = ref<string | null>(null)
   const snapshot = shallowRef<MapSnapshot | null>(null)
   const selectedNodeId = ref<string | null>(null)
   const catalog = shallowRef<CatalogSubAgent[]>([])
@@ -32,7 +31,6 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   const isRunning = computed(() => runPhase.value === 'running')
   const isInterrupted = computed(() => runPhase.value === 'interrupted')
 
-  /** 统一错误面：API 异常与快照内 error。 */
   const storeReadError = computed(
     () => snapshot.value?.error ?? errorMessage.value ?? null,
   )
@@ -44,25 +42,25 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     errorMessage.value = null
   }
 
-  function detachNews() {
-    const newsId = currentNewsId.value
-    if (newsId) portReadApi().unloadNews(newsId)
-    currentNewsId.value = null
+  function detachMap() {
+    const mapId = currentMapId.value
+    if (mapId) portReadApi().unloadMap(mapId)
+    currentMapId.value = null
     snapshot.value = null
     resetSession()
   }
 
-  async function attachNews(newsId: string) {
-    currentNewsId.value = newsId
+  async function attachMap(mapId: string) {
+    currentMapId.value = mapId
     resetSession()
     await refresh()
   }
 
   async function refresh() {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     try {
-      snapshot.value = await portReadApi().getSnapshot(newsId)
+      snapshot.value = await portReadApi().getSnapshot(mapId)
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -90,10 +88,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     parentNodeId: string,
     params: Omit<MapSubAgentParams, 'instanceId'> & { instanceId?: string },
   ) {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     try {
-      snapshot.value = await portReadApi().addSubAgent({ newsId, parentNodeId, params })
+      snapshot.value = await portReadApi().addSubAgent({ mapId, parentNodeId, params })
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -101,10 +99,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   async function updateNodeParams(nodeId: string, params: UpdateNodeParamsPatch) {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     try {
-      snapshot.value = await portReadApi().updateNodeParams({ newsId, nodeId, params })
+      snapshot.value = await portReadApi().updateNodeParams({ mapId, nodeId, params })
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -112,10 +110,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   async function removeNode(nodeId: string) {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     try {
-      snapshot.value = await portReadApi().removeNode({ newsId, nodeId })
+      snapshot.value = await portReadApi().removeNode({ mapId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
       errorMessage.value = null
     } catch (e) {
@@ -124,13 +122,13 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   async function startRun() {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     if (snapshot.value) {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
     try {
-      const { snapshot: next } = await portReadApi().startRun(newsId, mode.value)
+      const { snapshot: next } = await portReadApi().startRun(mapId, mode.value)
       snapshot.value = next
       errorMessage.value = null
     } catch (e) {
@@ -142,8 +140,8 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   let continueInFlight = false
 
   async function continueStep() {
-    const newsId = currentNewsId.value
-    if (!newsId || continueInFlight) return
+    const mapId = currentMapId.value
+    if (!mapId || continueInFlight) return
     if (runPhase.value !== 'interrupted') return
     continueInFlight = true
     if (snapshot.value) {
@@ -155,7 +153,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       }
     }
     try {
-      snapshot.value = await portReadApi().continueStep(newsId)
+      snapshot.value = await portReadApi().continueStep(mapId)
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -166,10 +164,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   async function cancelRun() {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     try {
-      snapshot.value = await portReadApi().cancel(newsId)
+      snapshot.value = await portReadApi().cancel(mapId)
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -177,10 +175,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   async function setMode(next: ExecutionMode) {
-    const newsId = currentNewsId.value
-    if (!newsId) return
+    const mapId = currentMapId.value
+    if (!mapId) return
     try {
-      snapshot.value = await portReadApi().setMode(newsId, next)
+      snapshot.value = await portReadApi().setMode(mapId, next)
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -188,7 +186,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   return {
-    currentNewsId,
+    currentMapId,
     snapshot,
     selectedNodeId,
     selectedNode,
@@ -201,8 +199,8 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     isRunning,
     isInterrupted,
     resetSession,
-    detachNews,
-    attachNews,
+    detachMap,
+    attachMap,
     refresh,
     selectNode,
     loadCatalogFor,

@@ -12,7 +12,7 @@ const newsNode: MapNode = {
 function make(overrides: Partial<MapSnapshot>): MapSnapshot {
   const { nodes, ...rest } = overrides
   return {
-    newsId: 'n1',
+    mapId: 'n1',
     edges: [],
     runPhase: 'idle',
     mode: 'human-in-loop',

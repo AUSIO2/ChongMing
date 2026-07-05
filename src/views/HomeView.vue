@@ -13,25 +13,25 @@ import { portIsInstalled, portReadApi } from '../flow-map'
 
 const store = useWorkspaceStore()
 const flowMapStore = useFlowMapStore()
-const { currentNews } = storeToRefs(store)
+const { currentMap } = storeToRefs(store)
 const { storeReadError } = storeToRefs(flowMapStore)
 
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
 const canRun = computed(() => hasElectron && portIsInstalled())
-const currentNewsId = computed(() => currentNews.value?._id ?? null)
+const currentMapId = computed(() => currentMap.value?._id ?? null)
 
 let mapUnsub: (() => void) | null = null
 
 watch(
-  currentNewsId,
-  (newsId) => {
+  currentMapId,
+  (mapId) => {
     mapUnsub?.()
     mapUnsub = null
-    if (!newsId || !canRun.value) return
+    if (!mapId || !canRun.value) return
     mapUnsub = portReadApi().onUpdated((id, reason) => {
-      if (id !== newsId) return
+      if (id !== mapId) return
       void flowMapStore.refresh()
-      if (reason === 'completed') void store.refreshCurrentNews()
+      if (reason === 'completed') void store.refreshCurrentMap()
     })
   },
   { immediate: true },
@@ -44,7 +44,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   if (!canRun.value) return
-  await store.loadNewsList()
+  await store.loadMapList()
 })
 </script>
 
@@ -65,7 +65,7 @@ onMounted(async () => {
 
       <template #center>
         <div class="viewport">
-          <FlowMapTopology :news-id="currentNewsId" />
+          <FlowMapTopology :map-id="currentMapId" />
           <p v-if="storeReadError" class="viewport-msg error">{{ storeReadError }}</p>
         </div>
       </template>

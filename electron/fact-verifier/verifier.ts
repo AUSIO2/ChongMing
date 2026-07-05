@@ -4,9 +4,13 @@ import type {
   Confidence, ExecutionMode, MapSubAgentParams,
 } from '../shared/types'
 import type { GraphOpinion, GraphConfig } from './types'
-import { NewsModel } from '../shared/database'
+import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { ctxReadAiContext, ctxFormat, ctxReadNewsDoc } from '../shared/context'
+import { ctxReadAiContext, ctxFormat } from '../shared/context'
+import {
+  mapScopeReadContext,
+  mapScopeRequire,
+} from '../shared/map-scope'
 import { promptRead, promptFormat } from '../shared/prompt-loader'
 import {
   graphCreateRoute,
@@ -19,13 +23,10 @@ import {
   llmReadJsonObject,
 } from '../shared/llm-utils'
 
-// ==========================================
-// State 定义
-// ==========================================
-
 const VerifyGraphState = Annotation.Root({
-  newsId: Annotation<string>,
-  claimId: Annotation<string>,
+  mapId: Annotation<string>,
+  parentNodeId: Annotation<string>,
+  scopeNodeId: Annotation<string>,
 
   mode: Annotation<ExecutionMode>({
     value: (_prev, next) => next,
@@ -73,37 +74,31 @@ function toConfidence(score: number): Confidence {
   return VALID_SCORES.has(score) ? (score as Confidence) : (0.5 as Confidence)
 }
 
-// ==========================================
-// Node 实现
-// ==========================================
-
-/** 从 DB 加载 claim + 原文 + visibleContext */
 async function loadClaim(state: typeof VerifyGraphState.State) {
-  const doc = await NewsModel.findById(state.newsId)
+  const doc = await MapModel.findById(state.mapId)
   if (!doc) {
-    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
+    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${state.mapId}`)
   }
 
-  const claims = doc.claims as unknown as Array<{ claimId: string; content: string }>
-  const claim = claims.find(c => c.claimId === state.claimId)
+  const scope = mapScopeRequire(doc, state.scopeNodeId)
+  const claims = scope.claims as Array<{ claimId: string; content: string }>
+  const claim = claims.find(c => c.claimId === state.parentNodeId)
   if (!claim) {
     throw new AppError(
       ErrorCode.CLAIM_NOT_FOUND,
-      `Claim not found: ${state.claimId} in news ${state.newsId}`,
+      `Claim not found: ${state.parentNodeId} in map ${state.mapId}`,
     )
   }
 
-  const context = ctxReadNewsDoc(doc)
-  const visibleContext = ctxReadAiContext(context)
+  const visibleContext = ctxReadAiContext(mapScopeReadContext(scope))
 
   return {
     claimContent: claim.content,
-    originalContent: doc.content,
+    originalContent: scope.content,
     visibleContext,
   }
 }
 
-/** SubAgent Node：核查视角，输出 opinion */
 function createVerifySubAgentNode(defaultModel: BaseChatModel) {
   return async (state: typeof VerifyGraphState.State) => {
     const agentConfig = (state as Record<string, unknown>)
@@ -125,7 +120,11 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
       (state as Record<string, unknown>)._graphThreadId as string | undefined
     ) ?? (getConfig()?.configurable?.thread_id as string | undefined)
     const rawResponse = await llmRunInvoke(model, tools, prompt, {
-      onSkillActivity: graphCreateSkillEmitter(instruction, threadId, state.claimId),
+      onSkillActivity: graphCreateSkillEmitter(
+        instruction,
+        threadId,
+        state.parentNodeId,
+      ),
     })
 
     const opinion = llmReadJsonObject(
@@ -148,7 +147,6 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
   }
 }
 
-/** MainAgent Merge：汇总所有角度的 opinions → 最终 score + reason */
 function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
   return async (state: typeof VerifyGraphState.State) => {
     const promptConfig = promptRead(mergePromptPath)
@@ -182,10 +180,6 @@ function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
   }
 }
 
-/**
- * 按条确认 opinion：interruptBefore save 时焦点为 subAgentOpinions[opinionSaveIndex]。
- * 每确认一条写入已确认的 opinions 前缀；最后一条时写入完整 verifyResult。
- */
 async function saveOneOpinion(state: typeof VerifyGraphState.State) {
   const index = state.opinionSaveIndex
   const opinions = state.subAgentOpinions
@@ -208,20 +202,29 @@ async function writeVerifyResult(
   opinions: typeof state.subAgentOpinions,
   includeFinal = true,
 ) {
-  const doc = await NewsModel.findById(state.newsId)
+  const doc = await MapModel.findById(state.mapId)
   if (!doc) {
-    throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
+    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${state.mapId}`)
   }
 
-  const claims = doc.claims as unknown as Array<{
+  const chains = doc.get('chains') as Map<string, Record<string, unknown>>
+  const scope = chains.get(state.scopeNodeId)
+  if (!scope) {
+    throw new AppError(
+      ErrorCode.MAP_SCOPE_NOT_FOUND,
+      `Map scope not found: ${state.scopeNodeId}`,
+    )
+  }
+
+  const claims = scope.claims as Array<{
     claimId: string
     verifyResult?: unknown
   }>
-  const claimIndex = claims.findIndex(c => c.claimId === state.claimId)
+  const claimIndex = claims.findIndex(c => c.claimId === state.parentNodeId)
   if (claimIndex === -1) {
     throw new AppError(
       ErrorCode.CLAIM_NOT_FOUND,
-      `Claim not found: ${state.claimId}`,
+      `Claim not found: ${state.parentNodeId}`,
     )
   }
 
@@ -233,7 +236,7 @@ async function writeVerifyResult(
     verifiedAt: new Date(),
   }
 
-  doc.markModified('claims')
+  doc.markModified('chains')
   await doc.save()
 }
 
@@ -241,10 +244,6 @@ function routeAfterOpinionSave(state: typeof VerifyGraphState.State): string {
   if (state.opinionSaveIndex < state.subAgentOpinions.length) return 'save'
   return END
 }
-
-// ==========================================
-// 图构建
-// ==========================================
 
 export function verifyBuildGraph(config: GraphConfig) {
   const {
@@ -278,3 +277,5 @@ export function verifyBuildGraph(config: GraphConfig) {
     fanout: { availableAgents, maxConcurrency },
   })
 }
+
+export { VerifyGraphState }

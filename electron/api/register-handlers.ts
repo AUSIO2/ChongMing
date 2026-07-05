@@ -1,25 +1,23 @@
 import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
-import * as newsService from './news-service'
+import * as mapService from './map-service'
 import * as graphService from './graph-service'
 import { catalogReadEntries } from './sub-agent-catalog'
 import { errUpdateNormalize, errReadSerialize } from '../shared/errors'
 import type { ExecutionMode } from '../shared/types'
 import type {
-  CreateNewsInput,
+  CreateMapInput,
   GraphStatePatch,
   MapGraphPersist,
   MapRunPersist,
   RestoreRunInput,
-  StartSplitInput,
-  StartVerifyInput,
-  UpdateNewsInput,
+  StartTransitionInput,
+  UpdateMapInput,
 } from './types'
 
 type WindowGetter = () => BrowserWindow | null
 
-/** IPC 全局异常捕获：业务抛 AppError，未知错误规范化后序列化给渲染进程。 */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function handle(channel: string, fn: (...args: any[]) => unknown): void {
   ipcMain.handle(channel, async (_event, ...args) => {
@@ -33,35 +31,35 @@ function handle(channel: string, fn: (...args: any[]) => unknown): void {
 
 export function handlerRegisterIpc(getWindow: WindowGetter): void {
   handle(
-    IPC_CHANNELS.NEWS_CREATE,
-    (input: CreateNewsInput) => newsService.newsCreate(input),
+    IPC_CHANNELS.MAP_CREATE,
+    (input: CreateMapInput) => mapService.mapCreate(input),
   )
 
   handle(
-    IPC_CHANNELS.NEWS_LIST,
-    () => newsService.newsReadIndex(),
+    IPC_CHANNELS.MAP_LIST,
+    () => mapService.mapReadIndex(),
   )
 
   handle(
-    IPC_CHANNELS.NEWS_GET,
-    (newsId: string) => newsService.newsRead(newsId),
+    IPC_CHANNELS.MAP_GET,
+    (mapId: string) => mapService.mapRead(mapId),
   )
 
   handle(
-    IPC_CHANNELS.NEWS_UPDATE,
-    (newsId: string, patch: UpdateNewsInput) =>
-      newsService.newsUpdate(newsId, patch),
+    IPC_CHANNELS.MAP_UPDATE,
+    (mapId: string, patch: UpdateMapInput) =>
+      mapService.mapUpdate(mapId, patch),
   )
 
   handle(
-    IPC_CHANNELS.NEWS_SAVE_MAP,
+    IPC_CHANNELS.MAP_SAVE,
     (
-      newsId: string,
+      mapId: string,
       data: {
         mapRun?: MapRunPersist | null
         mapGraph?: MapGraphPersist | null
       },
-    ) => newsService.newsUpdatePersistMap(newsId, data),
+    ) => mapService.mapUpdatePersistMap(mapId, data),
   )
 
   handle(
@@ -70,13 +68,8 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
   )
 
   handle(
-    IPC_CHANNELS.GRAPH_START_SPLIT,
-    (input: StartSplitInput) => graphService.runCreateSplit(input, getWindow),
-  )
-
-  handle(
-    IPC_CHANNELS.GRAPH_START_VERIFY,
-    (input: StartVerifyInput) => graphService.runCreateVerify(input, getWindow),
+    IPC_CHANNELS.GRAPH_RUN_TRANSITION,
+    (input: StartTransitionInput) => graphService.runTransition(input, getWindow),
   )
 
   handle(
@@ -102,7 +95,7 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
 
   handle(
     IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN,
-    (newsId: string) => graphService.runReadSession(newsId),
+    (mapId: string) => graphService.runReadSession(mapId),
   )
 
   handle(

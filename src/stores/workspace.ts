@@ -1,61 +1,58 @@
 import { defineStore } from 'pinia'
 import type {
-  DisplayNews,
-  DisplayNewsSummary,
+  DisplayMap,
+  DisplayMapSummary,
 } from '../../electron/api/types'
 
 function getApi() {
   return typeof window !== 'undefined' ? window.electronAPI : undefined
 }
 
-/**
- * 新闻列表与当前文档。图运行态一律走 flow-map store / MapAPI。
- */
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
-    newsList: [] as DisplayNewsSummary[],
-    currentNewsId: null as string | null,
-    currentNews: null as DisplayNews | null,
+    mapList: [] as DisplayMapSummary[],
+    currentMapId: null as string | null,
+    currentMap: null as DisplayMap | null,
     loading: false,
   }),
 
   actions: {
-    async loadNewsList() {
+    async loadMapList() {
       const api = getApi()
       if (!api) return
       this.loading = true
       try {
-        this.newsList = await api.news.list()
+        this.mapList = await api.map.list()
       } finally {
         this.loading = false
       }
     },
 
-    async selectNews(newsId: string) {
+    async selectMap(mapId: string) {
       const api = getApi()
       if (!api) return
-      this.currentNewsId = newsId
-      this.currentNews = await api.news.get(newsId)
+      this.currentMapId = mapId
+      this.currentMap = await api.map.get(mapId)
     },
 
-    async refreshCurrentNews() {
-      if (!this.currentNewsId) return
+    async refreshCurrentMap() {
+      if (!this.currentMapId) return
       const api = getApi()
       if (!api) return
-      this.currentNews = await api.news.get(this.currentNewsId)
+      this.currentMap = await api.map.get(this.currentMapId)
     },
 
-    async createNews() {
+    async createMap() {
       const api = getApi()
       if (!api) return
       this.loading = true
       try {
-        const news = await api.news.create({
+        const map = await api.map.create({
           content: '（请在此粘贴或编辑新闻正文）',
           context: {},
         })
-        await this.loadNewsList()
-        await this.selectNews(news._id)
+        await this.loadMapList()
+        await this.selectMap(map._id)
       } finally {
         this.loading = false
       }

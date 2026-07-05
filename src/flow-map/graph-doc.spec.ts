@@ -5,7 +5,7 @@ import {
   docUpdateInterrupt,
   docUpdateProgress,
   docProjectGraphState,
-  docCreateNews,
+  docCreateMap,
   docReadResume,
   docCanAddSubAgent,
   docCanEditNode,
@@ -14,16 +14,16 @@ import {
   docUpdateSubAgent,
   docIsParamLock,
   docDeleteClaims,
-  docResetNews,
+  docResetMap,
   docUpdateDraft,
   docReadRoutes,
   type MapGraphDoc,
 } from './graph-doc'
-import type { DisplayNews, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
+import type { DisplayMap, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
 
 function baseSnapshot(overrides: Partial<MapSnapshot> = {}): MapSnapshot {
   return {
-    newsId: 'n1',
+    mapId: 'n1',
     nodes: [],
     edges: [],
     runPhase: 'idle',
@@ -217,7 +217,7 @@ describe('graph-doc capability', () => {
   })
 })
 
-function emptyNews(id = 'n1'): DisplayNews {
+function emptyMap(id = 'n1'): DisplayMap {
   return {
     _id: id,
     content: 'hello',
@@ -230,7 +230,8 @@ function emptyNews(id = 'n1'): DisplayNews {
 
 function splitState(overrides: Partial<GraphSplitState> = {}): GraphSplitState {
   return {
-    newsId: 'n1',
+    mapId: 'n1',
+    parentNodeId: NEWS_ROOT_ID,
     mode: 'human-in-loop',
     content: 'hello',
     visibleContext: {},
@@ -256,18 +257,18 @@ function splitState(overrides: Partial<GraphSplitState> = {}): GraphSplitState {
 }
 
 describe('graph-doc state', () => {
-  it('docResetNews 清空 runId / draft / graphType / focus', () => {
+  it('docResetMap 清空 runId / draft / transitionKey / focus', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
-    doc.graphType = 'split'
+    doc.transitionKey = '1-2'
     doc.draft = splitState()
     doc.activeNodeId = NEWS_ROOT_ID
     doc.pendingTool = 'validate'
     doc.error = 'x'
-    docResetNews(doc, emptyNews())
+    docResetMap(doc, emptyMap())
     expect(doc.runPhase).toBe('idle')
     expect(doc.runId).toBeUndefined()
-    expect(doc.graphType).toBeUndefined()
+    expect(doc.transitionKey).toBeUndefined()
     expect(doc.draft).toBeUndefined()
     expect(doc.activeNodeId).toBeUndefined()
     expect(doc.pendingTool).toBeUndefined()
@@ -286,8 +287,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'node_enter',
       node: '',
     })
@@ -324,7 +326,9 @@ describe('graph-doc state', () => {
     const state = splitState()
     const payload: GraphInterruptedPayload = {
       runId: 'r1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       nextNode: 'validate',
       mode: 'human-in-loop',
       state,
@@ -367,14 +371,17 @@ describe('graph-doc state', () => {
     ]
     const payload: GraphInterruptedPayload = {
       runId: 'r1',
-      graphType: 'verify',
+      mapId: 'n1',
+      parentNodeId: claimId,
+      transitionKey: '2-3',
       nextNode: 'save',
       mode: 'human-in-loop',
       focus: { kind: 'opinion', id: 'opinion:2:0' },
       pendingTool: 'save',
       state: {
-        newsId: 'n1',
-        claimId,
+        mapId: 'n1',
+        parentNodeId: claimId,
+        scopeNodeId: NEWS_ROOT_ID,
         mode: 'human-in-loop',
         claimContent: 'c',
         originalContent: 'x',
@@ -432,9 +439,10 @@ describe('graph-doc state', () => {
         shouldSave: true,
       },
     ]
-    docProjectGraphState(doc, 'verify', {
-      newsId: 'n1',
-      claimId,
+    docProjectGraphState(doc, '2-3', {
+      mapId: 'n1',
+      parentNodeId: claimId,
+      scopeNodeId: NEWS_ROOT_ID,
       mode: 'auto',
       claimContent: 'c',
       originalContent: 'x',
@@ -507,7 +515,7 @@ describe('graph-doc state', () => {
     expect(sa?.kind === 'subAgent' && sa.params.hint).toBe('h')
   })
 
-  it('docCreateNews 从 opinion / route 还原 SubAgent 槽', () => {
+  it('docCreateMap 从 opinion / route 还原 SubAgent 槽', () => {
     const news = {
       _id: 'n1',
       content: 'body',
@@ -544,9 +552,9 @@ describe('graph-doc state', () => {
       },
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
-    } as DisplayNews
+    } as DisplayMap
 
-    const doc = docCreateNews(news)
+    const doc = docCreateMap(news)
     const sub = doc.nodes.find(n => n.kind === 'subAgent' && n.parentId === '1')
     expect(sub?.id).toBe('sub:1:来源可信度#1')
     expect(doc.nodes.some(n => n.kind === 'opinion')).toBe(true)
@@ -563,8 +571,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'start',
       nodeId: 'sub:来源可信度#1',
@@ -600,8 +609,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'end',
       nodeId: 'sub:a#1',
@@ -630,8 +640,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'node_enter',
       node: 'subAgent',
     })
@@ -652,8 +663,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'node_exit',
       node: 'subAgent',
     })
@@ -665,10 +677,11 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
     doc.runPhase = 'running'
-    doc.graphType = 'verify'
+    doc.transitionKey = '2-3'
     doc.draft = {
-      newsId: 'n1',
-      claimId: '1',
+      mapId: 'n1',
+      parentNodeId: '1',
+      scopeNodeId: NEWS_ROOT_ID,
       mode: 'human-in-loop',
       claimContent: 'c',
       originalContent: 'o',
@@ -688,8 +701,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'verify',
+      mapId: 'n1',
+      parentNodeId: '1',
+      transitionKey: '2-3',
       event: 'subagent_tool',
       phase: 'start',
       nodeId: 'sub:1:来源可信度#1',
@@ -707,18 +721,18 @@ describe('graph-doc state', () => {
   it('fanout_spawn 在 auto 模式下创建 SubAgent 节点，subagent_tool 可写入 activeSkill', () => {
     const doc = docCreate('n1')
     doc.runPhase = 'running'
-    doc.graphType = 'split'
+    doc.transitionKey = '1-2'
     doc.runId = 'run-1'
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'fanout_spawn',
       node: 'subAgent',
       agentName: '来源可信度',
       nodeId: 'sub:来源可信度#1',
-      parentNodeId: NEWS_ROOT_ID,
       spawnIndex: 0,
     })
 
@@ -726,8 +740,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'start',
       nodeId: 'sub:来源可信度#1',
@@ -754,8 +769,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-b',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'start',
       nodeId: 'sub:a#1',
@@ -778,8 +794,9 @@ describe('graph-doc state', () => {
 
     docUpdateProgress(doc, {
       runId: 'run-1',
-      newsId: 'n1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       event: 'node_enter',
       node: 'subAgent',
     })
@@ -791,7 +808,9 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     const payload: GraphInterruptedPayload = {
       runId: 'r1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       nextNode: 'validate',
       mode: 'human-in-loop',
       state: splitState(),
@@ -815,7 +834,9 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     docUpdateInterrupt(doc, {
       runId: 'r1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       nextNode: 'save',
       mode: 'human-in-loop',
       state,
@@ -837,7 +858,9 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     docUpdateInterrupt(doc, {
       runId: 'r1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       nextNode: 'confirmRoute',
       mode: 'human-in-loop',
       state,
@@ -878,7 +901,9 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     docUpdateInterrupt(doc, {
       runId: 'r1',
-      graphType: 'split',
+      mapId: 'n1',
+      parentNodeId: NEWS_ROOT_ID,
+      transitionKey: '1-2',
       nextNode: 'validate',
       mode: 'human-in-loop',
       state,

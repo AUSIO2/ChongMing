@@ -1,5 +1,5 @@
 /**
- * Map 层内存图：按 newsId 维护一张可变图，整合 LangGraph 事件与人的 CRUD。
+ * Map 层内存图：按 mapId 维护一张可变图，整合 LangGraph 事件与人的 CRUD。
  * 含快照上的能力判定（锁 / canAdd / canEdit / canRemove）。
  */
 import {
@@ -31,20 +31,20 @@ import type {
 } from './types'
 import {
   apiCanWriteRoute,
-  type DisplayNews,
+  type DisplayMap,
   type GraphInterruptNode,
   type GraphInterruptedPayload,
   type GraphProgressPayload,
   type GraphSplitState,
   type GraphStatePatch,
-  type GraphType,
+  type TransitionKey,
   type GraphVerifyState,
   type MapGraphPersist,
   type MapRunPersist,
 } from '../../electron/api/types'
 
 export interface MapGraphDoc {
-  newsId: string
+  mapId: string
   nodes: MapNode[]
   edges: MapEdge[]
   runPhase: MapRunPhase
@@ -55,14 +55,15 @@ export interface MapGraphDoc {
   nextNode?: GraphInterruptNode
   runId?: string
   threadId?: string
-  graphType?: GraphType
+  transitionKey?: TransitionKey
+  parentNodeId?: string
   draft?: GraphSplitState | GraphVerifyState
   error?: string
 }
 
 export function docReadSnapshot(doc: MapGraphDoc): MapSnapshot {
   return {
-    newsId: doc.newsId,
+    mapId: doc.mapId,
     nodes: doc.nodes.map(n => ({ ...n, params: { ...n.params } }) as MapNode),
     edges: doc.edges.map(e => ({ ...e })),
     runPhase: doc.runPhase,
@@ -73,9 +74,9 @@ export function docReadSnapshot(doc: MapGraphDoc): MapSnapshot {
   }
 }
 
-export function docCreate(newsId: string, mode: ExecutionMode = 'human-in-loop'): MapGraphDoc {
+export function docCreate(mapId: string, mode: ExecutionMode = 'human-in-loop'): MapGraphDoc {
   return {
-    newsId,
+    mapId,
     nodes: [],
     edges: [],
     runPhase: 'idle',
@@ -84,14 +85,14 @@ export function docCreate(newsId: string, mode: ExecutionMode = 'human-in-loop')
 }
 
 /** 从 DB 新闻构建 idle 图（新闻 + 拆分槽历史 + claim/opinion）。 */
-export function docCreateNews(
-  news: DisplayNews,
+export function docCreateMap(
+  news: DisplayMap,
   mode: ExecutionMode = 'human-in-loop',
 ): MapGraphDoc {
   const doc = docCreate(news._id, mode)
-  docUpdateNews(doc, news.content)
+  docUpdateMap(doc, news.content)
 
-  const splitRoutes = docReadNewsRoutes(news)
+  const splitRoutes = docReadMapRoutes(news)
   docUpdateSplitRoutes(doc, splitRoutes)
 
   for (const c of news.claims) {
@@ -121,7 +122,7 @@ export function docCreateNews(
 }
 
 /** 从 splitMeta.routeInstructions 还原拆分槽位。 */
-function docReadNewsRoutes(news: DisplayNews): MapSubAgentParams[] {
+function docReadMapRoutes(news: DisplayMap): MapSubAgentParams[] {
   const routes = news.splitMeta?.routeInstructions
   if (!routes?.length) return []
   return routes.map(r => ({
@@ -136,7 +137,7 @@ export function docUpdateProgress(doc: MapGraphDoc, payload: GraphProgressPayloa
   if (doc.runPhase === 'error' || doc.runPhase === 'completed') return
   if (!doc.runId || payload.runId !== doc.runId) return
 
-  doc.graphType = payload.graphType
+  doc.transitionKey = payload.transitionKey
 
   if (payload.event === 'subagent_tool') {
     docUpdateToolProgress(doc, payload)
@@ -152,7 +153,7 @@ function docReadDraftRoute(
 ): MapSubAgentParams | undefined {
   const draft = doc.draft
   if (!draft || !('routeInstructions' in draft)) return undefined
-  const parentId = 'claimId' in draft ? draft.claimId : NEWS_ROOT_ID
+  const parentId = 'scopeNodeId' in draft ? draft.parentNodeId : draft.parentNodeId
   return draft.routeInstructions?.find(r => mapIdCreateRoute(r, parentId) === nodeId)
 }
 
@@ -246,17 +247,17 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
   doc.runPhase = 'interrupted'
   doc.mode = payload.mode
   doc.runId = payload.runId
-  doc.graphType = payload.graphType
+  doc.transitionKey = payload.transitionKey
   doc.nextNode = payload.nextNode
   doc.pendingTool = payload.pendingTool
   doc.activeNodeId = payload.focus?.id
   doc.draft = payload.state
 
-  if (payload.graphType === 'split') {
+  if (payload.transitionKey === '1-2') {
     doc.nodes = []
     doc.edges = []
   }
-  docProjectGraphState(doc, payload.graphType, payload.state, {
+  docProjectGraphState(doc, payload.transitionKey, payload.state, {
     upcomingGate: payload.nextNode,
   })
 
@@ -269,7 +270,7 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
  */
 export function docProjectGraphState(
   doc: MapGraphDoc,
-  graphType: GraphType,
+  transitionKey: TransitionKey,
   state: GraphSplitState | GraphVerifyState,
   ctx?: {
     /** interrupt 时：即将进入的门闩 */
@@ -278,9 +279,9 @@ export function docProjectGraphState(
     completedNode?: string
   },
 ): void {
-  if (graphType === 'split') {
+  if (transitionKey === '1-2') {
     const splitState = state as GraphSplitState
-    docUpdateNews(doc, splitState.content)
+    docUpdateMap(doc, splitState.content)
     docProjectSplitState(doc, splitState, ctx)
     return
   }
@@ -341,7 +342,7 @@ export function docUpdateRunEnd(doc: MapGraphDoc): void {
   doc.runPhase = 'completed'
   doc.runId = undefined
   doc.threadId = undefined
-  doc.graphType = undefined
+  doc.transitionKey = undefined
   doc.nextNode = undefined
   doc.draft = undefined
   doc.error = undefined
@@ -350,12 +351,12 @@ export function docUpdateRunEnd(doc: MapGraphDoc): void {
 
 /** 从 News.mapGraph 恢复内存图 */
 export function docCreatePersist(
-  newsId: string,
+  mapId: string,
   persist: MapGraphPersist,
   mapRun?: MapRunPersist,
 ): MapGraphDoc {
   return {
-    newsId,
+    mapId,
     nodes: (persist.nodes ?? []) as MapNode[],
     edges: (persist.edges ?? []) as MapEdge[],
     runPhase: (persist.runPhase as MapRunPhase) ?? 'idle',
@@ -363,11 +364,12 @@ export function docCreatePersist(
     activeNodeId: persist.activeNodeId,
     pendingTool: persist.pendingTool,
     nextNode: persist.nextNode,
-    graphType: persist.graphType,
+    transitionKey: persist.transitionKey,
     draft: persist.draft,
     error: persist.error,
     runId: mapRun?.runId,
     threadId: mapRun?.threadId,
+    parentNodeId: mapRun?.parentNodeId,
   }
 }
 
@@ -381,16 +383,16 @@ export function docReadPersistGraph(doc: MapGraphDoc): MapGraphPersist {
     activeNodeId: doc.activeNodeId,
     pendingTool: doc.pendingTool,
     nextNode: doc.nextNode,
-    graphType: doc.graphType,
+    transitionKey: doc.transitionKey,
     draft: doc.draft,
     error: doc.error,
     updatedAt: new Date().toISOString(),
   }
 }
 
-/** 序列化运行会话供写入 News.mapRun */
+/** 序列化运行会话供写入 Map.mapRun */
 export function docReadPersistRun(doc: MapGraphDoc): MapRunPersist | null {
-  if (!doc.runId || !doc.threadId || !doc.graphType) return null
+  if (!doc.runId || !doc.threadId || !doc.transitionKey || !doc.parentNodeId) return null
   const status =
     doc.runPhase === 'error'
       ? 'error'
@@ -401,28 +403,25 @@ export function docReadPersistRun(doc: MapGraphDoc): MapRunPersist | null {
           : null
   if (!status) return null
 
-  const claimId =
-    doc.draft && 'claimId' in doc.draft ? doc.draft.claimId : undefined
-
   return {
     runId: doc.runId,
     threadId: doc.threadId,
-    graphType: doc.graphType,
+    transitionKey: doc.transitionKey,
+    parentNodeId: doc.parentNodeId,
     mode: doc.mode,
     gate: doc.nextNode,
     pendingTool: doc.pendingTool,
     activeNodeId: doc.activeNodeId,
     status,
-    claimId,
     updatedAt: new Date().toISOString(),
   }
 }
 
 /** 用 DB 新闻重建 idle 图，清空运行态字段。 */
-export function docResetNews(doc: MapGraphDoc, news: DisplayNews): void {
+export function docResetMap(doc: MapGraphDoc, news: DisplayMap): void {
   const mode = doc.mode
-  const next = docCreateNews(news, mode)
-  doc.newsId = next.newsId
+  const next = docCreateMap(news, mode)
+  doc.mapId = next.mapId
   doc.nodes = next.nodes
   doc.edges = next.edges
   doc.mode = mode
@@ -473,7 +472,7 @@ export function docReadResume(doc: MapGraphDoc): GraphStatePatch {
 export function docUpdateDraft(doc: MapGraphDoc): void {
   if (!doc.draft) return
 
-  if (doc.graphType === 'split' && 'routeInstructions' in doc.draft) {
+  if (doc.transitionKey === '1-2' && 'routeInstructions' in doc.draft) {
     doc.draft = {
       ...doc.draft,
       routeInstructions: docReadRoutes(doc, NEWS_ROOT_ID),
@@ -496,10 +495,10 @@ export function docUpdateDraft(doc: MapGraphDoc): void {
     }
   }
 
-  if (doc.graphType === 'verify' && doc.draft && 'claimId' in doc.draft) {
+  if (doc.transitionKey === '2-3' && doc.draft && 'scopeNodeId' in doc.draft) {
     doc.draft = {
       ...doc.draft,
-      routeInstructions: docReadRoutes(doc, doc.draft.claimId),
+      routeInstructions: docReadRoutes(doc, doc.draft.parentNodeId),
     }
   }
 }
@@ -615,7 +614,7 @@ function docDeleteRunSession(doc: MapGraphDoc): void {
   doc.nextNode = undefined
   doc.runId = undefined
   doc.threadId = undefined
-  doc.graphType = undefined
+  doc.transitionKey = undefined
   doc.draft = undefined
   doc.error = undefined
 }
@@ -666,7 +665,7 @@ function docUpdateFocus(doc: MapGraphDoc): void {
   }
 }
 
-function docUpdateNews(doc: MapGraphDoc, content: string): void {
+function docUpdateMap(doc: MapGraphDoc, content: string): void {
   const existing = doc.nodes.find((n): n is MapNewsNode => n.kind === 'news')
   if (existing) {
     existing.params = { content }
@@ -890,7 +889,7 @@ function docUpdateNumberedClaims(
 }
 
 function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
-  const claimId = state.claimId
+  const claimId = state.parentNodeId
   const existingClaim = doc.nodes.find((n): n is MapClaimNode => n.id === claimId)
   if (existingClaim) {
     existingClaim.params = {

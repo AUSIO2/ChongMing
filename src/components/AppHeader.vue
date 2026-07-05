@@ -7,14 +7,14 @@ import { RUN_PHASE_LABEL } from '../flow-map'
 
 const workspace = useWorkspaceStore()
 const flowMap = useFlowMapStore()
-const { currentNewsId } = storeToRefs(workspace)
+const { currentMapId } = storeToRefs(workspace)
 const { runPhase } = storeToRefs(flowMap)
 
 const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
 
 const documentTitle = computed(() => {
-  if (!currentNewsId.value) return '崇明 — 未打开新闻'
-  return currentNewsId.value
+  if (!currentMapId.value) return '崇明 — 未打开案件'
+  return currentMapId.value
 })
 
 const statusText = computed(() => RUN_PHASE_LABEL[runPhase.value])

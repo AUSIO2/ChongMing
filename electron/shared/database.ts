@@ -1,5 +1,6 @@
 import mongoose, { Schema } from 'mongoose'
 import { errReadMessage } from './errors'
+import { MAP_DEFAULT_SCOPE } from './map-scope'
 
 // ==========================================
 // Mongoose Schema 定义
@@ -43,7 +44,6 @@ const subAgentSplitRecordSchema = new Schema({
   rawResponse: String,
 }, { _id: false })
 
-/** 拆分槽位历史，用于从 DB 重建 Map 拓扑 */
 const routeInstructionSchema = new Schema({
   agentName: { type: String, required: true },
   priority: { type: String, enum: ['high', 'medium', 'low'], required: true },
@@ -53,18 +53,39 @@ const routeInstructionSchema = new Schema({
 
 const splitMetaSchema = new Schema({
   model: String,
-  /** AI/人工确认后的拆分 SubAgent 槽（含 instanceId） */
   routeInstructions: [routeInstructionSchema],
   subAgentResults: [subAgentSplitRecordSchema],
   rawMergeResponse: String,
   splitAt: Date,
 }, { _id: false })
 
-/** 未完成 run 会话（断点恢复） */
+const mapChainScopeSchema = new Schema({
+  content: { type: String, default: '' },
+  context: { type: Map, of: contextFieldSchema, default: () => new Map() },
+  claims: { type: [splitClaimSchema], default: [] },
+  splitMeta: splitMetaSchema,
+}, { _id: false })
+
+const mapTimelineScopeSchema = new Schema({
+  startX: { type: Number, default: 1 },
+  endX: { type: Number, default: 3 },
+  stateIndex: Number,
+}, { _id: false })
+
+const mapTimelineSchema = new Schema({
+  activeScope: { type: String, default: MAP_DEFAULT_SCOPE },
+  scopes: {
+    type: Map,
+    of: mapTimelineScopeSchema,
+    default: () => new Map(),
+  },
+}, { _id: false })
+
 const mapRunSchema = new Schema({
   runId: { type: String, required: true },
   threadId: { type: String, required: true },
-  graphType: { type: String, enum: ['split', 'verify'], required: true },
+  transitionKey: { type: String, enum: ['1-2', '2-3'], required: true },
+  parentNodeId: { type: String, required: true },
   mode: { type: String, enum: ['auto', 'human-in-loop'], required: true },
   gate: { type: String, enum: ['confirmRoute', 'validate', 'save'] },
   pendingTool: { type: String, enum: ['invoke', 'validate', 'save'] },
@@ -74,11 +95,9 @@ const mapRunSchema = new Schema({
     enum: ['running', 'interrupted', 'error'],
     required: true,
   },
-  claimId: String,
   updatedAt: { type: Date, default: Date.now },
 }, { _id: false })
 
-/** Map 图快照（断点恢复） */
 const mapGraphSchema = new Schema({
   nodes: { type: Schema.Types.Mixed, default: [] },
   edges: { type: Schema.Types.Mixed, default: [] },
@@ -87,25 +106,27 @@ const mapGraphSchema = new Schema({
   activeNodeId: String,
   pendingTool: String,
   nextNode: String,
-  graphType: String,
+  transitionKey: String,
   draft: Schema.Types.Mixed,
   error: String,
   updatedAt: { type: Date, default: Date.now },
 }, { _id: false })
 
-const newsDocumentSchema = new Schema({
+const mapDocumentSchema = new Schema({
   _id: { type: String, required: true },
-  content: { type: String, required: true },
-  context: { type: Map, of: contextFieldSchema },
-  claims: { type: [splitClaimSchema], default: [] },
-  splitMeta: splitMetaSchema,
+  chains: {
+    type: Map,
+    of: mapChainScopeSchema,
+    default: () => new Map(),
+  },
+  timeline: mapTimelineSchema,
   mapRun: mapRunSchema,
   mapGraph: mapGraphSchema,
   confidence: Number,
   confidenceUpdatedAt: Date,
 }, { timestamps: true })
 
-export const NewsModel = mongoose.model('News', newsDocumentSchema)
+export const MapModel = mongoose.model('Map', mapDocumentSchema)
 
 // ==========================================
 // 连接管理
@@ -121,12 +142,87 @@ async function startMemoryServer(): Promise<string> {
   return memoryServer.getUri()
 }
 
-/**
- * 连接 MongoDB
- * 优先级：参数 uri → MONGO_URI 环境变量 → localhost
- * - MONGO_URI=memory：直接使用内存库
- * - 连接失败：自动 fallback 到 mongodb-memory-server
- */
+function mapRunMigrateLegacy(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const graphType = raw.graphType as string | undefined
+  const transitionKey = raw.transitionKey
+    ?? (graphType === 'split' ? '1-2' : graphType === 'verify' ? '2-3' : undefined)
+  const parentNodeId = raw.parentNodeId ?? raw.claimId ?? MAP_DEFAULT_SCOPE
+  if (!transitionKey || !parentNodeId) return raw as Record<string, unknown>
+  const { graphType: _g, claimId: _c, ...rest } = raw
+  return { ...rest, transitionKey, parentNodeId }
+}
+
+function draftMigrateLegacy(draft: unknown): unknown {
+  if (!draft || typeof draft !== 'object') return draft
+  const d = draft as Record<string, unknown>
+  if (d.mapId !== undefined) return draft
+  if (typeof d.newsId !== 'string') return draft
+  const { newsId, ...rest } = d
+  return { mapId: newsId, ...rest }
+}
+
+/** 一次性：News 集合 → Map 集合 */
+async function dbMigrateNewsToMap(): Promise<void> {
+  const conn = mongoose.connection
+  if (!conn.db) return
+
+  const newsColl = conn.db.collection('news')
+  const mapsColl = conn.db.collection('maps')
+
+  const newsCount = await newsColl.countDocuments()
+  if (newsCount === 0) return
+
+  const docs = await newsColl.find({}).toArray()
+  for (const doc of docs) {
+    const mapId = String(doc._id)
+    const exists = await mapsColl.findOne({ _id: mapId } as Record<string, unknown>)
+    if (exists) continue
+
+    const scope = {
+      content: String(doc.content ?? ''),
+      context: doc.context ?? {},
+      claims: doc.claims ?? [],
+      ...(doc.splitMeta ? { splitMeta: doc.splitMeta } : {}),
+    }
+
+    let mapRun = doc.mapRun as Record<string, unknown> | undefined
+    if (mapRun) mapRun = mapRunMigrateLegacy(mapRun) as Record<string, unknown>
+
+    let mapGraph = doc.mapGraph as Record<string, unknown> | undefined
+    if (mapGraph) {
+      const graphType = mapGraph.graphType as string | undefined
+      mapGraph = {
+        ...mapGraph,
+        transitionKey: mapGraph.transitionKey
+          ?? (graphType === 'split' ? '1-2' : graphType === 'verify' ? '2-3' : mapGraph.transitionKey),
+        draft: draftMigrateLegacy(mapGraph.draft),
+      }
+      delete mapGraph.graphType
+    }
+
+    await mapsColl.insertOne({
+      _id: mapId,
+      chains: { [MAP_DEFAULT_SCOPE]: scope },
+      timeline: {
+        activeScope: MAP_DEFAULT_SCOPE,
+        scopes: {
+          [MAP_DEFAULT_SCOPE]: { startX: 1, endX: 3 },
+        },
+      },
+      ...(mapRun ? { mapRun } : {}),
+      ...(mapGraph ? { mapGraph } : {}),
+      ...(doc.confidence !== undefined ? { confidence: doc.confidence } : {}),
+      ...(doc.confidenceUpdatedAt ? { confidenceUpdatedAt: doc.confidenceUpdatedAt } : {}),
+      createdAt: doc.createdAt ?? new Date(),
+      updatedAt: doc.updatedAt ?? new Date(),
+    } as Record<string, unknown>)
+  }
+
+  await newsColl.drop().catch(() => {})
+  console.log(`[db] 已迁移 ${docs.length} 条 News → Map`)
+}
+
 export async function dbCreate(uri?: string): Promise<void> {
   const configured = uri
     ?? process.env.MONGO_URI
@@ -136,6 +232,7 @@ export async function dbCreate(uri?: string): Promise<void> {
     const memUri = await startMemoryServer()
     await mongoose.connect(memUri)
     console.log('[db] 使用内存数据库 (mongodb-memory-server)')
+    await dbMigrateNewsToMap()
     return
   }
 
@@ -156,9 +253,10 @@ export async function dbCreate(uri?: string): Promise<void> {
     await mongoose.connect(memUri)
     console.log('[db] 使用内存数据库 (fallback)')
   }
+
+  await dbMigrateNewsToMap()
 }
 
-/** 断开连接并停止内存数据库实例 */
 export async function dbDelete(): Promise<void> {
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect()

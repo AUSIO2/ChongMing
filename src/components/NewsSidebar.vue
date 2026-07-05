@@ -5,9 +5,9 @@ import PanelRegion from './shell/PanelRegion.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
-const { newsList, currentNewsId, loading } = storeToRefs(store)
+const { mapList, currentMapId, loading } = storeToRefs(store)
 
-onMounted(() => store.loadNewsList())
+onMounted(() => store.loadMapList())
 
 function preview(content: string) {
   return content.length > 36 ? `${content.slice(0, 36)}…` : content
@@ -15,25 +15,25 @@ function preview(content: string) {
 </script>
 
 <template>
-  <PanelRegion title="新闻" class="sidebar">
+  <PanelRegion title="案件" class="sidebar">
     <template #actions>
-      <button class="primary" :disabled="loading" @click="store.createNews()">
+      <button class="primary" :disabled="loading" @click="store.createMap()">
         + 新建
       </button>
     </template>
 
-    <ul v-if="newsList.length" class="news-list">
+    <ul v-if="mapList.length" class="news-list">
       <li
-        v-for="item in newsList"
+        v-for="item in mapList"
         :key="item._id"
-        :class="{ active: item._id === currentNewsId }"
-        @click="store.selectNews(item._id)"
+        :class="{ active: item._id === currentMapId }"
+        @click="store.selectMap(item._id)"
       >
         <p class="preview">{{ preview(item.content) }}</p>
         <span class="meta">{{ item.claimCount }} 条</span>
       </li>
     </ul>
-    <p v-else class="empty">暂无新闻</p>
+    <p v-else class="empty">暂无案件</p>
   </PanelRegion>
 </template>
 

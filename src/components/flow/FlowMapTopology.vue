@@ -6,9 +6,9 @@ import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
 import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind, labelTruncate } from '../../flow-map'
 
-const props = defineProps<{ newsId: string | null }>()
+const props = defineProps<{ mapId: string | null }>()
 
-const { store, layout, snapshot, selectedNodeId } = useFlowMap(() => props.newsId)
+const { store, layout, snapshot, selectedNodeId } = useFlowMap(() => props.mapId)
 
 const containerRef = ref<HTMLElement | null>(null)
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -33,7 +33,7 @@ const {
   contentHeight,
 })
 
-watch(() => props.newsId, () => {
+watch(() => props.mapId, () => {
   resetView()
 })
 

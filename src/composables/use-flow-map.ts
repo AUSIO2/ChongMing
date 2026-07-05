@@ -3,11 +3,7 @@ import { storeToRefs } from 'pinia'
 import { layoutReadSnapshot } from '../flow-map'
 import { useFlowMapStore } from '../stores/flow-map'
 
-/**
- * 组合式：绑定当前新闻到 Map 层 store。
- * 后端推送订阅在 HomeView 层注册（onUpdated）。
- */
-export function useFlowMap(newsIdRef: () => string | null) {
+export function useFlowMap(mapIdRef: () => string | null) {
   const store = useFlowMapStore()
   const { snapshot, selectedNodeId } = storeToRefs(store)
 
@@ -16,13 +12,13 @@ export function useFlowMap(newsIdRef: () => string | null) {
   )
 
   watch(
-    () => newsIdRef(),
-    async (newsId) => {
-      if (!newsId) {
-        store.detachNews()
+    () => mapIdRef(),
+    async (mapId) => {
+      if (!mapId) {
+        store.detachMap()
         return
       }
-      await store.attachNews(newsId)
+      await store.attachMap(mapId)
     },
     { immediate: true },
   )

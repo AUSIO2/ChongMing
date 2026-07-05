@@ -118,7 +118,7 @@ export interface MapEdge {
 // ---------- 快照 ----------
 
 export interface MapSnapshot {
-  newsId: string
+  mapId: string
   nodes: MapNode[]
   edges: MapEdge[]
   runPhase: MapRunPhase

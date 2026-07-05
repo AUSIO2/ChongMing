@@ -7,12 +7,12 @@ import { useFlowMapStore } from '../stores/flow-map'
 
 const store = useWorkspaceStore()
 const flowMap = useFlowMapStore()
-const { currentNews } = storeToRefs(store)
+const { currentMap } = storeToRefs(store)
 const { snapshot } = storeToRefs(flowMap)
 
 const contextRows = computed(() => {
-  if (!currentNews.value) return []
-  return Object.entries(currentNews.value.context).map(([key, field]) => ({
+  if (!currentMap.value) return []
+  return Object.entries(currentMap.value.context).map(([key, field]) => ({
     key,
     value: field ? String(field.value) : '',
     visible: field?.visibleToAI ?? false,
@@ -21,7 +21,7 @@ const contextRows = computed(() => {
 
 /** Map 有 claim 时以 Map 为准（含 shouldSave=false）；DB 按 id 补 score。 */
 const displayClaims = computed(() => {
-  const persisted = currentNews.value?.claims ?? []
+  const persisted = currentMap.value?.claims ?? []
   const byId = new Map(persisted.map(c => [c.claimId, c]))
   const mapClaims = (snapshot.value?.nodes ?? []).filter(n => n.kind === 'claim')
 
@@ -58,7 +58,7 @@ function scoreClass(score?: number) {
 
 <template>
   <div class="right-news">
-    <template v-if="currentNews">
+    <template v-if="currentMap">
       <PanelRegion title="上下文" class="section">
         <table v-if="contextRows.length">
           <tbody>
@@ -73,7 +73,7 @@ function scoreClass(score?: number) {
       </PanelRegion>
 
       <PanelRegion title="正文" class="section content-section">
-        <article class="content">{{ currentNews.content }}</article>
+        <article class="content">{{ currentMap.content }}</article>
       </PanelRegion>
 
       <PanelRegion :title="`事实 (${displayClaims.length})`" class="section claims-section">

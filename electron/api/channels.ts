@@ -1,15 +1,14 @@
 /** IPC channel 常量 — main / preload 共用 */
 export const IPC_CHANNELS = {
-  NEWS_CREATE: 'news:create',
-  NEWS_LIST: 'news:list',
-  NEWS_GET: 'news:get',
-  NEWS_UPDATE: 'news:update',
-  NEWS_SAVE_MAP: 'news:save-map',
+  MAP_CREATE: 'map:create',
+  MAP_LIST: 'map:list',
+  MAP_GET: 'map:get',
+  MAP_UPDATE: 'map:update',
+  MAP_SAVE: 'map:save',
 
   CATALOG_LIST: 'catalog:list',
 
-  GRAPH_START_SPLIT: 'graph:start-split',
-  GRAPH_START_VERIFY: 'graph:start-verify',
+  GRAPH_RUN_TRANSITION: 'graph:run-transition',
   GRAPH_RESUME: 'graph:resume',
   GRAPH_SET_MODE: 'graph:set-mode',
   GRAPH_CANCEL: 'graph:cancel',
@@ -20,7 +19,6 @@ export const IPC_CHANNELS = {
   GRAPH_COMPLETED: 'graph:completed',
   GRAPH_ERROR: 'graph:error',
   GRAPH_PROGRESS: 'graph:progress',
-  /** LangGraph checkpoint 投影到 Map（与是否中断无关） */
   GRAPH_STATE: 'graph:state',
 } as const
 

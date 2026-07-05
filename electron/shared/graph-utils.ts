@@ -339,9 +339,9 @@ export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>
       const parentNodeId =
         typeof stateAfterInterrupt === 'object'
         && stateAfterInterrupt !== null
-        && 'claimId' in stateAfterInterrupt
-        && typeof (stateAfterInterrupt as { claimId?: string }).claimId === 'string'
-          ? (stateAfterInterrupt as { claimId: string }).claimId
+        && 'parentNodeId' in stateAfterInterrupt
+        && typeof (stateAfterInterrupt as { parentNodeId?: string }).parentNodeId === 'string'
+          ? (stateAfterInterrupt as { parentNodeId: string }).parentNodeId
           : NEWS_ROOT_ID
       instructions.forEach((instruction, index) => {
         session.onProgress!({

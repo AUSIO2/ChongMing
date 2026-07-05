@@ -173,28 +173,28 @@ export interface MapInterruptFocus {
 
 /** LangGraph 中断点 → Map 焦点节点与 pendingTool。 */
 export function mapIdReadInterruptFocus(
-  graphType: 'split' | 'verify',
+  transitionKey: '1-2' | '2-3',
   nextNode: string,
   state: {
-    claimId?: string
+    parentNodeId: string
     saveIndex?: number
     opinionSaveIndex?: number
   },
 ): { focus?: MapInterruptFocus; pendingTool?: MapInterruptTool } {
   if (nextNode === 'confirmRoute') {
-    if (graphType === 'split') {
-      return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'invoke' }
+    if (transitionKey === '1-2') {
+      return { focus: { kind: 'news', id: state.parentNodeId }, pendingTool: 'invoke' }
     }
-    return { focus: { kind: 'claim', id: state.claimId! }, pendingTool: 'invoke' }
+    return { focus: { kind: 'claim', id: state.parentNodeId }, pendingTool: 'invoke' }
   }
   if (nextNode === 'validate') {
-    if (graphType === 'split') {
-      return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'validate' }
+    if (transitionKey === '1-2') {
+      return { focus: { kind: 'news', id: state.parentNodeId }, pendingTool: 'validate' }
     }
-    return { focus: { kind: 'claim', id: state.claimId! }, pendingTool: 'validate' }
+    return { focus: { kind: 'claim', id: state.parentNodeId }, pendingTool: 'validate' }
   }
   if (nextNode === 'save') {
-    if (graphType === 'split') {
+    if (transitionKey === '1-2') {
       return {
         focus: { kind: 'claim', id: mapIdCreateClaim(state.saveIndex ?? 0) },
         pendingTool: 'save',
@@ -202,7 +202,7 @@ export function mapIdReadInterruptFocus(
     }
     const index = state.opinionSaveIndex ?? 0
     return {
-      focus: { kind: 'opinion', id: mapIdCreateOpinion(state.claimId!, index) },
+      focus: { kind: 'opinion', id: mapIdCreateOpinion(state.parentNodeId, index) },
       pendingTool: 'save',
     }
   }

@@ -1,11 +1,16 @@
 import type { NewsContext } from '../shared/types'
-import { ctxReadNews } from '../shared/context'
+import {
+  MAP_DEFAULT_SCOPE,
+  mapScopeReadContext,
+  mapScopeReadDefault,
+  type MapChainScope,
+  type MapDocLike,
+} from '../shared/map-scope'
 import type {
-  DisplayNews,
-  DisplayNewsSummary,
+  DisplayMap,
+  DisplayMapSummary,
   DisplaySplitMeta,
   GraphSplitState,
-  DisplayOpinion,
   GraphSplitRecordDto,
   GraphVerifyState,
   MapGraphPersist,
@@ -18,65 +23,104 @@ function toIsoString(value: unknown): string | undefined {
   return String(value)
 }
 
-/** Mongoose 文档 → 前端 DTO */
-export function serialReadNews(doc: unknown): DisplayNews {
-  const record = doc as {
-    toObject?: () => Record<string, unknown>
-    _id: unknown
-    content: string
-    context?: unknown
-    claims?: unknown
-    splitMeta?: unknown
-    confidence?: number | null
-    confidenceUpdatedAt?: unknown
-    createdAt?: unknown
-    updatedAt?: unknown
-  }
-  const raw = typeof record.toObject === 'function' ? record.toObject() : record
-  const splitMetaRaw = raw.splitMeta as {
+function splitMetaRead(raw: unknown): DisplaySplitMeta | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const splitMetaRaw = raw as {
     model?: string
     routeInstructions?: DisplaySplitMeta['routeInstructions']
     subAgentResults?: GraphSplitRecordDto[]
     rawMergeResponse?: string
     splitAt?: unknown
-  } | null | undefined
+  }
+  return {
+    model: String(splitMetaRaw.model ?? 'langgraph'),
+    routeInstructions: splitMetaRaw.routeInstructions,
+    subAgentResults: (splitMetaRaw.subAgentResults ?? []) as GraphSplitRecordDto[],
+    rawMergeResponse: String(splitMetaRaw.rawMergeResponse ?? ''),
+    splitAt: toIsoString(splitMetaRaw.splitAt) ?? new Date().toISOString(),
+  }
+}
 
-  const splitMeta = splitMetaRaw
-    ? {
-        model: String(splitMetaRaw.model),
-        routeInstructions: splitMetaRaw.routeInstructions,
-        subAgentResults: splitMetaRaw.subAgentResults as GraphSplitRecordDto[],
-        rawMergeResponse: String(splitMetaRaw.rawMergeResponse),
-        splitAt: toIsoString(splitMetaRaw.splitAt) as string,
-      }
-    : undefined
+function serialReadPlain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
 
-  const mapRunRaw = (raw as Record<string, unknown>).mapRun as
-    | MapRunPersist
-    | null
-    | undefined
-  const mapGraphRaw = (raw as Record<string, unknown>).mapGraph as
-    | MapGraphPersist
-    | null
-    | undefined
+function scopeReadForDisplay(
+  doc: { chains?: unknown },
+  scopeNodeId: string = MAP_DEFAULT_SCOPE,
+) {
+  const chains = doc.chains as Map<string, {
+    content?: string
+    context?: unknown
+    claims?: unknown[]
+    splitMeta?: unknown
+  }> | Record<string, {
+    content?: string
+    context?: unknown
+    claims?: unknown[]
+    splitMeta?: unknown
+  }> | undefined
+
+  let scope: {
+    content?: string
+    context?: unknown
+    claims?: unknown[]
+    splitMeta?: unknown
+  } | undefined
+
+  if (chains instanceof Map) {
+    scope = chains.get(scopeNodeId)
+  } else if (chains) {
+    scope = chains[scopeNodeId]
+  }
+
+  if (!scope) {
+    scope = mapScopeReadDefault(doc as MapDocLike)
+  }
+
+  return {
+    content: String(scope.content ?? ''),
+    context: mapScopeReadContext(scope as MapChainScope),
+    claims: serialReadPlain(scope.claims ?? []) as DisplayMap['claims'],
+    splitMeta: splitMetaRead(scope.splitMeta),
+  }
+}
+
+export function serialReadMap(doc: unknown, scopeNodeId = MAP_DEFAULT_SCOPE): DisplayMap {
+  const record = doc as {
+    toObject?: () => Record<string, unknown>
+    _id: unknown
+    confidence?: number | null
+    confidenceUpdatedAt?: unknown
+    createdAt?: unknown
+    updatedAt?: unknown
+    chains?: unknown
+  }
+  const raw = typeof record.toObject === 'function'
+    ? (record.toObject as (opts?: { flattenMaps?: boolean }) => Record<string, unknown>)({ flattenMaps: true })
+    : record
+  const scope = scopeReadForDisplay(raw, scopeNodeId)
+
+  const mapRunRaw = (raw as Record<string, unknown>).mapRun as MapRunPersist | null | undefined
+  const mapGraphRaw = (raw as Record<string, unknown>).mapGraph as MapGraphPersist | null | undefined
 
   return {
     _id: String(raw._id),
-    content: String(raw.content),
-    context: ctxReadNews(raw.context),
-    claims: (raw.claims ?? []) as DisplayNews['claims'],
-    splitMeta,
+    content: scope.content,
+    context: scope.context,
+    claims: scope.claims,
+    splitMeta: scope.splitMeta,
     mapRun: mapRunRaw
-      ? {
+      ? serialReadPlain({
           ...mapRunRaw,
           updatedAt: toIsoString(mapRunRaw.updatedAt) ?? new Date().toISOString(),
-        }
+        })
       : undefined,
     mapGraph: mapGraphRaw
-      ? {
+      ? serialReadPlain({
           ...mapGraphRaw,
           updatedAt: toIsoString(mapGraphRaw.updatedAt) ?? new Date().toISOString(),
-        }
+        })
       : undefined,
     confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
     confidenceUpdatedAt: toIsoString(raw.confidenceUpdatedAt),
@@ -85,24 +129,25 @@ export function serialReadNews(doc: unknown): DisplayNews {
   }
 }
 
-export function serialReadNewsSummary(doc: {
+export function serialReadMapSummary(doc: {
   _id: unknown
-  content: string
-  claims?: unknown[]
+  chains?: unknown
   createdAt?: unknown
   updatedAt?: unknown
-}): DisplayNewsSummary {
+}): DisplayMapSummary {
+  const scope = scopeReadForDisplay(doc)
   return {
     _id: String(doc._id),
-    content: doc.content,
-    claimCount: Array.isArray(doc.claims) ? doc.claims.length : 0,
+    content: scope.content,
+    claimCount: scope.claims.length,
     createdAt: toIsoString(doc.createdAt) ?? new Date().toISOString(),
     updatedAt: toIsoString(doc.updatedAt) ?? new Date().toISOString(),
   }
 }
 
 export function serialReadSplitState(state: {
-  newsId: string
+  mapId: string
+  parentNodeId: string
   mode: GraphSplitState['mode']
   content: string
   visibleContext: Record<string, string>
@@ -113,7 +158,8 @@ export function serialReadSplitState(state: {
   saveIndex?: number
 }): GraphSplitState {
   return {
-    newsId: state.newsId,
+    mapId: state.mapId,
+    parentNodeId: state.parentNodeId,
     mode: state.mode,
     content: state.content,
     visibleContext: state.visibleContext,
@@ -126,22 +172,24 @@ export function serialReadSplitState(state: {
 }
 
 export function serialReadVerifyState(state: {
-  newsId: string
-  claimId: string
+  mapId: string
+  parentNodeId: string
+  scopeNodeId: string
   mode: GraphVerifyState['mode']
   claimContent: string
   originalContent: string
   visibleContext: Record<string, string>
   routeInstructions: GraphVerifyState['routeInstructions']
-  subAgentOpinions: DisplayOpinion[]
+  subAgentOpinions: GraphVerifyState['subAgentOpinions']
   finalScore: GraphVerifyState['finalScore']
   finalReason: string
   rawMergeResponse: string
   opinionSaveIndex?: number
 }): GraphVerifyState {
   return {
-    newsId: state.newsId,
-    claimId: state.claimId,
+    mapId: state.mapId,
+    parentNodeId: state.parentNodeId,
+    scopeNodeId: state.scopeNodeId,
     mode: state.mode,
     claimContent: state.claimContent,
     originalContent: state.originalContent,
@@ -155,8 +203,9 @@ export function serialReadVerifyState(state: {
   }
 }
 
-/** 前端传入的 context 转为 Mongoose 可写入的 Map 结构 */
-export function serialReadContextMap(context: NewsContext): Map<string, { value: unknown; visibleToAI: boolean }> {
+export function serialReadContextMap(
+  context: NewsContext,
+): Map<string, { value: unknown; visibleToAI: boolean }> {
   const map = new Map<string, { value: unknown; visibleToAI: boolean }>()
   for (const [key, field] of Object.entries(context)) {
     if (field) {

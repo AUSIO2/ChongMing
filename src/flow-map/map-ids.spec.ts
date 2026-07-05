@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus, mapIdCreateRoute, mapIdReadSubAgent, mapIdReadRouteClaim } from './ids'
+import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus, mapIdCreateRoute, mapIdReadSubAgent, mapIdReadRouteClaim, NEWS_ROOT_ID } from './ids'
 
 describe('map-ids', () => {
   it('mapIdCreateInstance 按 parent 已有槽递增', () => {
@@ -71,7 +71,8 @@ describe('map-ids', () => {
   })
 
   it('mapIdReadInterruptFocus save 拆分指向当前 claim', () => {
-    const { focus, pendingTool } = mapIdReadInterruptFocus('split', 'save', {
+    const { focus, pendingTool } = mapIdReadInterruptFocus('1-2', 'save', {
+      parentNodeId: NEWS_ROOT_ID,
       saveIndex: 1,
     })
     expect(focus).toEqual({ kind: 'claim', id: '2' })
@@ -79,8 +80,8 @@ describe('map-ids', () => {
   })
 
   it('mapIdReadInterruptFocus confirmRoute 核查指向 claim', () => {
-    const { focus, pendingTool } = mapIdReadInterruptFocus('verify', 'confirmRoute', {
-      claimId: '3',
+    const { focus, pendingTool } = mapIdReadInterruptFocus('2-3', 'confirmRoute', {
+      parentNodeId: '3',
     })
     expect(focus).toEqual({ kind: 'claim', id: '3' })
     expect(pendingTool).toBe('invoke')

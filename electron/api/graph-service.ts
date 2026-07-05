@@ -4,14 +4,7 @@ import type { ExecutionMode } from '../shared/types'
 import { AppError, ErrorCode, errUpdateNormalize } from '../shared/errors'
 import type { GraphRunSession, RunGraphOptions } from '../shared/graph-utils'
 import { graphRunInterrupt } from '../shared/graph-utils'
-import { splitBuildGraph } from '../fact-extractor/extractor'
-import { verifyBuildGraph } from '../fact-verifier/verifier'
-import { agentReadSplitConfig, agentReadVerifyConfig } from './agent-config'
 import { IPC_CHANNELS } from './channels'
-import {
-  serialReadSplitState,
-  serialReadVerifyState,
-} from './serialize'
 import type {
   GraphActiveRun,
   GraphCompletedPayload,
@@ -20,11 +13,10 @@ import type {
   GraphProgressPayload,
   GraphStatePayload,
   GraphStatePatch,
-  GraphType,
+  TransitionKey,
   GraphSplitState,
   StartGraphResult,
-  StartSplitInput,
-  StartVerifyInput,
+  StartTransitionInput,
   GraphVerifyState,
   RestoreRunInput,
 } from './types'
@@ -33,20 +25,25 @@ import {
   mapIdReadNodeFocus,
   mapIdReadInterruptFocus,
 } from '../shared/map-ids'
+import {
+  transitionReadSpec,
+  type TransitionRunContext,
+} from '../transitions/registry'
+import { MAP_DEFAULT_SCOPE } from '../shared/map-scope'
 
 type WindowGetter = () => BrowserWindow | null
 
 type ResumeGate = 'idle' | 'waiting' | 'done'
 
 interface ActiveRun extends GraphRunSession {
-  graphType: GraphType
-  newsId: string
+  transitionKey: TransitionKey
+  mapId: string
+  parentNodeId: string
   cancelled: boolean
   resumeResolve: ((value: GraphStatePatch) => void) | null
   resumeGate: ResumeGate
   resumeReadyPromise: Promise<void>
   markResumeReady: () => void
-  /** restore 后首次 interrupt 不向渲染进程重复发 GRAPH_INTERRUPTED */
   suppressNextInterruptUi?: boolean
   runId: string
   lastInterrupt?: Pick<
@@ -56,44 +53,6 @@ interface ActiveRun extends GraphRunSession {
 }
 
 const activeRuns = new Map<string, ActiveRun>()
-
-type RunStartInput = StartSplitInput | StartVerifyInput
-
-interface GraphRunSpec {
-  loadNode: string
-  buildGraph: () => ReturnType<typeof splitBuildGraph>
-  readInitialInput: (input: RunStartInput, threadId: string) => Record<string, unknown>
-  serialize: (state: Record<string, unknown>) => GraphCompletedPayload['state']
-  logDone?: (state: Record<string, unknown>) => string
-}
-
-const GRAPH_RUN_SPEC: Record<GraphType, GraphRunSpec> = {
-  split: {
-    loadNode: 'loadNews',
-    buildGraph: () => splitBuildGraph(agentReadSplitConfig()),
-    readInitialInput: (input, threadId) => ({
-      newsId: (input as StartSplitInput).newsId,
-      mode: input.mode,
-      threadId,
-    }),
-    serialize: state => serialReadSplitState(state as unknown as GraphSplitState),
-    logDone: state => {
-      const s = state as unknown as GraphSplitState
-      return `[graph:split] 完成 newsId=${s.newsId} claims=${s.mergedClaims?.length ?? 0}`
-    },
-  },
-  verify: {
-    loadNode: 'loadClaim',
-    buildGraph: () => verifyBuildGraph(agentReadVerifyConfig()),
-    readInitialInput: (input, threadId) => ({
-      newsId: input.newsId,
-      claimId: (input as StartVerifyInput).claimId,
-      mode: input.mode,
-      threadId,
-    }),
-    serialize: state => serialReadVerifyState(state as unknown as GraphVerifyState),
-  },
-}
 
 function sendToRenderer(
   getWindow: WindowGetter,
@@ -118,27 +77,39 @@ function waitForResume(runId: string): Promise<GraphStatePatch> {
   })
 }
 
+function serialReadTransitionState(
+  transitionKey: TransitionKey,
+  state: Record<string, unknown>,
+): GraphSplitState | GraphVerifyState {
+  const spec = transitionReadSpec(transitionKey)
+  return spec.serialize(state)
+}
+
 function createInterruptHandler(
   runId: string,
-  graphType: GraphType,
+  _run: ActiveRun,
   getWindow: WindowGetter,
 ) {
   return async (
     currentState: Record<string, unknown>,
     nextNode: string,
   ): Promise<Record<string, unknown> | null> => {
-    const run = activeRuns.get(runId)
-    if (!run || run.cancelled) return null
+    const active = activeRuns.get(runId)
+    if (!active || active.cancelled) return null
 
-    const mode = run.mode
-    const state = graphType === 'split'
-      ? serialReadSplitState(currentState as Parameters<typeof serialReadSplitState>[0])
-      : serialReadVerifyState(currentState as Parameters<typeof serialReadVerifyState>[0])
-    const { focus, pendingTool } = mapIdReadInterruptFocus(graphType, nextNode, state)
+    const mode = active.mode
+    const state = serialReadTransitionState(active.transitionKey, currentState)
+    const { focus, pendingTool } = mapIdReadInterruptFocus(
+      active.transitionKey,
+      nextNode,
+      state,
+    )
 
     const payload: GraphInterruptedPayload = {
       runId,
-      graphType,
+      mapId: active.mapId,
+      transitionKey: active.transitionKey,
+      parentNodeId: active.parentNodeId,
       nextNode: nextNode as GraphInterruptedPayload['nextNode'],
       mode,
       state,
@@ -146,7 +117,7 @@ function createInterruptHandler(
       pendingTool,
     }
 
-    run.lastInterrupt = {
+    active.lastInterrupt = {
       nextNode: payload.nextNode,
       focus,
       pendingTool,
@@ -154,19 +125,19 @@ function createInterruptHandler(
     }
 
     console.log(
-      `[graph:${graphType}] interrupt runId=${runId} next=${payload.nextNode}`,
+      `[graph:${active.transitionKey}] interrupt runId=${runId} next=${payload.nextNode}`,
     )
-    if (!run.suppressNextInterruptUi) {
+    if (!active.suppressNextInterruptUi) {
       sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_INTERRUPTED, payload)
     } else {
-      run.suppressNextInterruptUi = false
+      active.suppressNextInterruptUi = false
     }
 
     const modifications = await waitForResume(runId)
-    if (!modifications || run.cancelled) return null
+    if (!modifications || active.cancelled) return null
 
     if (modifications.mode) {
-      run.mode = modifications.mode
+      active.mode = modifications.mode
     }
     return modifications as Record<string, unknown>
   }
@@ -179,8 +150,9 @@ function sendProgress(
 ): void {
   const payload: GraphProgressPayload = {
     runId: run.runId,
-    newsId: run.newsId,
-    graphType: run.graphType,
+    mapId: run.mapId,
+    transitionKey: run.transitionKey,
+    parentNodeId: run.parentNodeId,
     ...event,
   }
   sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_PROGRESS, payload)
@@ -198,13 +170,15 @@ function attachStateProjectHandler(
   getWindow: WindowGetter,
 ): void {
   run.onStateProject = (currentState, completedNode) => {
-    const state = run.graphType === 'split'
-      ? serialReadSplitState(currentState as Parameters<typeof serialReadSplitState>[0])
-      : serialReadVerifyState(currentState as Parameters<typeof serialReadVerifyState>[0])
+    const state = serialReadTransitionState(
+      run.transitionKey,
+      currentState as Record<string, unknown>,
+    )
     const payload: GraphStatePayload = {
       runId: run.runId,
-      newsId: run.newsId,
-      graphType: run.graphType,
+      mapId: run.mapId,
+      transitionKey: run.transitionKey,
+      parentNodeId: run.parentNodeId,
       completedNode,
       state,
     }
@@ -214,8 +188,7 @@ function attachStateProjectHandler(
 
 function createRunSession(
   runId: string,
-  graphType: GraphType,
-  newsId: string,
+  ctx: TransitionRunContext,
   mode: ExecutionMode,
   loadNode: string,
 ): ActiveRun {
@@ -225,8 +198,9 @@ function createRunSession(
   })
   return {
     runId,
-    graphType,
-    newsId,
+    transitionKey: ctx.transitionKey,
+    mapId: ctx.mapId,
+    parentNodeId: ctx.parentNodeId,
     mode,
     loadNode,
     cancelled: false,
@@ -241,21 +215,20 @@ function createRunSession(
 }
 
 function runGraphLoop(
-  graphType: GraphType,
-  input: RunStartInput,
+  ctx: TransitionRunContext,
   threadId: string,
   onInterrupt: ReturnType<typeof createInterruptHandler>,
   session: ActiveRun,
   options?: RunGraphOptions,
 ) {
-  const spec = GRAPH_RUN_SPEC[graphType]
+  const spec = transitionReadSpec(ctx.transitionKey)
   const graph = spec.buildGraph()
-  const initial = spec.readInitialInput(input, threadId)
+  const initial = spec.readInitialInput(ctx, threadId)
   return graphRunInterrupt(
     graph,
     {
       ...initial,
-      mode: input.mode ?? session.mode ?? 'auto',
+      mode: ctx.mode ?? session.mode ?? 'auto',
     },
     { onInterrupt },
     threadId,
@@ -266,45 +239,52 @@ function runGraphLoop(
 
 async function executeRun(opts: {
   runId: string
-  graphType: GraphType
+  ctx: TransitionRunContext
   getWindow: WindowGetter
-  input: RunStartInput
   threadId: string
   options?: RunGraphOptions
 }): Promise<void> {
-  const { runId, graphType, getWindow, input, threadId, options } = opts
+  const { runId, ctx, getWindow, threadId, options } = opts
   const run = activeRuns.get(runId)!
-  const spec = GRAPH_RUN_SPEC[graphType]
+  const spec = transitionReadSpec(ctx.transitionKey)
   attachProgressHandlers(run, getWindow)
   attachStateProjectHandler(run, getWindow)
-  console.log(`[graph:${graphType}] 开始 runId=${runId} newsId=${run.newsId}`)
+  console.log(
+    `[graph:${ctx.transitionKey}] 开始 runId=${runId} mapId=${run.mapId} parent=${run.parentNodeId}`,
+  )
   sendProgress(getWindow, run, { event: 'node_enter', node: spec.loadNode })
   try {
     const result = await runGraphLoop(
-      graphType,
-      input,
+      ctx,
       threadId,
-      createInterruptHandler(runId, graphType, getWindow),
+      createInterruptHandler(runId, run, getWindow),
       run,
       options,
     )
 
     if (activeRuns.get(runId)?.cancelled) {
-      console.log(`[graph:${graphType}] 已取消 runId=${runId}`)
+      console.log(`[graph:${ctx.transitionKey}] 已取消 runId=${runId}`)
       return
     }
 
     const payload: GraphCompletedPayload = {
       runId,
-      graphType,
+      mapId: run.mapId,
+      transitionKey: run.transitionKey,
+      parentNodeId: run.parentNodeId,
       state: spec.serialize(result as Record<string, unknown>),
     }
-    if (spec.logDone) console.log(spec.logDone(result as Record<string, unknown>))
+    if (ctx.transitionKey === '1-2') {
+      const s = payload.state as GraphSplitState
+      console.log(
+        `[graph:1-2] 完成 mapId=${s.mapId} claims=${s.mergedClaims?.length ?? 0}`,
+      )
+    }
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
   } catch (error) {
     const appError = errUpdateNormalize(error, ErrorCode.GRAPH_EXECUTION_FAILED)
     console.error(
-      `[graph:${graphType}] 失败 runId=${runId} code=${appError.code}`
+      `[graph:${ctx.transitionKey}] 失败 runId=${runId} code=${appError.code}`
       + (appError.failedNode ? ` node=${appError.failedNode}` : '')
       + `:`,
       appError.msg,
@@ -312,8 +292,9 @@ async function executeRun(opts: {
     )
     const payload: GraphErrorPayload = {
       runId,
-      newsId: run.newsId,
-      graphType,
+      mapId: run.mapId,
+      transitionKey: run.transitionKey,
+      parentNodeId: run.parentNodeId,
       code: appError.code,
       msg: appError.msg,
       ...(appError.failedNode ? { failedNode: appError.failedNode } : {}),
@@ -321,7 +302,6 @@ async function executeRun(opts: {
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_ERROR, payload)
   } finally {
     const pending = activeRuns.get(runId)
-    // restore 路径若 checkpoint 已失效 / auto 模式直跑完，从未进入 waitForResume，须解除 IPC 等待
     if (pending?.resumeGate === 'idle') {
       pending.markResumeReady()
     }
@@ -329,63 +309,32 @@ async function executeRun(opts: {
   }
 }
 
-function runCreateInternal(
-  graphType: GraphType,
-  input: RunStartInput,
+export function runTransition(
+  input: StartTransitionInput,
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
   const threadId = runId
-  const spec = GRAPH_RUN_SPEC[graphType]
+  const ctx: TransitionRunContext = {
+    mapId: input.mapId,
+    transitionKey: input.transitionKey,
+    parentNodeId: input.parentNodeId,
+    scopeNodeId: input.scopeNodeId ?? MAP_DEFAULT_SCOPE,
+    mode: input.mode,
+  }
+  const spec = transitionReadSpec(ctx.transitionKey)
   const session = createRunSession(
     runId,
-    graphType,
-    input.newsId,
+    ctx,
     input.mode ?? 'auto',
     spec.loadNode,
   )
   session.threadId = threadId
   activeRuns.set(runId, session)
-  void executeRun({ runId, graphType, getWindow, input, threadId })
+  void executeRun({ runId, ctx, getWindow, threadId })
   return { runId }
 }
 
-export function runCreate(
-  graphType: 'split',
-  input: StartSplitInput,
-  getWindow: WindowGetter,
-): StartGraphResult
-export function runCreate(
-  graphType: 'verify',
-  input: StartVerifyInput,
-  getWindow: WindowGetter,
-): StartGraphResult
-export function runCreate(
-  graphType: GraphType,
-  input: RunStartInput,
-  getWindow: WindowGetter,
-): StartGraphResult {
-  return runCreateInternal(graphType, input, getWindow)
-}
-
-export function runCreateSplit(
-  input: StartSplitInput,
-  getWindow: WindowGetter,
-): StartGraphResult {
-  return runCreate('split', input, getWindow)
-}
-
-export function runCreateVerify(
-  input: StartVerifyInput,
-  getWindow: WindowGetter,
-): StartGraphResult {
-  return runCreate('verify', input, getWindow)
-}
-
-/**
- * 从 News.mapRun + MongoDBSaver checkpoint 恢复 HITL 等待循环（进程重启后）。
- * 在 interrupt 循环进入 waitForResume 后才 resolve，避免 resume 被静默丢弃。
- */
 export async function runRestoreSession(
   input: RestoreRunInput,
   getWindow: WindowGetter,
@@ -396,11 +345,17 @@ export async function runRestoreSession(
     return { runId: input.runId }
   }
 
-  const spec = GRAPH_RUN_SPEC[input.graphType]
+  const ctx: TransitionRunContext = {
+    mapId: input.mapId,
+    transitionKey: input.transitionKey,
+    parentNodeId: input.parentNodeId,
+    scopeNodeId: input.scopeNodeId ?? MAP_DEFAULT_SCOPE,
+    mode: input.mode,
+  }
+  const spec = transitionReadSpec(ctx.transitionKey)
   const session = createRunSession(
     input.runId,
-    input.graphType,
-    input.newsId,
+    ctx,
     input.mode,
     spec.loadNode,
   )
@@ -408,7 +363,7 @@ export async function runRestoreSession(
   session.fanoutEmitted = input.gate !== 'confirmRoute'
   session.suppressNextInterruptUi = true
   const { focus, pendingTool } = mapIdReadInterruptFocus(
-    input.graphType,
+    input.transitionKey,
     input.gate,
     input.draft,
   )
@@ -443,22 +398,10 @@ export async function runRestoreSession(
     )
   }
 
-  const restoreInput: RunStartInput = input.graphType === 'split'
-    ? { newsId: input.newsId, mode: input.mode }
-    : {
-        newsId: input.newsId,
-        claimId:
-          ('claimId' in input.draft ? input.draft.claimId : undefined)
-          || input.claimId
-          || '',
-        mode: input.mode,
-      }
-
   void executeRun({
     runId: input.runId,
-    graphType: input.graphType,
+    ctx,
     getWindow,
-    input: restoreInput,
     threadId: input.runId,
     options: { skipInitialInvoke: true },
   })
@@ -467,13 +410,14 @@ export async function runRestoreSession(
   return { runId: input.runId }
 }
 
-export function runReadSession(newsId: string): GraphActiveRun | null {
+export function runReadSession(mapId: string): GraphActiveRun | null {
   for (const run of activeRuns.values()) {
-    if (run.newsId !== newsId || run.cancelled) continue
+    if (run.mapId !== mapId || run.cancelled) continue
     return {
       runId: run.runId,
-      newsId: run.newsId,
-      graphType: run.graphType,
+      mapId: run.mapId,
+      transitionKey: run.transitionKey,
+      parentNodeId: run.parentNodeId,
       mode: run.mode,
       threadId: run.threadId,
       nextNode: run.lastInterrupt?.nextNode,
@@ -485,7 +429,6 @@ export function runReadSession(newsId: string): GraphActiveRun | null {
   return null
 }
 
-/** 恢复挂起的 interrupt。重复 resume 视为幂等 no-op（避免连点报错）。 */
 export function runUpdateResume(runId: string, modifications: GraphStatePatch): void {
   const run = activeRuns.get(runId)
   if (!run) {
@@ -508,7 +451,6 @@ export function runUpdateResume(runId: string, modifications: GraphStatePatch): 
   resolve(modifications)
 }
 
-/** 运行中随时切换 auto / human-in-loop */
 export async function runUpdateMode(runId: string, mode: ExecutionMode): Promise<void> {
   const run = activeRuns.get(runId)
   if (!run) {
