@@ -52,6 +52,11 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
   )
 
   handle(
+    IPC_CHANNELS.MAP_DELETE,
+    (mapId: string) => mapService.mapDelete(mapId),
+  )
+
+  handle(
     IPC_CHANNELS.MAP_SAVE,
     (
       mapId: string,

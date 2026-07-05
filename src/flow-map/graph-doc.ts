@@ -386,7 +386,8 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
   doc.activeNodeId = payload.focus?.id
   doc.draft = payload.state
 
-  if (payload.transitionKey === '1-2') {
+  // invoke 重入时清旧拆分；validate/save 只投影 shouldSave，不能 prune（draft 常无 routeInstructions）
+  if (payload.transitionKey === '1-2' && payload.nextNode === 'confirmRoute') {
     if (mapIdIsScopedNews(payload.parentNodeId)) {
       docPruneSplitUnder(doc, payload.parentNodeId)
     } else {

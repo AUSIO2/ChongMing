@@ -305,6 +305,7 @@ export interface MapAPI {
   list(): Promise<DisplayMapSummary[]>
   get(mapId: string): Promise<DisplayMap | null>
   update(mapId: string, patch: UpdateMapInput): Promise<DisplayMap>
+  delete(mapId: string): Promise<void>
   saveMapPersistence(
     mapId: string,
     data: {

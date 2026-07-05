@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { defineStore, acceptHMRUpdate } from 'pinia'
 import type {
   DisplayMap,
   DisplayMapSummary,
@@ -59,6 +59,24 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
 
+    async deleteMap(mapId: string) {
+      const api = getApi()
+      if (!api?.map.delete) {
+        throw new Error('map.delete API 不可用，请重启 Electron 应用')
+      }
+      await api.map.delete(mapId)
+      if (this.currentMapId === mapId) {
+        const { useFlowMapStore } = await import('./flow-map')
+        useFlowMapStore().detachMap()
+        this.currentMapId = null
+        this.currentMap = null
+      }
+      await this.loadMapList()
+      if (this.currentMapId) return
+      const next = this.mapList[0]
+      if (next) await this.selectMap(next._id)
+    },
+
     async createMap() {
       const api = getApi()
       if (!api) return
@@ -76,3 +94,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
   },
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useWorkspaceStore, import.meta.hot))
+}

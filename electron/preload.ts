@@ -9,6 +9,7 @@ const electronAPI: ElectronAPI = {
     get: mapId => ipcRenderer.invoke(IPC_CHANNELS.MAP_GET, mapId),
     update: (mapId, patch) =>
       ipcRenderer.invoke(IPC_CHANNELS.MAP_UPDATE, mapId, patch),
+    delete: mapId => ipcRenderer.invoke(IPC_CHANNELS.MAP_DELETE, mapId),
     saveMapPersistence: (mapId, data) =>
       ipcRenderer.invoke(IPC_CHANNELS.MAP_SAVE, mapId, data),
   },

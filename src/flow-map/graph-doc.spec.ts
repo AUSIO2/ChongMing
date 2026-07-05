@@ -408,6 +408,52 @@ describe('graph-doc state', () => {
     expect(doc.nodes.some(n => n.kind === 'subAgent' && n.parentId === newsId)).toBe(true)
   })
 
+  it('scoped news validate 中断保留 subAgent（空 routeInstructions 不 prune）', () => {
+    const newsId = mapIdCreateNews('a1b2c3d4')
+    const doc = docCreate('n1')
+    doc.nodes = [{ id: newsId, kind: 'news', params: { content: '正文' } }]
+
+    docUpdateInterrupt(doc, {
+      runId: 'r1',
+      mapId: 'n1',
+      parentNodeId: newsId,
+      transitionKey: '1-2',
+      nextNode: 'confirmRoute',
+      mode: 'human-in-loop',
+      state: splitState({
+        parentNodeId: newsId,
+        content: '正文',
+        routeInstructions: [
+          { agentName: '数据事实', priority: 'medium', instanceId: '数据事实#1' },
+        ],
+        subAgentResults: [],
+        mergedClaims: [],
+      }),
+      focus: { kind: 'news', id: newsId },
+      pendingTool: 'invoke',
+    })
+    expect(doc.nodes.filter(n => n.kind === 'subAgent' && n.parentId === newsId)).toHaveLength(1)
+
+    docUpdateInterrupt(doc, {
+      runId: 'r1',
+      mapId: 'n1',
+      parentNodeId: newsId,
+      transitionKey: '1-2',
+      nextNode: 'validate',
+      mode: 'human-in-loop',
+      state: splitState({
+        parentNodeId: newsId,
+        content: '正文',
+        routeInstructions: [],
+        subAgentResults: [],
+        mergedClaims: [],
+      }),
+      focus: { kind: 'news', id: newsId },
+      pendingTool: 'validate',
+    })
+    expect(doc.nodes.filter(n => n.kind === 'subAgent' && n.parentId === newsId)).toHaveLength(1)
+  })
+
   it('verify 同名多槽：各挂一条 opinion，不合并到同一 subAgent', () => {
     const claimId = '2'
     const doc = docCreate('n1')

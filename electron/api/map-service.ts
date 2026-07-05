@@ -169,3 +169,10 @@ export async function mapUpdatePersistMap(
 
   await MapModel.updateOne({ _id: mapId }, update)
 }
+
+export async function mapDelete(mapId: string): Promise<void> {
+  const result = await MapModel.deleteOne({ _id: mapId })
+  if (result.deletedCount === 0) {
+    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${mapId}`)
+  }
+}
