@@ -1,4 +1,5 @@
 import type { DisplayClaim } from '../../electron/api/types'
+import { AppError, ErrorCode } from '../../electron/shared/errors'
 import {
   MAP_DEFAULT_NEWS_ID,
   mapIdCreateNews,
@@ -209,4 +210,25 @@ export function timelineReadNextStateIndex(key: TransitionKey): StateIndex {
   if (key === '0-1') return 1
   if (key === '1-2') return 2
   return 3
+}
+
+/** runTransition 启动时解析 parentNodeId；无合法 parent 抛 MAP_SCOPE_NOT_FOUND。 */
+export function timelineReadRunParent(
+  snapshot: MapSnapshot,
+  timeline: MapTimeline,
+  transitionKey: TransitionKey,
+  selectedNewsId?: string | null,
+  claims: DisplayClaim[] = [],
+): string {
+  const scope = transitionKey === '1-2'
+    ? timelineReadScope(snapshot, timeline, selectedNewsId)
+    : timeline.activeScope
+  const parents = timelineReadParents(snapshot, transitionKey, scope, claims)
+  if (parents.length === 0) {
+    throw new AppError(
+      ErrorCode.MAP_SCOPE_NOT_FOUND,
+      `no parent for transition ${transitionKey} scope=${scope}`,
+    )
+  }
+  return parents[0]
 }

@@ -18,7 +18,11 @@ export {
   mapIdCreateEdge,
   mapIdCreateDraftClaim,
   mapIdIsDraftClaim,
+  mapIdIsScopedClaim,
+  mapIdReadClaimNewsScope,
+  mapIdReadClaimSaveIndex,
   mapIdReadDraftIndex,
+  mapIdClaimBelongsToNews,
   mapIdReadSubAgentClaim,
   mapIdReadAgentName,
   mapIdCreateInstance,
@@ -27,4 +31,5 @@ export {
   mapIdReadRouteClaim,
   mapIdReadInterruptFocus,
   DRAFT_CLAIM_PREFIX,
+  CLAIM_PREFIX,
 } from '../../electron/shared/map-ids'

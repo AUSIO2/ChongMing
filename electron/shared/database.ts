@@ -1,6 +1,6 @@
 import mongoose, { Schema } from 'mongoose'
 import { errReadMessage } from './errors'
-import { MAP_DEFAULT_NEWS_ID, MAP_DEFAULT_CHAIN_ID } from './map-ids'
+import { MAP_DEFAULT_NEWS_ID } from './map-ids'
 import { MAP_DEFAULT_SCOPE } from './map-scope'
 
 // ==========================================
@@ -246,7 +246,7 @@ function graphMigrateLegacyNewsRoot(graph: {
         changed = true
       }
       if (edge.id?.includes(LEGACY_NEWS_ROOT_ID)) {
-        edge.id = edge.id.replaceAll(LEGACY_NEWS_ROOT_ID, MAP_DEFAULT_NEWS_ID)
+        edge.id = edge.id.split(LEGACY_NEWS_ROOT_ID).join(MAP_DEFAULT_NEWS_ID)
         changed = true
       }
     }
@@ -264,7 +264,8 @@ async function dbMigrateLegacyNewsRoot(): Promise<void> {
     if (doc.chains instanceof Map) {
       if (doc.chains.has(LEGACY_NEWS_ROOT_ID)) {
         if (!doc.chains.has(MAP_DEFAULT_SCOPE)) {
-          doc.chains.set(MAP_DEFAULT_SCOPE, doc.chains.get(LEGACY_NEWS_ROOT_ID))
+          const legacy = doc.chains.get(LEGACY_NEWS_ROOT_ID)
+          if (legacy) doc.chains.set(MAP_DEFAULT_SCOPE, legacy)
         }
         doc.chains.delete(LEGACY_NEWS_ROOT_ID)
         dirty = true
@@ -272,7 +273,8 @@ async function dbMigrateLegacyNewsRoot(): Promise<void> {
       // 修复误迁移为 news:default 的 chains 键
       if (doc.chains.has(MAP_DEFAULT_NEWS_ID)) {
         if (!doc.chains.has(MAP_DEFAULT_SCOPE)) {
-          doc.chains.set(MAP_DEFAULT_SCOPE, doc.chains.get(MAP_DEFAULT_NEWS_ID))
+          const misplaced = doc.chains.get(MAP_DEFAULT_NEWS_ID)
+          if (misplaced) doc.chains.set(MAP_DEFAULT_SCOPE, misplaced)
         }
         doc.chains.delete(MAP_DEFAULT_NEWS_ID)
         dirty = true

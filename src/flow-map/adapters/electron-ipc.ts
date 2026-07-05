@@ -9,6 +9,7 @@ import {
   timelineReadEffectiveIndex,
   timelineReadNextStateIndex,
   timelineReadParents,
+  timelineReadRunParent,
   timelineReadScope,
   timelineReadScopeAfterParse,
   timelineResolveKeys,
@@ -551,7 +552,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       }
     },
 
-    async startRun(mapId, mode) {
+    async startRun(mapId, mode, selectedNewsId) {
       try {
         const doc = await adapterMutate(mapId, async (doc) => {
           if (mode) doc.mode = mode
@@ -560,27 +561,27 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           doc.draft = undefined
           docDeleteFocus(doc)
 
-          const scopedNews = doc.nodes.find(
-            n => n.kind === 'news' && n.id !== MAP_DEFAULT_NEWS_ID && n.params.content.trim(),
+          const parentNodeId = timelineReadRunParent(
+            docReadSnapshot(doc),
+            doc.timeline,
+            '1-2',
+            selectedNewsId,
           )
-          if (scopedNews) {
-            doc.transitionKey = '1-2'
-            doc.parentNodeId = scopedNews.id
-          } else {
+          if (parentNodeId === MAP_DEFAULT_NEWS_ID) {
             const newsNode = doc.nodes.find(
               (n): n is import('../types').MapNewsNode =>
                 n.id === MAP_DEFAULT_NEWS_ID && n.kind === 'news',
             )
             doc.nodes = newsNode ? [newsNode] : []
             doc.edges = []
-            doc.transitionKey = '1-2'
-            doc.parentNodeId = MAP_DEFAULT_NEWS_ID
           }
+          doc.transitionKey = '1-2'
+          doc.parentNodeId = parentNodeId
 
           const { runId } = await api.graph.runTransition({
             mapId,
             transitionKey: '1-2',
-            parentNodeId: doc.parentNodeId!,
+            parentNodeId: doc.parentNodeId,
             mode: doc.mode,
           })
           doc.runId = runId

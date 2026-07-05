@@ -160,7 +160,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
     try {
-      const { snapshot: next } = await portReadApi().startRun(mapId, mode.value)
+      const { snapshot: next } = await portReadApi().startRun(
+        mapId,
+        mode.value,
+        selectedNodeId.value,
+      )
       snapshot.value = next
       errorMessage.value = null
     } catch (e) {

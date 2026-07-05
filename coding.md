@@ -75,6 +75,7 @@
 | 前缀 | 模块 |
 |------|------|
 | `doc` | `src/flow-map/graph-doc.ts` |
+| `proj` | `src/flow-map/projection/` |
 | `mapId` | `electron/shared/map-ids.ts` |
 | `layout` | `src/flow-map/layout.ts` |
 | `timeline` | `src/flow-map/timeline.ts` |

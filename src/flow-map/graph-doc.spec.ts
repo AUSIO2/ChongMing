@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MAP_DEFAULT_NEWS_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews } from './ids'
-import type { MapSnapshot } from './types'
+import { MAP_DEFAULT_NEWS_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews, mapIdCreateDraftClaim } from './ids'
+import type { MapSnapshot, MapClaimNode } from './types'
 import { timelineCreateDefault } from './timeline'
 import {
   docUpdateInterrupt,
@@ -932,6 +932,10 @@ describe('graph-doc state', () => {
       ],
     })
     const doc = docCreate('n1')
+    doc.nodes.push(
+      { id: 'draft:0', kind: 'claim', parentId: MAP_DEFAULT_NEWS_ID, params: { content: 'c1', sourceAgent: 'a' }, dataPhase: 'workerOut', shouldSave: true },
+      { id: 'draft:1', kind: 'claim', parentId: MAP_DEFAULT_NEWS_ID, params: { content: 'c2', sourceAgent: 'a' }, dataPhase: 'workerOut', shouldSave: true },
+    )
     docUpdateInterrupt(doc, {
       runId: 'r1',
       mapId: 'n1',
@@ -1044,5 +1048,64 @@ describe('graph-doc state', () => {
     const claim = doc.nodes.find(n => n.id === claimId)
     expect(claim?.kind).toBe('claim')
     expect(claim?.parentId).toBeUndefined()
+  })
+
+  it('双 scoped news 拆分 draft claim id 不碰撞、parent 不错挂', () => {
+    const newsA = mapIdCreateNews('aaaa1111')
+    const newsB = mapIdCreateNews('bbbb2222')
+    const doc = docCreate('n1')
+    doc.nodes = [
+      { id: newsA, kind: 'news', params: { content: '新闻A' } },
+      { id: newsB, kind: 'news', params: { content: '新闻B' } },
+    ]
+
+    const runSplit = (newsId: string, agentName: string, content: string, runId: string) => {
+      docUpdateInterrupt(doc, {
+        runId,
+        mapId: 'n1',
+        parentNodeId: newsId,
+        transitionKey: '1-2',
+        nextNode: 'validate',
+        mode: 'human-in-loop',
+        state: splitState({
+          parentNodeId: newsId,
+          content: newsId === newsA ? '新闻A' : '新闻B',
+          routeInstructions: [
+            { agentName, priority: 'medium', instanceId: `${agentName}#1` },
+          ],
+          subAgentResults: [
+            {
+              agentName,
+              priority: 'medium',
+              instanceId: `${agentName}#1`,
+              claims: [{ content, sourceAgent: agentName }],
+              rawResponse: '',
+            },
+          ],
+          mergedClaims: [{ content, sourceAgent: agentName, shouldSave: true }],
+        }),
+        focus: { kind: 'news', id: newsId },
+        pendingTool: 'validate',
+      })
+    }
+
+    runSplit(newsA, '医疗事实', '医疗 claim', 'r1')
+    runSplit(newsB, '政治事实', '政治 claim', 'r2')
+
+    const drafts = doc.nodes.filter(
+      (n): n is MapClaimNode => n.kind === 'claim' && n.id.startsWith('draft:'),
+    )
+    expect(drafts).toHaveLength(2)
+    expect(drafts.map(d => d.id).sort()).toEqual([
+      mapIdCreateDraftClaim(0, newsA),
+      mapIdCreateDraftClaim(0, newsB),
+    ].sort())
+
+    const medicalDraft = drafts.find(d => d.id === mapIdCreateDraftClaim(0, newsA))
+    const politicalDraft = drafts.find(d => d.id === mapIdCreateDraftClaim(0, newsB))
+    expect(medicalDraft?.parentId).toBe(`sub:${newsA}:医疗事实#1`)
+    expect(politicalDraft?.parentId).toBe(`sub:${newsB}:政治事实#1`)
+    expect(medicalDraft?.params.content).toBe('医疗 claim')
+    expect(politicalDraft?.params.content).toBe('政治 claim')
   })
 })

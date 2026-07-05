@@ -53,6 +53,7 @@ export interface MapAPI {
   startRun(
     mapId: string,
     mode?: ExecutionMode,
+    selectedNewsId?: string | null,
   ): Promise<{ runId: string; snapshot: MapSnapshot }>
   startParse(
     mapId: string,

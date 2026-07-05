@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus, mapIdCreateRoute, mapIdReadSubAgent, mapIdReadRouteClaim, MAP_DEFAULT_NEWS_ID } from './ids'
+import {
+  mapIdCreateInstance,
+  mapIdReadAgentName,
+  mapIdUpdateInstance,
+  mapIdReadInterruptFocus,
+  mapIdCreateRoute,
+  mapIdReadSubAgent,
+  mapIdReadRouteClaim,
+  mapIdCreateClaim,
+  mapIdCreateDraftClaim,
+  mapIdReadClaimSaveIndex,
+  mapIdClaimBelongsToNews,
+  MAP_DEFAULT_NEWS_ID,
+} from './ids'
 
 describe('map-ids', () => {
   it('mapIdCreateInstance 按 parent 已有槽递增', () => {
@@ -63,11 +76,41 @@ describe('map-ids', () => {
       mapIdCreateRoute({ instanceId: 'a#1' }, '2'),
     ).toBe('sub:2:a#1')
     expect(
-      mapIdCreateRoute({ instanceId: 'a#1' }, 'news:default'),
+      mapIdCreateRoute({ instanceId: 'a#1' }, 'claim:news:abc:1'),
+    ).toBe('sub:claim:news:abc:1:a#1')
+    expect(
+      mapIdCreateRoute({ instanceId: 'a#1' }, MAP_DEFAULT_NEWS_ID),
     ).toBe('sub:a#1')
     expect(mapIdReadSubAgent('sub:2:a#1')).toBe('a#1')
+    expect(mapIdReadSubAgent('sub:claim:news:abc:1:a#1')).toBe('a#1')
     expect(mapIdReadRouteClaim('sub:2:a#1')).toBe('2')
+    expect(mapIdReadRouteClaim('sub:claim:news:abc:1:a#1')).toBe('claim:news:abc:1')
     expect(mapIdReadRouteClaim('sub:a#1')).toBeUndefined()
+  })
+
+  it('scoped news claim/draft id 与 default legacy 隔离', () => {
+    const newsA = 'news:aaa'
+    const newsB = 'news:bbb'
+    expect(mapIdCreateClaim(0, newsA)).toBe('claim:news:aaa:1')
+    expect(mapIdCreateClaim(0, newsB)).toBe('claim:news:bbb:1')
+    expect(mapIdCreateClaim(0, MAP_DEFAULT_NEWS_ID)).toBe('1')
+    expect(mapIdCreateDraftClaim(0, newsA)).toBe('draft:news:aaa:0')
+    expect(mapIdReadClaimSaveIndex('claim:news:aaa:2')).toBe(1)
+    expect(mapIdClaimBelongsToNews('1', MAP_DEFAULT_NEWS_ID)).toBe(true)
+    expect(mapIdClaimBelongsToNews('1', newsA)).toBe(false)
+    expect(mapIdClaimBelongsToNews('claim:news:aaa:1', newsA)).toBe(true)
+    expect(mapIdClaimBelongsToNews('draft:0', MAP_DEFAULT_NEWS_ID)).toBe(true)
+    expect(mapIdClaimBelongsToNews('draft:news:aaa:0', newsA)).toBe(true)
+  })
+
+  it('mapIdReadInterruptFocus save 拆分 scoped 指向 scoped claim', () => {
+    const newsId = 'news:abc'
+    const { focus, pendingTool } = mapIdReadInterruptFocus('1-2', 'save', {
+      parentNodeId: newsId,
+      saveIndex: 1,
+    })
+    expect(focus).toEqual({ kind: 'claim', id: 'claim:news:abc:2' })
+    expect(pendingTool).toBe('save')
   })
 
   it('mapIdReadInterruptFocus save 拆分指向当前 claim', () => {

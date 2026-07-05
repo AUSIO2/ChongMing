@@ -25,7 +25,7 @@ import {
   llmReadMessage,
   llmReadClaims,
 } from '../shared/llm-utils'
-import { mapIdCreateClaim } from '../shared/map-ids'
+import { mapIdCreateClaim, mapIdReadClaimSaveIndex } from '../shared/map-ids'
 
 const SplitGraphState = Annotation.Root({
   mapId: Annotation<string>,
@@ -174,7 +174,7 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
     )
   }
 
-  const claimId = mapIdCreateClaim(index)
+  const claimId = mapIdCreateClaim(index, state.parentNodeId)
   const existing = (scope.claims as Array<{ claimId: string }> | undefined) ?? []
   if (!raw.sourceAgent) {
     throw new AppError(
@@ -190,7 +190,10 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
   }
   const nextClaims = existing.filter(c => c.claimId !== claimId)
   nextClaims.push(entry)
-  nextClaims.sort((a, b) => Number(a.claimId) - Number(b.claimId))
+  nextClaims.sort(
+    (a, b) =>
+      (mapIdReadClaimSaveIndex(a.claimId) ?? 0) - (mapIdReadClaimSaveIndex(b.claimId) ?? 0),
+  )
   scope.claims = nextClaims
 
   const nextIndex = index + 1

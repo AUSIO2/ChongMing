@@ -4,7 +4,7 @@
  * - 默认新闻根：MAP_DEFAULT_NEWS_ID（news:default）
  * - subAgent（拆分）：sub:${instanceId}
  * - subAgent（核查 claim 下）：sub:${claimId}:${instanceId}
- * - claim（merge/落库）：String(saveIndex+1)
+ * - claim（merge/落库）：String(saveIndex+1)；scoped news 为 claim:${newsId}:${n}
  * - opinion：opinion:${claimId}:${index}
  *
  * 核查与拆分共用 instanceId；作用域由 parentId（claim / news 根）区分。
@@ -69,23 +69,26 @@ export function mapIdCreateSubAgent(instanceId: string): string {
 export function mapIdReadSubAgent(nodeId: string): string | undefined {
   if (!nodeId.startsWith('sub:')) return undefined
   const rest = nodeId.slice('sub:'.length)
-  const colon = rest.indexOf(':')
-  // sub:{claimId}:{instanceId} — claimId 段不含 #
-  if (colon >= 0 && !rest.slice(0, colon).includes('#')) {
-    return rest.slice(colon + 1)
-  }
-  return rest
+  const hashIdx = rest.indexOf('#')
+  if (hashIdx < 0) return rest
+  const colonBeforeInstance = rest.lastIndexOf(':', hashIdx)
+  if (colonBeforeInstance < 0) return rest
+  return rest.slice(colonBeforeInstance + 1)
 }
 
 /** 核查槽节点 id 中的 claimId；拆分槽返回 undefined。 */
 export function mapIdReadRouteClaim(nodeId: string): string | undefined {
   if (!nodeId.startsWith('sub:')) return undefined
   const rest = nodeId.slice('sub:'.length)
-  const colon = rest.indexOf(':')
-  if (colon >= 0 && !rest.slice(0, colon).includes('#')) {
-    return rest.slice(0, colon)
+  const hashIdx = rest.indexOf('#')
+  if (hashIdx < 0) return undefined
+  const colonBeforeInstance = rest.lastIndexOf(':', hashIdx)
+  if (colonBeforeInstance < 0) return undefined
+  const claimId = rest.slice(0, colonBeforeInstance)
+  if (claimId.startsWith(NEWS_PREFIX) || claimId.startsWith(SOURCE_PREFIX)) {
+    return undefined
   }
-  return undefined
+  return claimId
 }
 
 export function mapIdCreateRoute(
@@ -98,8 +101,15 @@ export function mapIdCreateRoute(
   return mapIdCreateSubAgent(route.instanceId)
 }
 
-export function mapIdCreateClaim(saveIndex: number): string {
-  return String(saveIndex + 1)
+export const DRAFT_CLAIM_PREFIX = 'draft:'
+export const CLAIM_PREFIX = 'claim:'
+
+export function mapIdCreateClaim(saveIndex: number, newsParentId?: string): string {
+  const num = String(saveIndex + 1)
+  if (newsParentId && !mapIdIsDefaultNews(newsParentId)) {
+    return `${CLAIM_PREFIX}${newsParentId}:${num}`
+  }
+  return num
 }
 
 export function mapIdCreateOpinion(claimId: string, index: number): string {
@@ -110,9 +120,10 @@ export function mapIdCreateEdge(from: string, to: string): string {
   return `e:${from}->${to}`
 }
 
-export const DRAFT_CLAIM_PREFIX = 'draft:'
-
-export function mapIdCreateDraftClaim(index: number): string {
+export function mapIdCreateDraftClaim(index: number, newsParentId?: string): string {
+  if (newsParentId && !mapIdIsDefaultNews(newsParentId)) {
+    return `${DRAFT_CLAIM_PREFIX}${newsParentId}:${index}`
+  }
   return `${DRAFT_CLAIM_PREFIX}${index}`
 }
 
@@ -120,10 +131,50 @@ export function mapIdIsDraftClaim(id: string): boolean {
   return id.startsWith(DRAFT_CLAIM_PREFIX)
 }
 
+export function mapIdIsScopedClaim(id: string): boolean {
+  return id.startsWith(CLAIM_PREFIX)
+}
+
+export function mapIdReadClaimNewsScope(id: string): string | undefined {
+  if (!mapIdIsScopedClaim(id)) return undefined
+  const rest = id.slice(CLAIM_PREFIX.length)
+  const lastColon = rest.lastIndexOf(':')
+  if (lastColon <= 0) return undefined
+  return rest.slice(0, lastColon)
+}
+
+/** 落库序号 1-based；入参 saveIndex 为 0-based。 */
+export function mapIdReadClaimSaveIndex(id: string): number | undefined {
+  if (mapIdIsScopedClaim(id)) {
+    const n = Number.parseInt(id.slice(id.lastIndexOf(':') + 1), 10)
+    return Number.isFinite(n) ? n - 1 : undefined
+  }
+  const n = Number.parseInt(id, 10)
+  return Number.isFinite(n) ? n - 1 : undefined
+}
+
 export function mapIdReadDraftIndex(id: string): number | undefined {
   if (!mapIdIsDraftClaim(id)) return undefined
-  const n = Number.parseInt(id.slice(DRAFT_CLAIM_PREFIX.length), 10)
+  const rest = id.slice(DRAFT_CLAIM_PREFIX.length)
+  const lastColon = rest.lastIndexOf(':')
+  const tail = lastColon >= 0 ? rest.slice(lastColon + 1) : rest
+  const n = Number.parseInt(tail, 10)
   return Number.isFinite(n) ? n : undefined
+}
+
+/** claim/draft 是否属于指定新闻根（default 仅匹配 legacy 无 scope 段 id）。 */
+export function mapIdClaimBelongsToNews(id: string, newsParentId: string): boolean {
+  if (mapIdIsDraftClaim(id)) {
+    if (mapIdIsDefaultNews(newsParentId)) {
+      const rest = id.slice(DRAFT_CLAIM_PREFIX.length)
+      return !rest.includes(':')
+    }
+    return id.startsWith(`${DRAFT_CLAIM_PREFIX}${newsParentId}:`)
+  }
+  if (mapIdIsScopedClaim(id)) {
+    return mapIdReadClaimNewsScope(id) === newsParentId
+  }
+  return mapIdIsDefaultNews(newsParentId)
 }
 
 /** 与 Map draft:N 同序的 SubAgent 产出 claim（含槽位字段）。 */
@@ -212,6 +263,9 @@ export function mapIdReadNodeFocus(
   if (activeNodeId.startsWith('opinion:')) {
     return { kind: 'opinion', id: activeNodeId }
   }
+  if (activeNodeId.startsWith(CLAIM_PREFIX) || /^\d+$/.test(activeNodeId)) {
+    return { kind: 'claim', id: activeNodeId }
+  }
   return { kind: 'claim', id: activeNodeId }
 }
 
@@ -263,7 +317,7 @@ export function mapIdReadInterruptFocus(
   if (nextNode === 'save') {
     if (transitionKey === '1-2') {
       return {
-        focus: { kind: 'claim', id: mapIdCreateClaim(state.saveIndex ?? 0) },
+        focus: { kind: 'claim', id: mapIdCreateClaim(state.saveIndex ?? 0, state.parentNodeId) },
         pendingTool: 'save',
       }
     }

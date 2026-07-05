@@ -4,6 +4,7 @@ import {
   timelineDeriveStateIndex,
   timelineReadEffectiveIndex,
   timelineReadParents,
+  timelineReadRunParent,
   timelineResolveKeys,
   timelineValidate,
 } from './timeline'
@@ -55,5 +56,22 @@ describe('timeline', () => {
     ])
     const tl = { startX: 0 as const, endX: 3 as const, stateIndex: 2 as const, activeScope: newsId }
     expect(timelineReadEffectiveIndex(tl, s, [], newsId)).toBe(2)
+  })
+
+  it('readRunParent 1-2 按 selectedNewsId 选 news', () => {
+    const newsA = mapIdCreateNews('aaaa')
+    const newsB = mapIdCreateNews('bbbb')
+    const s = snap([
+      { id: newsA, kind: 'news', params: { content: 'A' } },
+      { id: newsB, kind: 'news', params: { content: 'B' } },
+    ])
+    const tl = timelineCreateDefault(newsA)
+    expect(timelineReadRunParent(s, tl, '1-2', newsB)).toBe(newsB)
+  })
+
+  it('readRunParent 无 parent 抛 MAP_SCOPE_NOT_FOUND', () => {
+    const s = snap([])
+    const tl = timelineCreateDefault()
+    expect(() => timelineReadRunParent(s, tl, '1-2')).toThrow('no parent for transition 1-2')
   })
 })
