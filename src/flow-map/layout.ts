@@ -48,7 +48,7 @@ export interface MapLayoutSnapshot {
  *   x = PAD_X + depth * GAP_X
  * 同一 parent 下的子节点纵向分行；父节点自身在 y 方向居中于其子行。
  */
-export function layoutMapSnapshot(snapshot: MapSnapshot): MapLayoutSnapshot {
+export function layoutReadSnapshot(snapshot: MapSnapshot): MapLayoutSnapshot {
   const { nodes, edges } = snapshot
 
   const childrenByParent = groupChildren(nodes)

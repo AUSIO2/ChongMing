@@ -108,7 +108,7 @@ export type GraphToolKind = 'invoke' | 'validate' | 'save'
  * 当前暂停点是否允许 resume 时写入 routeInstructions。
  * 仅 pendingTool=invoke（confirmRoute）为 true。
  */
-export function canWriteRouteInstructions(pendingTool?: GraphToolKind): boolean {
+export function apiCanWriteRoute(pendingTool?: GraphToolKind): boolean {
   return pendingTool === 'invoke'
 }
 
@@ -249,13 +249,15 @@ export type GraphProgressPayload = {
     node: string
     agentName?: string
     spawnIndex?: number
-    instanceId?: string
+    /** fanout_spawn：SubAgent Map 节点 id */
+    nodeId?: string
+    /** fanout_spawn：父节点 id（news 根或 claim） */
+    parentNodeId?: string
   }
   | {
     event: 'subagent_tool'
     phase: 'start' | 'end'
-    instanceId: string
-    agentName?: string
+    nodeId: string
     toolName: string
     argsSummary?: string
   }

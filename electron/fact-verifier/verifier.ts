@@ -1,5 +1,5 @@
-import { Annotation, StateGraph, START, END } from '@langchain/langgraph'
-import { getCheckpointer } from '../shared/checkpointer'
+import { Annotation, StateGraph, START, END, getConfig } from '@langchain/langgraph'
+import { ckptRead } from '../shared/checkpointer'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   Confidence, ExecutionMode, MapSubAgentParams,
@@ -7,20 +7,20 @@ import type {
 import type { GraphOpinion, GraphConfig } from './types'
 import { NewsModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
-import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
+import { ctxReadVisible, ctxFormat, ctxReadNewsDoc } from '../shared/context'
+import { promptRead, promptFormat } from '../shared/prompt-loader'
 import {
-  confirmRoutePassthrough,
-  createDynamicFanOut,
-  createRouteNode,
-  createSubAgentSkillEmitter,
-  runGraphWithInterrupts,
+  graphUpdateRouteConfirm,
+  graphCreateFanout,
+  graphCreateRoute,
+  graphCreateSkillEmitter,
+  graphRunInterrupt,
   type GraphRunSession,
 } from '../shared/graph-utils'
 import {
-  invokeWithOptionalTools,
-  messageContentToString,
-  parseJsonObjectFromLLM,
+  llmRunInvoke,
+  llmReadMessage,
+  llmReadJsonObject,
 } from '../shared/llm-utils'
 
 // ==========================================
@@ -97,8 +97,8 @@ async function loadClaim(state: typeof VerifyGraphState.State) {
     )
   }
 
-  const context = readNewsContext(doc)
-  const visibleContext = extractVisibleContext(context)
+  const context = ctxReadNewsDoc(doc)
+  const visibleContext = ctxReadVisible(context)
 
   return {
     claimContent: claim.content,
@@ -114,22 +114,25 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
       ._agentConfig as import('../shared/types').AgentRuntimeConfig
     const instruction = (state as Record<string, unknown>)
       ._routeInstruction as MapSubAgentParams
-    const promptConfig = loadPrompt(agentConfig.promptPath)
+    const promptConfig = promptRead(agentConfig.promptPath)
 
-    const prompt = renderPrompt(promptConfig.content, {
+    const prompt = promptFormat(promptConfig.content, {
       claimContent: state.claimContent,
       originalContent: state.originalContent,
-      context: formatContext(state.visibleContext),
+      context: ctxFormat(state.visibleContext),
       hint: instruction.hint ?? '',
     })
 
     const model = agentConfig.model ?? defaultModel
     const tools = agentConfig.tools ?? []
-    const rawResponse = await invokeWithOptionalTools(model, tools, prompt, {
-      onSkillActivity: createSubAgentSkillEmitter(instruction, agentConfig.name),
+    const threadId = (
+      (state as Record<string, unknown>)._graphThreadId as string | undefined
+    ) ?? (getConfig()?.configurable?.thread_id as string | undefined)
+    const rawResponse = await llmRunInvoke(model, tools, prompt, {
+      onSkillActivity: graphCreateSkillEmitter(instruction, threadId),
     })
 
-    const opinion = parseJsonObjectFromLLM(
+    const opinion = llmReadJsonObject(
       rawResponse,
       { score: 0.5, reason: '' },
     )
@@ -152,7 +155,7 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
 /** MainAgent Merge：汇总所有角度的 opinions → 最终 score + reason */
 function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
   return async (state: typeof VerifyGraphState.State) => {
-    const promptConfig = loadPrompt(mergePromptPath)
+    const promptConfig = promptRead(mergePromptPath)
     const opinionsText = state.subAgentOpinions
       .map(
         o =>
@@ -160,16 +163,16 @@ function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
       )
       .join('\n\n')
 
-    const prompt = renderPrompt(promptConfig.content, {
+    const prompt = promptFormat(promptConfig.content, {
       claimContent: state.claimContent,
       originalContent: state.originalContent,
       opinions: opinionsText,
     })
 
     const response = await model.invoke(prompt)
-    const rawMergeResponse = messageContentToString(response.content)
+    const rawMergeResponse = llmReadMessage(response.content)
 
-    const result = parseJsonObjectFromLLM(
+    const result = llmReadJsonObject(
       rawMergeResponse,
       { score: 0.5, reason: '' },
     )
@@ -247,7 +250,7 @@ function routeAfterOpinionSave(state: typeof VerifyGraphState.State): string {
 // 图构建
 // ==========================================
 
-export function buildVerifyGraph(config: GraphConfig) {
+export function verifyBuildGraph(config: GraphConfig) {
   const {
     defaultModel,
     availableAgents,
@@ -256,7 +259,7 @@ export function buildVerifyGraph(config: GraphConfig) {
     maxConcurrency,
   } = config
 
-  const checkpointer = getCheckpointer()
+  const checkpointer = ckptRead()
 
   type NodeName =
     | 'loadClaim'
@@ -273,28 +276,28 @@ export function buildVerifyGraph(config: GraphConfig) {
     .addNode('loadClaim', loadClaim)
     .addNode(
       'route',
-      createRouteNode<typeof VerifyGraphState.State>(
+      graphCreateRoute<typeof VerifyGraphState.State>(
         defaultModel,
         routePromptPath,
         availableAgents,
         state => ({
           claimContent: state.claimContent,
           originalContent: state.originalContent,
-          context: formatContext(state.visibleContext),
+          context: ctxFormat(state.visibleContext),
         }),
       ),
     )
-    .addNode('confirmRoute', confirmRoutePassthrough)
+    .addNode('confirmRoute', graphUpdateRouteConfirm)
     .addNode('subAgent', createVerifySubAgentNode(defaultModel))
     .addNode('merge', createVerifyMergeNode(defaultModel, mergePromptPath))
-    .addNode('validate', confirmRoutePassthrough)
+    .addNode('validate', graphUpdateRouteConfirm)
     .addNode('save', saveOneOpinion)
     .addEdge(START, 'loadClaim')
     .addEdge('loadClaim', 'route')
     .addEdge('route', 'confirmRoute')
     .addConditionalEdges(
       'confirmRoute',
-      createDynamicFanOut({ availableAgents, maxConcurrency }),
+      graphCreateFanout({ availableAgents, maxConcurrency }),
     )
     .addEdge('subAgent', 'merge')
     .addEdge('merge', 'validate')
@@ -314,8 +317,8 @@ export interface VerifyGraphCallbacks {
   ) => Promise<Partial<typeof VerifyGraphState.State> | null>
 }
 
-export async function runVerifyGraph(
-  graph: ReturnType<typeof buildVerifyGraph>,
+export async function verifyRunGraph(
+  graph: ReturnType<typeof verifyBuildGraph>,
   input: {
     newsId: string
     claimId: string
@@ -326,10 +329,12 @@ export async function runVerifyGraph(
   session?: GraphRunSession,
   options?: { skipInitialInvoke?: boolean },
 ) {
-  const threadId =
-    input.threadId ?? `verify-${input.newsId}-${input.claimId}-${Date.now()}`
+  const threadId = input.threadId
+  if (!threadId) {
+    throw new Error('verifyRunGraph requires threadId')
+  }
 
-  return runGraphWithInterrupts(
+  return graphRunInterrupt(
     graph,
     {
       newsId: input.newsId,

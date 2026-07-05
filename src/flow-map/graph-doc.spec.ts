@@ -2,20 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { NEWS_ROOT_ID } from './ids'
 import type { MapSnapshot } from './types'
 import {
-  applyInterrupted,
-  applyGraphProgress,
-  applyProgress,
-  bootstrapFromNews,
-  buildResumePatch,
-  canAddSubAgent,
-  canEditNode,
-  canRemoveNode,
-  createEmptyDoc,
-  ensureSubAgent,
-  isParamsLocked,
-  pruneRejectedClaims,
-  resetIdleFromNews,
-  syncDraftFromNodes,
+  docUpdateInterrupt,
+  docUpdateProgress,
+  docCreateNews,
+  docReadResume,
+  docCanAddSubAgent,
+  docCanEditNode,
+  docCanRemoveNode,
+  docCreate,
+  docUpdateSubAgent,
+  docIsParamsLocked,
+  docDeleteClaims,
+  docResetNews,
+  docUpdateDraft,
   type MapGraphDoc,
 } from './graph-doc'
 import type { DisplayNews, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
@@ -42,8 +41,8 @@ describe('graph-doc capability', () => {
         },
       ],
     })
-    expect(canAddSubAgent(snap, NEWS_ROOT_ID)).toBe(false)
-    expect(isParamsLocked(snap, snap.nodes[0])).toBe(false)
+    expect(docCanAddSubAgent(snap, NEWS_ROOT_ID)).toBe(false)
+    expect(docIsParamsLocked(snap, snap.nodes[0])).toBe(false)
   })
 
   it('非 idle 时锁定新闻正文', () => {
@@ -52,20 +51,20 @@ describe('graph-doc capability', () => {
       kind: 'news' as const,
       params: { content: 'x' },
     }
-    expect(isParamsLocked(baseSnapshot({ runPhase: 'running', nodes: [news] }), news)).toBe(true)
-    expect(isParamsLocked(
+    expect(docIsParamsLocked(baseSnapshot({ runPhase: 'running', nodes: [news] }), news)).toBe(true)
+    expect(docIsParamsLocked(
       baseSnapshot({ runPhase: 'interrupted', pendingTool: 'invoke', nodes: [news] }),
       news,
     )).toBe(true)
   })
 
   it('running 或 save 中断时禁止添加；confirmRoute(invoke) 允许', () => {
-    expect(canAddSubAgent(baseSnapshot({ runPhase: 'running' }), NEWS_ROOT_ID)).toBe(false)
-    expect(canAddSubAgent(
+    expect(docCanAddSubAgent(baseSnapshot({ runPhase: 'running' }), NEWS_ROOT_ID)).toBe(false)
+    expect(docCanAddSubAgent(
       baseSnapshot({ runPhase: 'interrupted', pendingTool: 'save' }),
       NEWS_ROOT_ID,
     )).toBe(false)
-    expect(canAddSubAgent(
+    expect(docCanAddSubAgent(
       baseSnapshot({ runPhase: 'interrupted', pendingTool: 'invoke' }),
       NEWS_ROOT_ID,
     )).toBe(true)
@@ -80,8 +79,8 @@ describe('graph-doc capability', () => {
       dataPhase: 'persisted',
       shouldSave: true,
     }
-    expect(canAddSubAgent(baseSnapshot({ nodes: [claim] }), 'claim:x:0')).toBe(false)
-    expect(canAddSubAgent(
+    expect(docCanAddSubAgent(baseSnapshot({ nodes: [claim] }), 'claim:x:0')).toBe(false)
+    expect(docCanAddSubAgent(
       baseSnapshot({
         runPhase: 'interrupted',
         pendingTool: 'invoke',
@@ -89,7 +88,7 @@ describe('graph-doc capability', () => {
       }),
       'claim:x:0',
     )).toBe(true)
-    expect(canAddSubAgent(
+    expect(docCanAddSubAgent(
       baseSnapshot({
         runPhase: 'interrupted',
         pendingTool: 'save',
@@ -109,7 +108,7 @@ describe('graph-doc capability', () => {
       shouldSave: true,
     }
     const snap = baseSnapshot({ runPhase: 'running', nodes: [claim] })
-    expect(canAddSubAgent(snap, 'claim:x:0')).toBe(false)
+    expect(docCanAddSubAgent(snap, 'claim:x:0')).toBe(false)
   })
 
   it('禁止把核查 subAgent 挂到未持久化的 claim 上', () => {
@@ -126,7 +125,7 @@ describe('graph-doc capability', () => {
       pendingTool: 'invoke',
       nodes: [claim],
     })
-    expect(canAddSubAgent(snap, 'claim:x:0')).toBe(false)
+    expect(docCanAddSubAgent(snap, 'claim:x:0')).toBe(false)
   })
 
   it('claim 一旦离开 workerOut 就锁定参数；opinion 始终锁定', () => {
@@ -147,9 +146,9 @@ describe('graph-doc capability', () => {
       dataPhase: 'workerOut',
     }
     const snap = baseSnapshot({ nodes: [workerOut, persisted, opinion] })
-    expect(isParamsLocked(snap, workerOut)).toBe(false)
-    expect(isParamsLocked(snap, persisted)).toBe(true)
-    expect(isParamsLocked(snap, opinion)).toBe(true)
+    expect(docIsParamsLocked(snap, workerOut)).toBe(false)
+    expect(docIsParamsLocked(snap, persisted)).toBe(true)
+    expect(docIsParamsLocked(snap, opinion)).toBe(true)
   })
 
   it('subAgent 只要下游有产出就锁定，即使产出仍处于 workerOut', () => {
@@ -167,9 +166,9 @@ describe('graph-doc capability', () => {
       shouldSave: true,
     }
     const snap = baseSnapshot({ nodes: [sa, child] })
-    expect(isParamsLocked(snap, sa)).toBe(true)
-    expect(canEditNode(snap, sa.id)).toBe(false)
-    expect(canEditNode(snap, child.id)).toBe(true)
+    expect(docIsParamsLocked(snap, sa)).toBe(true)
+    expect(docCanEditNode(snap, sa.id)).toBe(false)
+    expect(docCanEditNode(snap, child.id)).toBe(true)
   })
 
   it('仅 invoke 配置期允许删除无下游的 subAgent 槽', () => {
@@ -179,8 +178,8 @@ describe('graph-doc capability', () => {
       parentId: NEWS_ROOT_ID,
       params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
     }
-    expect(canRemoveNode(baseSnapshot({ nodes: [sa] }), sa.id)).toBe(false)
-    expect(canRemoveNode(
+    expect(docCanRemoveNode(baseSnapshot({ nodes: [sa] }), sa.id)).toBe(false)
+    expect(docCanRemoveNode(
       baseSnapshot({
         runPhase: 'interrupted',
         pendingTool: 'invoke',
@@ -188,7 +187,7 @@ describe('graph-doc capability', () => {
       }),
       sa.id,
     )).toBe(true)
-    expect(canRemoveNode(
+    expect(docCanRemoveNode(
       baseSnapshot({
         runPhase: 'interrupted',
         pendingTool: 'save',
@@ -205,7 +204,7 @@ describe('graph-doc capability', () => {
       dataPhase: 'workerOut',
       shouldSave: true,
     }
-    expect(canRemoveNode(
+    expect(docCanRemoveNode(
       baseSnapshot({
         runPhase: 'interrupted',
         pendingTool: 'invoke',
@@ -255,15 +254,15 @@ function splitState(overrides: Partial<GraphSplitState> = {}): GraphSplitState {
 }
 
 describe('graph-doc state', () => {
-  it('resetIdleFromNews 清空 runId / draft / graphType / focus', () => {
-    const doc = createEmptyDoc('n1')
+  it('docResetNews 清空 runId / draft / graphType / focus', () => {
+    const doc = docCreate('n1')
     doc.runId = 'run-1'
     doc.graphType = 'split'
     doc.draft = splitState()
     doc.activeNodeId = NEWS_ROOT_ID
     doc.pendingTool = 'validate'
     doc.error = 'x'
-    resetIdleFromNews(doc, emptyNews())
+    docResetNews(doc, emptyNews())
     expect(doc.runPhase).toBe('idle')
     expect(doc.runId).toBeUndefined()
     expect(doc.graphType).toBeUndefined()
@@ -274,42 +273,49 @@ describe('graph-doc state', () => {
     expect(doc.nodes.some(n => n.kind === 'news')).toBe(true)
   })
 
-  it('applyProgress 在焦点上挂 activeTool，并清 snapshot pendingTool', () => {
-    const doc = createEmptyDoc('n1')
+  it('docUpdateProgress 在焦点上挂 activeTool，并清 snapshot pendingTool', () => {
+    const doc = docCreate('n1')
     doc.nodes = [{ id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } }]
     doc.runPhase = 'interrupted'
+    doc.runId = 'run-1'
     doc.activeNodeId = NEWS_ROOT_ID
     doc.pendingTool = 'validate'
     doc.nodes[0].runtime = { pendingTool: 'validate' }
 
-    applyProgress(doc, 'run-1', 'split')
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'node_enter',
+      node: '',
+    })
     expect(doc.runPhase).toBe('running')
     expect(doc.pendingTool).toBeUndefined()
     expect(doc.activeNodeId).toBe(NEWS_ROOT_ID)
     expect(doc.nodes[0].runtime).toEqual({ activeTool: 'validate' })
   })
 
-  it('buildResumePatch 只认 pendingTool', () => {
-    const doc = createEmptyDoc('n1')
+  it('docReadResume 只认 pendingTool', () => {
+    const doc = docCreate('n1')
     doc.draft = splitState()
     doc.pendingTool = 'invoke'
-    expect(buildResumePatch(doc)).toEqual({
+    expect(docReadResume(doc)).toEqual({
       routeInstructions: doc.draft.routeInstructions,
     })
 
     doc.pendingTool = 'validate'
     const draftClaims = (doc.draft as GraphSplitState).mergedClaims
-    const validatePatch = buildResumePatch(doc)
+    const validatePatch = docReadResume(doc)
     expect(validatePatch && 'mergedClaims' in validatePatch && validatePatch.mergedClaims).toEqual(
       draftClaims,
     )
 
     doc.pendingTool = 'save'
-    const savePatch = buildResumePatch(doc)
+    const savePatch = docReadResume(doc)
     expect(savePatch && 'mergedClaims' in savePatch && savePatch.mergedClaims).toHaveLength(2)
 
     doc.pendingTool = undefined
-    expect(buildResumePatch(doc)).toBeNull()
+    expect(docReadResume(doc)).toBeNull()
   })
 
   it('validate 投影只改 shouldSave；prune 后 sync 不含被拒草稿', () => {
@@ -323,8 +329,8 @@ describe('graph-doc state', () => {
       focus: { kind: 'news', id: NEWS_ROOT_ID },
       pendingTool: 'validate',
     }
-    const doc = createEmptyDoc('n1')
-    applyInterrupted(doc, payload)
+    const doc = docCreate('n1')
+    docUpdateInterrupt(doc, payload)
 
     const drafts = doc.nodes.filter(n => n.kind === 'claim')
     expect(drafts).toHaveLength(2)
@@ -333,11 +339,11 @@ describe('graph-doc state', () => {
     expect(drafts[0].params.content).toBe('c1')
     expect(drafts[1].params.content).toBe('c2')
 
-    pruneRejectedClaims(doc)
+    docDeleteClaims(doc)
     expect(doc.nodes.filter(n => n.kind === 'claim')).toHaveLength(1)
     expect(doc.nodes.find(n => n.kind === 'claim')?.params.content).toBe('c1')
 
-    syncDraftFromNodes(doc)
+    docUpdateDraft(doc)
     expect(doc.draft && 'mergedClaims' in doc.draft && doc.draft.mergedClaims).toEqual([
       { content: 'c1', category: undefined, sourceAgent: 'a', shouldSave: true },
     ])
@@ -345,7 +351,7 @@ describe('graph-doc state', () => {
 
   it('verify 同名多槽：各挂一条 opinion，不合并到同一 subAgent', () => {
     const claimId = '2'
-    const doc = createEmptyDoc('n1')
+    const doc = docCreate('n1')
     doc.nodes = [
       { id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } },
       {
@@ -399,7 +405,7 @@ describe('graph-doc state', () => {
         opinionSaveIndex: 0,
       },
     }
-    applyInterrupted(doc, payload)
+    docUpdateInterrupt(doc, payload)
 
     const subs = doc.nodes.filter(n => n.kind === 'subAgent' && n.parentId === claimId)
     expect(subs).toHaveLength(2)
@@ -410,15 +416,15 @@ describe('graph-doc state', () => {
     expect(parents).toEqual(new Set(subs.map(s => s.id)))
   })
 
-  it('ensureSubAgent 重复 id 更新 parent、边不重复', () => {
-    const doc: MapGraphDoc = createEmptyDoc('n1')
+  it('docUpdateSubAgent 重复 id 更新 parent、边不重复', () => {
+    const doc: MapGraphDoc = docCreate('n1')
     doc.nodes = [{ id: NEWS_ROOT_ID, kind: 'news', params: { content: '' } }]
-    const id1 = ensureSubAgent(doc, NEWS_ROOT_ID, {
+    const id1 = docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'a',
       priority: 'medium',
       instanceId: 'a',
     })
-    const id2 = ensureSubAgent(doc, NEWS_ROOT_ID, {
+    const id2 = docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a',
@@ -432,7 +438,7 @@ describe('graph-doc state', () => {
     expect(sa?.kind === 'subAgent' && sa.params.hint).toBe('h')
   })
 
-  it('bootstrapFromNews 容忍缺少 instanceId 的历史 opinion / route', () => {
+  it('docCreateNews 从 opinion / route 还原 SubAgent 槽', () => {
     const news = {
       _id: 'n1',
       content: 'body',
@@ -448,6 +454,7 @@ describe('graph-doc state', () => {
           verifiedAt: '2026-01-01T00:00:00.000Z',
           opinions: [{
             agentName: '来源可信度',
+            instanceId: '来源可信度#1',
             priority: 'medium',
             score: 1,
             reason: '可信',
@@ -460,6 +467,7 @@ describe('graph-doc state', () => {
         routeInstructions: [{
           agentName: 'data-claims',
           priority: 'high',
+          instanceId: 'data-claims#1',
         }],
         subAgentResults: [],
         rawMergeResponse: '',
@@ -469,27 +477,28 @@ describe('graph-doc state', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     } as DisplayNews
 
-    const doc = bootstrapFromNews(news)
+    const doc = docCreateNews(news)
     const sub = doc.nodes.find(n => n.kind === 'subAgent' && n.parentId === '1')
-    expect(sub?.id).toBe('sub:1:来源可信度')
+    expect(sub?.id).toBe('sub:来源可信度#1')
     expect(doc.nodes.some(n => n.kind === 'opinion')).toBe(true)
   })
 
   it('subagent_tool start 写入 activeSkill（含 argsSummary）', () => {
-    const doc = createEmptyDoc('n1')
-    ensureSubAgent(doc, NEWS_ROOT_ID, {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: '来源可信度',
       priority: 'high',
       instanceId: '来源可信度#1',
     })
 
-    applyGraphProgress(doc, {
+    docUpdateProgress(doc, {
       runId: 'run-1',
       newsId: 'n1',
       graphType: 'split',
       event: 'subagent_tool',
       phase: 'start',
-      instanceId: '来源可信度#1',
+      nodeId: 'sub:来源可信度#1',
       toolName: 'web_search',
       argsSummary: '某新闻标题',
     })
@@ -503,13 +512,14 @@ describe('graph-doc state', () => {
   })
 
   it('subagent_tool end 仅清除对应节点 activeSkill', () => {
-    const doc = createEmptyDoc('n1')
-    ensureSubAgent(doc, NEWS_ROOT_ID, {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
     })
-    ensureSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'b',
       priority: 'medium',
       instanceId: 'b#1',
@@ -519,13 +529,13 @@ describe('graph-doc state', () => {
     subA.runtime = { activeSkill: { name: 'web_search', argsSummary: 'q1' } }
     subB.runtime = { activeSkill: { name: 'web_search', argsSummary: 'q2' } }
 
-    applyGraphProgress(doc, {
+    docUpdateProgress(doc, {
       runId: 'run-1',
       newsId: 'n1',
       graphType: 'split',
       event: 'subagent_tool',
       phase: 'end',
-      instanceId: 'a#1',
+      nodeId: 'sub:a#1',
       toolName: 'web_search',
     })
 
@@ -534,13 +544,14 @@ describe('graph-doc state', () => {
   })
 
   it('node_enter 不清除其他 SubAgent 的 activeSkill', () => {
-    const doc = createEmptyDoc('n1')
-    ensureSubAgent(doc, NEWS_ROOT_ID, {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
     })
-    ensureSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'b',
       priority: 'medium',
       instanceId: 'b#1',
@@ -548,7 +559,7 @@ describe('graph-doc state', () => {
     const subB = doc.nodes.find(n => n.id === 'sub:b#1')!
     subB.runtime = { activeSkill: { name: 'web_search', argsSummary: 'q2' } }
 
-    applyGraphProgress(doc, {
+    docUpdateProgress(doc, {
       runId: 'run-1',
       newsId: 'n1',
       graphType: 'split',
@@ -560,8 +571,9 @@ describe('graph-doc state', () => {
   })
 
   it('node_exit subAgent 清除全部 activeSkill', () => {
-    const doc = createEmptyDoc('n1')
-    ensureSubAgent(doc, NEWS_ROOT_ID, {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
@@ -569,7 +581,7 @@ describe('graph-doc state', () => {
     const subA = doc.nodes.find(n => n.id === 'sub:a#1')!
     subA.runtime = { activeSkill: { name: 'web_search' } }
 
-    applyGraphProgress(doc, {
+    docUpdateProgress(doc, {
       runId: 'run-1',
       newsId: 'n1',
       graphType: 'split',
@@ -578,5 +590,148 @@ describe('graph-doc state', () => {
     })
 
     expect(subA.runtime).toBeUndefined()
+  })
+
+  it('verify：subagent_tool 按 nodeId 匹配节点', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    doc.runPhase = 'running'
+    doc.graphType = 'verify'
+    doc.draft = {
+      newsId: 'n1',
+      claimId: '1',
+      mode: 'human-in-loop',
+      claimContent: 'c',
+      originalContent: 'o',
+      visibleContext: {},
+      routeInstructions: [],
+      subAgentOpinions: [],
+      finalScore: 0.5,
+      finalReason: '',
+      rawMergeResponse: '',
+      opinionSaveIndex: 0,
+    }
+    docUpdateSubAgent(doc, '1', {
+      agentName: '来源可信度',
+      priority: 'high',
+      instanceId: '来源可信度#1',
+    })
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'verify',
+      event: 'subagent_tool',
+      phase: 'start',
+      nodeId: 'sub:来源可信度#1',
+      toolName: 'web_search',
+      argsSummary: 'query',
+    })
+
+    const sub = doc.nodes.find(n => n.id === 'sub:来源可信度#1')
+    expect(sub?.runtime?.activeSkill).toEqual({
+      name: 'web_search',
+      argsSummary: 'query',
+    })
+  })
+
+  it('fanout_spawn 在 auto 模式下创建 SubAgent 节点，subagent_tool 可写入 activeSkill', () => {
+    const doc = docCreate('n1')
+    doc.runPhase = 'running'
+    doc.graphType = 'split'
+    doc.runId = 'run-1'
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'fanout_spawn',
+      node: 'subAgent',
+      agentName: '来源可信度',
+      nodeId: 'sub:来源可信度#1',
+      parentNodeId: NEWS_ROOT_ID,
+      spawnIndex: 0,
+    })
+
+    expect(doc.nodes.some(n => n.id === 'sub:来源可信度#1')).toBe(true)
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'subagent_tool',
+      phase: 'start',
+      nodeId: 'sub:来源可信度#1',
+      toolName: 'web_search',
+      argsSummary: 'query',
+    })
+
+    const sub = doc.nodes.find(n => n.id === 'sub:来源可信度#1')
+    expect(sub?.runtime?.activeSkill).toEqual({
+      name: 'web_search',
+      argsSummary: 'query',
+    })
+  })
+
+  it('docUpdateProgress 忽略 runId 不匹配的 progress', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-a'
+    doc.runPhase = 'running'
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+
+    docUpdateProgress(doc, {
+      runId: 'run-b',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'subagent_tool',
+      phase: 'start',
+      nodeId: 'sub:a#1',
+      toolName: 'web_search',
+    })
+
+    const sub = doc.nodes.find(n => n.id === 'sub:a#1')
+    expect(sub?.runtime?.activeSkill).toBeUndefined()
+  })
+
+  it('docUpdateProgress 在 completed 阶段忽略 progress', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    doc.runPhase = 'completed'
+    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'node_enter',
+      node: 'subAgent',
+    })
+
+    expect(doc.runPhase).toBe('completed')
+  })
+
+  it('docUpdateInterrupt 同 gate 幂等', () => {
+    const doc = docCreate('n1')
+    const payload: GraphInterruptedPayload = {
+      runId: 'r1',
+      graphType: 'split',
+      nextNode: 'validate',
+      mode: 'human-in-loop',
+      state: splitState(),
+      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      pendingTool: 'validate',
+    }
+    docUpdateInterrupt(doc, payload)
+    const nodeCount = doc.nodes.length
+    docUpdateInterrupt(doc, payload)
+    expect(doc.nodes.length).toBe(nodeCount)
   })
 })

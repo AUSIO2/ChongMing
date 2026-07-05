@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { NEWS_ROOT_ID, canAddSubAgent, canEditNode, canRemoveNode } from '../../flow-map'
+import { NEWS_ROOT_ID, docCanAddSubAgent, docCanEditNode, docCanRemoveNode } from '../../flow-map'
 import type {
   MapNode,
   Priority,
@@ -16,49 +16,52 @@ const showAddPanel = ref(false)
 const draftAgent = ref<CatalogSubAgent | null>(null)
 
 // 若选中变化，同步 catalog（news 节点 或 已持久化 claim）
-watch(selectedNodeId, async (id) => {
-  showAddPanel.value = false
-  draftAgent.value = null
-  if (!id) {
-    await store.loadRootCatalog()
-    return
-  }
-  const node = snapshot.value?.nodes.find(n => n.id === id)
-  if (!node) return
-  if (node.kind === 'news') {
-    await store.loadRootCatalog()
-    return
-  }
-  if (node.kind === 'claim' && node.dataPhase === 'persisted') {
-    await store.loadCatalogFor(id)
-  }
-})
+watch(
+  [selectedNodeId, () => snapshot.value?.nodes],
+  async ([id]) => {
+    showAddPanel.value = false
+    draftAgent.value = null
+    if (!id) {
+      await store.loadRootCatalog()
+      return
+    }
+    const node = snapshot.value?.nodes.find(n => n.id === id)
+    if (!node) return
+    if (node.kind === 'news') {
+      await store.loadRootCatalog()
+      return
+    }
+    if (node.kind === 'claim' && node.dataPhase === 'persisted') {
+      await store.loadCatalogFor(id)
+    }
+  },
+)
 
 const isRootAddable = computed(() => {
   const s = snapshot.value
   if (!s) return false
-  return canAddSubAgent(s, NEWS_ROOT_ID)
+  return docCanAddSubAgent(s, NEWS_ROOT_ID)
 })
 
 const isSelectedClaimAddable = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return canAddSubAgent(s, id)
+  return docCanAddSubAgent(s, id)
 })
 
 const canEditSelected = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return canEditNode(s, id)
+  return docCanEditNode(s, id)
 })
 
 const canRemoveSelected = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return canRemoveNode(s, id)
+  return docCanRemoveNode(s, id)
 })
 
 function beginAddFor(parentNodeId: string) {

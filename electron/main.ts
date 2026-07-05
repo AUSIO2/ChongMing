@@ -2,16 +2,16 @@ import { app, BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { loadEnv } from './shared/load-env'
-import { registerIpcHandlers } from './api/register-handlers'
-import { connectDB, disconnectDB } from './shared/database'
-import { initCheckpointer } from './shared/checkpointer'
-import { setSubAgentConfigRoot } from './shared/prompt-loader'
+import { handlerRegisterIpc } from './api/register-handlers'
+import { dbCreate, dbDelete } from './shared/database'
+import { ckptCreate } from './shared/checkpointer'
+import { promptUpdateConfigRoot } from './shared/prompt-loader'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 loadEnv(process.env.APP_ROOT)
-setSubAgentConfigRoot(path.join(process.env.APP_ROOT, 'subagentconfig'))
+promptUpdateConfigRoot(path.join(process.env.APP_ROOT, 'subagentconfig'))
 
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
@@ -62,14 +62,14 @@ app.on('activate', () => {
   }
 })
 
-registerIpcHandlers(getWindow)
+handlerRegisterIpc(getWindow)
 
 app.on('before-quit', () => {
-  void disconnectDB()
+  void dbDelete()
 })
 
 app.whenReady().then(async () => {
-  await connectDB()
-  await initCheckpointer()
+  await dbCreate()
+  await ckptCreate()
   createWindow()
 })

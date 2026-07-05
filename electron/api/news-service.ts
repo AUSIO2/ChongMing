@@ -10,34 +10,34 @@ import type {
   UpdateNewsInput,
 } from './types'
 import {
-  contextToMap,
-  serializeNewsDocument,
-  serializeNewsSummary,
+  serialReadContextMap,
+  serialReadNews,
+  serialReadNewsSummary,
 } from './serialize'
 
-export async function createNews(input: CreateNewsInput): Promise<DisplayNews> {
+export async function newsCreate(input: CreateNewsInput): Promise<DisplayNews> {
   const _id = input._id ?? randomUUID()
   const doc = await NewsModel.create({
     _id,
     content: input.content,
-    context: contextToMap(input.context),
+    context: serialReadContextMap(input.context),
     claims: [],
   })
-  return serializeNewsDocument(doc)
+  return serialReadNews(doc)
 }
 
-export async function listNews(): Promise<DisplayNewsSummary[]> {
+export async function newsReadIndex(): Promise<DisplayNewsSummary[]> {
   const docs = await NewsModel.find().sort({ updatedAt: -1 }).lean()
-  return docs.map(doc => serializeNewsSummary(doc))
+  return docs.map(doc => serialReadNewsSummary(doc))
 }
 
-export async function getNews(newsId: string): Promise<DisplayNews | null> {
+export async function newsRead(newsId: string): Promise<DisplayNews | null> {
   const doc = await NewsModel.findById(newsId)
   if (!doc) return null
-  return serializeNewsDocument(doc)
+  return serialReadNews(doc)
 }
 
-export async function updateNews(
+export async function newsUpdate(
   newsId: string,
   patch: UpdateNewsInput,
 ): Promise<DisplayNews> {
@@ -50,15 +50,15 @@ export async function updateNews(
     doc.set('content', patch.content)
   }
   if (patch.context !== undefined) {
-    doc.set('context', contextToMap(patch.context))
+    doc.set('context', serialReadContextMap(patch.context))
   }
 
   await doc.save()
-  return serializeNewsDocument(doc)
+  return serialReadNews(doc)
 }
 
 /** 持久化 Map 运行会话与图快照（断点恢复）。传 null 表示 $unset。 */
-export async function saveMapPersistence(
+export async function newsUpdatePersistMap(
   newsId: string,
   data: {
     mapRun?: MapRunPersist | null

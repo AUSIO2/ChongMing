@@ -1,5 +1,5 @@
 import mongoose, { Schema } from 'mongoose'
-import { errorMessage } from './errors'
+import { errReadMessage } from './errors'
 
 // ==========================================
 // Mongoose Schema 定义
@@ -127,7 +127,7 @@ async function startMemoryServer(): Promise<string> {
  * - MONGO_URI=memory：直接使用内存库
  * - 连接失败：自动 fallback 到 mongodb-memory-server
  */
-export async function connectDB(uri?: string): Promise<void> {
+export async function dbCreate(uri?: string): Promise<void> {
   const configured = uri
     ?? process.env.MONGO_URI
     ?? 'mongodb://localhost:27017/chongming'
@@ -145,7 +145,7 @@ export async function connectDB(uri?: string): Promise<void> {
     })
     console.log(`[db] 已连接 MongoDB: ${configured}`)
   } catch (error) {
-    const reason = errorMessage(error)
+    const reason = errReadMessage(error)
     console.warn(`[db] 连接 ${configured} 失败 (${reason})，回退到内存数据库`)
 
     if (mongoose.connection.readyState !== 0) {
@@ -159,7 +159,7 @@ export async function connectDB(uri?: string): Promise<void> {
 }
 
 /** 断开连接并停止内存数据库实例 */
-export async function disconnectDB(): Promise<void> {
+export async function dbDelete(): Promise<void> {
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect()
   }

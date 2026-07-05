@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { getMapAPI, isMapAPIInstalled, layoutMapSnapshot } from '../flow-map'
+import { portReadApi, portIsInstalled, layoutReadSnapshot } from '../flow-map'
 import { useFlowMapStore } from '../stores/flow-map'
 import { useWorkspaceStore } from '../stores/workspace'
 
@@ -14,19 +14,22 @@ export function useFlowMap(newsIdRef: () => string | null) {
   const { snapshot, selectedNodeId } = storeToRefs(store)
 
   const layout = computed(() =>
-    snapshot.value ? layoutMapSnapshot(snapshot.value) : null,
+    snapshot.value ? layoutReadSnapshot(snapshot.value) : null,
   )
 
   let unsub: (() => void) | null = null
+  let attachSeq = 0
 
   watch(
     () => newsIdRef(),
     async (newsId) => {
       if (!newsId) return
-      if (!isMapAPIInstalled()) return
+      if (!portIsInstalled()) return
+      const mySeq = ++attachSeq
       await store.attachNews(newsId)
+      if (mySeq !== attachSeq) return
       unsub?.()
-      unsub = getMapAPI().onUpdated((id: string) => {
+      unsub = portReadApi().onUpdated((id: string) => {
         if (id !== newsId) return
         void store.refresh()
         void workspace.refreshCurrentNews()

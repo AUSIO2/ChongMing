@@ -3,20 +3,20 @@ import type { MapAPI } from './api'
 
 let installed: MapAPI | null = null
 
-export function installMapAPI(api: MapAPI): void {
+export function portRegisterApi(api: MapAPI): void {
   installed = api
 }
 
-export function getMapAPI(): MapAPI {
+export function portReadApi(): MapAPI {
   if (!installed) {
     throw new AppError(
       ErrorCode.MAP_API_NOT_INSTALLED,
-      'Map API not installed. Call installMapAPI() at bootstrap.',
+      'Map API not installed. Call portRegisterApi() at bootstrap.',
     )
   }
   return installed
 }
 
-export function isMapAPIInstalled(): boolean {
+export function portIsInstalled(): boolean {
   return installed !== null
 }

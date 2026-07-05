@@ -1,0 +1,145 @@
+import { computed, onMounted, onUnmounted, ref, type Ref } from 'vue'
+
+const MIN_SCALE = 0.25
+const MAX_SCALE = 3
+const ZOOM_STEP = 1.15
+
+export interface CanvasPanZoomOptions {
+  containerRef: Ref<HTMLElement | null>
+  svgRef: Ref<SVGSVGElement | null>
+  contentWidth: Ref<number>
+  contentHeight: Ref<number>
+}
+
+export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
+  const scale = ref(1)
+  const translateX = ref(0)
+  const translateY = ref(0)
+
+  const svgStyle = computed(() => ({
+    transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
+    transformOrigin: '0 0',
+  }))
+
+  const scalePercent = computed(() => `${Math.round(scale.value * 100)}%`)
+
+  function clampScale(next: number): number {
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
+  }
+
+  function zoomAt(factor: number, anchor?: { x: number; y: number }) {
+    const nextScale = clampScale(scale.value * factor)
+    if (nextScale === scale.value) return
+
+    if (anchor) {
+      const sx = (anchor.x - translateX.value) / scale.value
+      const sy = (anchor.y - translateY.value) / scale.value
+      scale.value = nextScale
+      translateX.value = anchor.x - sx * nextScale
+      translateY.value = anchor.y - sy * nextScale
+      return
+    }
+
+    scale.value = nextScale
+  }
+
+  function localPoint(e: { clientX: number; clientY: number }): { x: number; y: number } | null {
+    const svg = options.svgRef.value
+    if (!svg) return null
+    const rect = svg.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
+  function onWheel(e: WheelEvent) {
+    e.preventDefault()
+    zoomAt(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, localPoint(e) ?? undefined)
+  }
+
+  let panning = false
+  let panStartX = 0
+  let panStartY = 0
+  let panOriginX = 0
+  let panOriginY = 0
+
+  function onPointerDown(e: PointerEvent) {
+    const target = e.target as Element
+    if (target.closest('.fm-node')) return
+    if (e.button !== 0 && e.button !== 1) return
+    panning = true
+    panStartX = e.clientX
+    panStartY = e.clientY
+    panOriginX = translateX.value
+    panOriginY = translateY.value
+    options.containerRef.value?.setPointerCapture(e.pointerId)
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (!panning) return
+    translateX.value = panOriginX + (e.clientX - panStartX)
+    translateY.value = panOriginY + (e.clientY - panStartY)
+  }
+
+  function onPointerUp(e: PointerEvent) {
+    if (!panning) return
+    panning = false
+    options.containerRef.value?.releasePointerCapture(e.pointerId)
+  }
+
+  function zoomIn() {
+    const container = options.containerRef.value
+    if (!container) {
+      zoomAt(ZOOM_STEP)
+      return
+    }
+    const rect = container.getBoundingClientRect()
+    zoomAt(ZOOM_STEP, {
+      x: rect.width / 2,
+      y: rect.height / 2,
+    })
+  }
+
+  function zoomOut() {
+    const container = options.containerRef.value
+    if (!container) {
+      zoomAt(1 / ZOOM_STEP)
+      return
+    }
+    const rect = container.getBoundingClientRect()
+    zoomAt(1 / ZOOM_STEP, {
+      x: rect.width / 2,
+      y: rect.height / 2,
+    })
+  }
+
+  function resetView() {
+    scale.value = 1
+    translateX.value = 0
+    translateY.value = 0
+  }
+
+  function fitToView() {
+    resetView()
+  }
+
+  onMounted(() => {
+    const el = options.containerRef.value
+    el?.addEventListener('wheel', onWheel, { passive: false })
+  })
+
+  onUnmounted(() => {
+    const el = options.containerRef.value
+    el?.removeEventListener('wheel', onWheel)
+  })
+
+  return {
+    svgStyle,
+    scalePercent,
+    zoomIn,
+    zoomOut,
+    resetView,
+    fitToView,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+  }
+}

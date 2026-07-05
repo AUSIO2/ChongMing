@@ -10,7 +10,7 @@ let saver: BaseCheckpointSaver | null = null
 let setupPromise: Promise<void> | null = null
 
 /** 在 connectDB 之后调用一次。 */
-export async function initCheckpointer(): Promise<void> {
+export async function ckptCreate(): Promise<void> {
   if (setupPromise) return setupPromise
   setupPromise = (async () => {
     if (mongoose.connection.readyState === 1) {
@@ -40,15 +40,15 @@ export async function initCheckpointer(): Promise<void> {
   return setupPromise
 }
 
-export function getCheckpointer(): BaseCheckpointSaver {
+export function ckptRead(): BaseCheckpointSaver {
   if (!saver) {
     saver = new MemorySaver()
   }
   return saver
 }
 
-export async function deleteCheckpointThread(threadId: string): Promise<void> {
-  const cp = getCheckpointer()
+export async function ckptDeleteThread(threadId: string): Promise<void> {
+  const cp = ckptRead()
   if (typeof cp.deleteThread === 'function') {
     await cp.deleteThread(threadId)
   }

@@ -1,24 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindow } from 'electron'
 import type { ExecutionMode } from '../shared/types'
-import { AppError, ErrorCode, normalizeError } from '../shared/errors'
+import { AppError, ErrorCode, errUpdateNormalize } from '../shared/errors'
 import type { GraphRunSession } from '../shared/graph-utils'
 import {
-  buildSplitGraph,
-  runSplitGraph,
+  splitBuildGraph,
+  splitRunGraph,
 } from '../fact-extractor/extractor'
 import {
-  buildVerifyGraph,
-  runVerifyGraph,
+  verifyBuildGraph,
+  verifyRunGraph,
 } from '../fact-verifier/verifier'
-import { getSplitGraphConfig, getVerifyGraphConfig } from './agent-config'
+import { agentReadSplitConfig, agentReadVerifyConfig } from './agent-config'
 import { IPC_CHANNELS } from './channels'
 import {
-  serializeSplitState,
-  serializeVerifyState,
+  serialReadSplitState,
+  serialReadVerifyState,
 } from './serialize'
 import {
-  canWriteRouteInstructions,
+  apiCanWriteRoute,
   type GraphActiveRun,
   type GraphCompletedPayload,
   type GraphErrorPayload,
@@ -38,17 +38,25 @@ import {
 import type { GraphProgressEventLocal } from '../shared/graph-utils'
 import {
   NEWS_ROOT_ID,
-  mergedClaimNodeId,
-  opinionNodeId,
+  mapIdCreateClaim,
+  mapIdCreateOpinion,
+  mapIdReadNodeFocus,
 } from '../shared/map-ids'
 
 type WindowGetter = () => BrowserWindow | null
+
+type ResumeGate = 'idle' | 'waiting' | 'done'
 
 interface ActiveRun extends GraphRunSession {
   graphType: GraphType
   newsId: string
   cancelled: boolean
   resumeResolve: ((value: GraphStatePatch) => void) | null
+  resumeGate: ResumeGate
+  resumeReadyPromise: Promise<void>
+  markResumeReady: () => void
+  /** restore 后首次 interrupt 不向渲染进程重复发 GRAPH_INTERRUPTED */
+  suppressNextInterruptUi?: boolean
   runId: string
   lastInterrupt?: Pick<
     GraphInterruptedPayload,
@@ -81,14 +89,14 @@ function deriveInterruptFocus(
     if (graphType === 'split') {
       const ss = state as GraphSplitState
       return {
-        focus: { kind: 'claim', id: mergedClaimNodeId(ss.saveIndex) },
+        focus: { kind: 'claim', id: mapIdCreateClaim(ss.saveIndex) },
         pendingTool: 'save',
       }
     }
     const vs = state as GraphVerifyState
     const index = vs.opinionSaveIndex
     return {
-      focus: { kind: 'opinion', id: opinionNodeId(vs.claimId, index) },
+      focus: { kind: 'opinion', id: mapIdCreateOpinion(vs.claimId, index) },
       pendingTool: 'save',
     }
   }
@@ -112,7 +120,9 @@ function waitForResume(runId: string): Promise<GraphStatePatch> {
       resolve(null)
       return
     }
+    run.resumeGate = 'waiting'
     run.resumeResolve = resolve
+    run.markResumeReady()
   })
 }
 
@@ -130,8 +140,8 @@ function createInterruptHandler(
 
     const mode = run.mode
     const state = graphType === 'split'
-      ? serializeSplitState(currentState as Parameters<typeof serializeSplitState>[0])
-      : serializeVerifyState(currentState as Parameters<typeof serializeVerifyState>[0])
+      ? serialReadSplitState(currentState as Parameters<typeof serialReadSplitState>[0])
+      : serialReadVerifyState(currentState as Parameters<typeof serialReadVerifyState>[0])
     const { focus, pendingTool } = deriveInterruptFocus(graphType, nextNode, state)
 
     const payload: GraphInterruptedPayload = {
@@ -154,7 +164,11 @@ function createInterruptHandler(
     console.log(
       `[graph:${graphType}] interrupt runId=${runId} next=${payload.nextNode}`,
     )
-    sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_INTERRUPTED, payload)
+    if (!run.suppressNextInterruptUi) {
+      sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_INTERRUPTED, payload)
+    } else {
+      run.suppressNextInterruptUi = false
+    }
 
     const modifications = await waitForResume(runId)
     if (!modifications || run.cancelled) return null
@@ -194,6 +208,10 @@ function createRunSession(
   mode: ExecutionMode,
   loadNode: string,
 ): ActiveRun {
+  let markResumeReady!: () => void
+  const resumeReadyPromise = new Promise<void>((resolve) => {
+    markResumeReady = resolve
+  })
   return {
     runId,
     graphType,
@@ -202,6 +220,9 @@ function createRunSession(
     loadNode,
     cancelled: false,
     resumeResolve: null,
+    resumeGate: 'idle',
+    resumeReadyPromise,
+    markResumeReady,
     graph: undefined,
     config: undefined,
     fanoutEmitted: false,
@@ -244,7 +265,7 @@ async function executeRun<TState>(opts: {
     if (opts.logDone) console.log(opts.logDone(result))
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_COMPLETED, payload)
   } catch (error) {
-    const appError = normalizeError(error, ErrorCode.GRAPH_EXECUTION_FAILED)
+    const appError = errUpdateNormalize(error, ErrorCode.GRAPH_EXECUTION_FAILED)
     console.error(
       `[graph:${graphType}] 失败 runId=${runId} code=${appError.code}`
       + (appError.failedNode ? ` node=${appError.failedNode}` : '')
@@ -266,12 +287,12 @@ async function executeRun<TState>(opts: {
   }
 }
 
-export function startSplit(
+export function runCreateSplit(
   input: StartSplitInput,
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  const threadId = `split-${input.newsId}-${runId}`
+  const threadId = runId
   const session = createRunSession(
     runId,
     'split',
@@ -287,25 +308,25 @@ export function startSplit(
     getWindow,
     loadNode: 'loadNews',
     runGraph: (onInterrupt, sess) =>
-      runSplitGraph(
-        buildSplitGraph(getSplitGraphConfig()),
+      splitRunGraph(
+        splitBuildGraph(agentReadSplitConfig()),
         { newsId: input.newsId, mode: input.mode, threadId },
         { onInterrupt },
         sess,
       ),
-    serialize: serializeSplitState,
+    serialize: serialReadSplitState,
     logDone: (state) =>
       `[graph:split] 完成 newsId=${input.newsId} claims=${state.mergedClaims?.length ?? 0}`,
   })
   return { runId }
 }
 
-export function startVerify(
+export function runCreateVerify(
   input: StartVerifyInput,
   getWindow: WindowGetter,
 ): StartGraphResult {
   const runId = randomUUID()
-  const threadId = `verify-${input.newsId}-${input.claimId}-${runId}`
+  const threadId = runId
   const session = createRunSession(
     runId,
     'verify',
@@ -321,8 +342,8 @@ export function startVerify(
     getWindow,
     loadNode: 'loadClaim',
     runGraph: (onInterrupt, sess) =>
-      runVerifyGraph(
-        buildVerifyGraph(getVerifyGraphConfig()),
+      verifyRunGraph(
+        verifyBuildGraph(agentReadVerifyConfig()),
         {
           newsId: input.newsId,
           claimId: input.claimId,
@@ -332,19 +353,22 @@ export function startVerify(
         { onInterrupt },
         sess,
       ),
-    serialize: serializeVerifyState,
+    serialize: serialReadVerifyState,
   })
   return { runId }
 }
 
 /**
  * 从 News.mapRun + MongoDBSaver checkpoint 恢复 HITL 等待循环（进程重启后）。
+ * 在 interrupt 循环进入 waitForResume 后才 resolve，避免 resume 被静默丢弃。
  */
-export function restoreRun(
+export async function runRestoreSession(
   input: RestoreRunInput,
   getWindow: WindowGetter,
-): StartGraphResult {
+): Promise<StartGraphResult> {
   if (activeRuns.has(input.runId)) {
+    const existing = activeRuns.get(input.runId)!
+    await existing.resumeReadyPromise
     return { runId: input.runId }
   }
 
@@ -356,8 +380,9 @@ export function restoreRun(
     input.mode,
     loadNode,
   )
-  session.threadId = input.threadId
+  session.threadId = input.runId
   session.fanoutEmitted = input.gate !== 'confirmRoute'
+  session.suppressNextInterruptUi = true
   const { focus, pendingTool } = deriveInterruptFocus(
     input.graphType,
     input.gate,
@@ -366,7 +391,7 @@ export function restoreRun(
   session.lastInterrupt = {
     nextNode: input.gate,
     focus: focus ?? (input.activeNodeId
-      ? { kind: 'news', id: input.activeNodeId }
+      ? mapIdReadNodeFocus(input.activeNodeId)
       : undefined),
     pendingTool: pendingTool ?? input.pendingTool,
     state: input.draft,
@@ -381,18 +406,18 @@ export function restoreRun(
       getWindow,
       loadNode,
       runGraph: (onInterrupt, sess) =>
-        runSplitGraph(
-          buildSplitGraph(getSplitGraphConfig()),
+        splitRunGraph(
+          splitBuildGraph(agentReadSplitConfig()),
           {
             newsId: input.newsId,
             mode: input.mode,
-            threadId: input.threadId,
+            threadId: input.runId,
           },
           { onInterrupt },
           sess,
           { skipInitialInvoke: true },
         ),
-      serialize: serializeSplitState,
+      serialize: serialReadSplitState,
     })
   } else {
     const claimId =
@@ -403,26 +428,27 @@ export function restoreRun(
       getWindow,
       loadNode,
       runGraph: (onInterrupt, sess) =>
-        runVerifyGraph(
-          buildVerifyGraph(getVerifyGraphConfig()),
+        verifyRunGraph(
+          verifyBuildGraph(agentReadVerifyConfig()),
           {
             newsId: input.newsId,
             claimId,
             mode: input.mode,
-            threadId: input.threadId,
+            threadId: input.runId,
           },
           { onInterrupt },
           sess,
           { skipInitialInvoke: true },
         ),
-      serialize: serializeVerifyState,
+      serialize: serialReadVerifyState,
     })
   }
 
+  await session.resumeReadyPromise
   return { runId: input.runId }
 }
 
-export function getActiveRun(newsId: string): GraphActiveRun | null {
+export function runReadSession(newsId: string): GraphActiveRun | null {
   for (const run of activeRuns.values()) {
     if (run.newsId !== newsId || run.cancelled) continue
     return {
@@ -441,12 +467,18 @@ export function getActiveRun(newsId: string): GraphActiveRun | null {
 }
 
 /** 恢复挂起的 interrupt。重复 resume 视为幂等 no-op（避免连点报错）。 */
-export function resumeGraph(runId: string, modifications: GraphStatePatch): void {
+export function runUpdateResume(runId: string, modifications: GraphStatePatch): void {
   const run = activeRuns.get(runId)
   if (!run) {
     throw new AppError(ErrorCode.GRAPH_RUN_NOT_FOUND, `Run not found: ${runId}`)
   }
-  if (!run.resumeResolve) {
+  if (run.resumeGate === 'idle') {
+    throw new AppError(
+      ErrorCode.GRAPH_NO_PENDING_INTERRUPT,
+      `Graph run not waiting for resume: ${runId}`,
+    )
+  }
+  if (run.resumeGate === 'done' || !run.resumeResolve) {
     return
   }
 
@@ -455,7 +487,7 @@ export function resumeGraph(runId: string, modifications: GraphStatePatch): void
   if (
     patch
     && 'routeInstructions' in patch
-    && !canWriteRouteInstructions(pendingTool)
+    && !apiCanWriteRoute(pendingTool)
   ) {
     const { routeInstructions: _drop, ...rest } = patch
     patch = Object.keys(rest).length > 0 ? (rest as GraphStatePatch) : null
@@ -463,13 +495,14 @@ export function resumeGraph(runId: string, modifications: GraphStatePatch): void
 
   // 立刻清焦点，避免 getActiveRun 仍返回 interrupted 导致可连点「继续」
   run.lastInterrupt = undefined
+  run.resumeGate = 'done'
   const resolve = run.resumeResolve
   run.resumeResolve = null
   resolve(patch)
 }
 
 /** 运行中随时切换 auto / human-in-loop */
-export async function setGraphMode(runId: string, mode: ExecutionMode): Promise<void> {
+export async function runUpdateMode(runId: string, mode: ExecutionMode): Promise<void> {
   const run = activeRuns.get(runId)
   if (!run) {
     throw new AppError(ErrorCode.GRAPH_RUN_NOT_FOUND, `Run not found: ${runId}`)
@@ -482,32 +515,34 @@ export async function setGraphMode(runId: string, mode: ExecutionMode): Promise<
   }
 
   // 切到 auto 且当前正挂起等待审核 → 自动继续
-  if (mode === 'auto' && run.resumeResolve) {
+  if (mode === 'auto' && run.resumeGate === 'waiting' && run.resumeResolve) {
     run.lastInterrupt = undefined
+    run.resumeGate = 'done'
     const resolve = run.resumeResolve
     run.resumeResolve = null
     resolve({ mode: 'auto' })
   }
 }
 
-export function cancelGraph(runId: string): void {
+export function runDeleteSession(runId: string): void {
   const run = activeRuns.get(runId)
   if (!run) return
 
   run.cancelled = true
   run.lastInterrupt = undefined
-  if (run.resumeResolve) {
+  if (run.resumeGate === 'waiting' && run.resumeResolve) {
+    run.resumeGate = 'done'
     const resolve = run.resumeResolve
     run.resumeResolve = null
     resolve(null)
   }
   if (run.threadId) {
-    void import('../shared/checkpointer').then(({ deleteCheckpointThread }) =>
-      deleteCheckpointThread(run.threadId!),
+    void import('../shared/checkpointer').then(({ ckptDeleteThread }) =>
+      ckptDeleteThread(run.threadId!),
     )
   }
 }
 
-export function getGraphMode(runId: string): ExecutionMode | null {
+export function runReadMode(runId: string): ExecutionMode | null {
   return activeRuns.get(runId)?.mode ?? null
 }

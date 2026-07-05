@@ -1,5 +1,5 @@
 import type { NewsContext } from '../shared/types'
-import { toNewsContext } from '../shared/context'
+import { ctxReadNews } from '../shared/context'
 import type {
   DisplayNews,
   DisplayNewsSummary,
@@ -19,7 +19,7 @@ function toIsoString(value: unknown): string | undefined {
 }
 
 /** Mongoose 文档 → 前端 DTO */
-export function serializeNewsDocument(doc: unknown): DisplayNews {
+export function serialReadNews(doc: unknown): DisplayNews {
   const record = doc as {
     toObject?: () => Record<string, unknown>
     _id: unknown
@@ -63,7 +63,7 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
   return {
     _id: String(raw._id),
     content: String(raw.content),
-    context: toNewsContext(raw.context),
+    context: ctxReadNews(raw.context),
     claims: (raw.claims ?? []) as DisplayNews['claims'],
     splitMeta,
     mapRun: mapRunRaw
@@ -85,7 +85,7 @@ export function serializeNewsDocument(doc: unknown): DisplayNews {
   }
 }
 
-export function serializeNewsSummary(doc: {
+export function serialReadNewsSummary(doc: {
   _id: unknown
   content: string
   claims?: unknown[]
@@ -101,7 +101,7 @@ export function serializeNewsSummary(doc: {
   }
 }
 
-export function serializeSplitState(state: {
+export function serialReadSplitState(state: {
   newsId: string
   mode: GraphSplitState['mode']
   content: string
@@ -125,7 +125,7 @@ export function serializeSplitState(state: {
   }
 }
 
-export function serializeVerifyState(state: {
+export function serialReadVerifyState(state: {
   newsId: string
   claimId: string
   mode: GraphVerifyState['mode']
@@ -156,7 +156,7 @@ export function serializeVerifyState(state: {
 }
 
 /** 前端传入的 context 转为 Mongoose 可写入的 Map 结构 */
-export function contextToMap(context: NewsContext): Map<string, { value: unknown; visibleToAI: boolean }> {
+export function serialReadContextMap(context: NewsContext): Map<string, { value: unknown; visibleToAI: boolean }> {
   const map = new Map<string, { value: unknown; visibleToAI: boolean }>()
   for (const [key, field] of Object.entries(context)) {
     if (field) {

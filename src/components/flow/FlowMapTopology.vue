@@ -1,22 +1,52 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useFlowMap } from '../../composables/use-flow-map'
+import { useCanvasPanZoom } from '../../composables/useCanvasPanZoom'
 import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
-import { isParamsLocked } from '../../flow-map'
+import { labelFormatHitl, docIsParamsLocked, labelFormatSkill, labelFormatSkillTitle } from '../../flow-map'
 
 const props = defineProps<{ newsId: string | null }>()
 
 const { store, layout, snapshot, selectedNodeId } = useFlowMap(() => props.newsId)
 
-const viewBox = computed(() => {
-  const l = layout.value
-  if (!l) return '0 0 600 300'
-  return `0 0 ${Math.max(l.width, 600)} ${Math.max(l.height, 300)}`
+const containerRef = ref<HTMLElement | null>(null)
+const svgRef = ref<SVGSVGElement | null>(null)
+
+const contentWidth = computed(() => Math.max(layout.value?.width ?? 600, 600))
+const contentHeight = computed(() => Math.max(layout.value?.height ?? 300, 300))
+
+const {
+  svgStyle,
+  scalePercent,
+  zoomIn,
+  zoomOut,
+  resetView,
+  fitToView,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+} = useCanvasPanZoom({
+  containerRef,
+  svgRef,
+  contentWidth,
+  contentHeight,
 })
+
+watch(() => props.newsId, () => {
+  resetView()
+})
+
+const viewBox = computed(() => `0 0 ${contentWidth.value} ${contentHeight.value}`)
 
 const isActive = (id: string) => snapshot.value?.activeNodeId === id
 const isSelected = (id: string) => selectedNodeId.value === id
+
+type RuntimeBadge = {
+  text: string
+  kind: 'hitl-active' | 'hitl-pending' | 'skill'
+  title?: string
+}
 
 function nodeLabel(n: MapNode): string {
   if (n.kind === 'news') return '新闻'
@@ -40,10 +70,36 @@ function nodeKindTag(n: MapNode): string {
   return '意见'
 }
 
-function nodeToolBadge(n: MapNode): string | null {
-  const t = n.runtime?.pendingTool ?? n.runtime?.activeTool
-  if (!t) return null
-  return t === 'save' ? '保存' : t === 'validate' ? '校验' : '调用'
+function nodeRuntimeBadges(n: MapNode): RuntimeBadge[] {
+  const badges: RuntimeBadge[] = []
+  const rt = n.runtime
+  if (rt?.activeTool) {
+    badges.push({
+      text: labelFormatHitl(rt.activeTool, 'active'),
+      kind: 'hitl-active',
+    })
+  } else if (rt?.pendingTool) {
+    badges.push({
+      text: labelFormatHitl(rt.pendingTool, 'pending'),
+      kind: 'hitl-pending',
+    })
+  }
+  if (n.kind === 'subAgent' && rt?.activeSkill) {
+    badges.push({
+      text: labelFormatSkill(rt.activeSkill.name, rt.activeSkill.argsSummary),
+      kind: 'skill',
+      title: labelFormatSkillTitle(rt.activeSkill.name, rt.activeSkill.argsSummary),
+    })
+  }
+  return badges
+}
+
+function hitlBadge(n: MapNode): RuntimeBadge | null {
+  return nodeRuntimeBadges(n).find(b => b.kind.startsWith('hitl-')) ?? null
+}
+
+function skillBadge(n: MapNode): RuntimeBadge | null {
+  return nodeRuntimeBadges(n).find(b => b.kind === 'skill') ?? null
 }
 
 function nodeClasses(ln: MapLayoutNode) {
@@ -54,7 +110,7 @@ function nodeClasses(ln: MapLayoutNode) {
     active: isActive(n.id),
     selected: isSelected(n.id),
     'has-runtime': !!n.runtime,
-    'params-locked': snap ? isParamsLocked(snap, n) : false,
+    'params-locked': snap ? docIsParamsLocked(snap, n) : false,
   }
   if (n.kind === 'claim' || n.kind === 'opinion') {
     cls[`phase-${n.dataPhase}`] = true
@@ -62,6 +118,9 @@ function nodeClasses(ln: MapLayoutNode) {
   if (n.kind === 'claim' && !n.shouldSave) {
     cls['should-not-save'] = true
   }
+  if (hitlBadge(n)?.kind === 'hitl-active') cls['tool-active'] = true
+  if (hitlBadge(n)?.kind === 'hitl-pending') cls['tool-pending'] = true
+  if (skillBadge(n)) cls['skill-active'] = true
   return cls
 }
 
@@ -75,9 +134,26 @@ function onCanvasClick() {
 </script>
 
 <template>
-  <div class="flow-map-topology" @click="onCanvasClick">
+  <div
+    ref="containerRef"
+    class="flow-map-topology"
+    @click="onCanvasClick"
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerUp"
+    @pointercancel="onPointerUp"
+  >
+    <div class="zoom-controls" @click.stop>
+      <button type="button" class="zoom-btn" title="放大" @click="zoomIn">+</button>
+      <button type="button" class="zoom-btn" title="缩小" @click="zoomOut">−</button>
+      <button type="button" class="zoom-btn zoom-btn-wide" title="适应画布" @click="fitToView">适应</button>
+      <button type="button" class="zoom-btn zoom-btn-wide" title="重置为 100%" @click="resetView">{{ scalePercent }}</button>
+    </div>
+
     <svg
+      ref="svgRef"
       class="flow-svg"
+      :style="svgStyle"
       :viewBox="viewBox"
       preserveAspectRatio="xMidYMid meet"
       xmlns="http://www.w3.org/2000/svg"
@@ -132,24 +208,40 @@ function onCanvasClick() {
             {{ nodeKindTag(ln.node) }}
           </text>
           <text
-            v-if="nodeToolBadge(ln.node)"
+            v-if="hitlBadge(ln.node)"
             :x="ln.width - 8"
             y="14"
             text-anchor="end"
             class="fm-tool"
+            :class="`fm-tool-${hitlBadge(ln.node)!.kind}`"
             pointer-events="none"
           >
-            {{ nodeToolBadge(ln.node) }}
+            {{ hitlBadge(ln.node)!.text }}
           </text>
           <text
             :x="ln.width / 2"
-            :y="ln.node.kind === 'news' ? 32 : ln.height / 2 + 6"
+            :y="ln.node.kind === 'news' ? 32 : (skillBadge(ln.node) ? ln.height / 2 : ln.height / 2 + 6)"
             text-anchor="middle"
             class="fm-label"
             pointer-events="none"
           >
             {{ nodeLabel(ln.node) }}
           </text>
+          <foreignObject
+            v-if="skillBadge(ln.node)"
+            x="4"
+            :y="ln.height - 28"
+            :width="ln.width - 8"
+            height="24"
+            pointer-events="none"
+          >
+            <div
+              class="fm-skill-chip"
+              :title="skillBadge(ln.node)!.title"
+            >
+              {{ skillBadge(ln.node)!.text }}
+            </div>
+          </foreignObject>
           <foreignObject
             v-if="nodePreview(ln.node)"
             x="8"
@@ -179,14 +271,56 @@ function onCanvasClick() {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   padding: var(--space-md);
-  overflow: auto;
+  overflow: hidden;
   position: relative;
+  cursor: grab;
+}
+
+.flow-map-topology:active {
+  cursor: grabbing;
 }
 
 .flow-svg {
   width: 100%;
   min-height: 240px;
   max-height: 100%;
+  flex: 1;
+}
+
+.zoom-controls {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  background: var(--flow-node-bg, #fff);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 4px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+.zoom-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--flow-node-bg, #fff);
+  color: var(--text, #0f172a);
+  font-size: 13px;
+  font-family: var(--ui-font);
+  cursor: pointer;
+}
+
+.zoom-btn:hover {
+  background: var(--bg-viewport);
+}
+
+.zoom-btn-wide {
+  min-width: 44px;
+  font-size: 11px;
 }
 
 .empty-hint {
@@ -237,6 +371,20 @@ function onCanvasClick() {
 .fm-node.active .fm-rect  { stroke: var(--warning, #d97706); stroke-width: 2; }
 .fm-node.selected .fm-rect { stroke: var(--accent, #2563eb); stroke-width: 2; }
 
+.fm-node.tool-active .fm-rect {
+  stroke: var(--warning, #d97706);
+  animation: fm-pulse 1.4s ease-in-out infinite;
+}
+
+.fm-node.skill-active .fm-rect {
+  stroke: #0891b2;
+}
+
+@keyframes fm-pulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.55; }
+}
+
 .fm-kind {
   font-size: 9px;
   fill: var(--text-dim, #94a3b8);
@@ -246,8 +394,32 @@ function onCanvasClick() {
 
 .fm-tool {
   font-size: 9px;
-  fill: var(--warning, #d97706);
   font-family: var(--ui-font);
+  font-weight: 600;
+}
+
+.fm-tool-hitl-active {
+  fill: var(--warning, #d97706);
+}
+
+.fm-tool-hitl-pending {
+  fill: #b45309;
+}
+
+.fm-skill-chip {
+  font-size: 9px;
+  line-height: 1.3;
+  color: #0e7490;
+  background: #ecfeff;
+  border: 1px solid #67e8f9;
+  border-radius: 3px;
+  padding: 2px 4px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ui-font);
+  font-weight: 600;
 }
 
 .fm-label {

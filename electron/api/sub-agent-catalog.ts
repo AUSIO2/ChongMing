@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import type { Priority } from '../shared/types'
-import { resolveSubAgentConfigRoot } from '../shared/prompt-loader'
+import { promptReadConfigRoot } from '../shared/prompt-loader'
 import { AppError, ErrorCode } from '../shared/errors'
 
 export type SubAgentModule = 'split' | 'verify'
@@ -67,7 +67,7 @@ function parseTools(raw: unknown, promptPath: string): string[] | undefined {
 
 function loadModuleCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
   const relativeDir = MODULE_SUBAGENT_DIRS[module]
-  const dir = path.join(resolveSubAgentConfigRoot(), relativeDir)
+  const dir = path.join(promptReadConfigRoot(), relativeDir)
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
 
   const entries = files.map((file) => {
@@ -124,7 +124,7 @@ function loadModuleCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
   })
 }
 
-export function getSubAgentCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
+export function catalogRead(module: SubAgentModule): CatalogSubAgentEntry[] {
   let entries = catalogCache.get(module)
   if (!entries) {
     entries = loadModuleCatalog(module)
@@ -134,10 +134,10 @@ export function getSubAgentCatalog(module: SubAgentModule): CatalogSubAgentEntry
 }
 
 /** 测试 / 热重载时清空缓存 */
-export function clearSubAgentCatalogCache(): void {
+export function catalogDeleteCache(): void {
   catalogCache.clear()
 }
 
-export function listCatalogEntries(module: SubAgentModule): CatalogSubAgent[] {
-  return getSubAgentCatalog(module).map(({ promptPath: _p, tools: _t, ...item }) => item)
+export function catalogReadEntries(module: SubAgentModule): CatalogSubAgent[] {
+  return catalogRead(module).map(({ promptPath: _p, tools: _t, ...item }) => item)
 }

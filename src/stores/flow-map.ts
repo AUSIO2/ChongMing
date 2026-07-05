@@ -8,8 +8,8 @@ import type {
   CatalogSubAgent,
   UpdateNodeParamsPatch,
 } from '../flow-map'
-import { NEWS_ROOT_ID, getMapAPI } from '../flow-map'
-import { toAppError } from '../../electron/shared/errors'
+import { NEWS_ROOT_ID, portReadApi } from '../flow-map'
+import { errReadApp } from '../../electron/shared/errors'
 
 /** Map 层 Pinia store（基于 MapAPI）。 */
 export const useFlowMapStore = defineStore('flow-map', () => {
@@ -41,10 +41,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      snapshot.value = await getMapAPI().getSnapshot(newsId)
+      snapshot.value = await portReadApi().getSnapshot(newsId)
       errorMessage.value = null
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -54,10 +54,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
 
   async function loadCatalogFor(parentNodeId: string) {
     try {
-      catalog.value = await getMapAPI().getSubAgentCatalog(parentNodeId)
+      catalog.value = await portReadApi().getSubAgentCatalog(parentNodeId)
       catalogParent.value = parentNodeId
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -72,9 +72,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      snapshot.value = await getMapAPI().addSubAgent({ newsId, parentNodeId, params })
+      snapshot.value = await portReadApi().addSubAgent({ newsId, parentNodeId, params })
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -82,9 +82,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      snapshot.value = await getMapAPI().updateNodeParams({ newsId, nodeId, params })
+      snapshot.value = await portReadApi().updateNodeParams({ newsId, nodeId, params })
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -92,10 +92,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      snapshot.value = await getMapAPI().removeNode({ newsId, nodeId })
+      snapshot.value = await portReadApi().removeNode({ newsId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -103,10 +103,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      const { snapshot: next } = await getMapAPI().startRun(newsId, mode.value)
+      const { snapshot: next } = await portReadApi().startRun(newsId, mode.value)
       snapshot.value = next
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -118,9 +118,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (runPhase.value !== 'interrupted') return
     continueInFlight = true
     try {
-      snapshot.value = await getMapAPI().continueStep(newsId)
+      snapshot.value = await portReadApi().continueStep(newsId)
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     } finally {
       continueInFlight = false
     }
@@ -130,9 +130,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      snapshot.value = await getMapAPI().cancel(newsId)
+      snapshot.value = await portReadApi().cancel(newsId)
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 
@@ -140,9 +140,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const newsId = currentNewsId.value
     if (!newsId) return
     try {
-      snapshot.value = await getMapAPI().setMode(newsId, next)
+      snapshot.value = await portReadApi().setMode(newsId, next)
     } catch (e) {
-      errorMessage.value = toAppError(e).msg
+      errorMessage.value = errReadApp(e).msg
     }
   }
 

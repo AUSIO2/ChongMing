@@ -65,7 +65,7 @@ function readableMessage(error: unknown): string {
  * 将任意错误规范为 AppError。
  * 已是 AppError 时保留 code/msg，可合并 failedNode 等 extras。
  */
-export function normalizeError(
+export function errUpdateNormalize(
   error: unknown,
   fallbackCode: ErrorCode = ErrorCode.INTERNAL_ERROR,
   extras?: AppErrorExtras,
@@ -87,7 +87,7 @@ export function normalizeError(
 }
 
 /** IPC invoke 序列化：Electron 只保证 message 跨进程。 */
-export function serializeAppError(error: AppError): Error {
+export function errReadSerialize(error: AppError): Error {
   const payload = {
     code: error.code,
     msg: error.msg,
@@ -140,17 +140,17 @@ function parseSerializedPayload(message: string): AppError | null {
 }
 
 /** 从 IPC reject / 本地 throw 还原 AppError。 */
-export function toAppError(error: unknown): AppError {
+export function errReadApp(error: unknown): AppError {
   if (error instanceof AppError) return error
 
   const message = error instanceof Error ? error.message : String(error)
   const parsed = parseSerializedPayload(message)
   if (parsed) return parsed
 
-  return normalizeError(error)
+  return errUpdateNormalize(error)
 }
 
 /** 将 unknown 错误规范为可读字符串。 */
-export function errorMessage(error: unknown): string {
-  return toAppError(error).msg
+export function errReadMessage(error: unknown): string {
+  return errReadApp(error).msg
 }

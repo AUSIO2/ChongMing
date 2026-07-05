@@ -1,5 +1,5 @@
-import { Annotation, StateGraph, START, END } from '@langchain/langgraph'
-import { getCheckpointer } from '../shared/checkpointer'
+import { Annotation, StateGraph, START, END, getConfig } from '@langchain/langgraph'
+import { ckptRead } from '../shared/checkpointer'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   MapSubAgentParams, GraphClaim,
@@ -8,23 +8,24 @@ import type {
 } from './types'
 import { NewsModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { extractVisibleContext, formatContext, readNewsContext } from '../shared/context'
-import { loadPrompt, renderPrompt } from '../shared/prompt-loader'
+import { ctxReadVisible, ctxFormat, ctxReadNewsDoc } from '../shared/context'
+import { promptRead, promptFormat } from '../shared/prompt-loader'
+import { mapIdReadSubAgentFlat } from '../shared/map-ids'
 import {
-  confirmRoutePassthrough,
-  createDynamicFanOut,
-  createRouteNode,
-  createSubAgentSkillEmitter,
-  runGraphWithInterrupts,
+  graphUpdateRouteConfirm,
+  graphCreateFanout,
+  graphCreateRoute,
+  graphCreateSkillEmitter,
+  graphRunInterrupt,
   type GraphRunSession,
 } from '../shared/graph-utils'
 import {
-  invokeWithOptionalTools,
-  messageContentToString,
-  parseClaimsArray,
-  parseJsonFromLLM,
+  llmRunInvoke,
+  llmReadMessage,
+  llmReadClaims,
+  llmReadJson,
 } from '../shared/llm-utils'
-import { mergedClaimNodeId } from '../shared/map-ids'
+import { mapIdCreateClaim } from '../shared/map-ids'
 
 // ==========================================
 // State 定义
@@ -81,8 +82,8 @@ async function loadNews(state: typeof SplitGraphState.State) {
     throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
   }
 
-  const context = readNewsContext(doc)
-  const visibleContext = extractVisibleContext(context)
+  const context = ctxReadNewsDoc(doc)
+  const visibleContext = ctxReadVisible(context)
 
   return { content: doc.content, visibleContext }
 }
@@ -94,21 +95,24 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
       ._agentConfig as import('../shared/types').AgentRuntimeConfig
     const instruction = (state as Record<string, unknown>)
       ._routeInstruction as MapSubAgentParams
-    const promptConfig = loadPrompt(agentConfig.promptPath)
+    const promptConfig = promptRead(agentConfig.promptPath)
 
-    const prompt = renderPrompt(promptConfig.content, {
+    const prompt = promptFormat(promptConfig.content, {
       content: state.content,
-      context: formatContext(state.visibleContext),
+      context: ctxFormat(state.visibleContext),
       hint: instruction.hint ?? '',
     })
 
     const model = agentConfig.model ?? defaultModel
     const tools = agentConfig.tools ?? []
-    const rawResponse = await invokeWithOptionalTools(model, tools, prompt, {
-      onSkillActivity: createSubAgentSkillEmitter(instruction, agentConfig.name),
+    const threadId = (
+      (state as Record<string, unknown>)._graphThreadId as string | undefined
+    ) ?? (getConfig()?.configurable?.thread_id as string | undefined)
+    const rawResponse = await llmRunInvoke(model, tools, prompt, {
+      onSkillActivity: graphCreateSkillEmitter(instruction, threadId),
     })
 
-    const claims = parseClaimsArray<GraphClaim>(rawResponse)
+    const claims = llmReadClaims<GraphClaim>(rawResponse)
       .map(c => ({ ...c, sourceAgent: agentConfig.name }))
 
     return {
@@ -127,19 +131,15 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
 
 /** 与 Map draft:N 同序的扁平草稿。 */
 function flattenDraftClaims(state: typeof SplitGraphState.State): GraphClaim[] {
-  return state.subAgentResults.flatMap(result =>
-    result.claims.map(claim => ({
-      content: claim.content,
-      category: claim.category,
-      sourceAgent: claim.sourceAgent ?? result.agentName,
-      shouldSave: true,
-    })),
-  )
+  return mapIdReadSubAgentFlat(state.subAgentResults ?? []).map(claim => ({
+    ...claim,
+    shouldSave: true,
+  }))
 }
 
 /** 解析 merge 返回的 shouldSave 标记数组（无 content 字段）。 */
 function parseShouldSaveFlags(raw: string): Array<{ draftIndex?: number; shouldSave?: boolean }> {
-  const parsed = parseJsonFromLLM<unknown>(raw)
+  const parsed = llmReadJson<unknown>(raw)
   const candidates = Array.isArray(parsed) ? parsed : []
   return candidates.filter(
     (item): item is { draftIndex?: number; shouldSave?: boolean } =>
@@ -151,17 +151,17 @@ function parseShouldSaveFlags(raw: string): Array<{ draftIndex?: number; shouldS
 function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
   return async (state: typeof SplitGraphState.State) => {
     const drafts = flattenDraftClaims(state)
-    const promptConfig = loadPrompt(mergePromptPath)
+    const promptConfig = promptRead(mergePromptPath)
     const subResultsText = drafts
       .map((c, i) => `[${i}] (${c.sourceAgent ?? '?'}) ${c.content}`)
       .join('\n')
 
-    const prompt = renderPrompt(promptConfig.content, {
+    const prompt = promptFormat(promptConfig.content, {
       content: state.content,
       subResults: subResultsText,
     })
 
-    const rawMergeResponse = messageContentToString(
+    const rawMergeResponse = llmReadMessage(
       (await model.invoke(prompt)).content,
     )
 
@@ -195,7 +195,7 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
     throw new AppError(ErrorCode.NEWS_NOT_FOUND, `News not found: ${state.newsId}`)
   }
 
-  const claimId = mergedClaimNodeId(index)
+  const claimId = mapIdCreateClaim(index)
   const existing = (doc.get('claims') as Array<{ claimId: string }> | undefined) ?? []
   if (!raw.sourceAgent) {
     throw new AppError(
@@ -247,7 +247,7 @@ function routeAfterSave(state: typeof SplitGraphState.State): string {
  *       → merge（LLM，只标 shouldSave，非 Map 节点）→ validate（工具）→ save（工具）
  * 正文须在 idle 编辑并落库后，再点运行触发 loadNews。
  */
-export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
+export function splitBuildGraph(config: Omit<GraphConfig, 'mode'>) {
   const {
     defaultModel,
     availableAgents,
@@ -256,7 +256,7 @@ export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
     maxConcurrency,
   } = config
 
-  const checkpointer = getCheckpointer()
+  const checkpointer = ckptRead()
 
   type NodeName =
     | 'loadNews'
@@ -273,27 +273,27 @@ export function buildSplitGraph(config: Omit<GraphConfig, 'mode'>) {
     .addNode('loadNews', loadNews)
     .addNode(
       'route',
-      createRouteNode<typeof SplitGraphState.State>(
+      graphCreateRoute<typeof SplitGraphState.State>(
         defaultModel,
         routePromptPath,
         availableAgents,
         state => ({
           content: state.content,
-          context: formatContext(state.visibleContext),
+          context: ctxFormat(state.visibleContext),
         }),
       ),
     )
-    .addNode('confirmRoute', confirmRoutePassthrough)
+    .addNode('confirmRoute', graphUpdateRouteConfirm)
     .addNode('subAgent', createSubAgentNode(defaultModel))
     .addNode('merge', createMergeNode(defaultModel, mergePromptPath))
-    .addNode('validate', confirmRoutePassthrough)
+    .addNode('validate', graphUpdateRouteConfirm)
     .addNode('save', saveOneClaim)
     .addEdge(START, 'loadNews')
     .addEdge('loadNews', 'route')
     .addEdge('route', 'confirmRoute')
     .addConditionalEdges(
       'confirmRoute',
-      createDynamicFanOut({ availableAgents, maxConcurrency }),
+      graphCreateFanout({ availableAgents, maxConcurrency }),
     )
     .addEdge('subAgent', 'merge')
     .addEdge('merge', 'validate')
@@ -323,8 +323,8 @@ export interface SplitGraphCallbacks {
  *
  * 用户可以在任意中断点通过 onInterrupt 修改 mode，下一个中断点立即生效。
  */
-export async function runSplitGraph(
-  graph: ReturnType<typeof buildSplitGraph>,
+export async function splitRunGraph(
+  graph: ReturnType<typeof splitBuildGraph>,
   input: {
     newsId: string
     mode?: ExecutionMode
@@ -334,9 +334,12 @@ export async function runSplitGraph(
   session?: GraphRunSession,
   options?: { skipInitialInvoke?: boolean },
 ) {
-  const threadId = input.threadId ?? `split-${input.newsId}-${Date.now()}`
+  const threadId = input.threadId
+  if (!threadId) {
+    throw new Error('splitRunGraph requires threadId')
+  }
 
-  return runGraphWithInterrupts(
+  return graphRunInterrupt(
     graph,
     {
       newsId: input.newsId,

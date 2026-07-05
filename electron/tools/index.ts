@@ -10,7 +10,7 @@ export const TOOL_REGISTRY: Record<string, StructuredToolInterface> = {
 }
 
 /** 将配置中的工具名解析为 LangChain tool 实例；空列表返回 undefined */
-export function resolveTools(
+export function toolRead(
   names?: string[],
 ): StructuredToolInterface[] | undefined {
   if (!names?.length) return undefined

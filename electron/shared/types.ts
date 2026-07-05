@@ -64,12 +64,17 @@ export interface GraphConfig {
 /**
  * Map SubAgent 槽位参数 — 前后端唯一来源。
  * 图状态 routeInstructions 与 Map 节点 params 同形。
- * instanceId 在 route 节点（withInstanceIds）或 Adapter addSubAgent 写入时补齐。
+ * instanceId 由 mapIdUpdateInstance 在写路径补齐（AI route / addSubAgent）。
  */
 export interface MapSubAgentParams {
   agentName: string
   priority: Priority
   hint?: string
-  /** 稳定实例 id（Map 节点 id = subAgentId(instanceId)） */
+  /** 稳定实例 id（Map 节点 id = mapIdCreateSubAgent(instanceId)） */
   instanceId: string
+}
+
+/** AI route 解析输出（尚无 instanceId；由 mapIdUpdateInstance 补齐）。 */
+export type RouteInstructionDraft = Omit<MapSubAgentParams, 'instanceId'> & {
+  instanceId?: string
 }

@@ -2,9 +2,9 @@ import { ChatOpenAI } from '@langchain/openai'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { AppError, ErrorCode } from '../shared/errors'
 import type { GraphConfig, AgentRuntimeConfig } from '../shared/types'
-import { resolveTools } from '../tools'
+import { toolRead } from '../tools'
 import {
-  getSubAgentCatalog,
+  catalogRead,
   type CatalogSubAgentEntry,
 } from './sub-agent-catalog'
 
@@ -12,12 +12,12 @@ function toSubAgentConfig(entry: CatalogSubAgentEntry): AgentRuntimeConfig {
   return {
     name: entry.agentName,
     promptPath: entry.promptPath,
-    tools: resolveTools(entry.tools),
+    tools: toolRead(entry.tools),
   }
 }
 
 /** 创建默认 ChatModel — DeepSeek OpenAI 兼容接口 */
-export function createDefaultModel(): BaseChatModel {
+export function agentCreateModel(): BaseChatModel {
   const apiKey = process.env.DEEPSEEK_API_KEY
   if (!apiKey) {
     throw new AppError(
@@ -38,28 +38,28 @@ export function createDefaultModel(): BaseChatModel {
   })
 }
 
-export function getSplitSubAgents(): AgentRuntimeConfig[] {
-  return getSubAgentCatalog('split').map(toSubAgentConfig)
+export function agentReadSplitAgents(): AgentRuntimeConfig[] {
+  return catalogRead('split').map(toSubAgentConfig)
 }
 
-export function getVerifySubAgents(): AgentRuntimeConfig[] {
-  return getSubAgentCatalog('verify').map(toSubAgentConfig)
+export function agentReadVerifyAgents(): AgentRuntimeConfig[] {
+  return catalogRead('verify').map(toSubAgentConfig)
 }
 
-export function getSplitGraphConfig(): Omit<GraphConfig, 'mode'> {
+export function agentReadSplitConfig(): Omit<GraphConfig, 'mode'> {
   return {
-    defaultModel: createDefaultModel(),
-    availableAgents: getSplitSubAgents(),
+    defaultModel: agentCreateModel(),
+    availableAgents: agentReadSplitAgents(),
     routePromptPath: 'fact-extractor/main-agent-route',
     mergePromptPath: 'fact-extractor/main-agent-merge',
     maxConcurrency: 3,
   }
 }
 
-export function getVerifyGraphConfig(): GraphConfig {
+export function agentReadVerifyConfig(): GraphConfig {
   return {
-    defaultModel: createDefaultModel(),
-    availableAgents: getVerifySubAgents(),
+    defaultModel: agentCreateModel(),
+    availableAgents: agentReadVerifyAgents(),
     routePromptPath: 'fact-verifier/main-agent-route',
     mergePromptPath: 'fact-verifier/main-agent-merge',
     maxConcurrency: 3,

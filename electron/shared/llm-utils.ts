@@ -4,12 +4,12 @@ import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { Serialized } from '@langchain/core/load/serializable'
-import type { MapSubAgentParams, AgentRuntimeConfig } from './types'
+import type { AgentRuntimeConfig, MapSubAgentParams, RouteInstructionDraft } from './types'
 
 const JSON_CODE_BLOCK_RE = /```(?:json)?\s*([\s\S]*?)```/i
 
 /** 将 LangChain message content 统一转为字符串 */
-export function messageContentToString(content: unknown): string {
+export function llmReadMessage(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
@@ -27,7 +27,7 @@ export function messageContentToString(content: unknown): string {
 }
 
 /** 从 LLM 输出中提取 JSON（支持 markdown 代码块包裹） */
-export function extractJsonText(raw: string): string {
+export function llmReadJsonText(raw: string): string {
   const trimmed = raw.trim()
   const fenced = trimmed.match(JSON_CODE_BLOCK_RE)
   if (fenced?.[1]) return fenced[1].trim()
@@ -50,9 +50,9 @@ export function extractJsonText(raw: string): string {
 }
 
 /** 解析 LLM 返回的 JSON，失败时返回 null */
-export function parseJsonFromLLM<T>(raw: string): T | null {
+export function llmReadJson<T>(raw: string): T | null {
   try {
-    return JSON.parse(extractJsonText(raw)) as T
+    return JSON.parse(llmReadJsonText(raw)) as T
   } catch {
     return null
   }
@@ -60,17 +60,12 @@ export function parseJsonFromLLM<T>(raw: string): T | null {
 
 const VALID_PRIORITIES = new Set(['high', 'medium', 'low'])
 
-/** AI route 输出（尚无 instanceId；由 withInstanceIds 补齐）。 */
-export type RouteInstructionDraft = Omit<MapSubAgentParams, 'instanceId'> & {
-  instanceId?: string
-}
-
 /** 解析并校验 route 节点返回的路由指令 */
-export function parseRouteInstructions(
+export function llmReadRoute(
   raw: string,
   availableAgents: AgentRuntimeConfig[],
 ): RouteInstructionDraft[] {
-  const parsed = parseJsonFromLLM<unknown>(raw)
+  const parsed = llmReadJson<unknown>(raw)
   if (!Array.isArray(parsed)) return []
 
   const validNames = new Set(availableAgents.map(a => a.name))
@@ -102,8 +97,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 解析 SubAgent 返回的 claim 数组（支持裸数组或 { claims: [] }） */
-export function parseClaimsArray<T extends { content: string }>(raw: string): T[] {
-  const parsed = parseJsonFromLLM<unknown>(raw)
+export function llmReadClaims<T extends { content: string }>(raw: string): T[] {
+  const parsed = llmReadJson<unknown>(raw)
   const candidates = Array.isArray(parsed)
     ? parsed
     : isRecord(parsed) && Array.isArray(parsed.claims)
@@ -116,11 +111,11 @@ export function parseClaimsArray<T extends { content: string }>(raw: string): T[
 }
 
 /** 解析 SubAgent / merge 返回的 JSON 对象 */
-export function parseJsonObjectFromLLM<T extends Record<string, unknown>>(
+export function llmReadJsonObject<T extends Record<string, unknown>>(
   raw: string,
   fallback: T,
 ): T {
-  const parsed = parseJsonFromLLM<unknown>(raw)
+  const parsed = llmReadJson<unknown>(raw)
   return isRecord(parsed) ? { ...fallback, ...parsed } as T : fallback
 }
 
@@ -153,7 +148,7 @@ function formatToolSchemaParams(schema: unknown): string {
 }
 
 /** 将可用 tool 列表格式化为系统提示词 */
-export function formatToolsSystemPrompt(tools: StructuredToolInterface[]): string {
+export function llmFormatTools(tools: StructuredToolInterface[]): string {
   const entries = tools.map((t) => {
     const header = `- ${t.name}: ${t.description}`
     const params = formatToolSchemaParams(t.schema)
@@ -172,7 +167,7 @@ export function formatToolsSystemPrompt(tools: StructuredToolInterface[]): strin
 const TOOL_INPUT_SUMMARY_MAX = 200
 
 /** 将 tool 输入压缩为 Map 层可展示的摘要。 */
-export function summarizeToolInput(input: unknown): string | undefined {
+export function llmReadToolInput(input: unknown): string | undefined {
   let value = input
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -242,7 +237,7 @@ function createSkillActivityHandler(onSkillActivity?: SkillActivityCallback): Ba
       onSkillActivity?.({
         phase: 'start',
         toolName,
-        argsSummary: summarizeToolInput(parsed),
+        argsSummary: llmReadToolInput(parsed),
       })
     },
     handleToolEnd() {
@@ -263,7 +258,7 @@ export interface InvokeWithOptionalToolsOptions {
 }
 
 /** 有 tools 时走 ReAct，否则直接 invoke */
-export async function invokeWithOptionalTools(
+export async function llmRunInvoke(
   model: BaseChatModel,
   tools: StructuredToolInterface[],
   prompt: string,
@@ -273,7 +268,7 @@ export async function invokeWithOptionalTools(
     const agent = createReactAgent({
       llm: model,
       tools,
-      prompt: formatToolsSystemPrompt(tools),
+      prompt: llmFormatTools(tools),
     })
     const parentConfig = getConfig()
     const skillHandler = createSkillActivityHandler(options?.onSkillActivity)
@@ -290,9 +285,9 @@ export async function invokeWithOptionalTools(
         callbacks: [...parentCallbacks, skillHandler],
       },
     )
-    return messageContentToString(result.messages.at(-1)?.content)
+    return llmReadMessage(result.messages.at(-1)?.content)
   }
 
   const response = await model.invoke(prompt)
-  return messageContentToString(response.content)
+  return llmReadMessage(response.content)
 }

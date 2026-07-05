@@ -1,11 +1,12 @@
 import { Send, getConfig, isGraphInterrupt } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ExecutionMode, MapSubAgentParams, AgentRuntimeConfig } from './types'
-import { ErrorCode, normalizeError } from './errors'
-import { loadPrompt, renderPrompt } from './prompt-loader'
+import { ErrorCode, errUpdateNormalize } from './errors'
+import { NEWS_ROOT_ID, mapIdCreateRoute, mapIdUpdateInstance } from './map-ids'
+import { promptRead, promptFormat } from './prompt-loader'
 import {
-  messageContentToString,
-  parseRouteInstructions,
+  llmReadMessage,
+  llmReadRoute,
   type SkillActivityCallback,
 } from './llm-utils'
 
@@ -18,7 +19,7 @@ const PRIORITY_ORDER: Record<MapSubAgentParams['priority'], number> = {
 }
 
 /** 按 priority 排序后截取，控制扇出并发数 */
-export function limitRouteInstructions(
+export function graphReadRouteLimit(
   instructions: MapSubAgentParams[],
   maxConcurrency: number,
 ): MapSubAgentParams[] {
@@ -38,7 +39,7 @@ export interface DynamicFanOutOptions {
  * 动态扇出：基于路由指令创建 Send[]
  * 空路由时直接跳转 merge，避免图异常终止
  */
-export function createDynamicFanOut<T extends { routeInstructions: MapSubAgentParams[] }>(
+export function graphCreateFanout<T extends { routeInstructions: MapSubAgentParams[] }>(
   options: DynamicFanOutOptions,
 ) {
   const {
@@ -59,50 +60,42 @@ export function createDynamicFanOut<T extends { routeInstructions: MapSubAgentPa
       return mergeNode
     }
 
-    const limited = limitRouteInstructions(validInstructions, maxConcurrency)
+    const limited = graphReadRouteLimit(validInstructions, maxConcurrency)
 
     return limited.map((instruction) => {
       const agentConfig = agentMap.get(instruction.agentName)!
+      const threadId = getConfig()?.configurable?.thread_id as string | undefined
       return new Send(subAgentNode, {
         ...state,
         _agentConfig: agentConfig,
         _routeInstruction: instruction,
+        _graphThreadId: threadId,
       })
     })
   }
-}
-
-/** 写路径唯一补齐：AI route 常不带 instanceId。 */
-function withInstanceIds(
-  instructions: Array<Omit<MapSubAgentParams, 'instanceId'> & { instanceId?: string }>,
-): MapSubAgentParams[] {
-  return instructions.map((inst, index) => ({
-    ...inst,
-    instanceId: inst.instanceId ?? `${inst.agentName}#${index + 1}`,
-  }))
 }
 
 /**
  * 通用 MainAgent route 节点。
  * 只跑 AI route；人工加槽在 confirmRoute 暂停点通过 updateState 写入，再扇出。
  */
-export function createRouteNode<TState>(
+export function graphCreateRoute<TState>(
   model: BaseChatModel,
   routePromptPath: string,
   availableAgents: AgentRuntimeConfig[],
   buildVars: (state: TState) => Record<string, string>,
 ) {
   return async (state: TState) => {
-    const promptConfig = loadPrompt(routePromptPath)
+    const promptConfig = promptRead(routePromptPath)
     const agentList = availableAgents.map(a => `- ${a.name}`).join('\n')
-    const prompt = renderPrompt(promptConfig.content, {
+    const prompt = promptFormat(promptConfig.content, {
       ...buildVars(state),
       availableAgents: agentList,
     })
 
     const response = await model.invoke(prompt)
-    let routeInstructions = parseRouteInstructions(
-      messageContentToString(response.content),
+    let routeInstructions = llmReadRoute(
+      llmReadMessage(response.content),
       availableAgents,
     )
 
@@ -113,12 +106,12 @@ export function createRouteNode<TState>(
       }))
     }
 
-    return { routeInstructions: withInstanceIds(routeInstructions) }
+    return { routeInstructions: mapIdUpdateInstance(routeInstructions) }
   }
 }
 
 /** route 与扇出之间的空节点，供 interruptBefore 做人审（改槽后再 fan-out）。 */
-export async function confirmRoutePassthrough(): Promise<Record<string, never>> {
+export async function graphUpdateRouteConfirm(): Promise<Record<string, never>> {
   return {}
 }
 
@@ -144,47 +137,53 @@ export type GraphProgressEventLocal = {
   node: string
   agentName?: string
   spawnIndex?: number
-  instanceId?: string
+  nodeId?: string
+  parentNodeId?: string
 } | {
   event: 'subagent_tool'
   phase: 'start' | 'end'
-  instanceId: string
-  agentName?: string
+  nodeId: string
   toolName: string
   argsSummary?: string
 }
 
 const sessionsByThread = new Map<string, GraphRunSession>()
 
-export function registerGraphSession(threadId: string, session: GraphRunSession): void {
+export function graphRegisterSession(threadId: string, session: GraphRunSession): void {
   sessionsByThread.set(threadId, session)
 }
 
-export function unregisterGraphSession(threadId: string): void {
+export function graphDeleteSession(threadId: string): void {
   sessionsByThread.delete(threadId)
 }
 
-export function getGraphSession(threadId: string): GraphRunSession | undefined {
+export function graphReadSession(threadId: string): GraphRunSession | undefined {
   return sessionsByThread.get(threadId)
 }
 
 /** SubAgent 节点：将 ReAct skill 活动桥接到 GraphRunSession.onProgress。 */
-export function createSubAgentSkillEmitter(
-  instruction: Pick<MapSubAgentParams, 'instanceId' | 'agentName'>,
-  agentName: string,
+export function graphCreateSkillEmitter(
+  instruction: Pick<MapSubAgentParams, 'instanceId'>,
+  threadId: string | undefined,
 ): SkillActivityCallback {
+  if (typeof threadId !== 'string') return () => {}
+
+  const nodeId = mapIdCreateRoute(instruction)
+
   return (activity) => {
-    const threadId = getConfig().configurable?.thread_id
-    if (typeof threadId !== 'string') return
-    const session = getGraphSession(threadId)
-    if (!session?.onProgress) return
+    const session = graphReadSession(threadId)
+    if (!session?.onProgress) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[graph] subagent_tool dropped: session not found', threadId)
+      }
+      return
+    }
 
     if (activity.phase === 'start') {
       session.onProgress({
         event: 'subagent_tool',
         phase: 'start',
-        instanceId: instruction.instanceId,
-        agentName,
+        nodeId,
         toolName: activity.toolName,
         argsSummary: activity.argsSummary,
       })
@@ -194,8 +193,7 @@ export function createSubAgentSkillEmitter(
     session.onProgress({
       event: 'subagent_tool',
       phase: 'end',
-      instanceId: instruction.instanceId,
-      agentName,
+      nodeId,
       toolName: activity.toolName,
     })
   }
@@ -222,7 +220,7 @@ async function graphStep<T>(failedNode: string, fn: () => Promise<T>): Promise<T
     // interruptBefore / interrupt() 通过 GraphInterrupt 冒泡；invoke 通常会吞掉，
     // 若仍漏出则绝不能当成业务失败。
     if (isGraphInterrupt(error)) throw error
-    throw normalizeError(error, ErrorCode.GRAPH_EXECUTION_FAILED, { failedNode })
+    throw errUpdateNormalize(error, ErrorCode.GRAPH_EXECUTION_FAILED, { failedNode })
   }
 }
 
@@ -232,7 +230,7 @@ export interface RunGraphOptions {
 }
 
 /** HITL 编排循环 — auto / human-in-loop 模式通用 */
-export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMode }>(
+export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>(
   graph: CompiledGraph<TState>,
   input: Partial<TState>,
   callbacks: GraphInterruptCallbacks<TState>,
@@ -247,7 +245,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
     session.config = config
     session.mode = input.mode ?? session.mode ?? 'auto'
     session.threadId = threadId
-    registerGraphSession(threadId, session)
+    graphRegisterSession(threadId, session)
   }
 
   try {
@@ -295,26 +293,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
       )
     }
 
-    if (
-      session?.onProgress
-      && nextNode === 'confirmRoute'
-      && !session.fanoutEmitted
-      && typeof currentState === 'object'
-      && currentState !== null
-      && 'routeInstructions' in currentState
-    ) {
-      const instructions = (currentState as { routeInstructions: MapSubAgentParams[] }).routeInstructions
-      instructions.forEach((instruction, index) => {
-        session.onProgress!({
-          event: 'fanout_spawn',
-          node: 'subAgent',
-          agentName: instruction.agentName,
-          spawnIndex: index,
-          instanceId: instruction.instanceId,
-        })
-      })
-      session.fanoutEmitted = true
-    }
+    let stateAfterInterrupt = currentState
 
     if (effectiveMode === 'human-in-loop') {
       const modifications = await callbacks.onInterrupt(currentState, nextNode)
@@ -327,7 +306,38 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
           session.mode = modifications.mode
         }
         await graphStep(nextNode, () => graph.updateState(config, modifications))
+        const updated = await graphStep('checkpoint', () => graph.getState(config))
+        stateAfterInterrupt = updated.values as TState
       }
+    }
+
+    if (
+      session?.onProgress
+      && nextNode === 'confirmRoute'
+      && !session.fanoutEmitted
+      && typeof stateAfterInterrupt === 'object'
+      && stateAfterInterrupt !== null
+      && 'routeInstructions' in stateAfterInterrupt
+    ) {
+      const instructions = (stateAfterInterrupt as { routeInstructions: MapSubAgentParams[] }).routeInstructions
+      const parentNodeId =
+        typeof stateAfterInterrupt === 'object'
+        && stateAfterInterrupt !== null
+        && 'claimId' in stateAfterInterrupt
+        && typeof (stateAfterInterrupt as { claimId?: string }).claimId === 'string'
+          ? (stateAfterInterrupt as { claimId: string }).claimId
+          : NEWS_ROOT_ID
+      instructions.forEach((instruction, index) => {
+        session.onProgress!({
+          event: 'fanout_spawn',
+          node: 'subAgent',
+          agentName: instruction.agentName,
+          spawnIndex: index,
+          nodeId: mapIdCreateRoute(instruction),
+          parentNodeId,
+        })
+      })
+      session.fanoutEmitted = true
     }
 
     session?.onProgress?.({ event: 'node_enter', node: nextNode })
@@ -338,6 +348,6 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
     session?.onProgress?.({ event: 'node_exit', node: nextNode })
   }
   } finally {
-    if (session) unregisterGraphSession(threadId)
+    if (session) graphDeleteSession(threadId)
   }
 }

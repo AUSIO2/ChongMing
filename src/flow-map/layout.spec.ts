@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutMapSnapshot } from './layout'
+import { layoutReadSnapshot } from './layout'
 import { NEWS_ROOT_ID } from './ids'
 import type { MapNode, MapSnapshot } from './types'
 
@@ -55,7 +55,7 @@ describe('layout', () => {
       ],
     })
 
-    const out = layoutMapSnapshot(snap)
+    const out = layoutReadSnapshot(snap)
     const c0 = out.nodes.find(n => n.node.id === 'claim:a:0')!
     const c1 = out.nodes.find(n => n.node.id === 'claim:a:1')!
     expect(c0.x).toBe(c1.x)
@@ -95,7 +95,7 @@ describe('layout', () => {
       ],
     })
 
-    const out = layoutMapSnapshot(snap)
+    const out = layoutReadSnapshot(snap)
     const news = out.nodes.find(n => n.node.id === NEWS_ROOT_ID)!
     const sa = out.nodes.find(n => n.node.id === 'sub:a')!
     const claim = out.nodes.find(n => n.node.id === 'claim:a:0')!

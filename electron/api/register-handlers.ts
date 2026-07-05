@@ -3,8 +3,8 @@ import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
 import * as newsService from './news-service'
 import * as graphService from './graph-service'
-import { listCatalogEntries } from './sub-agent-catalog'
-import { normalizeError, serializeAppError } from '../shared/errors'
+import { catalogReadEntries } from './sub-agent-catalog'
+import { errUpdateNormalize, errReadSerialize } from '../shared/errors'
 import type { ExecutionMode } from '../shared/types'
 import type {
   CreateNewsInput,
@@ -26,31 +26,31 @@ function handle(channel: string, fn: (...args: any[]) => unknown): void {
     try {
       return await fn(...args)
     } catch (error) {
-      throw serializeAppError(normalizeError(error))
+      throw errReadSerialize(errUpdateNormalize(error))
     }
   })
 }
 
-export function registerIpcHandlers(getWindow: WindowGetter): void {
+export function handlerRegisterIpc(getWindow: WindowGetter): void {
   handle(
     IPC_CHANNELS.NEWS_CREATE,
-    (input: CreateNewsInput) => newsService.createNews(input),
+    (input: CreateNewsInput) => newsService.newsCreate(input),
   )
 
   handle(
     IPC_CHANNELS.NEWS_LIST,
-    () => newsService.listNews(),
+    () => newsService.newsReadIndex(),
   )
 
   handle(
     IPC_CHANNELS.NEWS_GET,
-    (newsId: string) => newsService.getNews(newsId),
+    (newsId: string) => newsService.newsRead(newsId),
   )
 
   handle(
     IPC_CHANNELS.NEWS_UPDATE,
     (newsId: string, patch: UpdateNewsInput) =>
-      newsService.updateNews(newsId, patch),
+      newsService.newsUpdate(newsId, patch),
   )
 
   handle(
@@ -61,52 +61,52 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         mapRun?: MapRunPersist | null
         mapGraph?: MapGraphPersist | null
       },
-    ) => newsService.saveMapPersistence(newsId, data),
+    ) => newsService.newsUpdatePersistMap(newsId, data),
   )
 
   handle(
     IPC_CHANNELS.CATALOG_LIST,
-    (module: 'split' | 'verify') => listCatalogEntries(module),
+    (module: 'split' | 'verify') => catalogReadEntries(module),
   )
 
   handle(
     IPC_CHANNELS.GRAPH_START_SPLIT,
-    (input: StartSplitInput) => graphService.startSplit(input, getWindow),
+    (input: StartSplitInput) => graphService.runCreateSplit(input, getWindow),
   )
 
   handle(
     IPC_CHANNELS.GRAPH_START_VERIFY,
-    (input: StartVerifyInput) => graphService.startVerify(input, getWindow),
+    (input: StartVerifyInput) => graphService.runCreateVerify(input, getWindow),
   )
 
   handle(
     IPC_CHANNELS.GRAPH_RESUME,
     (runId: string, modifications: GraphStatePatch) => {
-      graphService.resumeGraph(runId, modifications)
+      graphService.runUpdateResume(runId, modifications)
     },
   )
 
   handle(
     IPC_CHANNELS.GRAPH_SET_MODE,
     async (runId: string, mode: ExecutionMode) => {
-      await graphService.setGraphMode(runId, mode)
+      await graphService.runUpdateMode(runId, mode)
     },
   )
 
   handle(
     IPC_CHANNELS.GRAPH_CANCEL,
     (runId: string) => {
-      graphService.cancelGraph(runId)
+      graphService.runDeleteSession(runId)
     },
   )
 
   handle(
     IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN,
-    (newsId: string) => graphService.getActiveRun(newsId),
+    (newsId: string) => graphService.runReadSession(newsId),
   )
 
   handle(
     IPC_CHANNELS.GRAPH_RESTORE,
-    (input: RestoreRunInput) => graphService.restoreRun(input, getWindow),
+    (input: RestoreRunInput) => graphService.runRestoreSession(input, getWindow),
   )
 }

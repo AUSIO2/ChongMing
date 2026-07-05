@@ -9,7 +9,7 @@ import FlowMapTopology from '../components/flow/FlowMapTopology.vue'
 import FlowMapControls from '../components/flow/FlowMapControls.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
-import { isMapAPIInstalled } from '../flow-map'
+import { portIsInstalled } from '../flow-map'
 
 const store = useWorkspaceStore()
 const flowMapStore = useFlowMapStore()
@@ -18,7 +18,7 @@ const { errorMessage: mapError, snapshot: mapSnapshot } = storeToRefs(flowMapSto
 const mapRunError = computed(() => mapSnapshot.value?.error ?? mapError.value)
 
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
-const canRun = computed(() => hasElectron && isMapAPIInstalled())
+const canRun = computed(() => hasElectron && portIsInstalled())
 const currentNewsId = computed(() => currentNews.value?._id ?? null)
 
 onMounted(async () => {
