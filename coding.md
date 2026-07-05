@@ -36,3 +36,86 @@
 - 技术设计文档和 implement plan都保存在项目根目录的 `develop-docs/` 文件夹下
 - 在 `develop-docs/counter.txt` 中维护当前最大编号，每次创建新文档时递增
 
+## 3. 函数命名（模块前缀 + CRUD）
+
+内部实现函数统一为 **`{prefix}{Verb}{Entity}`**（PascalCase 拼接）：
+
+- **prefix**：模块短名，标识所属文件/域
+- **Verb**：单一动词（CRUD 或扩展动词）
+- **Entity**：纯名词复合
+
+### 硬规则
+
+1. **无介词**：禁止 `From` `To` `For` `With` `On` `In` `At` `By` `Of` 等；方向/来源并入实体（`News` 代替 `FromNews`，`Persist` 代替 `FromPersist`）
+2. **无定语**：禁止 `Rejected` `Active` `Empty` `All` `Current` `Locked` `Visible` `Flat` `Complete` 等形容词或过去分词作定语；动词已表意则省略（`docDeleteClaims`），否则并入实体（`RunEnd` 代替 `RunComplete`）
+3. **动词单一**：禁止 `UpdateReset` 等复合动词，用扩展动词 `Reset` / `Restore`
+
+### 实体复合顺序
+
+`{域}{对象}{子对象}`，例如 `PersistGraph`、`DraftClaim`、`NewsRoute`、`NodeFocus`。
+
+### 动词表
+
+| 动词 | 含义 |
+|------|------|
+| `Create` | 新建文档/记录/ID 字符串 |
+| `Read` | 查询/解析/序列化输出 |
+| `Update` | 变更/应用事件/upsert/投影 |
+| `Delete` | 移除/清空/剪枝 |
+| `Reset` | 回到初始态 |
+| `Restore` | 从 checkpoint 恢复会话 |
+| `Can` / `Is` | 权限判定 / 布尔谓词 |
+| `Build` | 复杂图/适配器工厂 |
+| `Run` | 执行 LangGraph |
+| `Register` | 注册/安装 |
+| `Format` | 展示文本 |
+
+### 模块前缀
+
+| 前缀 | 模块 |
+|------|------|
+| `doc` | `src/flow-map/graph-doc.ts` |
+| `mapId` | `electron/shared/map-ids.ts` |
+| `layout` | `src/flow-map/layout.ts` |
+| `label` | `src/flow-map/tool-labels.ts` |
+| `port` | `src/flow-map/port.ts` |
+| `adapter` | `src/flow-map/adapters/electron-ipc.ts` |
+| `run` | `electron/api/graph-service.ts` |
+| `graph` | `electron/shared/graph-utils.ts` |
+| `split` / `verify` | `extractor.ts` / `verifier.ts` |
+| `llm` | `electron/shared/llm-utils.ts` |
+| `err` | `electron/shared/errors.ts` |
+| `ctx` | `electron/shared/context.ts` |
+| `prompt` | `electron/shared/prompt-loader.ts` |
+| `news` | `electron/api/news-service.ts` |
+| `serial` | `electron/api/serialize.ts` |
+| `catalog` | `electron/api/sub-agent-catalog.ts` |
+| `agent` | `electron/api/agent-config.ts` |
+| `ckpt` | `electron/shared/checkpointer.ts` |
+| `db` | `electron/shared/database.ts` |
+| `handler` | `electron/api/register-handlers.ts` |
+| `tool` | `electron/tools/index.ts` |
+
+### 正反例
+
+| 差 | 优 |
+|----|-----|
+| `docCreateFromNews` | `docCreateNews` |
+| `docDeleteRejectedClaims` | `docDeleteClaims` |
+| `mapIdReadFocusFromNodeId` | `mapIdReadNodeFocus` |
+| `docCreateEmpty` | `docCreate` |
+| `docIsParamsLocked` | `docIsParamLock` |
+| `mapIdReadSubAgentFlat` | `mapIdReadSubAgentClaim` |
+| `ctxReadVisible` | `ctxReadAiContext` |
+| `docUpdateRunComplete` | `docUpdateRunEnd` |
+| `clearHitlRuntimes` | `docDeleteHitlRuntime` |
+
+### 豁免（不改名）
+
+- `MapAPI` / `GraphAPI` 接口方法（`getSnapshot`、`startSplit` 等）
+- Vue `use*` composable、Pinia store 内部方法
+- IPC channel 字符串（`channels.ts`）
+- 类型/接口名、Vue 组件名
+
+新增内部函数时必须遵循本规范；详细迁移记录见 `develop-docs/020-函数命名规范.md`。
+

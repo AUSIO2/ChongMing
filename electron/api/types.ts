@@ -126,6 +126,9 @@ export interface GraphClaimDto {
   shouldSave?: boolean
 }
 
+/** 与 extractor `GraphClaim` 同形 */
+export type GraphClaim = GraphClaimDto
+
 export interface GraphSplitState {
   newsId: string
   mode: ExecutionMode

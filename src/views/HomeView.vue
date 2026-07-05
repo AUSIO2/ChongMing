@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppHeader from '../components/AppHeader.vue'
 import AppShell from '../components/shell/AppShell.vue'
@@ -9,17 +9,38 @@ import FlowMapTopology from '../components/flow/FlowMapTopology.vue'
 import FlowMapControls from '../components/flow/FlowMapControls.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
-import { portIsInstalled } from '../flow-map'
+import { portIsInstalled, portReadApi } from '../flow-map'
 
 const store = useWorkspaceStore()
 const flowMapStore = useFlowMapStore()
 const { currentNews } = storeToRefs(store)
-const { errorMessage: mapError, snapshot: mapSnapshot } = storeToRefs(flowMapStore)
-const mapRunError = computed(() => mapSnapshot.value?.error ?? mapError.value)
+const { storeReadError } = storeToRefs(flowMapStore)
 
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
 const canRun = computed(() => hasElectron && portIsInstalled())
 const currentNewsId = computed(() => currentNews.value?._id ?? null)
+
+let mapUnsub: (() => void) | null = null
+
+watch(
+  currentNewsId,
+  (newsId) => {
+    mapUnsub?.()
+    mapUnsub = null
+    if (!newsId || !canRun.value) return
+    mapUnsub = portReadApi().onUpdated((id, reason) => {
+      if (id !== newsId) return
+      void flowMapStore.refresh()
+      if (reason === 'completed') void store.refreshCurrentNews()
+    })
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  mapUnsub?.()
+  mapUnsub = null
+})
 
 onMounted(async () => {
   if (!canRun.value) return
@@ -45,7 +66,7 @@ onMounted(async () => {
       <template #center>
         <div class="viewport">
           <FlowMapTopology :news-id="currentNewsId" />
-          <p v-if="mapRunError" class="viewport-msg error">{{ mapRunError }}</p>
+          <p v-if="storeReadError" class="viewport-msg error">{{ storeReadError }}</p>
         </div>
       </template>
 

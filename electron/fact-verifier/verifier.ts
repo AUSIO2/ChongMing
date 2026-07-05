@@ -1,5 +1,4 @@
-import { Annotation, StateGraph, START, END, getConfig } from '@langchain/langgraph'
-import { ckptRead } from '../shared/checkpointer'
+import { Annotation, END, getConfig } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   Confidence, ExecutionMode, MapSubAgentParams,
@@ -7,16 +6,13 @@ import type {
 import type { GraphOpinion, GraphConfig } from './types'
 import { NewsModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { ctxReadVisible, ctxFormat, ctxReadNewsDoc } from '../shared/context'
+import { ctxReadAiContext, ctxFormat, ctxReadNewsDoc } from '../shared/context'
 import { promptRead, promptFormat } from '../shared/prompt-loader'
 import {
-  graphUpdateRouteConfirm,
-  graphCreateFanout,
   graphCreateRoute,
   graphCreateSkillEmitter,
-  graphRunInterrupt,
-  type GraphRunSession,
 } from '../shared/graph-utils'
+import { graphBuildHitl } from '../shared/graph-hitl'
 import {
   llmRunInvoke,
   llmReadMessage,
@@ -98,7 +94,7 @@ async function loadClaim(state: typeof VerifyGraphState.State) {
   }
 
   const context = ctxReadNewsDoc(doc)
-  const visibleContext = ctxReadVisible(context)
+  const visibleContext = ctxReadAiContext(context)
 
   return {
     claimContent: claim.content,
@@ -259,24 +255,12 @@ export function verifyBuildGraph(config: GraphConfig) {
     maxConcurrency,
   } = config
 
-  const checkpointer = ckptRead()
-
-  type NodeName =
-    | 'loadClaim'
-    | 'route'
-    | 'confirmRoute'
-    | 'subAgent'
-    | 'merge'
-    | 'validate'
-    | 'save'
-  // 人审中断点 = 工具；merge 仅 LLM，不中断、不投影为 Map 节点
-  const interruptPoints: NodeName[] = ['confirmRoute', 'validate', 'save']
-
-  return new StateGraph(VerifyGraphState)
-    .addNode('loadClaim', loadClaim)
-    .addNode(
-      'route',
-      graphCreateRoute<typeof VerifyGraphState.State>(
+  return graphBuildHitl<typeof VerifyGraphState.State>({
+    state: VerifyGraphState,
+    loadNode: 'loadClaim',
+    nodes: {
+      load: loadClaim,
+      route: graphCreateRoute<typeof VerifyGraphState.State>(
         defaultModel,
         routePromptPath,
         availableAgents,
@@ -286,64 +270,11 @@ export function verifyBuildGraph(config: GraphConfig) {
           context: ctxFormat(state.visibleContext),
         }),
       ),
-    )
-    .addNode('confirmRoute', graphUpdateRouteConfirm)
-    .addNode('subAgent', createVerifySubAgentNode(defaultModel))
-    .addNode('merge', createVerifyMergeNode(defaultModel, mergePromptPath))
-    .addNode('validate', graphUpdateRouteConfirm)
-    .addNode('save', saveOneOpinion)
-    .addEdge(START, 'loadClaim')
-    .addEdge('loadClaim', 'route')
-    .addEdge('route', 'confirmRoute')
-    .addConditionalEdges(
-      'confirmRoute',
-      graphCreateFanout({ availableAgents, maxConcurrency }),
-    )
-    .addEdge('subAgent', 'merge')
-    .addEdge('merge', 'validate')
-    .addEdge('validate', 'save')
-    .addConditionalEdges('save', routeAfterOpinionSave)
-    .compile({ checkpointer, interruptBefore: interruptPoints })
-}
-
-// ==========================================
-// 编排层
-// ==========================================
-
-export interface VerifyGraphCallbacks {
-  onInterrupt: (
-    currentState: typeof VerifyGraphState.State,
-    nextNode: string,
-  ) => Promise<Partial<typeof VerifyGraphState.State> | null>
-}
-
-export async function verifyRunGraph(
-  graph: ReturnType<typeof verifyBuildGraph>,
-  input: {
-    newsId: string
-    claimId: string
-    mode?: ExecutionMode
-    threadId?: string
-  },
-  callbacks: VerifyGraphCallbacks,
-  session?: GraphRunSession,
-  options?: { skipInitialInvoke?: boolean },
-) {
-  const threadId = input.threadId
-  if (!threadId) {
-    throw new Error('verifyRunGraph requires threadId')
-  }
-
-  return graphRunInterrupt(
-    graph,
-    {
-      newsId: input.newsId,
-      claimId: input.claimId,
-      mode: input.mode ?? session?.mode ?? 'auto',
+      subAgent: createVerifySubAgentNode(defaultModel),
+      merge: createVerifyMergeNode(defaultModel, mergePromptPath),
+      save: saveOneOpinion,
     },
-    callbacks,
-    threadId,
-    session,
-    options,
-  )
+    routeAfterSave: routeAfterOpinionSave,
+    fanout: { availableAgents, maxConcurrency },
+  })
 }

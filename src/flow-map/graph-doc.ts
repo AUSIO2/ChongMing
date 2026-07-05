@@ -12,7 +12,9 @@ import {
   mapIdCreateOpinion,
   mapIdReadSubAgent,
   mapIdCreateRoute,
+  mapIdReadSubAgentClaim,
 } from './ids'
+import { mergeUpdateDraftFlags } from '../../electron/shared/merge-flags'
 import type {
   ExecutionMode,
   MapClaimNode,
@@ -268,14 +270,14 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
 /** split 完成进入 verify：不读 DB，只整理内存图运行态。 */
 export function docUpdateVerify(doc: MapGraphDoc): void {
   docUpdateClaimPersist(doc)
-  docDeleteNodes(doc, new Set(docReadDraftClaims(doc).map(n => n.id)))
+  docDeleteNodes(doc, new Set(docReadClaims(doc, 'draft').map(n => n.id)))
   doc.draft = undefined
   doc.error = undefined
   doc.runPhase = 'running'
   docDeleteFocus(doc)
 }
 
-export function docUpdateRunComplete(doc: MapGraphDoc): void {
+export function docUpdateRunEnd(doc: MapGraphDoc): void {
   docUpdateClaimPersist(doc)
   doc.runPhase = 'completed'
   doc.runId = undefined
@@ -413,19 +415,15 @@ export function docUpdateDraft(doc: MapGraphDoc): void {
   if (!doc.draft) return
 
   if (doc.graphType === 'split' && 'routeInstructions' in doc.draft) {
-    const routes = doc.nodes
-      .filter((n): n is MapSubAgentNode => n.kind === 'subAgent' && n.parentId === NEWS_ROOT_ID)
-      .map(n => ({ ...n.params }))
-    doc.draft = { ...doc.draft, routeInstructions: routes }
+    doc.draft = {
+      ...doc.draft,
+      routeInstructions: docReadRoutes(doc, NEWS_ROOT_ID),
+    }
 
     if ('mergedClaims' in doc.draft) {
-      const numbered = doc.nodes
-        .filter((n): n is MapClaimNode => n.kind === 'claim' && !mapIdIsDraftClaim(n.id))
-        .sort((a, b) => Number(a.id) - Number(b.id))
-
-      const source = numbered.length > 0
-        ? numbered
-        : docReadDraftClaims(doc).filter(n => n.shouldSave)
+      const source = docReadClaims(doc, 'numbered').length > 0
+        ? docReadClaims(doc, 'numbered')
+        : docReadClaims(doc, 'draft').filter(n => n.shouldSave)
 
       const claims = source.map(n => ({
         content: n.params.content,
@@ -440,12 +438,45 @@ export function docUpdateDraft(doc: MapGraphDoc): void {
   }
 
   if (doc.graphType === 'verify' && doc.draft && 'claimId' in doc.draft) {
-    const claimId = doc.draft.claimId
-    const routes = doc.nodes
-      .filter((n): n is MapSubAgentNode => n.kind === 'subAgent' && n.parentId === claimId)
-      .map(n => ({ ...n.params }))
-    doc.draft = { ...doc.draft, routeInstructions: routes }
+    doc.draft = {
+      ...doc.draft,
+      routeInstructions: docReadRoutes(doc, doc.draft.claimId),
+    }
   }
+}
+
+/** 某父节点下已占用的 subAgent instanceId（含 draft 路由）。 */
+export function docReadInstanceIds(
+  doc: MapGraphDoc,
+  parentId: string,
+): Array<Pick<MapSubAgentParams, 'instanceId'>> {
+  const ids = doc.nodes
+    .filter((n): n is MapSubAgentNode => n.kind === 'subAgent' && n.parentId === parentId)
+    .map(n => ({ instanceId: n.params.instanceId }))
+  const draft = doc.draft
+  if (draft && 'routeInstructions' in draft && draft.routeInstructions) {
+    for (const r of draft.routeInstructions) {
+      const nodeId = mapIdCreateRoute(r)
+      const node = doc.nodes.find(n => n.id === nodeId)
+      if (node?.parentId === parentId) {
+        if (!ids.some(i => i.instanceId === r.instanceId)) {
+          ids.push({ instanceId: r.instanceId })
+        }
+      } else if (!node && parentId === NEWS_ROOT_ID) {
+        if (!ids.some(i => i.instanceId === r.instanceId)) {
+          ids.push({ instanceId: r.instanceId })
+        }
+      }
+    }
+  }
+  return ids
+}
+
+/** 某父节点下 subAgent 槽位参数（与 routeInstructions 同形）。 */
+export function docReadRoutes(doc: MapGraphDoc, parentId: string): MapSubAgentParams[] {
+  return doc.nodes
+    .filter((n): n is MapSubAgentNode => n.kind === 'subAgent' && n.parentId === parentId)
+    .map(n => ({ ...n.params }))
 }
 
 export function docDeleteFocus(doc: MapGraphDoc): void {
@@ -463,10 +494,15 @@ export function docDeleteNodes(doc: MapGraphDoc, ids: Set<string>): void {
   doc.edges = doc.edges.filter(e => !ids.has(e.from) && !ids.has(e.to))
 }
 
-function docReadDraftClaims(doc: MapGraphDoc): MapClaimNode[] {
+function docReadClaims(doc: MapGraphDoc, phase: 'draft' | 'numbered'): MapClaimNode[] {
+  if (phase === 'draft') {
+    return doc.nodes
+      .filter((n): n is MapClaimNode => n.kind === 'claim' && mapIdIsDraftClaim(n.id))
+      .sort((a, b) => (mapIdReadDraftIndex(a.id) ?? 0) - (mapIdReadDraftIndex(b.id) ?? 0))
+  }
   return doc.nodes
-    .filter((n): n is MapClaimNode => n.kind === 'claim' && mapIdIsDraftClaim(n.id))
-    .sort((a, b) => (mapIdReadDraftIndex(a.id) ?? 0) - (mapIdReadDraftIndex(b.id) ?? 0))
+    .filter((n): n is MapClaimNode => n.kind === 'claim' && !mapIdIsDraftClaim(n.id))
+    .sort((a, b) => Number(a.id) - Number(b.id))
 }
 
 function docUpdateSplitRoutes(
@@ -716,93 +752,99 @@ function docReadClaimParent(
   source: { instanceId?: string; agentName?: string },
   splitRoutes: MapSubAgentParams[],
 ): string {
-  if (!source.instanceId) return NEWS_ROOT_ID
-  const route = splitRoutes.find(r => r.instanceId === source.instanceId)
-  if (route) {
-    const id = mapIdCreateRoute(route)
-    if (nodes.some(n => n.id === id)) return id
+  if (source.instanceId) {
+    const route = splitRoutes.find(r => r.instanceId === source.instanceId)
+    if (route) {
+      const id = mapIdCreateRoute(route)
+      if (nodes.some(n => n.id === id)) return id
+    }
+    const byId = nodes.find(
+      n => n.kind === 'subAgent' && n.params.instanceId === source.instanceId,
+    )
+    if (byId) return byId.id
   }
-  const byId = nodes.find(
-    n => n.kind === 'subAgent' && n.params.instanceId === source.instanceId,
-  )
-  return byId?.id ?? NEWS_ROOT_ID
+  if (source.agentName) {
+    const byName = splitRoutes.filter(r => r.agentName === source.agentName)
+    if (byName.length === 1) {
+      const id = mapIdCreateRoute(byName[0])
+      if (nodes.some(n => n.id === id)) return id
+    }
+    const nodeByName = nodes.find(
+      n => n.kind === 'subAgent' && n.params.agentName === source.agentName,
+    )
+    if (nodeByName) return nodeByName.id
+  }
+  return NEWS_ROOT_ID
 }
 
 function docUpdateDraftClaims(doc: MapGraphDoc, state: GraphSplitState): void {
   const routes = state.routeInstructions ?? []
-  let draftSeq = 0
-  for (const result of state.subAgentResults ?? []) {
+  const rows = mapIdReadSubAgentClaim(state.subAgentResults ?? [])
+  rows.forEach((row, index) => {
     const parentId = docReadClaimParent(
       doc.nodes,
-      { instanceId: result.instanceId, agentName: result.agentName },
+      { instanceId: row.instanceId, agentName: row.agentName },
       routes,
     )
-    for (const c of result.claims) {
-      docUpdateClaim(doc, {
-        id: mapIdCreateDraftClaim(draftSeq++),
-        parentId,
-        content: c.content,
-        category: c.category,
-        sourceAgent: c.sourceAgent ?? result.agentName,
-        dataPhase: 'workerOut',
-        shouldSave: true,
-      })
-    }
-  }
+    docUpdateClaim(doc, {
+      id: mapIdCreateDraftClaim(index),
+      parentId,
+      content: row.content,
+      category: row.category,
+      sourceAgent: row.sourceAgent,
+      dataPhase: 'workerOut',
+      shouldSave: true,
+    })
+  })
 }
 
 /** 按草稿下标只更新 shouldSave，不改 content / parent。 */
 function docUpdateSaveFlags(doc: MapGraphDoc, state: GraphSplitState): void {
-  const drafts = docReadDraftClaims(doc)
+  const drafts = docReadClaims(doc, 'draft')
+  mergeUpdateDraftFlags(drafts, state.mergedClaims ?? [])
+}
 
-  if (drafts.length === 0 || !state.mergedClaims?.length) return
-
-  if (state.mergedClaims.length === drafts.length) {
-    drafts.forEach((d, i) => {
-      d.shouldSave = state.mergedClaims[i].shouldSave !== false
+function docUpdateNumberedClaims(
+  doc: MapGraphDoc,
+  state: GraphSplitState,
+  routes: MapSubAgentParams[],
+): void {
+  if (!state.mergedClaims?.length) return
+  state.mergedClaims.forEach((c, index) => {
+    const id = mapIdCreateClaim(index)
+    const persisted = index < state.saveIndex
+    const parentId = docReadClaimParent(
+      doc.nodes,
+      { agentName: c.sourceAgent },
+      routes,
+    )
+    docUpdateClaim(doc, {
+      id,
+      parentId,
+      content: c.content,
+      category: c.category,
+      sourceAgent: c.sourceAgent,
+      dataPhase: persisted ? 'persisted' : 'workerOut',
+      shouldSave: true,
     })
-    return
-  }
-
-  // 带 draftIndex 的稀疏更新
-  for (const c of state.mergedClaims) {
-    const idx = (c as { draftIndex?: number }).draftIndex
-    if (typeof idx === 'number' && drafts[idx]) {
-      drafts[idx].shouldSave = c.shouldSave !== false
-    }
-  }
+  })
 }
 
 function docUpdateSplitState(doc: MapGraphDoc, state: GraphSplitState): void {
   const routes = state.routeInstructions ?? []
   docUpdateSplitRoutes(doc, routes)
 
-  // validate：草稿 + merge 标记；save：已剪枝的 numbered claims
   if (doc.pendingTool === 'validate') {
     docUpdateDraftClaims(doc, state)
     docUpdateSaveFlags(doc, state)
     return
   }
 
-  if (state.mergedClaims?.length && (doc.pendingTool === 'save' || state.saveIndex > 0)) {
-    state.mergedClaims.forEach((c, index) => {
-      const id = mapIdCreateClaim(index)
-      const persisted = index < state.saveIndex
-      const parentId = docReadClaimParent(doc.nodes, { agentName: c.sourceAgent }, routes)
-      docUpdateClaim(doc, {
-        id,
-        parentId,
-        content: c.content,
-        category: c.category,
-        sourceAgent: c.sourceAgent,
-        dataPhase: persisted ? 'persisted' : 'workerOut',
-        shouldSave: true,
-      })
-    })
+  if (doc.pendingTool === 'save' || (state.saveIndex > 0 && state.mergedClaims?.length)) {
+    docUpdateNumberedClaims(doc, state, routes)
     return
   }
 
-  // confirmRoute 或仅有 subAgentResults（尚无 merge）
   if (state.subAgentResults?.length && !state.mergedClaims?.length) {
     docUpdateDraftClaims(doc, state)
   }
@@ -860,7 +902,7 @@ function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
  *   - subAgent 只要有已产出的下游 claim/opinion（任何 dataPhase）就锁
  *   - news：idle 可改正文；一旦进入流程（非 idle）即锁，保证 loadNews 读的是已编辑正文
  */
-export function docIsParamsLocked(snapshot: MapSnapshot, node: MapNode): boolean {
+export function docIsParamLock(snapshot: MapSnapshot, node: MapNode): boolean {
   if (snapshot.runPhase === 'running') return true
 
   if (node.kind === 'opinion') return true
@@ -903,7 +945,7 @@ export function docCanAddSubAgent(snapshot: MapSnapshot, parentNodeId: string): 
 export function docCanEditNode(snapshot: MapSnapshot, nodeId: string): boolean {
   const node = snapshot.nodes.find(n => n.id === nodeId)
   if (!node) return false
-  return !docIsParamsLocked(snapshot, node)
+  return !docIsParamLock(snapshot, node)
 }
 
 /**

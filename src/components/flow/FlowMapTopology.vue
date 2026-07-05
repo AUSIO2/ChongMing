@@ -4,7 +4,7 @@ import { useFlowMap } from '../../composables/use-flow-map'
 import { useCanvasPanZoom } from '../../composables/useCanvasPanZoom'
 import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
-import { labelFormatHitl, docIsParamsLocked, labelFormatSkill, labelFormatSkillTitle } from '../../flow-map'
+import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind } from '../../flow-map'
 
 const props = defineProps<{ newsId: string | null }>()
 
@@ -64,10 +64,7 @@ function nodePreview(n: MapNode): string | null {
 }
 
 function nodeKindTag(n: MapNode): string {
-  if (n.kind === 'news') return '新闻'
-  if (n.kind === 'subAgent') return 'SubAgent'
-  if (n.kind === 'claim') return '事实'
-  return '意见'
+  return labelFormatNodeKind(n)
 }
 
 function nodeRuntimeBadges(n: MapNode): RuntimeBadge[] {
@@ -110,7 +107,7 @@ function nodeClasses(ln: MapLayoutNode) {
     active: isActive(n.id),
     selected: isSelected(n.id),
     'has-runtime': !!n.runtime,
-    'params-locked': snap ? docIsParamsLocked(snap, n) : false,
+    'params-locked': snap ? docIsParamLock(snap, n) : false,
   }
   if (n.kind === 'claim' || n.kind === 'opinion') {
     cls[`phase-${n.dataPhase}`] = true

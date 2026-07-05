@@ -11,10 +11,11 @@ import {
   docCanRemoveNode,
   docCreate,
   docUpdateSubAgent,
-  docIsParamsLocked,
+  docIsParamLock,
   docDeleteClaims,
   docResetNews,
   docUpdateDraft,
+  docReadRoutes,
   type MapGraphDoc,
 } from './graph-doc'
 import type { DisplayNews, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
@@ -42,7 +43,7 @@ describe('graph-doc capability', () => {
       ],
     })
     expect(docCanAddSubAgent(snap, NEWS_ROOT_ID)).toBe(false)
-    expect(docIsParamsLocked(snap, snap.nodes[0])).toBe(false)
+    expect(docIsParamLock(snap, snap.nodes[0])).toBe(false)
   })
 
   it('非 idle 时锁定新闻正文', () => {
@@ -51,8 +52,8 @@ describe('graph-doc capability', () => {
       kind: 'news' as const,
       params: { content: 'x' },
     }
-    expect(docIsParamsLocked(baseSnapshot({ runPhase: 'running', nodes: [news] }), news)).toBe(true)
-    expect(docIsParamsLocked(
+    expect(docIsParamLock(baseSnapshot({ runPhase: 'running', nodes: [news] }), news)).toBe(true)
+    expect(docIsParamLock(
       baseSnapshot({ runPhase: 'interrupted', pendingTool: 'invoke', nodes: [news] }),
       news,
     )).toBe(true)
@@ -146,9 +147,9 @@ describe('graph-doc capability', () => {
       dataPhase: 'workerOut',
     }
     const snap = baseSnapshot({ nodes: [workerOut, persisted, opinion] })
-    expect(docIsParamsLocked(snap, workerOut)).toBe(false)
-    expect(docIsParamsLocked(snap, persisted)).toBe(true)
-    expect(docIsParamsLocked(snap, opinion)).toBe(true)
+    expect(docIsParamLock(snap, workerOut)).toBe(false)
+    expect(docIsParamLock(snap, persisted)).toBe(true)
+    expect(docIsParamLock(snap, opinion)).toBe(true)
   })
 
   it('subAgent 只要下游有产出就锁定，即使产出仍处于 workerOut', () => {
@@ -166,7 +167,7 @@ describe('graph-doc capability', () => {
       shouldSave: true,
     }
     const snap = baseSnapshot({ nodes: [sa, child] })
-    expect(docIsParamsLocked(snap, sa)).toBe(true)
+    expect(docIsParamLock(snap, sa)).toBe(true)
     expect(docCanEditNode(snap, sa.id)).toBe(false)
     expect(docCanEditNode(snap, child.id)).toBe(true)
   })
@@ -733,5 +734,108 @@ describe('graph-doc state', () => {
     const nodeCount = doc.nodes.length
     docUpdateInterrupt(doc, payload)
     expect(doc.nodes.length).toBe(nodeCount)
+  })
+
+  it('save 中断投影 numbered claims，saveIndex 区分 persisted', () => {
+    const state = splitState({
+      saveIndex: 1,
+      mergedClaims: [
+        { content: 'c1', sourceAgent: 'a', shouldSave: true },
+        { content: 'c2', sourceAgent: 'a', shouldSave: true },
+      ],
+    })
+    const doc = docCreate('n1')
+    docUpdateInterrupt(doc, {
+      runId: 'r1',
+      graphType: 'split',
+      nextNode: 'save',
+      mode: 'human-in-loop',
+      state,
+      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      pendingTool: 'save',
+    })
+    const claims = doc.nodes.filter(n => n.kind === 'claim')
+    expect(claims.map(c => c.id)).toEqual(['1', '2'])
+    expect(claims[0]?.dataPhase).toBe('persisted')
+    expect(claims[1]?.dataPhase).toBe('workerOut')
+    expect(claims.every(c => c.shouldSave)).toBe(true)
+  })
+
+  it('invoke 中断无 subAgentResults 时不建 draft claim', () => {
+    const state = splitState({
+      subAgentResults: [],
+      mergedClaims: [],
+    })
+    const doc = docCreate('n1')
+    docUpdateInterrupt(doc, {
+      runId: 'r1',
+      graphType: 'split',
+      nextNode: 'confirmRoute',
+      mode: 'human-in-loop',
+      state,
+      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      pendingTool: 'invoke',
+    })
+    expect(doc.nodes.filter(n => n.kind === 'claim')).toHaveLength(0)
+    expect(doc.nodes.filter(n => n.kind === 'subAgent')).toHaveLength(1)
+  })
+
+  it('split 同名多槽：draft claim 挂到对应 instanceId 的 subAgent', () => {
+    const state = splitState({
+      routeInstructions: [
+        { agentName: 'a', priority: 'high', instanceId: 'a#1' },
+        { agentName: 'a', priority: 'low', instanceId: 'a#2' },
+      ],
+      subAgentResults: [
+        {
+          agentName: 'a',
+          priority: 'high',
+          instanceId: 'a#1',
+          claims: [{ content: 'c-high', sourceAgent: 'a' }],
+          rawResponse: '',
+        },
+        {
+          agentName: 'a',
+          priority: 'low',
+          instanceId: 'a#2',
+          claims: [{ content: 'c-low', sourceAgent: 'a' }],
+          rawResponse: '',
+        },
+      ],
+      mergedClaims: [
+        { content: 'c-high', sourceAgent: 'a', shouldSave: true },
+        { content: 'c-low', sourceAgent: 'a', shouldSave: true },
+      ],
+    })
+    const doc = docCreate('n1')
+    docUpdateInterrupt(doc, {
+      runId: 'r1',
+      graphType: 'split',
+      nextNode: 'validate',
+      mode: 'human-in-loop',
+      state,
+      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      pendingTool: 'validate',
+    })
+    const edge = (from: string, to: string) =>
+      doc.edges.some(e => e.from === from && e.to === to)
+    expect(edge('sub:a#1', 'draft:0')).toBe(true)
+    expect(edge('sub:a#2', 'draft:1')).toBe(true)
+  })
+
+  it('docReadRoutes 从图上 subAgent 读路由', () => {
+    const doc = docCreate('n1')
+    doc.nodes = [
+      { id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } },
+      {
+        id: 'sub:a#1',
+        kind: 'subAgent',
+        parentId: NEWS_ROOT_ID,
+        params: { agentName: 'a', priority: 'high', instanceId: 'a#1' },
+      },
+    ]
+    expect(docReadRoutes(doc, NEWS_ROOT_ID)).toEqual([
+      { agentName: 'a', priority: 'high', instanceId: 'a#1' },
+    ])
   })
 })

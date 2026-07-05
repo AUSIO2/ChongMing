@@ -7,6 +7,9 @@ import type {
   CatalogSubAgent,
 } from './types'
 
+/** 后端推送导致快照变化的原因（用户 mutation 返回值已更新 store，无需 refresh）。 */
+export type MapUpdateReason = 'progress' | 'interrupt' | 'completed' | 'error'
+
 export interface AddSubAgentInput {
   newsId: string
   /** 父节点 id：NEWS_ROOT_ID → 新增拆分 SubAgent；已持久化 claim id → 该事实的核查 SubAgent。 */
@@ -52,6 +55,9 @@ export interface MapAPI {
   cancel(newsId: string): Promise<MapSnapshot>
   setMode(newsId: string, mode: ExecutionMode): Promise<MapSnapshot>
 
-  /** 快照变化订阅。返回取消订阅函数。 */
-  onUpdated(cb: (newsId: string) => void): () => void
+  /** 释放内存图缓存（切换新闻时调用）。 */
+  unloadNews(newsId: string): void
+
+  /** 后端推送导致快照变化；mutation 路径不触发。 */
+  onUpdated(cb: (newsId: string, reason: MapUpdateReason) => void): () => void
 }

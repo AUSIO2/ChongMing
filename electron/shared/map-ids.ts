@@ -53,18 +53,29 @@ export function mapIdReadDraftIndex(id: string): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
-/** 与 Map draft:N 同序的扁平草稿（subAgentResults → merge 输入）。 */
-export function mapIdReadSubAgentFlat(
+/** 与 Map draft:N 同序的 SubAgent 产出 claim（含槽位字段）。 */
+export interface MapSubAgentClaimRow {
+  content: string
+  category?: string
+  sourceAgent?: string
+  agentName: string
+  instanceId?: string
+}
+
+export function mapIdReadSubAgentClaim(
   results: Array<{
     agentName: string
+    instanceId?: string
     claims: Array<{ content: string; category?: string; sourceAgent?: string }>
   }>,
-): Array<{ content: string; category?: string; sourceAgent?: string }> {
+): MapSubAgentClaimRow[] {
   return results.flatMap(result =>
     result.claims.map(claim => ({
       content: claim.content,
       category: claim.category,
       sourceAgent: claim.sourceAgent ?? result.agentName,
+      agentName: result.agentName,
+      instanceId: result.instanceId,
     })),
   )
 }
@@ -126,4 +137,49 @@ export function mapIdReadNodeFocus(
     return { kind: 'opinion', id: activeNodeId }
   }
   return { kind: 'claim', id: activeNodeId }
+}
+
+export type MapInterruptTool = 'invoke' | 'validate' | 'save'
+
+export interface MapInterruptFocus {
+  kind: 'news' | 'subAgent' | 'claim' | 'opinion'
+  id: string
+}
+
+/** LangGraph 中断点 → Map 焦点节点与 pendingTool。 */
+export function mapIdReadInterruptFocus(
+  graphType: 'split' | 'verify',
+  nextNode: string,
+  state: {
+    claimId?: string
+    saveIndex?: number
+    opinionSaveIndex?: number
+  },
+): { focus?: MapInterruptFocus; pendingTool?: MapInterruptTool } {
+  if (nextNode === 'confirmRoute') {
+    if (graphType === 'split') {
+      return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'invoke' }
+    }
+    return { focus: { kind: 'claim', id: state.claimId! }, pendingTool: 'invoke' }
+  }
+  if (nextNode === 'validate') {
+    if (graphType === 'split') {
+      return { focus: { kind: 'news', id: NEWS_ROOT_ID }, pendingTool: 'validate' }
+    }
+    return { focus: { kind: 'claim', id: state.claimId! }, pendingTool: 'validate' }
+  }
+  if (nextNode === 'save') {
+    if (graphType === 'split') {
+      return {
+        focus: { kind: 'claim', id: mapIdCreateClaim(state.saveIndex ?? 0) },
+        pendingTool: 'save',
+      }
+    }
+    const index = state.opinionSaveIndex ?? 0
+    return {
+      focus: { kind: 'opinion', id: mapIdCreateOpinion(state.claimId!, index) },
+      pendingTool: 'save',
+    }
+  }
+  return {}
 }

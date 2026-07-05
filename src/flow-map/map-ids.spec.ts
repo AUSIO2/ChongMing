@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance } from './ids'
+import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus } from './ids'
 
 describe('map-ids', () => {
   it('mapIdCreateInstance 按 parent 已有槽递增', () => {
@@ -56,5 +56,21 @@ describe('map-ids', () => {
     ).toEqual([
       { agentName: 'a', priority: 'low', instanceId: 'a#9' },
     ])
+  })
+
+  it('mapIdReadInterruptFocus save 拆分指向当前 claim', () => {
+    const { focus, pendingTool } = mapIdReadInterruptFocus('split', 'save', {
+      saveIndex: 1,
+    })
+    expect(focus).toEqual({ kind: 'claim', id: '2' })
+    expect(pendingTool).toBe('save')
+  })
+
+  it('mapIdReadInterruptFocus confirmRoute 核查指向 claim', () => {
+    const { focus, pendingTool } = mapIdReadInterruptFocus('verify', 'confirmRoute', {
+      claimId: '3',
+    })
+    expect(focus).toEqual({ kind: 'claim', id: '3' })
+    expect(pendingTool).toBe('invoke')
   })
 })

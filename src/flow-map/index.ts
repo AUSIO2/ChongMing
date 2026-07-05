@@ -4,15 +4,22 @@ export type {
   AddSubAgentInput,
   UpdateNodeParamsInput,
   UpdateNodeParamsPatch,
+  MapUpdateReason,
 } from './api'
 export {
   NEWS_ROOT_ID,
   mapIdCreateRoute,
 } from './ids'
-export { RUN_PHASE_LABEL } from './labels'
+export {
+  RUN_PHASE_LABEL,
+  NODE_KIND_LABEL,
+  DATA_PHASE_LABEL,
+  labelFormatNodeKind,
+  labelFormatFocusNode,
+} from './labels'
 export { labelFormatHitl, labelFormatSkill, labelFormatSkillTitle } from './tool-labels'
 export {
-  docIsParamsLocked,
+  docIsParamLock,
   docCanAddSubAgent,
   docCanEditNode,
   docCanRemoveNode,

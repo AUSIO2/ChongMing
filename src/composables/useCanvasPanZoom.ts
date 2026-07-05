@@ -118,7 +118,28 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
   }
 
   function fitToView() {
-    resetView()
+    const container = options.containerRef.value
+    if (!container) {
+      resetView()
+      return
+    }
+
+    const cw = options.contentWidth.value
+    const ch = options.contentHeight.value
+    const rect = container.getBoundingClientRect()
+    const pad = 16
+    const availW = Math.max(rect.width - pad * 2, 1)
+    const availH = Math.max(rect.height - pad * 2, 1)
+
+    if (cw <= 0 || ch <= 0) {
+      resetView()
+      return
+    }
+
+    const nextScale = clampScale(Math.min(availW / cw, availH / ch))
+    scale.value = nextScale
+    translateX.value = pad + (availW - cw * nextScale) / 2
+    translateY.value = pad + (availH - ch * nextScale) / 2
   }
 
   onMounted(() => {

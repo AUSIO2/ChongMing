@@ -1,5 +1,4 @@
-import { Annotation, StateGraph, START, END, getConfig } from '@langchain/langgraph'
-import { ckptRead } from '../shared/checkpointer'
+import { Annotation, END, getConfig } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type {
   MapSubAgentParams, GraphClaim,
@@ -8,22 +7,19 @@ import type {
 } from './types'
 import { NewsModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { ctxReadVisible, ctxFormat, ctxReadNewsDoc } from '../shared/context'
+import { ctxReadAiContext, ctxFormat, ctxReadNewsDoc } from '../shared/context'
 import { promptRead, promptFormat } from '../shared/prompt-loader'
-import { mapIdReadSubAgentFlat } from '../shared/map-ids'
+import { mapIdReadSubAgentClaim } from '../shared/map-ids'
+import { mergeReadShouldSave, mergeUpdateClaims } from '../shared/merge-flags'
 import {
-  graphUpdateRouteConfirm,
-  graphCreateFanout,
   graphCreateRoute,
   graphCreateSkillEmitter,
-  graphRunInterrupt,
-  type GraphRunSession,
 } from '../shared/graph-utils'
+import { graphBuildHitl } from '../shared/graph-hitl'
 import {
   llmRunInvoke,
   llmReadMessage,
   llmReadClaims,
-  llmReadJson,
 } from '../shared/llm-utils'
 import { mapIdCreateClaim } from '../shared/map-ids'
 
@@ -83,7 +79,7 @@ async function loadNews(state: typeof SplitGraphState.State) {
   }
 
   const context = ctxReadNewsDoc(doc)
-  const visibleContext = ctxReadVisible(context)
+  const visibleContext = ctxReadAiContext(context)
 
   return { content: doc.content, visibleContext }
 }
@@ -131,20 +127,12 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
 
 /** 与 Map draft:N 同序的扁平草稿。 */
 function flattenDraftClaims(state: typeof SplitGraphState.State): GraphClaim[] {
-  return mapIdReadSubAgentFlat(state.subAgentResults ?? []).map(claim => ({
-    ...claim,
+  return mapIdReadSubAgentClaim(state.subAgentResults ?? []).map(row => ({
+    content: row.content,
+    category: row.category,
+    sourceAgent: row.sourceAgent,
     shouldSave: true,
   }))
-}
-
-/** 解析 merge 返回的 shouldSave 标记数组（无 content 字段）。 */
-function parseShouldSaveFlags(raw: string): Array<{ draftIndex?: number; shouldSave?: boolean }> {
-  const parsed = llmReadJson<unknown>(raw)
-  const candidates = Array.isArray(parsed) ? parsed : []
-  return candidates.filter(
-    (item): item is { draftIndex?: number; shouldSave?: boolean } =>
-      item !== null && typeof item === 'object' && !Array.isArray(item),
-  )
 }
 
 /** MainAgent Merge：只标记各草稿是否保留（shouldSave），不改写正文 / sourceAgent。 */
@@ -165,17 +153,8 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
       (await model.invoke(prompt)).content,
     )
 
-    const flags = parseShouldSaveFlags(rawMergeResponse)
-    const byIndex = new Map<number, boolean>()
-    flags.forEach((f, i) => {
-      const idx = typeof f.draftIndex === 'number' ? f.draftIndex : i
-      byIndex.set(idx, f.shouldSave !== false)
-    })
-
-    const mergedClaims = drafts.map((draft, i) => ({
-      ...draft,
-      shouldSave: byIndex.has(i) ? byIndex.get(i)! : true,
-    }))
+    const flags = mergeReadShouldSave(rawMergeResponse)
+    const mergedClaims = mergeUpdateClaims(drafts, flags)
 
     return { mergedClaims, rawMergeResponse, saveIndex: 0 }
   }
@@ -256,24 +235,12 @@ export function splitBuildGraph(config: Omit<GraphConfig, 'mode'>) {
     maxConcurrency,
   } = config
 
-  const checkpointer = ckptRead()
-
-  type NodeName =
-    | 'loadNews'
-    | 'route'
-    | 'confirmRoute'
-    | 'subAgent'
-    | 'merge'
-    | 'validate'
-    | 'save'
-  // 人审中断点 = 工具名（validate/save）或 confirmRoute→invoke；merge 仅 LLM，不中断
-  const interruptPoints: NodeName[] = ['confirmRoute', 'validate', 'save']
-
-  return new StateGraph(SplitGraphState)
-    .addNode('loadNews', loadNews)
-    .addNode(
-      'route',
-      graphCreateRoute<typeof SplitGraphState.State>(
+  return graphBuildHitl<typeof SplitGraphState.State>({
+    state: SplitGraphState,
+    loadNode: 'loadNews',
+    nodes: {
+      load: loadNews,
+      route: graphCreateRoute<typeof SplitGraphState.State>(
         defaultModel,
         routePromptPath,
         availableAgents,
@@ -282,72 +249,11 @@ export function splitBuildGraph(config: Omit<GraphConfig, 'mode'>) {
           context: ctxFormat(state.visibleContext),
         }),
       ),
-    )
-    .addNode('confirmRoute', graphUpdateRouteConfirm)
-    .addNode('subAgent', createSubAgentNode(defaultModel))
-    .addNode('merge', createMergeNode(defaultModel, mergePromptPath))
-    .addNode('validate', graphUpdateRouteConfirm)
-    .addNode('save', saveOneClaim)
-    .addEdge(START, 'loadNews')
-    .addEdge('loadNews', 'route')
-    .addEdge('route', 'confirmRoute')
-    .addConditionalEdges(
-      'confirmRoute',
-      graphCreateFanout({ availableAgents, maxConcurrency }),
-    )
-    .addEdge('subAgent', 'merge')
-    .addEdge('merge', 'validate')
-    .addEdge('validate', 'save')
-    .addConditionalEdges('save', routeAfterSave)
-    .compile({ checkpointer, interruptBefore: interruptPoints })
-}
-
-// ==========================================
-// 编排层
-// ==========================================
-
-export interface SplitGraphCallbacks {
-  /** HITL 暂停时调用，返回用户修改后的 state 片段（或 null 跳过修改） */
-  onInterrupt: (
-    currentState: typeof SplitGraphState.State,
-    nextNode: string,
-  ) => Promise<Partial<typeof SplitGraphState.State> | null>
-}
-
-/**
- * 运行拆分图（编排层）
- *
- * 在每个中断点检查 state.mode：
- * - auto: 自动继续
- * - human-in-loop: 调用 callbacks.onInterrupt 等人审核
- *
- * 用户可以在任意中断点通过 onInterrupt 修改 mode，下一个中断点立即生效。
- */
-export async function splitRunGraph(
-  graph: ReturnType<typeof splitBuildGraph>,
-  input: {
-    newsId: string
-    mode?: ExecutionMode
-    threadId?: string
-  },
-  callbacks: SplitGraphCallbacks,
-  session?: GraphRunSession,
-  options?: { skipInitialInvoke?: boolean },
-) {
-  const threadId = input.threadId
-  if (!threadId) {
-    throw new Error('splitRunGraph requires threadId')
-  }
-
-  return graphRunInterrupt(
-    graph,
-    {
-      newsId: input.newsId,
-      mode: input.mode ?? session?.mode ?? 'auto',
+      subAgent: createSubAgentNode(defaultModel),
+      merge: createMergeNode(defaultModel, mergePromptPath),
+      save: saveOneClaim,
     },
-    callbacks,
-    threadId,
-    session,
-    options,
-  )
+    routeAfterSave: routeAfterSave,
+    fanout: { availableAgents, maxConcurrency },
+  })
 }

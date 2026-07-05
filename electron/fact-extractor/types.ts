@@ -15,14 +15,9 @@ export type {
 // 拆分专有类型
 // ==========================================
 
-/** SubAgent 解析出的原始条目（未分配 ID） */
-export interface GraphClaim {
-  content: string
-  category?: string
-  sourceAgent?: string
-  /** 是否保留待落库；默认 true；仅 merge 可改为 false */
-  shouldSave?: boolean
-}
+import type { GraphClaimDto } from '../api/types'
+
+export type GraphClaim = GraphClaimDto
 
 /** 拆分出的单条可核查事实（嵌入子文档） */
 export interface PersistClaim {

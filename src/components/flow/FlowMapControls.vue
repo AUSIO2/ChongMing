@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { RUN_PHASE_LABEL } from '../../flow-map'
+import { RUN_PHASE_LABEL, labelFormatFocusNode, labelFormatHitl } from '../../flow-map'
 import type { ExecutionMode } from '../../flow-map'
 
 const store = useFlowMapStore()
@@ -45,13 +45,8 @@ const focusText = computed(() => {
   if (!s?.activeNodeId) return ''
   const n = s.nodes.find(x => x.id === s.activeNodeId)
   if (!n) return `焦点 · ${s.activeNodeId}`
-  const t = s.pendingTool ? `（${s.pendingTool}）` : ''
-  const name =
-    n.kind === 'subAgent' ? n.params.agentName :
-    n.kind === 'claim'    ? '事实' :
-    n.kind === 'news'     ? '新闻' :
-    '意见'
-  return `焦点 · ${name}${t}`
+  const t = s.pendingTool ? `（${labelFormatHitl(s.pendingTool, 'pending')}）` : ''
+  return `焦点 · ${labelFormatFocusNode(n)}${t}`
 })
 
 function onModeChange(ev: Event) {

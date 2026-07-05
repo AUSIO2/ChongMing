@@ -10,10 +10,11 @@ export {
   mapIdCreateDraftClaim,
   mapIdIsDraftClaim,
   mapIdReadDraftIndex,
-  mapIdReadSubAgentFlat,
+  mapIdReadSubAgentClaim,
   mapIdReadAgentName,
   mapIdCreateInstance,
   mapIdUpdateInstance,
   mapIdReadNodeFocus,
+  mapIdReadInterruptFocus,
   DRAFT_CLAIM_PREFIX,
 } from '../../electron/shared/map-ids'

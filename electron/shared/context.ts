@@ -8,7 +8,7 @@ export function ctxFormat(ctx: Record<string, string>): string {
 }
 
 /** 从 NewsContext 中提取 visibleToAI: true 的字段 */
-export function ctxReadVisible(context: NewsContext): Record<string, string> {
+export function ctxReadAiContext(context: NewsContext): Record<string, string> {
   const visible: Record<string, string> = {}
   for (const [key, field] of Object.entries(context)) {
     if (field?.visibleToAI) {

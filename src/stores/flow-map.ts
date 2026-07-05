@@ -32,8 +32,29 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   const isRunning = computed(() => runPhase.value === 'running')
   const isInterrupted = computed(() => runPhase.value === 'interrupted')
 
+  /** 统一错误面：API 异常与快照内 error。 */
+  const storeReadError = computed(
+    () => snapshot.value?.error ?? errorMessage.value ?? null,
+  )
+
+  function resetSession() {
+    selectedNodeId.value = null
+    catalog.value = []
+    catalogParent.value = null
+    errorMessage.value = null
+  }
+
+  function detachNews() {
+    const newsId = currentNewsId.value
+    if (newsId) portReadApi().unloadNews(newsId)
+    currentNewsId.value = null
+    snapshot.value = null
+    resetSession()
+  }
+
   async function attachNews(newsId: string) {
     currentNewsId.value = newsId
+    resetSession()
     await refresh()
   }
 
@@ -73,6 +94,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!newsId) return
     try {
       snapshot.value = await portReadApi().addSubAgent({ newsId, parentNodeId, params })
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
     }
@@ -83,6 +105,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!newsId) return
     try {
       snapshot.value = await portReadApi().updateNodeParams({ newsId, nodeId, params })
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
     }
@@ -94,6 +117,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await portReadApi().removeNode({ newsId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
     }
@@ -102,11 +126,16 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   async function startRun() {
     const newsId = currentNewsId.value
     if (!newsId) return
+    if (snapshot.value) {
+      snapshot.value = { ...snapshot.value, runPhase: 'running' }
+    }
     try {
       const { snapshot: next } = await portReadApi().startRun(newsId, mode.value)
       snapshot.value = next
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
+      await refresh()
     }
   }
 
@@ -117,10 +146,20 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!newsId || continueInFlight) return
     if (runPhase.value !== 'interrupted') return
     continueInFlight = true
+    if (snapshot.value) {
+      snapshot.value = {
+        ...snapshot.value,
+        runPhase: 'running',
+        activeNodeId: undefined,
+        pendingTool: undefined,
+      }
+    }
     try {
       snapshot.value = await portReadApi().continueStep(newsId)
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
+      await refresh()
     } finally {
       continueInFlight = false
     }
@@ -131,6 +170,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!newsId) return
     try {
       snapshot.value = await portReadApi().cancel(newsId)
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
     }
@@ -141,6 +181,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!newsId) return
     try {
       snapshot.value = await portReadApi().setMode(newsId, next)
+      errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
     }
@@ -154,10 +195,13 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     catalog,
     catalogParent,
     errorMessage,
+    storeReadError,
     runPhase,
     mode,
     isRunning,
     isInterrupted,
+    resetSession,
+    detachNews,
     attachNews,
     refresh,
     selectNode,

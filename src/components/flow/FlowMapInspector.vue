@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { NEWS_ROOT_ID, docCanAddSubAgent, docCanEditNode, docCanRemoveNode } from '../../flow-map'
+import { NEWS_ROOT_ID, docCanAddSubAgent, docCanEditNode, docCanRemoveNode, labelFormatNodeKind, labelFormatHitl, DATA_PHASE_LABEL } from '../../flow-map'
+import SubAgentCatalogPicker from './SubAgentCatalogPicker.vue'
 import type {
   MapNode,
   Priority,
@@ -10,7 +11,7 @@ import type {
 } from '../../flow-map'
 
 const store = useFlowMapStore()
-const { snapshot, selectedNode, selectedNodeId, catalog, catalogParent, errorMessage } = storeToRefs(store)
+const { snapshot, selectedNode, selectedNodeId, catalog, catalogParent, storeReadError } = storeToRefs(store)
 
 const showAddPanel = ref(false)
 const draftAgent = ref<CatalogSubAgent | null>(null)
@@ -120,23 +121,11 @@ async function onClaimContentInput(node: MapNode, ev: Event) {
 async function onRemove(node: MapNode) {
   await store.removeNode(node.id)
 }
-
-const kindLabel: Record<MapNode['kind'], string> = {
-  news: '新闻',
-  subAgent: 'SubAgent',
-  claim: '事实',
-  opinion: '意见',
-}
-
-const phaseLabel: Record<string, string> = {
-  workerOut: '产出中',
-  persisted: '已保存',
-}
 </script>
 
 <template>
   <div class="flow-map-inspector">
-    <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+    <p v-if="storeReadError" class="error">{{ storeReadError }}</p>
 
     <!-- 无选中：提示点新闻节点 -->
     <template v-if="!selectedNode">
@@ -150,12 +139,12 @@ const phaseLabel: Record<string, string> = {
     <template v-else>
       <section class="panel">
         <div class="head">
-          <span class="tag">{{ kindLabel[selectedNode.kind] }}</span>
+          <span class="tag">{{ labelFormatNodeKind(selectedNode) }}</span>
           <span
             v-if="selectedNode.kind === 'claim' || selectedNode.kind === 'opinion'"
             class="phase"
           >
-            {{ phaseLabel[selectedNode.dataPhase] }}
+            {{ DATA_PHASE_LABEL[selectedNode.dataPhase] }}
           </span>
           <span
             v-if="selectedNode.kind === 'claim' && !selectedNode.shouldSave"
@@ -164,10 +153,10 @@ const phaseLabel: Record<string, string> = {
             不保存
           </span>
           <span v-if="selectedNode.runtime?.pendingTool" class="tool">
-            等待 · {{ selectedNode.runtime.pendingTool }}
+            等待 · {{ labelFormatHitl(selectedNode.runtime.pendingTool, 'pending') }}
           </span>
           <span v-else-if="selectedNode.runtime?.activeTool" class="tool">
-            执行 · {{ selectedNode.runtime.activeTool }}
+            执行 · {{ labelFormatHitl(selectedNode.runtime.activeTool, 'active') }}
           </span>
         </div>
 
@@ -191,23 +180,18 @@ const phaseLabel: Record<string, string> = {
             >
               添加拆分 SubAgent
             </button>
-            <div v-if="showAddPanel && catalogParent === NEWS_ROOT_ID" class="add-panel">
-              <ul class="catalog">
-                <li
-                  v-for="c in catalog"
-                  :key="c.agentName"
-                  :class="{ selected: draftAgent?.agentName === c.agentName }"
-                  @click="draftAgent = c"
-                >
-                  <div class="cat-label">{{ c.displayLabel }}</div>
-                  <div class="cat-desc muted">{{ c.description }}</div>
-                </li>
-              </ul>
-              <div class="add-actions">
+            <SubAgentCatalogPicker
+              :catalog="catalog"
+              :visible="showAddPanel && catalogParent === NEWS_ROOT_ID"
+              :selected-agent-name="draftAgent?.agentName"
+              @select="draftAgent = $event"
+              @confirm="confirmAdd(NEWS_ROOT_ID)"
+              @cancel="showAddPanel = false"
+            >
+              <template #confirm>
                 <button :disabled="!draftAgent" @click="confirmAdd(NEWS_ROOT_ID)">确认添加</button>
-                <button class="ghost" @click="showAddPanel = false">取消</button>
-              </div>
-            </div>
+              </template>
+            </SubAgentCatalogPicker>
           </div>
         </div>
 
@@ -281,23 +265,18 @@ const phaseLabel: Record<string, string> = {
             >
               为此事实添加核查 SubAgent
             </button>
-            <div v-if="showAddPanel && catalogParent === selectedNode.id" class="add-panel">
-              <ul class="catalog">
-                <li
-                  v-for="c in catalog"
-                  :key="c.agentName"
-                  :class="{ selected: draftAgent?.agentName === c.agentName }"
-                  @click="draftAgent = c"
-                >
-                  <div class="cat-label">{{ c.displayLabel }}</div>
-                  <div class="cat-desc muted">{{ c.description }}</div>
-                </li>
-              </ul>
-              <div class="add-actions">
+            <SubAgentCatalogPicker
+              :catalog="catalog"
+              :visible="showAddPanel && catalogParent === selectedNode.id"
+              :selected-agent-name="draftAgent?.agentName"
+              @select="draftAgent = $event"
+              @confirm="confirmAdd(selectedNode.id)"
+              @cancel="showAddPanel = false"
+            >
+              <template #confirm>
                 <button :disabled="!draftAgent" @click="confirmAdd(selectedNode.id)">确认添加</button>
-                <button class="ghost" @click="showAddPanel = false">取消</button>
-              </div>
-            </div>
+              </template>
+            </SubAgentCatalogPicker>
           </div>
         </div>
 
