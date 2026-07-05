@@ -68,6 +68,11 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
   )
 
   handle(
+    IPC_CHANNELS.MAP_READ_ALL_CLAIMS,
+    (mapId: string) => mapService.mapReadAllClaims(mapId),
+  )
+
+  handle(
     IPC_CHANNELS.CATALOG_LIST,
     (module: 'split' | 'verify') => catalogReadEntries(module),
   )

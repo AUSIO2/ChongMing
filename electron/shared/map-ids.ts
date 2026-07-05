@@ -233,6 +233,20 @@ export function mapIdCreateInstance(
   return `${agentName}#${max + 1}`
 }
 
+/** LangGraph chains 键：1-2 为 news 根；2-3 从 scoped claim 解析 news 根。 */
+export function mapIdReadTransitionScope(
+  transitionKey: '0-1' | '1-2' | '2-3',
+  parentNodeId: string,
+): string | undefined {
+  if (transitionKey === '1-2') {
+    return mapIdIsDefaultNews(parentNodeId) ? undefined : parentNodeId
+  }
+  if (transitionKey === '2-3') {
+    return mapIdReadClaimNewsScope(parentNodeId)
+  }
+  return undefined
+}
+
 /** 写路径唯一补齐：对 drafts 逐条补 instanceId，existing 为同 parent 已有槽。 */
 export function mapIdUpdateInstance(
   drafts: RouteInstructionDraft[],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projCanPruneRoutes, projReadGatePolicy } from './gate-policy'
+import { projCanPruneRoutes, projReadGatePolicy } from '@flow-map/projection/gate-policy'
 
 describe('projReadGatePolicy', () => {
   it('confirmRoute prune；validate/save 不 prune', () => {

@@ -23,6 +23,7 @@ export {
   mapIdReadClaimSaveIndex,
   mapIdReadDraftIndex,
   mapIdClaimBelongsToNews,
+  mapIdReadTransitionScope,
   mapIdReadSubAgentClaim,
   mapIdReadAgentName,
   mapIdCreateInstance,

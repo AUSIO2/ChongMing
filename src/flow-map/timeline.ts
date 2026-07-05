@@ -2,11 +2,17 @@ import type { DisplayClaim } from '../../electron/api/types'
 import { AppError, ErrorCode } from '../../electron/shared/errors'
 import {
   MAP_DEFAULT_NEWS_ID,
-  mapIdCreateNews,
   mapIdIsScopedNews,
-  mapIdReadChain,
 } from './ids'
-import { docReadPendingParseSource } from './graph-doc'
+import {
+  scheduleDeriveStateIndex,
+  schedulePickWork,
+  scheduleReadInterruptStale,
+  scheduleReadPending,
+  scheduleReadScopePatch,
+  type TimelineScheduleContext,
+  type TimelineWorkItem,
+} from './schedule'
 import type { MapNode, MapSnapshot } from './types'
 
 export const STATE_CHAIN = ['source', 'news', 'fact', 'conclusion'] as const
@@ -50,6 +56,13 @@ export function timelineValidate(timeline: MapTimeline): void {
   }
 }
 
+export function timelineReadScheduleContext(
+  snapshot: MapSnapshot,
+  claims: DisplayClaim[],
+): TimelineScheduleContext {
+  return { snapshot, claims }
+}
+
 export function timelineReadScope(
   snapshot: MapSnapshot,
   timeline: MapTimeline,
@@ -85,67 +98,53 @@ export function timelineReadRootsAt(snapshot: MapSnapshot, x: StateIndex): MapNo
   return []
 }
 
-function scopeHasPersistedClaims(snapshot: MapSnapshot, scope: string): boolean {
-  if (scope === MAP_DEFAULT_NEWS_ID) {
-    return snapshot.nodes.some(
-      n => n.kind === 'claim' && n.dataPhase === 'persisted' && n.parentId !== undefined,
-    )
-  }
-  const subIds = new Set(
-    snapshot.nodes
-      .filter(n => n.kind === 'subAgent' && n.parentId === scope)
-      .map(n => n.id),
-  )
-  return snapshot.nodes.some(
-    n => n.kind === 'claim' && n.dataPhase === 'persisted' && subIds.has(n.parentId ?? ''),
+export function timelineReadPending(
+  snapshot: MapSnapshot,
+  claims: DisplayClaim[],
+  key: TransitionKey,
+): ReturnType<typeof scheduleReadPending> {
+  return scheduleReadPending(timelineReadScheduleContext(snapshot, claims), key)
+}
+
+/** 中断会话是否已完成（parent 对应阶段产物已落库），应清 session 重新调度。 */
+export function timelineReadInterruptStale(
+  snapshot: MapSnapshot,
+  claims: DisplayClaim[],
+  transitionKey: TransitionKey,
+  parentId: string,
+): boolean {
+  return scheduleReadInterruptStale(
+    timelineReadScheduleContext(snapshot, claims),
+    transitionKey,
+    parentId,
   )
 }
 
-function scopeClaimsNeedVerify(snapshot: MapSnapshot, claims: DisplayClaim[]): boolean {
-  if (claims.length > 0) {
-    return claims.some(c => !c.verifyResult)
-  }
-  return snapshot.nodes.some(
-    n => n.kind === 'claim' && n.dataPhase === 'persisted',
-  )
-}
-
-function scopeAtConclusion(claims: DisplayClaim[]): boolean {
-  return claims.length > 0 && claims.every(c => !!c.verifyResult)
+export function timelineReadScopePatch(
+  transitionKey: TransitionKey,
+  parentId: string,
+): { activeScope?: string } | undefined {
+  return scheduleReadScopePatch(transitionKey, parentId)
 }
 
 export function timelineDeriveStateIndex(
   snapshot: MapSnapshot,
   claims: DisplayClaim[],
-  scope: string,
+  timeline: MapTimeline = timelineCreateDefault(),
 ): StateIndex {
-  if (docReadPendingParseSource({ nodes: snapshot.nodes })) return 0
-
-  const scopedNews = snapshot.nodes.find(
-    n => n.id === scope && n.kind === 'news' && n.params.content.trim(),
+  return scheduleDeriveStateIndex(
+    timelineReadScheduleContext(snapshot, claims),
+    timeline,
   )
-  const anyNews = snapshot.nodes.some(
-    n => n.kind === 'news' && n.params.content.trim(),
-  )
-
-  if (!anyNews) return 0
-
-  if (!scopeHasPersistedClaims(snapshot, scope)) {
-    return scopedNews || scope === MAP_DEFAULT_NEWS_ID ? 1 : 1
-  }
-
-  if (scopeAtConclusion(claims)) return 3
-  if (scopeClaimsNeedVerify(snapshot, claims)) return 2
-  return 2
 }
 
 export function timelineReadEffectiveIndex(
   timeline: MapTimeline,
   snapshot: MapSnapshot,
   claims: DisplayClaim[],
-  scope: string,
+  _scope?: string,
 ): StateIndex {
-  const derived = timelineDeriveStateIndex(snapshot, claims, scope)
+  const derived = timelineDeriveStateIndex(snapshot, claims, timeline)
   if (timeline.stateIndex === undefined) return derived
   return Math.max(timeline.stateIndex, derived) as StateIndex
 }
@@ -170,46 +169,37 @@ export function timelineReadParents(
   scope: string,
   claims: DisplayClaim[],
 ): string[] {
-  if (key === '0-1') {
-    const pending = docReadPendingParseSource({ nodes: snapshot.nodes })
-    if (pending) return [pending]
-    return snapshot.nodes
-      .filter(n => n.kind === 'source' && !n.parentId)
-      .map(n => n.id)
-  }
-
-  if (key === '1-2') {
-    const news = snapshot.nodes.find(
-      n => n.id === scope && n.kind === 'news' && n.params.content.trim(),
-    )
-    if (news) return [news.id]
-    const root = snapshot.nodes.find(
-      n => n.kind === 'news' && !n.parentId && n.params.content.trim(),
-    )
-    return root ? [root.id] : []
-  }
-
-  if (key === '2-3') {
-    const fromDb = claims.filter(c => !c.verifyResult).map(c => c.claimId)
-    if (fromDb.length > 0) return fromDb
-    return snapshot.nodes
-      .filter(n => n.kind === 'claim' && n.dataPhase === 'persisted')
-      .map(n => n.id)
-  }
-
-  return []
+  return timelineReadPending(snapshot, claims, key)
+    .filter(w => !scope || !w.scopeNodeId || w.scopeNodeId === scope)
+    .map(w => w.parentNodeId)
 }
 
 /** 源链 news 节点 id（parse 后用于默认 activeScope）。 */
 export function timelineReadScopeAfterParse(sourceId: string): string | undefined {
-  const chainId = mapIdReadChain(sourceId)
-  return chainId ? mapIdCreateNews(chainId) : undefined
+  return scheduleReadScopePatch('0-1', sourceId)?.activeScope
 }
 
 export function timelineReadNextStateIndex(key: TransitionKey): StateIndex {
   if (key === '0-1') return 1
   if (key === '1-2') return 2
   return 3
+}
+
+export function timelinePickWork(
+  snapshot: MapSnapshot,
+  claims: DisplayClaim[],
+  key: TransitionKey,
+  items: TimelineWorkItem[],
+  timeline: MapTimeline,
+  selectedNewsId?: string | null,
+): TimelineWorkItem | null {
+  return schedulePickWork(
+    timelineReadScheduleContext(snapshot, claims),
+    key,
+    items,
+    timeline,
+    selectedNewsId,
+  )
 }
 
 /** runTransition 启动时解析 parentNodeId；无合法 parent 抛 MAP_SCOPE_NOT_FOUND。 */
@@ -220,15 +210,24 @@ export function timelineReadRunParent(
   selectedNewsId?: string | null,
   claims: DisplayClaim[] = [],
 ): string {
-  const scope = transitionKey === '1-2'
-    ? timelineReadScope(snapshot, timeline, selectedNewsId)
-    : timeline.activeScope
-  const parents = timelineReadParents(snapshot, transitionKey, scope, claims)
-  if (parents.length === 0) {
+  const work = timelinePickWork(
+    snapshot,
+    claims,
+    transitionKey,
+    timelineReadPending(snapshot, claims, transitionKey),
+    timeline,
+    selectedNewsId,
+  )
+  if (!work) {
     throw new AppError(
       ErrorCode.MAP_SCOPE_NOT_FOUND,
-      `no parent for transition ${transitionKey} scope=${scope}`,
+      `no parent for transition ${transitionKey}`,
     )
   }
-  return parents[0]
+  return work.parentNodeId
 }
+
+export {
+  scheduleLinePendingEmpty,
+  scheduleReadTransitionKey,
+} from './schedule'

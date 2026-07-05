@@ -102,7 +102,9 @@ const primaryDisabled = computed(() => primaryAction.value == null)
 const primaryHint = computed(() => {
   if (!snapshot.value) return '等待 Map 加载…'
   if (runPhase.value === 'running') return '执行中'
-  if (runPhase.value === 'interrupted') return '已暂停，点运行继续'
+  if (runPhase.value === 'interrupted') {
+    return focusText.value || '已暂停，点继续推进'
+  }
   if (runPhase.value === 'completed') return '本阶段已完成'
   if (runPhase.value === 'error') return '上次出错，可重新运行'
   return '按结束帧自动调度过渡'

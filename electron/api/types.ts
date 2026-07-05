@@ -313,6 +313,7 @@ export interface MapAPI {
       mapGraph?: MapGraphPersist | null
     },
   ): Promise<void>
+  readAllClaims(mapId: string): Promise<DisplayClaim[]>
 }
 
 export interface CatalogAPI {

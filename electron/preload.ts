@@ -12,6 +12,8 @@ const electronAPI: ElectronAPI = {
     delete: mapId => ipcRenderer.invoke(IPC_CHANNELS.MAP_DELETE, mapId),
     saveMapPersistence: (mapId, data) =>
       ipcRenderer.invoke(IPC_CHANNELS.MAP_SAVE, mapId, data),
+    readAllClaims: mapId =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_READ_ALL_CLAIMS, mapId),
   },
   catalog: {
     list: module => ipcRenderer.invoke(IPC_CHANNELS.CATALOG_LIST, module),

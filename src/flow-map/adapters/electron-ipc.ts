@@ -3,16 +3,19 @@
  */
 import { AppError, ErrorCode, errReadApp } from '../../../electron/shared/errors'
 import type { AddSubAgentInput, MapAPI, MapUpdateReason, UpdateNodeParamsInput } from '../api'
-import { MAP_DEFAULT_NEWS_ID, mapIdIsDefaultNews, mapIdIsScopedNews, mapIdUpdateInstance } from '../ids'
+import { MAP_DEFAULT_NEWS_ID, mapIdIsDefaultNews, mapIdIsScopedNews, mapIdUpdateInstance, mapIdReadTransitionScope, mapIdReadInterruptFocus } from '../ids'
 import {
   timelineCreateDefault,
-  timelineReadEffectiveIndex,
+  timelineDeriveStateIndex,
+  timelineReadInterruptStale,
   timelineReadNextStateIndex,
-  timelineReadParents,
+  timelineReadPending,
   timelineReadRunParent,
-  timelineReadScope,
-  timelineReadScopeAfterParse,
-  timelineResolveKeys,
+  timelineReadScopePatch,
+  timelinePickWork,
+  scheduleLinePendingEmpty,
+  scheduleReadTransitionKey,
+  timelineReadScheduleContext,
   type MapTimeline,
   type TransitionKey,
 } from '../timeline'
@@ -31,6 +34,8 @@ import {
   docUpdateSubAgent,
   docCreatePersist,
   docUpdateRunEnd,
+  docReconcileVerify,
+  docClearRunSession,
   docDeleteClaims,
   docDeleteNodes,
   docResetMap,
@@ -49,8 +54,15 @@ import type {
   MapSubAgentParams,
   Priority,
 } from '../types'
-import type { ElectronAPI } from '../../../electron/api/types'
-import type { DisplayClaim } from '../../../electron/api/types'
+import type {
+  DisplayClaim,
+  DisplayMap,
+  ElectronAPI,
+  GraphVerifyState,
+  MapGraphPersist,
+  MapRunPersist,
+  RestoreRunInput,
+} from '../../../electron/api/types'
 
 type RunOutcome = 'completed' | 'interrupted' | 'error'
 
@@ -134,12 +146,152 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     }
   }
 
-  async function ensureGraph(mapId: string): Promise<MapGraphDoc> {
-    const existing = graphs.get(mapId)
-    if (existing && existing.nodes.length > 0) return existing
+  async function reconcileVerify(doc: MapGraphDoc, mapId: string): Promise<void> {
+    try {
+      const claims = await api.map.readAllClaims(mapId)
+      docReconcileVerify(doc, claims)
+    } catch (e) {
+      console.error('[map] reconcile verify failed', e)
+    }
+  }
 
+  function adapterReadRestoreInput(
+    mapId: string,
+    run: MapRunPersist,
+    draft: MapGraphPersist['draft'],
+  ): RestoreRunInput | null {
+    if (!run.gate || !draft) return null
+    const scopeNodeId = draft && typeof draft === 'object' && 'scopeNodeId' in draft
+      ? (draft as GraphVerifyState).scopeNodeId
+      : undefined
+    return {
+      mapId,
+      runId: run.runId,
+      threadId: run.runId,
+      transitionKey: run.transitionKey,
+      parentNodeId: run.parentNodeId,
+      scopeNodeId,
+      mode: run.mode,
+      gate: run.gate,
+      pendingTool: run.pendingTool,
+      activeNodeId: run.activeNodeId,
+      draft: draft as RestoreRunInput['draft'],
+    }
+  }
+
+  function adapterSyncInterrupt(
+    doc: MapGraphDoc,
+    run: MapRunPersist,
+    draft: MapGraphPersist['draft'],
+  ): void {
+    if (!run.gate || !draft) return
+    const { focus, pendingTool } = mapIdReadInterruptFocus(
+      run.transitionKey,
+      run.gate,
+      draft as GraphVerifyState,
+    )
+    doc.runPhase = 'interrupted'
+    doc.runId = run.runId
+    doc.threadId = run.runId
+    doc.transitionKey = run.transitionKey
+    doc.parentNodeId = run.parentNodeId
+    doc.nextNode = run.gate
+    doc.pendingTool = pendingTool ?? run.pendingTool
+    doc.activeNodeId = focus?.id ?? run.activeNodeId
+    doc.draft = draft as MapGraphDoc['draft']
+    doc.mode = run.mode
+  }
+
+  async function adapterClearStaleRun(
+    doc: MapGraphDoc,
+    map: DisplayMap | null,
+    claims: DisplayClaim[],
+  ): Promise<boolean> {
+    const run = map?.mapRun
+    const staleKey = doc.transitionKey ?? run?.transitionKey
+    const staleParent = doc.parentNodeId ?? run?.parentNodeId
+    if (!staleKey || !staleParent) return false
+
+    if (!timelineReadInterruptStale(
+      docReadSnapshot(doc),
+      claims,
+      staleKey,
+      staleParent,
+    )) {
+      return false
+    }
+
+    docClearRunSession(doc)
+    await persistDoc(doc)
+    return true
+  }
+
+  async function adapterTryRestoreRun(
+    doc: MapGraphDoc,
+    map: DisplayMap,
+  ): Promise<boolean> {
+    const run = map.mapRun
+    if (!run || (run.status !== 'interrupted' && run.status !== 'running')) {
+      return false
+    }
+
+    const active = await api.graph.getActiveRun(doc.mapId)
+    if (active?.runId === run.runId) {
+      adapterSyncInterrupt(doc, run, map.mapGraph?.draft)
+      return true
+    }
+
+    const claims = await api.map.readAllClaims(doc.mapId)
+    if (await adapterClearStaleRun(doc, map, claims)) {
+      return false
+    }
+
+    doc.runPhase = 'interrupted'
+    const input = adapterReadRestoreInput(
+      doc.mapId,
+      run,
+      map.mapGraph?.draft,
+    )
+    if (!input) {
+      docClearRunSession(doc)
+      await persistDoc(doc)
+      return false
+    }
+
+    try {
+      await api.graph.restore(input)
+      adapterSyncInterrupt(doc, run, map.mapGraph?.draft)
+      return true
+    } catch (e) {
+      const appErr = errReadApp(e)
+      if (appErr.code === ErrorCode.GRAPH_NO_PENDING_INTERRUPT) {
+        docClearRunSession(doc)
+        await persistDoc(doc)
+        return false
+      }
+      console.error('[map] restore failed', appErr.msg)
+      docUpdateError(doc, appErr.msg)
+      docClearRunSession(doc)
+      await persistDoc(doc)
+      return false
+    }
+  }
+
+  async function ensureGraph(mapId: string): Promise<MapGraphDoc> {
     const map = await api.map.get(mapId)
+    const existing = graphs.get(mapId)
+
+    if (existing && existing.nodes.length > 0) {
+      const active = existing.runId
+        ? await api.graph.getActiveRun(mapId)
+        : null
+      if (active || (existing.runPhase === 'idle' && !map?.mapRun)) {
+        return existing
+      }
+    }
+
     if (!map) {
+      if (existing && existing.nodes.length > 0) return existing
       const doc = docCreate(mapId)
       doc.error = `map not found: ${mapId}`
       graphs.set(mapId, doc)
@@ -147,50 +299,23 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     }
 
     if (map.mapGraph && Array.isArray(map.mapGraph.nodes) && map.mapGraph.nodes.length > 0) {
-      const doc = docCreatePersist(mapId, map.mapGraph, map.mapRun)
+      const doc = existing && existing.nodes.length > 0
+        ? existing
+        : docCreatePersist(mapId, map.mapGraph, map.mapRun)
       doc.timeline = map.timeline
         ? { ...map.timeline }
         : timelineCreateDefault()
       graphs.set(mapId, doc)
 
-      const run = map.mapRun
-      if (run && (run.status === 'interrupted' || run.status === 'running')) {
-        doc.runPhase = 'interrupted'
-      }
-
-      if (
-        run
-        && (run.status === 'interrupted' || run.status === 'running')
-        && run.gate
-        && map.mapGraph.draft
-      ) {
-        try {
-          await api.graph.restore({
-            mapId,
-            runId: run.runId,
-            threadId: run.runId,
-            transitionKey: run.transitionKey,
-            parentNodeId: run.parentNodeId,
-            mode: run.mode,
-            gate: run.gate,
-            pendingTool: run.pendingTool,
-            activeNodeId: run.activeNodeId,
-            draft: map.mapGraph.draft,
-          })
-          doc.runId = run.runId
-          doc.threadId = run.runId
-        } catch (e) {
-          docUpdateError(doc, errReadApp(e).msg)
-          doc.runId = undefined
-          doc.threadId = undefined
-        }
-      }
+      await adapterTryRestoreRun(doc, map)
+      await reconcileVerify(doc, mapId)
       return doc
     }
 
-    if (existing) return existing
+    if (existing && existing.nodes.length > 0) return existing
 
     const doc = docCreateMap(map, 'human-in-loop')
+    await reconcileVerify(doc, mapId)
     graphs.set(mapId, doc)
     return doc
   }
@@ -223,9 +348,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     doc.transitionKey = key
     doc.parentNodeId = parentNodeId
 
-    const scopeNodeId = key === '1-2' && parentNodeId !== MAP_DEFAULT_NEWS_ID
-      ? parentNodeId
-      : undefined
+    const scopeNodeId = mapIdReadTransitionScope(key, parentNodeId)
 
     const { runId } = await api.graph.runTransition({
       mapId,
@@ -265,6 +388,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       const mapId = payload.mapId
       const doc = getLoadedDoc(mapId)
       if (!doc) return
+      docProjectGraphState(doc, payload.transitionKey, payload.state)
       docUpdateRunEnd(doc)
       void persistDoc(doc).then(() => emitPush(mapId, 'completed'))
     })
@@ -429,71 +553,142 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       const listener = graphListenRunEnd(api, mapId)
       try {
         const doc = await ensureGraph(mapId)
-        if (mode) doc.mode = mode
-
         let map = await api.map.get(mapId)
         if (!map) {
           throw new AppError(ErrorCode.MAP_NOT_FOUND, `map not found: ${mapId}`)
         }
+
+        let claims: DisplayClaim[] = await api.map.readAllClaims(mapId)
+
+        if (doc.runPhase === 'interrupted') {
+          const run = map.mapRun
+          const staleParent = doc.parentNodeId ?? run?.parentNodeId
+          const staleKey = doc.transitionKey ?? run?.transitionKey
+          if (staleKey && staleParent) {
+            const stale = timelineReadInterruptStale(
+              docReadSnapshot(doc),
+              claims,
+              staleKey,
+              staleParent,
+            )
+            if (stale) {
+              docClearRunSession(doc)
+              await persistDoc(doc)
+              map = await api.map.get(mapId)
+              if (!map) {
+                throw new AppError(ErrorCode.MAP_NOT_FOUND, `map not found: ${mapId}`)
+              }
+            }
+          }
+          if (doc.runPhase === 'interrupted' && doc.runId) {
+            return {
+              runId: doc.runId,
+              snapshot: docReadSnapshot(doc),
+              status: 'interrupted' as const,
+            }
+          }
+        }
+        if (mode) doc.mode = mode
 
         let timeline: MapTimeline = map.timeline
           ? { ...map.timeline }
           : doc.timeline
         doc.timeline = timeline
 
-        let claims: DisplayClaim[] = map.claims
-
         const readSnap = () => docReadSnapshot(doc)
-        let scope = timelineReadScope(readSnap(), timeline, selectedNewsId)
-        const effectiveX = timelineReadEffectiveIndex(
-          timeline,
+        const derived = timelineDeriveStateIndex(readSnap(), claims, timeline)
+
+        if (derived >= timeline.endX) {
+          docUpdateRunEnd(doc)
+          await persistDoc(doc)
+          return {
+            runId: doc.runId ?? '',
+            snapshot: readSnap(),
+            status: 'done' as const,
+          }
+        }
+
+        const key = scheduleReadTransitionKey(derived)
+        if (!key) {
+          docUpdateRunEnd(doc)
+          await persistDoc(doc)
+          return {
+            runId: doc.runId ?? '',
+            snapshot: readSnap(),
+            status: 'done' as const,
+          }
+        }
+
+        const ctx = timelineReadScheduleContext(readSnap(), claims)
+        const work = timelinePickWork(
           readSnap(),
           claims,
-          scope,
+          key,
+          timelineReadPending(readSnap(), claims, key),
+          timeline,
+          selectedNewsId,
         )
-        const keys = timelineResolveKeys(timeline, effectiveX)
-
-        for (const key of keys) {
-          const parents = timelineReadParents(readSnap(), key, scope, claims)
-          if (parents.length === 0) continue
-
-          for (const parentId of parents) {
-            const outcome = await runOneTransition(doc, mapId, key, parentId, listener.wait)
-            if (outcome === 'interrupted') {
-              return {
-                runId: doc.runId!,
-                snapshot: readSnap(),
-                status: 'interrupted' as const,
-              }
-            }
-            if (outcome === 'error') {
-              throw new AppError(ErrorCode.MAP_SCOPE_NOT_FOUND, `transition ${key} failed`)
-            }
-
-            map = await api.map.get(mapId)
-            if (map) claims = map.claims
-
-            if (key === '0-1') {
-              const nextScope = timelineReadScopeAfterParse(parentId)
-              if (nextScope) {
-                scope = nextScope
-                timeline = { ...timeline, activeScope: nextScope }
-                doc.timeline = timeline
-                const updated = await api.map.update(mapId, {
-                  timeline: { activeScope: nextScope },
-                })
-                timeline = updated.timeline
-                doc.timeline = timeline
-              }
-            }
+        if (!work) {
+          docUpdateRunEnd(doc)
+          await persistDoc(doc)
+          return {
+            runId: doc.runId ?? '',
+            snapshot: readSnap(),
+            status: 'done' as const,
           }
+        }
 
-          const nextIdx = timelineReadNextStateIndex(key)
-          timeline = { ...timeline, stateIndex: nextIdx }
+        const scopePatch = work.scopeNodeId
+          ? { activeScope: work.scopeNodeId }
+          : timelineReadScopePatch(key, work.parentNodeId)
+        if (scopePatch?.activeScope && timeline.activeScope !== scopePatch.activeScope) {
+          timeline = { ...timeline, activeScope: scopePatch.activeScope }
           doc.timeline = timeline
-          const updated = await api.map.update(mapId, { timeline: { stateIndex: nextIdx } })
-          timeline = updated.timeline
+          const scopeUpdated = await api.map.update(mapId, {
+            timeline: { activeScope: scopePatch.activeScope },
+          })
+          timeline = scopeUpdated.timeline
           doc.timeline = timeline
+        }
+
+        const outcome = await runOneTransition(
+          doc,
+          mapId,
+          key,
+          work.parentNodeId,
+          listener.wait,
+        )
+        if (outcome === 'interrupted') {
+          return {
+            runId: doc.runId!,
+            snapshot: readSnap(),
+            status: 'interrupted' as const,
+          }
+        }
+        if (outcome === 'error') {
+          throw new AppError(ErrorCode.MAP_SCOPE_NOT_FOUND, `transition ${key} failed`)
+        }
+
+        map = await api.map.get(mapId)
+        if (map) claims = await api.map.readAllClaims(mapId)
+
+        if (outcome === 'completed') {
+          const freshCtx = timelineReadScheduleContext(readSnap(), claims)
+          if (scheduleLinePendingEmpty(freshCtx, timeline, key)) {
+            const nextIdx = timelineReadNextStateIndex(key)
+            timeline = { ...timeline, stateIndex: nextIdx }
+            doc.timeline = timeline
+            const updated = await api.map.update(mapId, { timeline: { stateIndex: nextIdx } })
+            timeline = updated.timeline
+            doc.timeline = timeline
+          }
+          docUpdateRunEnd(doc)
+          await persistDoc(doc)
+          return {
+            runId: doc.runId ?? '',
+            snapshot: readSnap(),
+            status: 'done' as const,
+          }
         }
 
         docUpdateRunEnd(doc)
@@ -578,10 +773,13 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           doc.transitionKey = '1-2'
           doc.parentNodeId = parentNodeId
 
+          const scopeNodeId = mapIdReadTransitionScope('1-2', parentNodeId)
+
           const { runId } = await api.graph.runTransition({
             mapId,
             transitionKey: '1-2',
             parentNodeId: doc.parentNodeId,
+            scopeNodeId,
             mode: doc.mode,
           })
           doc.runId = runId
@@ -599,13 +797,29 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     },
 
     async continueStep(mapId) {
-      const doc = getDoc(mapId)
-      if (!doc.runId) {
-        await ensureGraph(mapId)
-        return snapshotOf(mapId)
+      const map = await api.map.get(mapId)
+      let doc = await ensureGraph(mapId)
+
+      if (!doc.runId && map?.mapRun) {
+        await adapterTryRestoreRun(doc, map)
       }
+
+      let active = doc.runId ? await api.graph.getActiveRun(mapId) : null
+      if (doc.runId && !active && map?.mapRun) {
+        await adapterTryRestoreRun(doc, map)
+        active = await api.graph.getActiveRun(mapId)
+      }
+
+      if (!doc.runId || !active) {
+        if (doc.runPhase === 'interrupted') {
+          docClearRunSession(doc)
+          await persistDoc(doc)
+        }
+        return docReadSnapshot(doc)
+      }
+
       if (doc.runPhase === 'running' && !doc.pendingTool) {
-        return snapshotOf(mapId)
+        return docReadSnapshot(doc)
       }
 
       if (doc.pendingTool === 'validate') {
@@ -630,7 +844,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
         await persistDoc(doc)
         throw e
       }
-      return snapshotOf(mapId)
+      return docReadSnapshot(doc)
     },
 
     async cancel(mapId) {
@@ -647,9 +861,20 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     },
 
     async setMode(mapId, mode) {
-      const doc = await adapterMutate(mapId, async (doc) => {
+      const map = await api.map.get(mapId)
+      let doc = await ensureGraph(mapId)
+      const claims = await api.map.readAllClaims(mapId)
+      await adapterClearStaleRun(doc, map, claims)
+
+      if (doc.runId && !(await api.graph.getActiveRun(mapId))) {
+        docClearRunSession(doc)
+        await persistDoc(doc)
+      }
+
+      doc = await adapterMutate(mapId, async (doc) => {
         doc.mode = mode
-        if (doc.runId) await api.graph.setMode(doc.runId, mode)
+        const active = doc.runId ? await api.graph.getActiveRun(mapId) : null
+        if (active) await api.graph.setMode(doc.runId!, mode)
       })
       return docReadSnapshot(doc)
     },

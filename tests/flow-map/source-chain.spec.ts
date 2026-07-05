@@ -6,8 +6,8 @@ import {
   mapIdCreateNews,
   mapIdReadChain,
   mapIdReadInterruptFocus,
-} from './ids'
-import { docAddSourceChain, docCreate, docReadPendingParseSource } from './graph-doc'
+} from '@flow-map/ids'
+import { docAddSourceChain, docCreate, docReadPendingParseSource } from '@flow-map/graph-doc'
 
 describe('source chain ids', () => {
   it('mapIdCreateChain 生成 source/parse/news 同源', () => {

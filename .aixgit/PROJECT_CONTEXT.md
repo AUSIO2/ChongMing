@@ -29,3 +29,4 @@
 - 引入源到新闻解析链 (0-1)
 - 统一Map链键，扁平化时间线
 - 新增Map删除与中断修复
+- 提取图操作到graph-mutators和projection模块

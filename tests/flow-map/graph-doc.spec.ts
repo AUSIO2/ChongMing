@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MAP_DEFAULT_NEWS_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews, mapIdCreateDraftClaim } from './ids'
-import type { MapSnapshot, MapClaimNode } from './types'
-import { timelineCreateDefault } from './timeline'
+import { MAP_DEFAULT_NEWS_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews, mapIdCreateDraftClaim } from '@flow-map/ids'
+import type { MapSnapshot, MapClaimNode } from '@flow-map/types'
+import { timelineCreateDefault } from '@flow-map/timeline'
 import {
   docUpdateInterrupt,
   docUpdateProgress,
@@ -20,8 +20,9 @@ import {
   docReadRoutes,
   docAddRootNews,
   docAddRootClaim,
+  docReconcileVerify,
   type MapGraphDoc,
-} from './graph-doc'
+} from '@flow-map/graph-doc'
 import type { DisplayMap, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
 
 function baseSnapshot(overrides: Partial<MapSnapshot> = {}): MapSnapshot {
@@ -658,6 +659,38 @@ describe('graph-doc state', () => {
     const sub = doc.nodes.find(n => n.kind === 'subAgent' && n.parentId === '1')
     expect(sub?.id).toBe('sub:1:来源可信度#1')
     expect(doc.nodes.some(n => n.kind === 'opinion')).toBe(true)
+  })
+
+  it('docReconcileVerify 从 chains 补齐缺失 opinion 节点', () => {
+    const doc = docCreate('n1')
+    doc.nodes.push({
+      id: 'claim:news:a:1',
+      kind: 'claim',
+      parentId: 'news:a',
+      params: { content: 'fact' },
+      dataPhase: 'persisted',
+      shouldSave: true,
+    })
+    docReconcileVerify(doc, [{
+      claimId: 'claim:news:a:1',
+      content: 'fact',
+      verifyResult: {
+        score: 1,
+        reason: 'ok',
+        rawMergeResponse: '',
+        verifiedAt: '2026-01-01T00:00:00.000Z',
+        opinions: [{
+          agentName: '来源可信度',
+          instanceId: '来源可信度#1',
+          priority: 'medium',
+          score: 1,
+          reason: '可信',
+          rawResponse: '',
+        }],
+      },
+    }])
+    expect(doc.nodes.some(n => n.kind === 'opinion')).toBe(true)
+    expect(doc.nodes.some(n => n.kind === 'subAgent' && n.parentId === 'claim:news:a:1')).toBe(true)
   })
 
   it('subagent_tool start 写入 activeSkill（含 argsSummary）', () => {

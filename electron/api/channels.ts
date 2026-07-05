@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   MAP_UPDATE: 'map:update',
   MAP_DELETE: 'map:delete',
   MAP_SAVE: 'map:save',
+  MAP_READ_ALL_CLAIMS: 'map:read-all-claims',
 
   CATALOG_LIST: 'catalog:list',
 

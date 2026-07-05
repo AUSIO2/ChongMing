@@ -73,6 +73,12 @@ export function mapScopeReadDefault(doc: MapDocLike): MapChainScope {
   return mapScopeRequire(doc, MAP_DEFAULT_SCOPE)
 }
 
+/** 汇总所有 scope 的 claims（用于 mapGraph 与 chains 对账）。 */
+export function mapScopeReadAllClaims(doc: MapDocLike): MapChainClaims[] {
+  const chains = chainsReadRaw(doc)
+  return Object.values(chains).flatMap(scope => scope.claims ?? [])
+}
+
 export function mapScopeReadContext(scope: MapChainScope): NewsContext {
   const ctx = scope.context
   if (!ctx || typeof ctx !== 'object') return {}

@@ -48,19 +48,18 @@ export function timelineProjectLines(snapshot: MapSnapshot): TimelineLine[] {
     )
 
     let leafId = rootId
-    let minDepth = Number.POSITIVE_INFINITY
+    let maxDepth = rootLayout.depth
     for (const lid of leaves) {
       const ln = byId.get(lid)
       if (!ln) continue
-      if (ln.depth < minDepth || (ln.depth === minDepth && lid < leafId)) {
-        minDepth = ln.depth
+      if (ln.depth > maxDepth || (ln.depth === maxDepth && lid < leafId)) {
+        maxDepth = ln.depth
         leafId = lid
       }
     }
-    if (!Number.isFinite(minDepth)) {
-      minDepth = rootLayout.depth
+    if (!Number.isFinite(maxDepth)) {
+      maxDepth = rootLayout.depth
     }
-    const leafLayout = byId.get(leafId)!
 
     const frames: Partial<Record<FrameIndex, string[]>> = {}
     let effectiveFrame = rootLayout.depth as FrameIndex
@@ -79,7 +78,7 @@ export function timelineProjectLines(snapshot: MapSnapshot): TimelineLine[] {
       label: timelineFormatRootLabel(rootNode, snapshot.nodes, seq),
       layoutY: rootLayout.y,
       xStart: rootLayout.depth as FrameIndex,
-      xEnd: leafLayout.depth as FrameIndex,
+      xEnd: effectiveFrame,
       effectiveFrame,
       frames,
     }

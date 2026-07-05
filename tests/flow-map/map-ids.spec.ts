@@ -11,8 +11,9 @@ import {
   mapIdCreateDraftClaim,
   mapIdReadClaimSaveIndex,
   mapIdClaimBelongsToNews,
+  mapIdReadTransitionScope,
   MAP_DEFAULT_NEWS_ID,
-} from './ids'
+} from '@flow-map/ids'
 
 describe('map-ids', () => {
   it('mapIdCreateInstance 按 parent 已有槽递增', () => {
@@ -120,6 +121,19 @@ describe('map-ids', () => {
     })
     expect(focus).toEqual({ kind: 'claim', id: '2' })
     expect(pendingTool).toBe('save')
+  })
+
+  it('mapIdReadTransitionScope 2-3 从 scoped claim 解析 news scope', () => {
+    expect(
+      mapIdReadTransitionScope('2-3', 'claim:news:abc:1'),
+    ).toBe('news:abc')
+    expect(mapIdReadTransitionScope('2-3', '1')).toBeUndefined()
+    expect(
+      mapIdReadTransitionScope('1-2', 'news:abc'),
+    ).toBe('news:abc')
+    expect(
+      mapIdReadTransitionScope('1-2', MAP_DEFAULT_NEWS_ID),
+    ).toBeUndefined()
   })
 
   it('mapIdReadInterruptFocus confirmRoute 核查指向 claim', () => {

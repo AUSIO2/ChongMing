@@ -55,6 +55,7 @@ import {
 } from './projection/registry'
 import {
   type DisplayMap,
+  type DisplayClaim,
   type GraphInterruptNode,
   type GraphInterruptedPayload,
   type GraphProgressPayload,
@@ -151,6 +152,16 @@ export function docCreateMap(
   doc.error = undefined
   docDeleteFocus(doc)
   return doc
+}
+
+/** 从 chains 核查结果补齐 mapGraph 中缺失的 opinion / verify 槽。 */
+export function docReconcileVerify(doc: MapGraphDoc, claims: DisplayClaim[]): void {
+  for (const c of claims) {
+    const opinions = c.verifyResult?.opinions ?? []
+    if (opinions.length === 0) continue
+    if (!doc.nodes.some(n => n.id === c.claimId && n.kind === 'claim')) continue
+    projUpdateVerifyOpinion(doc, c.claimId, [], opinions, opinions.length)
+  }
 }
 
 /** 追加源节点；parse / news 在 0-1 路由投影时出现。 */
@@ -607,11 +618,8 @@ export function docDeleteFocus(doc: MapGraphDoc): void {
   docDeleteRuntime(doc)
 }
 
-// —— internals ——
-
-export { docDeleteNodes, docReadClaims, docReadRoutes, docUpdateSubAgent } from './graph-mutators'
-
-function docDeleteRunSession(doc: MapGraphDoc): void {
+/** 清除运行会话（mapRun / interrupt 焦点），图节点保留。 */
+export function docClearRunSession(doc: MapGraphDoc): void {
   doc.runPhase = 'idle'
   doc.activeNodeId = undefined
   doc.pendingTool = undefined
@@ -621,6 +629,14 @@ function docDeleteRunSession(doc: MapGraphDoc): void {
   doc.transitionKey = undefined
   doc.draft = undefined
   doc.error = undefined
+}
+
+// —— internals ——
+
+export { docDeleteNodes, docReadClaims, docReadRoutes, docUpdateSubAgent } from './graph-mutators'
+
+function docDeleteRunSession(doc: MapGraphDoc): void {
+  docClearRunSession(doc)
 }
 
 function docDeleteSkill(node: MapNode): void {

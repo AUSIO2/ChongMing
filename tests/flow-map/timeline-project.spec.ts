@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { mapIdCreateNews, mapIdCreateParse, mapIdCreateSource } from './ids'
-import { layoutReadSnapshot } from './layout'
+import { mapIdCreateNews, mapIdCreateParse, mapIdCreateSource } from '@flow-map/ids'
+import { layoutReadSnapshot } from '@flow-map/layout'
 import {
   timelineProjectLines,
   timelineReadGlobalFrame,
   timelineReadGlobalStart,
-} from './timeline-project'
-import { timelineCreateDefault } from './timeline'
-import type { MapSnapshot } from './types'
+} from '@flow-map/timeline-project'
+import { timelineCreateDefault } from '@flow-map/timeline'
+import type { MapSnapshot } from '@flow-map/types'
 
 function snap(nodes: MapSnapshot['nodes']): MapSnapshot {
   return {
@@ -90,5 +90,36 @@ describe('timeline-project', () => {
     const layout = layoutReadSnapshot(s)
     const lines = timelineProjectLines(s)
     expect(lines[0].layoutY).toBe(layout.nodes[0].y)
+  })
+
+  it('xEnd 延伸到子树最深列（非最浅叶）', () => {
+    const newsId = mapIdCreateNews('a')
+    const s = snap([
+      { id: newsId, kind: 'news', params: { content: '正文' } },
+      {
+        id: 'claim:news:a:1',
+        kind: 'claim',
+        parentId: newsId,
+        dataPhase: 'persisted',
+        shouldSave: true,
+        params: { content: '事实' },
+      },
+      {
+        id: 'sub:claim:news:a:1:agent#1',
+        kind: 'subAgent',
+        parentId: 'claim:news:a:1',
+        params: { agentName: 'agent', priority: 'high', instanceId: 'agent#1' },
+      },
+      {
+        id: 'opinion:claim:news:a:1:0',
+        kind: 'opinion',
+        parentId: 'sub:claim:news:a:1:agent#1',
+        params: { content: 'ok', confidence: 1, priority: 'high' },
+        dataPhase: 'persisted',
+      },
+    ])
+    const lines = timelineProjectLines(s)
+    expect(lines[0].xEnd).toBe(6)
+    expect(lines[0].effectiveFrame).toBe(6)
   })
 })

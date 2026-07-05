@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { MAP_DEFAULT_SCOPE, mapScopeReadKey } from '../shared/map-scope'
+import { MAP_DEFAULT_SCOPE, mapScopeReadKey, mapScopeReadAllClaims } from '../shared/map-scope'
 import type {
   CreateMapInput,
   DisplayMap,
@@ -82,6 +82,12 @@ export async function mapRead(mapId: string): Promise<DisplayMap | null> {
   const activeScope = (doc.timeline as { activeScope?: string } | undefined)
     ?.activeScope ?? MAP_DEFAULT_SCOPE
   return serialReadMap(doc, activeScope)
+}
+
+export async function mapReadAllClaims(mapId: string): Promise<DisplayMap['claims']> {
+  const doc = await MapModel.findById(mapId).lean()
+  if (!doc) return []
+  return mapScopeReadAllClaims(doc) as DisplayMap['claims']
 }
 
 export async function mapUpdate(

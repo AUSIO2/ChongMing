@@ -7,7 +7,8 @@
     "dev": "env -u ELECTRON_RUN_AS_NODE vite",
     "build": "vue-tsc && vite build && electron-builder",
     "preview": "vite preview",
-    "test:map": "vitest run --config vitest.config.ts src/flow-map"
+    "test": "vitest run --config vitest.config.ts",
+    "test:map": "vitest run --config vitest.config.ts tests/flow-map"
   },
   "dependencies": {
     "@langchain/core": "^1.2.1",

@@ -9,6 +9,7 @@ import { AppError, ErrorCode } from '../shared/errors'
 import { ctxReadAiContext, ctxFormat } from '../shared/context'
 import {
   mapScopeReadContext,
+  mapScopeReadKey,
   mapScopeRequire,
 } from '../shared/map-scope'
 import { promptRead, promptFormat } from '../shared/prompt-loader'
@@ -208,7 +209,7 @@ async function writeVerifyResult(
   }
 
   const chains = doc.get('chains') as Map<string, Record<string, unknown>>
-  const scope = chains.get(state.scopeNodeId)
+  const scope = chains.get(mapScopeReadKey(state.scopeNodeId))
   if (!scope) {
     throw new AppError(
       ErrorCode.MAP_SCOPE_NOT_FOUND,

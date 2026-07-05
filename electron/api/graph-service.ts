@@ -27,6 +27,7 @@ import {
   mapIdReadInterruptFocus,
   mapIdCreateParse,
   mapIdReadChain,
+  mapIdReadTransitionScope,
 } from '../shared/map-ids'
 import {
   transitionReadSpec,
@@ -56,6 +57,16 @@ interface ActiveRun extends GraphRunSession {
 }
 
 const activeRuns = new Map<string, ActiveRun>()
+
+function graphReadScopeNodeId(
+  transitionKey: TransitionKey,
+  parentNodeId: string,
+  scopeNodeId?: string,
+): string {
+  return scopeNodeId
+    ?? mapIdReadTransitionScope(transitionKey, parentNodeId)
+    ?? MAP_DEFAULT_SCOPE
+}
 
 function sendToRenderer(
   getWindow: WindowGetter,
@@ -328,7 +339,11 @@ export function runTransition(
     mapId: input.mapId,
     transitionKey: input.transitionKey,
     parentNodeId: input.parentNodeId,
-    scopeNodeId: input.scopeNodeId ?? MAP_DEFAULT_SCOPE,
+    scopeNodeId: graphReadScopeNodeId(
+      input.transitionKey,
+      input.parentNodeId,
+      input.scopeNodeId,
+    ),
     mode: input.mode,
   }
   const spec = transitionReadSpec(ctx.transitionKey)
@@ -358,7 +373,11 @@ export async function runRestoreSession(
     mapId: input.mapId,
     transitionKey: input.transitionKey,
     parentNodeId: input.parentNodeId,
-    scopeNodeId: input.scopeNodeId ?? MAP_DEFAULT_SCOPE,
+    scopeNodeId: graphReadScopeNodeId(
+      input.transitionKey,
+      input.parentNodeId,
+      input.scopeNodeId,
+    ),
     mode: input.mode,
   }
   const spec = transitionReadSpec(ctx.transitionKey)

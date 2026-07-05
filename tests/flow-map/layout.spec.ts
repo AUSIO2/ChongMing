@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { layoutReadSnapshot } from './layout'
-import { MAP_DEFAULT_NEWS_ID } from './ids'
-import { MAP_COLUMN } from './columns'
-import { timelineCreateDefault } from './timeline'
-import type { MapNode, MapSnapshot } from './types'
+import { layoutReadSnapshot } from '@flow-map/layout'
+import { MAP_DEFAULT_NEWS_ID } from '@flow-map/ids'
+import { MAP_COLUMN } from '@flow-map/columns'
+import { timelineCreateDefault } from '@flow-map/timeline'
+import type { MapNode, MapSnapshot } from '@flow-map/types'
 
 const newsNode: MapNode = {
   id: MAP_DEFAULT_NEWS_ID,
