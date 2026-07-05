@@ -1,6 +1,9 @@
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
+import { getConfig } from '@langchain/langgraph'
+import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { Serialized } from '@langchain/core/load/serializable'
 import type { MapSubAgentParams, AgentRuntimeConfig } from './types'
 
 const JSON_CODE_BLOCK_RE = /```(?:json)?\s*([\s\S]*?)```/i
@@ -166,11 +169,105 @@ export function formatToolsSystemPrompt(tools: StructuredToolInterface[]): strin
   ].join('\n')
 }
 
+const TOOL_INPUT_SUMMARY_MAX = 200
+
+/** 将 tool 输入压缩为 Map 层可展示的摘要。 */
+export function summarizeToolInput(input: unknown): string | undefined {
+  let value = input
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+    try {
+      value = JSON.parse(trimmed) as unknown
+    } catch {
+      return trimmed.length > TOOL_INPUT_SUMMARY_MAX
+        ? `${trimmed.slice(0, TOOL_INPUT_SUMMARY_MAX)}…`
+        : trimmed
+    }
+  }
+
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>
+    if (typeof record.query === 'string' && record.query.trim()) {
+      const q = record.query.trim()
+      return q.length > TOOL_INPUT_SUMMARY_MAX
+        ? `${q.slice(0, TOOL_INPUT_SUMMARY_MAX)}…`
+        : q
+    }
+  }
+
+  try {
+    const text = JSON.stringify(value)
+    if (!text || text === '{}') return undefined
+    return text.length > TOOL_INPUT_SUMMARY_MAX
+      ? `${text.slice(0, TOOL_INPUT_SUMMARY_MAX)}…`
+      : text
+  } catch {
+    return undefined
+  }
+}
+
+export type SkillActivityPhase = 'start' | 'end'
+
+export interface SkillActivityEvent {
+  phase: SkillActivityPhase
+  toolName: string
+  argsSummary?: string
+}
+
+export type SkillActivityCallback = (event: SkillActivityEvent) => void
+
+function serializedToolName(tool: Serialized): string {
+  if (typeof tool.name === 'string' && tool.name) return tool.name
+  const id = tool.id
+  if (Array.isArray(id) && id.length > 0) {
+    const last = id[id.length - 1]
+    if (typeof last === 'string' && last) return last
+  }
+  return 'unknown'
+}
+
+function createSkillActivityHandler(onSkillActivity?: SkillActivityCallback): BaseCallbackHandler {
+  let activeToolName: string | undefined
+
+  return BaseCallbackHandler.fromMethods({
+    handleToolStart(tool, input) {
+      const toolName = serializedToolName(tool)
+      activeToolName = toolName
+      const parsed = typeof input === 'string'
+        ? (() => {
+          try { return JSON.parse(input) as unknown } catch { return input }
+        })()
+        : input
+      onSkillActivity?.({
+        phase: 'start',
+        toolName,
+        argsSummary: summarizeToolInput(parsed),
+      })
+    },
+    handleToolEnd() {
+      if (!activeToolName) return
+      onSkillActivity?.({ phase: 'end', toolName: activeToolName })
+      activeToolName = undefined
+    },
+    handleToolError() {
+      if (!activeToolName) return
+      onSkillActivity?.({ phase: 'end', toolName: activeToolName })
+      activeToolName = undefined
+    },
+  })
+}
+
+export interface InvokeWithOptionalToolsOptions {
+  onSkillActivity?: SkillActivityCallback
+}
+
 /** 有 tools 时走 ReAct，否则直接 invoke */
 export async function invokeWithOptionalTools(
   model: BaseChatModel,
   tools: StructuredToolInterface[],
   prompt: string,
+  options?: InvokeWithOptionalToolsOptions,
 ): Promise<string> {
   if (tools.length > 0) {
     const agent = createReactAgent({
@@ -178,9 +275,21 @@ export async function invokeWithOptionalTools(
       tools,
       prompt: formatToolsSystemPrompt(tools),
     })
-    const result = await agent.invoke({
-      messages: [{ role: 'user', content: prompt }],
-    })
+    const parentConfig = getConfig()
+    const skillHandler = createSkillActivityHandler(options?.onSkillActivity)
+    const parentCallbacks = Array.isArray(parentConfig?.callbacks)
+      ? parentConfig.callbacks
+      : parentConfig?.callbacks
+        ? [parentConfig.callbacks]
+        : []
+
+    const result = await agent.invoke(
+      { messages: [{ role: 'user', content: prompt }] },
+      {
+        ...parentConfig,
+        callbacks: [...parentCallbacks, skillHandler],
+      },
+    )
     return messageContentToString(result.messages.at(-1)?.content)
   }
 

@@ -50,8 +50,11 @@ export function verifyInstanceId(claimId: string, agentName: string, seq = 1): s
  */
 export function scopedVerifyInstanceId(
   claimId: string,
-  route: Pick<MapSubAgentParams, 'instanceId'>,
+  route: Pick<MapSubAgentParams, 'instanceId'> & { agentName?: string },
 ): string {
-  const base = route.instanceId
+  const base =
+    route.instanceId
+    ?? (route.agentName ? verifyInstanceId(claimId, route.agentName) : undefined)
+  if (!base) return `${claimId}:unknown`
   return base.startsWith(`${claimId}:`) ? base : `${claimId}:${base}`
 }

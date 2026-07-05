@@ -3,6 +3,14 @@ import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import vue from '@vitejs/plugin-vue'
 
+/** Electron main 不打包 node_modules，避免 mongodb 可选 peer（kerberos 等）在 bundle 内解析失败 */
+function electronMainExternal(id: string): boolean {
+  if (id.startsWith('.') || id.startsWith('\0') || path.isAbsolute(id)) {
+    return false
+  }
+  return true
+}
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -12,7 +20,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['mongoose', 'mongodb-memory-server'],
+              external: electronMainExternal,
             },
           },
         },

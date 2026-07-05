@@ -30,6 +30,7 @@ import {
   type DisplayNews,
   type GraphInterruptNode,
   type GraphInterruptedPayload,
+  type GraphProgressPayload,
   type GraphSplitState,
   type GraphStatePatch,
   type GraphType,
@@ -136,27 +137,86 @@ export function bootstrapFromNews(
 function resolveSplitRoutesFromNews(news: DisplayNews): MapSubAgentParams[] {
   const routes = news.splitMeta?.routeInstructions
   if (!routes?.length) return []
-  return routes.map(r => ({
+  return routes.map((r, index) => ({
     agentName: r.agentName,
     priority: r.priority,
     hint: r.hint,
-    instanceId: r.instanceId,
+    instanceId: r.instanceId ?? `${r.agentName}#${index + 1}`,
   }))
 }
 
 export function applyProgress(doc: MapGraphDoc, runId: string, graphType: GraphType): void {
+  applyGraphProgress(doc, {
+    runId,
+    newsId: doc.newsId,
+    graphType,
+    event: 'node_enter',
+    node: '',
+  })
+}
+
+export function applyGraphProgress(doc: MapGraphDoc, payload: GraphProgressPayload): void {
   if (doc.runPhase === 'error' || doc.runPhase === 'completed') return
+
+  doc.runId = payload.runId
+  doc.graphType = payload.graphType
+
+  if (payload.event === 'subagent_tool') {
+    applySubAgentToolProgress(doc, payload)
+    return
+  }
+
+  applyRunGraphProgress(doc, payload)
+}
+
+function applySubAgentToolProgress(
+  doc: MapGraphDoc,
+  payload: Extract<GraphProgressPayload, { event: 'subagent_tool' }>,
+): void {
+  if (doc.runPhase !== 'running') {
+    doc.runPhase = 'running'
+    doc.pendingTool = undefined
+  }
+
+  const nodeId = routeNodeId({ instanceId: payload.instanceId })
+  const node = doc.nodes.find(n => n.id === nodeId)
+  if (!node) return
+
+  if (payload.phase === 'start') {
+    node.runtime = {
+      ...node.runtime,
+      activeSkill: {
+        name: payload.toolName,
+        argsSummary: payload.argsSummary,
+      },
+    }
+    return
+  }
+
+  if (node.runtime?.activeSkill) {
+    const { activeSkill: _drop, ...rest } = node.runtime
+    node.runtime = Object.keys(rest).length > 0 ? rest : undefined
+  }
+}
+
+function applyRunGraphProgress(
+  doc: MapGraphDoc,
+  payload: Extract<GraphProgressPayload, { event: 'node_enter' | 'node_exit' | 'fanout_spawn' }>,
+): void {
   const focusId = doc.activeNodeId
   const tool = doc.pendingTool
-  doc.runId = runId
-  doc.graphType = graphType
   doc.runPhase = 'running'
   doc.pendingTool = undefined
-  clearNodeRuntimes(doc)
+  clearHitlRuntimes(doc)
+
+  if (payload.event === 'node_exit' && payload.node === 'subAgent') {
+    clearAllSubAgentSkills(doc)
+  }
+
   if (focusId && tool) {
     doc.activeNodeId = focusId
     const node = doc.nodes.find(n => n.id === focusId)
-    if (node) node.runtime = { activeTool: tool }
+    if (node) node.runtime = { ...node.runtime, activeTool: tool }
   } else {
     doc.activeNodeId = undefined
   }
@@ -408,6 +468,27 @@ export function clearFocus(doc: MapGraphDoc): void {
 function clearNodeRuntimes(doc: MapGraphDoc): void {
   for (const n of doc.nodes) {
     if (n.runtime) delete n.runtime
+  }
+}
+
+/** 清除 HITL runtime 标记，保留各节点 activeSkill（并行 SubAgent 调工具时）。 */
+function clearHitlRuntimes(doc: MapGraphDoc): void {
+  for (const n of doc.nodes) {
+    if (!n.runtime) continue
+    const { activeSkill } = n.runtime
+    if (activeSkill) {
+      n.runtime = { activeSkill }
+    } else {
+      delete n.runtime
+    }
+  }
+}
+
+function clearAllSubAgentSkills(doc: MapGraphDoc): void {
+  for (const n of doc.nodes) {
+    if (n.kind !== 'subAgent' || !n.runtime?.activeSkill) continue
+    const { activeSkill: _drop, ...rest } = n.runtime
+    n.runtime = Object.keys(rest).length > 0 ? rest : undefined
   }
 }
 

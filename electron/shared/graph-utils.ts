@@ -1,9 +1,13 @@
-import { Send, isGraphInterrupt } from '@langchain/langgraph'
+import { Send, getConfig, isGraphInterrupt } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ExecutionMode, MapSubAgentParams, AgentRuntimeConfig } from './types'
 import { ErrorCode, normalizeError } from './errors'
 import { loadPrompt, renderPrompt } from './prompt-loader'
-import { parseRouteInstructions, messageContentToString } from './llm-utils'
+import {
+  messageContentToString,
+  parseRouteInstructions,
+  type SkillActivityCallback,
+} from './llm-utils'
 
 export const DEFAULT_MAX_CONCURRENCY = 3
 
@@ -135,11 +139,66 @@ interface CompiledGraph<TState> {
 }
 
 /** 运行时会话 — 支持运行中随时切换 mode */
-export interface GraphProgressEventLocal {
+export type GraphProgressEventLocal = {
   event: 'node_enter' | 'node_exit' | 'fanout_spawn'
   node: string
   agentName?: string
   spawnIndex?: number
+  instanceId?: string
+} | {
+  event: 'subagent_tool'
+  phase: 'start' | 'end'
+  instanceId: string
+  agentName?: string
+  toolName: string
+  argsSummary?: string
+}
+
+const sessionsByThread = new Map<string, GraphRunSession>()
+
+export function registerGraphSession(threadId: string, session: GraphRunSession): void {
+  sessionsByThread.set(threadId, session)
+}
+
+export function unregisterGraphSession(threadId: string): void {
+  sessionsByThread.delete(threadId)
+}
+
+export function getGraphSession(threadId: string): GraphRunSession | undefined {
+  return sessionsByThread.get(threadId)
+}
+
+/** SubAgent 节点：将 ReAct skill 活动桥接到 GraphRunSession.onProgress。 */
+export function createSubAgentSkillEmitter(
+  instruction: Pick<MapSubAgentParams, 'instanceId' | 'agentName'>,
+  agentName: string,
+): SkillActivityCallback {
+  return (activity) => {
+    const threadId = getConfig().configurable?.thread_id
+    if (typeof threadId !== 'string') return
+    const session = getGraphSession(threadId)
+    if (!session?.onProgress) return
+
+    if (activity.phase === 'start') {
+      session.onProgress({
+        event: 'subagent_tool',
+        phase: 'start',
+        instanceId: instruction.instanceId,
+        agentName,
+        toolName: activity.toolName,
+        argsSummary: activity.argsSummary,
+      })
+      return
+    }
+
+    session.onProgress({
+      event: 'subagent_tool',
+      phase: 'end',
+      instanceId: instruction.instanceId,
+      agentName,
+      toolName: activity.toolName,
+    })
+  }
 }
 
 export interface GraphRunSession {
@@ -187,8 +246,11 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
     session.graph = graph as CompiledGraph<{ mode?: ExecutionMode }>
     session.config = config
     session.mode = input.mode ?? session.mode ?? 'auto'
+    session.threadId = threadId
+    registerGraphSession(threadId, session)
   }
 
+  try {
   if (!options?.skipInitialInvoke) {
     const initialMode = session?.mode ?? input.mode ?? 'auto'
     const loadLabel = session?.loadNode ?? 'load'
@@ -248,6 +310,7 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
           node: 'subAgent',
           agentName: instruction.agentName,
           spawnIndex: index,
+          instanceId: instruction.instanceId,
         })
       })
       session.fanoutEmitted = true
@@ -273,5 +336,8 @@ export async function runGraphWithInterrupts<TState extends { mode?: ExecutionMo
       return (await graph.getState(config)).values as TState
     }
     session?.onProgress?.({ event: 'node_exit', node: nextNode })
+  }
+  } finally {
+    if (session) unregisterGraphSession(threadId)
   }
 }

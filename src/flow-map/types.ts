@@ -12,6 +12,7 @@ import type {
  * 主判据：
  *   - 节点 = 有可修改的 params / 数据
  *   - 工具 = 无参动作（只能 continue / cancel），挂在 runtime / 快照级 pendingTool
+ *   - ReAct skill = SubAgent 内 LLM 工具调用，挂在 runtime.activeSkill（与 HITL 工具无关）
  *   - 一次 interrupt 对应一个焦点节点（activeNodeId 唯一）
  *
  * SubAgent 节点参数唯一来源：`MapSubAgentParams`（与图状态 routeInstructions 同形）。
@@ -68,6 +69,11 @@ interface MapNodeBase {
     activeTool?: MapToolKind
     /** 等待确认的工具（焦点节点上）。无工具参数。 */
     pendingTool?: MapToolKind
+    /** SubAgent ReAct 正在调用的 skill（如 web_search）。 */
+    activeSkill?: {
+      name: string
+      argsSummary?: string
+    }
   }
 }
 

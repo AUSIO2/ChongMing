@@ -237,17 +237,29 @@ export interface GraphErrorPayload {
   failedNode?: string
 }
 
-export type GraphProgressEvent = 'node_enter' | 'node_exit' | 'fanout_spawn'
+export type GraphProgressGraphEvent = 'node_enter' | 'node_exit' | 'fanout_spawn'
 
-export interface GraphProgressPayload {
+export type GraphProgressPayload = {
   runId: string
   newsId: string
   graphType: GraphType
-  event: GraphProgressEvent
-  node: string
-  agentName?: string
-  spawnIndex?: number
-}
+} & (
+  | {
+    event: GraphProgressGraphEvent
+    node: string
+    agentName?: string
+    spawnIndex?: number
+    instanceId?: string
+  }
+  | {
+    event: 'subagent_tool'
+    phase: 'start' | 'end'
+    instanceId: string
+    agentName?: string
+    toolName: string
+    argsSummary?: string
+  }
+)
 
 export type SplitStatePatch = Partial<GraphSplitState>
 export type VerifyStatePatch = Partial<GraphVerifyState>

@@ -14,6 +14,7 @@ import {
   confirmRoutePassthrough,
   createDynamicFanOut,
   createRouteNode,
+  createSubAgentSkillEmitter,
   runGraphWithInterrupts,
   type GraphRunSession,
 } from '../shared/graph-utils'
@@ -103,7 +104,9 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
 
     const model = agentConfig.model ?? defaultModel
     const tools = agentConfig.tools ?? []
-    const rawResponse = await invokeWithOptionalTools(model, tools, prompt)
+    const rawResponse = await invokeWithOptionalTools(model, tools, prompt, {
+      onSkillActivity: createSubAgentSkillEmitter(instruction, agentConfig.name),
+    })
 
     const claims = parseClaimsArray<GraphClaim>(rawResponse)
       .map(c => ({ ...c, sourceAgent: agentConfig.name }))

@@ -3,7 +3,9 @@ import { NEWS_ROOT_ID } from './ids'
 import type { MapSnapshot } from './types'
 import {
   applyInterrupted,
+  applyGraphProgress,
   applyProgress,
+  bootstrapFromNews,
   buildResumePatch,
   canAddSubAgent,
   canEditNode,
@@ -428,5 +430,153 @@ describe('graph-doc state', () => {
     const sa = doc.nodes.find(n => n.id === id1)
     expect(sa?.kind === 'subAgent' && sa.params.priority).toBe('high')
     expect(sa?.kind === 'subAgent' && sa.params.hint).toBe('h')
+  })
+
+  it('bootstrapFromNews 容忍缺少 instanceId 的历史 opinion / route', () => {
+    const news = {
+      _id: 'n1',
+      content: 'body',
+      context: {},
+      claims: [{
+        claimId: '1',
+        content: 'fact',
+        sourceAgent: 'data-claims',
+        verifyResult: {
+          score: 0.5,
+          reason: 'ok',
+          rawMergeResponse: '',
+          verifiedAt: '2026-01-01T00:00:00.000Z',
+          opinions: [{
+            agentName: '来源可信度',
+            priority: 'medium',
+            score: 1,
+            reason: '可信',
+            rawResponse: '',
+          }],
+        },
+      }],
+      splitMeta: {
+        model: 'langgraph',
+        routeInstructions: [{
+          agentName: 'data-claims',
+          priority: 'high',
+        }],
+        subAgentResults: [],
+        rawMergeResponse: '',
+        splitAt: '2026-01-01T00:00:00.000Z',
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as DisplayNews
+
+    const doc = bootstrapFromNews(news)
+    const sub = doc.nodes.find(n => n.kind === 'subAgent' && n.parentId === '1')
+    expect(sub?.id).toBe('sub:1:来源可信度')
+    expect(doc.nodes.some(n => n.kind === 'opinion')).toBe(true)
+  })
+
+  it('subagent_tool start 写入 activeSkill（含 argsSummary）', () => {
+    const doc = createEmptyDoc('n1')
+    ensureSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: '来源可信度',
+      priority: 'high',
+      instanceId: '来源可信度#1',
+    })
+
+    applyGraphProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'subagent_tool',
+      phase: 'start',
+      instanceId: '来源可信度#1',
+      toolName: 'web_search',
+      argsSummary: '某新闻标题',
+    })
+
+    const sub = doc.nodes.find(n => n.id === 'sub:来源可信度#1')
+    expect(sub?.runtime?.activeSkill).toEqual({
+      name: 'web_search',
+      argsSummary: '某新闻标题',
+    })
+    expect(doc.runPhase).toBe('running')
+  })
+
+  it('subagent_tool end 仅清除对应节点 activeSkill', () => {
+    const doc = createEmptyDoc('n1')
+    ensureSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+    ensureSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'b',
+      priority: 'medium',
+      instanceId: 'b#1',
+    })
+    const subA = doc.nodes.find(n => n.id === 'sub:a#1')!
+    const subB = doc.nodes.find(n => n.id === 'sub:b#1')!
+    subA.runtime = { activeSkill: { name: 'web_search', argsSummary: 'q1' } }
+    subB.runtime = { activeSkill: { name: 'web_search', argsSummary: 'q2' } }
+
+    applyGraphProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'subagent_tool',
+      phase: 'end',
+      instanceId: 'a#1',
+      toolName: 'web_search',
+    })
+
+    expect(subA.runtime).toBeUndefined()
+    expect(subB.runtime?.activeSkill).toEqual({ name: 'web_search', argsSummary: 'q2' })
+  })
+
+  it('node_enter 不清除其他 SubAgent 的 activeSkill', () => {
+    const doc = createEmptyDoc('n1')
+    ensureSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+    ensureSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'b',
+      priority: 'medium',
+      instanceId: 'b#1',
+    })
+    const subB = doc.nodes.find(n => n.id === 'sub:b#1')!
+    subB.runtime = { activeSkill: { name: 'web_search', argsSummary: 'q2' } }
+
+    applyGraphProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'node_enter',
+      node: 'subAgent',
+    })
+
+    expect(subB.runtime?.activeSkill).toEqual({ name: 'web_search', argsSummary: 'q2' })
+  })
+
+  it('node_exit subAgent 清除全部 activeSkill', () => {
+    const doc = createEmptyDoc('n1')
+    ensureSubAgent(doc, NEWS_ROOT_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+    const subA = doc.nodes.find(n => n.id === 'sub:a#1')!
+    subA.runtime = { activeSkill: { name: 'web_search' } }
+
+    applyGraphProgress(doc, {
+      runId: 'run-1',
+      newsId: 'n1',
+      graphType: 'split',
+      event: 'node_exit',
+      node: 'subAgent',
+    })
+
+    expect(subA.runtime).toBeUndefined()
   })
 })

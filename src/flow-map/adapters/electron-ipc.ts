@@ -7,7 +7,7 @@ import { NEWS_ROOT_ID, scopedVerifyInstanceId } from '../ids'
 import {
   applyError,
   applyInterrupted,
-  applyProgress,
+  applyGraphProgress,
   bootstrapFromNews,
   buildResumePatch,
   canAddSubAgent as canAddSubAgentPure,
@@ -201,7 +201,7 @@ export function createElectronIpcMapAdapter(api: ElectronAPI): MapAPI {
 
     api.events.onProgress((payload) => {
       const doc = getDoc(payload.newsId)
-      applyProgress(doc, payload.runId, payload.graphType)
+      applyGraphProgress(doc, payload)
       emit(payload.newsId)
     })
   }
