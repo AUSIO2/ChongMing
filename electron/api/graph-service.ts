@@ -18,6 +18,7 @@ import type {
   GraphErrorPayload,
   GraphInterruptedPayload,
   GraphProgressPayload,
+  GraphStatePayload,
   GraphStatePatch,
   GraphType,
   GraphSplitState,
@@ -192,6 +193,25 @@ function attachProgressHandlers(
   run.onProgress = event => sendProgress(getWindow, run, event)
 }
 
+function attachStateProjectHandler(
+  run: ActiveRun,
+  getWindow: WindowGetter,
+): void {
+  run.onStateProject = (currentState, completedNode) => {
+    const state = run.graphType === 'split'
+      ? serialReadSplitState(currentState as Parameters<typeof serialReadSplitState>[0])
+      : serialReadVerifyState(currentState as Parameters<typeof serialReadVerifyState>[0])
+    const payload: GraphStatePayload = {
+      runId: run.runId,
+      newsId: run.newsId,
+      graphType: run.graphType,
+      completedNode,
+      state,
+    }
+    sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_STATE, payload)
+  }
+}
+
 function createRunSession(
   runId: string,
   graphType: GraphType,
@@ -256,6 +276,7 @@ async function executeRun(opts: {
   const run = activeRuns.get(runId)!
   const spec = GRAPH_RUN_SPEC[graphType]
   attachProgressHandlers(run, getWindow)
+  attachStateProjectHandler(run, getWindow)
   console.log(`[graph:${graphType}] 开始 runId=${runId} newsId=${run.newsId}`)
   sendProgress(getWindow, run, { event: 'node_enter', node: spec.loadNode })
   try {
@@ -299,6 +320,11 @@ async function executeRun(opts: {
     }
     sendToRenderer(getWindow, IPC_CHANNELS.GRAPH_ERROR, payload)
   } finally {
+    const pending = activeRuns.get(runId)
+    // restore 路径若 checkpoint 已失效 / auto 模式直跑完，从未进入 waitForResume，须解除 IPC 等待
+    if (pending?.resumeGate === 'idle') {
+      pending.markResumeReady()
+    }
     activeRuns.delete(runId)
   }
 }
@@ -396,11 +422,35 @@ export async function runRestoreSession(
   }
   activeRuns.set(input.runId, session)
 
+  const graph = spec.buildGraph()
+  try {
+    const snapshot = await graph.getState({ configurable: { thread_id: input.runId } })
+    if (!snapshot.next?.length) {
+      activeRuns.delete(input.runId)
+      throw new AppError(
+        ErrorCode.GRAPH_NO_PENDING_INTERRUPT,
+        `Checkpoint 无待恢复中断点（可能已跑完或 checkpoint 已失效）: ${input.runId}`,
+      )
+    }
+  } catch (error) {
+    if (!activeRuns.has(input.runId)) throw error
+    activeRuns.delete(input.runId)
+    if (error instanceof AppError) throw error
+    throw new AppError(
+      ErrorCode.GRAPH_EXECUTION_FAILED,
+      `读取 checkpoint 失败: ${input.runId}`,
+      { cause: error },
+    )
+  }
+
   const restoreInput: RunStartInput = input.graphType === 'split'
     ? { newsId: input.newsId, mode: input.mode }
     : {
         newsId: input.newsId,
-        claimId: 'claimId' in input.draft ? input.draft.claimId : '',
+        claimId:
+          ('claimId' in input.draft ? input.draft.claimId : undefined)
+          || input.claimId
+          || '',
         mode: input.mode,
       }
 

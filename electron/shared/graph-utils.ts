@@ -165,10 +165,11 @@ export function graphReadSession(threadId: string): GraphRunSession | undefined 
 export function graphCreateSkillEmitter(
   instruction: Pick<MapSubAgentParams, 'instanceId'>,
   threadId: string | undefined,
+  parentNodeId?: string,
 ): SkillActivityCallback {
   if (typeof threadId !== 'string') return () => {}
 
-  const nodeId = mapIdCreateRoute(instruction)
+  const nodeId = mapIdCreateRoute(instruction, parentNodeId)
 
   return (activity) => {
     const session = graphReadSession(threadId)
@@ -205,6 +206,8 @@ export interface GraphRunSession {
   config?: { configurable: { thread_id: string } }
   loadNode?: string
   onProgress?: (event: GraphProgressEventLocal) => void
+  /** 每个节点执行后，将 checkpoint 投影到 Map */
+  onStateProject?: (state: unknown, completedNode: string) => void
   fanoutEmitted?: boolean
   /** 协作式取消：编排循环在安全点检查并退出 */
   cancelled?: boolean
@@ -227,6 +230,17 @@ async function graphStep<T>(failedNode: string, fn: () => Promise<T>): Promise<T
 export interface RunGraphOptions {
   /** 从已 seed 的 checkpoint/state 恢复，跳过首段 load+route invoke */
   skipInitialInvoke?: boolean
+}
+
+async function graphNotifyStateProject<TState>(
+  graph: CompiledGraph<TState>,
+  config: { configurable: { thread_id: string } },
+  session: GraphRunSession | undefined,
+  completedNode: string,
+): Promise<void> {
+  if (!session?.onStateProject) return
+  const snapshot = await graphStep('checkpoint', () => graph.getState(config))
+  session.onStateProject(snapshot.values, completedNode)
 }
 
 /** HITL 编排循环 — auto / human-in-loop 模式通用 */
@@ -261,6 +275,8 @@ export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>
     if (session?.cancelled) {
       return (await graph.getState(config)).values as TState
     }
+
+    await graphNotifyStateProject(graph, config, session, 'route')
 
     if (session?.onProgress && session.loadNode) {
       session.onProgress({ event: 'node_exit', node: session.loadNode })
@@ -333,7 +349,7 @@ export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>
           node: 'subAgent',
           agentName: instruction.agentName,
           spawnIndex: index,
-          nodeId: mapIdCreateRoute(instruction),
+          nodeId: mapIdCreateRoute(instruction, parentNodeId),
           parentNodeId,
         })
       })
@@ -346,6 +362,7 @@ export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>
       return (await graph.getState(config)).values as TState
     }
     session?.onProgress?.({ event: 'node_exit', node: nextNode })
+    await graphNotifyStateProject(graph, config, session, nextNode)
   }
   } finally {
     if (session) graphDeleteSession(threadId)

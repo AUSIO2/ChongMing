@@ -20,6 +20,8 @@ export const IPC_CHANNELS = {
   GRAPH_COMPLETED: 'graph:completed',
   GRAPH_ERROR: 'graph:error',
   GRAPH_PROGRESS: 'graph:progress',
+  /** LangGraph checkpoint 投影到 Map（与是否中断无关） */
+  GRAPH_STATE: 'graph:state',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

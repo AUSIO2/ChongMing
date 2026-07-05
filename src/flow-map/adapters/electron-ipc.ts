@@ -8,6 +8,7 @@ import {
   docUpdateError,
   docUpdateInterrupt,
   docUpdateProgress,
+  docProjectGraphState,
   docCreateNews,
   docReadResume,
   docCanAddSubAgent as canAddSubAgentPure,
@@ -87,12 +88,13 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
 
     if (news.mapGraph && Array.isArray(news.mapGraph.nodes) && news.mapGraph.nodes.length > 0) {
       const doc = docCreatePersist(newsId, news.mapGraph, news.mapRun)
-      if (news.mapRun?.status === 'running') {
-        doc.runPhase = 'interrupted'
-      }
       graphs.set(newsId, doc)
 
       const run = news.mapRun
+      if (run && (run.status === 'interrupted' || run.status === 'running')) {
+        doc.runPhase = 'interrupted'
+      }
+
       if (
         run
         && (run.status === 'interrupted' || run.status === 'running')
@@ -109,13 +111,15 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
             gate: run.gate,
             pendingTool: run.pendingTool,
             activeNodeId: run.activeNodeId,
+            claimId: run.claimId,
             draft: news.mapGraph.draft,
           })
-          doc.runPhase = 'interrupted'
           doc.runId = run.runId
           doc.threadId = run.runId
         } catch (e) {
           docUpdateError(doc, errReadApp(e).msg)
+          doc.runId = undefined
+          doc.threadId = undefined
         }
       }
       return doc
@@ -175,6 +179,17 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       docUpdateInterrupt(doc, payload)
       void persistDoc(doc)
       emitPush(newsId, 'interrupt')
+    })
+
+    api.events.onState((payload) => {
+      const doc = getLoadedDoc(payload.newsId)
+      if (!doc || doc.runId !== payload.runId) return
+      if (doc.runPhase === 'error' || doc.runPhase === 'completed') return
+      docProjectGraphState(doc, payload.graphType, payload.state, {
+        completedNode: payload.completedNode,
+      })
+      void persistDoc(doc)
+      emitPush(payload.newsId, 'progress')
     })
 
     api.events.onCompleted((payload) => {

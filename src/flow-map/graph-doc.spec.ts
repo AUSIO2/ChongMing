@@ -4,6 +4,7 @@ import type { MapSnapshot } from './types'
 import {
   docUpdateInterrupt,
   docUpdateProgress,
+  docProjectGraphState,
   docCreateNews,
   docReadResume,
   docCanAddSubAgent,
@@ -417,6 +418,73 @@ describe('graph-doc state', () => {
     expect(parents).toEqual(new Set(subs.map(s => s.id)))
   })
 
+  it('auto：save 节点执行后 docProjectGraphState 投影全部 persisted opinion', () => {
+    const claimId = '3'
+    const doc = docCreate('n1')
+    doc.nodes = [
+      { id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } },
+      {
+        id: claimId,
+        kind: 'claim',
+        parentId: NEWS_ROOT_ID,
+        params: { content: 'c' },
+        dataPhase: 'persisted',
+        shouldSave: true,
+      },
+    ]
+    docProjectGraphState(doc, 'verify', {
+      newsId: 'n1',
+      claimId,
+      mode: 'auto',
+      claimContent: 'c',
+      originalContent: 'x',
+      visibleContext: {},
+      routeInstructions: [
+        { agentName: '来源可信度', priority: 'high', instanceId: '来源可信度#1' },
+        { agentName: '数据可验证性', priority: 'high', instanceId: '数据可验证性#1' },
+        { agentName: '逻辑一致性', priority: 'medium', instanceId: '逻辑一致性#1' },
+      ],
+      subAgentOpinions: [
+        { agentName: '来源可信度', instanceId: '来源可信度#1', priority: 'high', score: 1, reason: 'r1', rawResponse: '' },
+        { agentName: '数据可验证性', instanceId: '数据可验证性#1', priority: 'high', score: 1, reason: 'r2', rawResponse: '' },
+        { agentName: '逻辑一致性', instanceId: '逻辑一致性#1', priority: 'medium', score: 1, reason: 'r3', rawResponse: '' },
+      ],
+      finalScore: 1,
+      finalReason: 'merged',
+      rawMergeResponse: '',
+      opinionSaveIndex: 3,
+    }, { completedNode: 'save' })
+
+    const opinions = doc.nodes.filter(
+      n => n.kind === 'opinion' && n.id.startsWith(`opinion:${claimId}:`),
+    )
+    expect(opinions).toHaveLength(3)
+    for (const o of opinions) {
+      expect(o.kind).toBe('opinion')
+      if (o.kind === 'opinion') {
+        expect(o.dataPhase).toBe('persisted')
+      }
+    }
+    expect(
+      opinions.map(o => (o.kind === 'opinion' ? o.params.content : '')),
+    ).toEqual(['r1', 'r2', 'r3'])
+  })
+
+  it('docUpdateSubAgent 核查：不同 claim 同 instanceId 不共用节点', () => {
+    const doc = docCreate('n1')
+    doc.nodes = [
+      { id: NEWS_ROOT_ID, kind: 'news', params: { content: '' } },
+      { id: '1', kind: 'claim', parentId: NEWS_ROOT_ID, params: { content: 'c1' }, dataPhase: 'persisted', shouldSave: true },
+      { id: '2', kind: 'claim', parentId: NEWS_ROOT_ID, params: { content: 'c2' }, dataPhase: 'persisted', shouldSave: true },
+    ]
+    const route = { agentName: 'a', priority: 'medium' as const, instanceId: 'a#1' }
+    const id1 = docUpdateSubAgent(doc, '1', route)
+    const id2 = docUpdateSubAgent(doc, '2', route)
+    expect(id1).toBe('sub:1:a#1')
+    expect(id2).toBe('sub:2:a#1')
+    expect(doc.nodes.filter(n => n.kind === 'subAgent')).toHaveLength(2)
+  })
+
   it('docUpdateSubAgent 重复 id 更新 parent、边不重复', () => {
     const doc: MapGraphDoc = docCreate('n1')
     doc.nodes = [{ id: NEWS_ROOT_ID, kind: 'news', params: { content: '' } }]
@@ -480,7 +548,7 @@ describe('graph-doc state', () => {
 
     const doc = docCreateNews(news)
     const sub = doc.nodes.find(n => n.kind === 'subAgent' && n.parentId === '1')
-    expect(sub?.id).toBe('sub:来源可信度#1')
+    expect(sub?.id).toBe('sub:1:来源可信度#1')
     expect(doc.nodes.some(n => n.kind === 'opinion')).toBe(true)
   })
 
@@ -624,12 +692,12 @@ describe('graph-doc state', () => {
       graphType: 'verify',
       event: 'subagent_tool',
       phase: 'start',
-      nodeId: 'sub:来源可信度#1',
+      nodeId: 'sub:1:来源可信度#1',
       toolName: 'web_search',
       argsSummary: 'query',
     })
 
-    const sub = doc.nodes.find(n => n.id === 'sub:来源可信度#1')
+    const sub = doc.nodes.find(n => n.id === 'sub:1:来源可信度#1')
     expect(sub?.runtime?.activeSkill).toEqual({
       name: 'web_search',
       argsSummary: 'query',

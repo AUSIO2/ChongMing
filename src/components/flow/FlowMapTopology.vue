@@ -4,7 +4,7 @@ import { useFlowMap } from '../../composables/use-flow-map'
 import { useCanvasPanZoom } from '../../composables/useCanvasPanZoom'
 import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
-import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind } from '../../flow-map'
+import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind, labelTruncate } from '../../flow-map'
 
 const props = defineProps<{ newsId: string | null }>()
 
@@ -48,19 +48,20 @@ type RuntimeBadge = {
   title?: string
 }
 
-function nodeLabel(n: MapNode): string {
-  if (n.kind === 'news') return '新闻'
+function nodeBodyText(n: MapNode): string {
+  if (n.kind === 'news') return n.params.content.trim() || '（暂无正文）'
   if (n.kind === 'subAgent') return n.params.agentName
   return n.params.content
 }
 
-function nodePreview(n: MapNode): string | null {
-  if (n.kind === 'news') {
-    const text = n.params.content
-    if (!text) return '（暂无正文）'
-    return text.length > 120 ? text.slice(0, 120) + '…' : text
-  }
-  return null
+function nodeDisplayText(n: MapNode): string {
+  return labelTruncate(nodeBodyText(n))
+}
+
+const NODE_BODY_TOP = 18
+
+function nodeBodyHeight(ln: MapLayoutNode): number {
+  return skillBadge(ln.node) ? ln.height - 18 - 28 : ln.height - 18 - 6
 }
 
 function nodeKindTag(n: MapNode): string {
@@ -140,7 +141,7 @@ function onCanvasClick() {
     @pointerup="onPointerUp"
     @pointercancel="onPointerUp"
   >
-    <div class="zoom-controls" @click.stop>
+    <div class="zoom-controls" @click.stop @pointerdown.stop>
       <button type="button" class="zoom-btn" title="放大" @click="zoomIn">+</button>
       <button type="button" class="zoom-btn" title="缩小" @click="zoomOut">−</button>
       <button type="button" class="zoom-btn zoom-btn-wide" title="适应画布" @click="fitToView">适应</button>
@@ -215,15 +216,20 @@ function onCanvasClick() {
           >
             {{ hitlBadge(ln.node)!.text }}
           </text>
-          <text
-            :x="ln.width / 2"
-            :y="ln.node.kind === 'news' ? 32 : (skillBadge(ln.node) ? ln.height / 2 : ln.height / 2 + 6)"
-            text-anchor="middle"
-            class="fm-label"
+          <foreignObject
+            x="8"
+            :y="NODE_BODY_TOP"
+            :width="ln.width - 16"
+            :height="nodeBodyHeight(ln)"
             pointer-events="none"
           >
-            {{ nodeLabel(ln.node) }}
-          </text>
+            <div
+              class="fm-body"
+              :title="nodeBodyText(ln.node)"
+            >
+              {{ nodeDisplayText(ln.node) }}
+            </div>
+          </foreignObject>
           <foreignObject
             v-if="skillBadge(ln.node)"
             x="4"
@@ -238,16 +244,6 @@ function onCanvasClick() {
             >
               {{ skillBadge(ln.node)!.text }}
             </div>
-          </foreignObject>
-          <foreignObject
-            v-if="nodePreview(ln.node)"
-            x="8"
-            y="40"
-            :width="ln.width - 16"
-            :height="ln.height - 48"
-            pointer-events="none"
-          >
-            <div class="fm-news-preview">{{ nodePreview(ln.node) }}</div>
           </foreignObject>
         </g>
       </g>
@@ -350,20 +346,10 @@ function onCanvasClick() {
 .fm-node.claim .fm-rect     { fill: #fefce8; stroke: #ca8a04; }
 .fm-node.opinion .fm-rect   { fill: #ecfeff; stroke: #0891b2; }
 
-.fm-news-preview {
-  font-size: 10px;
-  color: var(--text-dim, #64748b);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: normal;
-  height: 100%;
-}
-
 .fm-node.phase-workerOut .fm-rect { stroke-dasharray: 4 3; }
 .fm-node.phase-persisted .fm-rect { stroke-width: 1.5; }
 .fm-node.should-not-save .fm-rect { opacity: 0.45; }
-.fm-node.should-not-save .fm-label { opacity: 0.55; }
+.fm-node.should-not-save .fm-body { opacity: 0.55; }
 
 .fm-node.active .fm-rect  { stroke: var(--warning, #d97706); stroke-width: 2; }
 .fm-node.selected .fm-rect { stroke: var(--accent, #2563eb); stroke-width: 2; }
@@ -419,10 +405,20 @@ function onCanvasClick() {
   font-weight: 600;
 }
 
-.fm-label {
+.fm-body {
   font-size: 11px;
-  fill: var(--text, #0f172a);
+  line-height: 1.35;
+  color: var(--text, #0f172a);
   font-family: var(--ui-font);
   font-weight: 500;
+  white-space: normal;
+  word-break: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  text-overflow: ellipsis;
+  height: 100%;
 }
 </style>

@@ -125,7 +125,7 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
       (state as Record<string, unknown>)._graphThreadId as string | undefined
     ) ?? (getConfig()?.configurable?.thread_id as string | undefined)
     const rawResponse = await llmRunInvoke(model, tools, prompt, {
-      onSkillActivity: graphCreateSkillEmitter(instruction, threadId),
+      onSkillActivity: graphCreateSkillEmitter(instruction, threadId, state.claimId),
     })
 
     const opinion = llmReadJsonObject(

@@ -6,14 +6,18 @@ import type { MapEdge, MapNode, MapSnapshot, MapNodeKind } from './types'
 
 const PAD_X = 80
 const PAD_Y = 60
-const GAP_X = 260
-const GAP_Y = 120
+const GAP_X = 240
+const GAP_Y = 100
+
+/** 各类节点统一外框尺寸 */
+export const MAP_NODE_WIDTH = 200
+export const MAP_NODE_HEIGHT = 80
 
 const NODE_SIZE: Record<MapNodeKind, { width: number; height: number }> = {
-  news: { width: 260, height: 120 },
-  subAgent: { width: 200, height: 96 },
-  claim: { width: 220, height: 72 },
-  opinion: { width: 220, height: 72 },
+  news: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
+  subAgent: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
+  claim: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
+  opinion: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
 }
 
 export interface MapLayoutNode {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus } from './ids'
+import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus, mapIdCreateRoute, mapIdReadSubAgent, mapIdReadRouteClaim } from './ids'
 
 describe('map-ids', () => {
   it('mapIdCreateInstance 按 parent 已有槽递增', () => {
@@ -56,6 +56,18 @@ describe('map-ids', () => {
     ).toEqual([
       { agentName: 'a', priority: 'low', instanceId: 'a#9' },
     ])
+  })
+
+  it('mapIdCreateRoute 核查槽含 claimId 作用域', () => {
+    expect(
+      mapIdCreateRoute({ instanceId: 'a#1' }, '2'),
+    ).toBe('sub:2:a#1')
+    expect(
+      mapIdCreateRoute({ instanceId: 'a#1' }, '__news_root__'),
+    ).toBe('sub:a#1')
+    expect(mapIdReadSubAgent('sub:2:a#1')).toBe('a#1')
+    expect(mapIdReadRouteClaim('sub:2:a#1')).toBe('2')
+    expect(mapIdReadRouteClaim('sub:a#1')).toBeUndefined()
   })
 
   it('mapIdReadInterruptFocus save 拆分指向当前 claim', () => {

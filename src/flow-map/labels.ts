@@ -30,3 +30,12 @@ export function labelFormatFocusNode(node: MapNode): string {
   if (node.kind === 'subAgent') return node.params.agentName
   return NODE_KIND_LABEL[node.kind]
 }
+
+/** 拓扑节点主文案最大字符数（超出在末尾加省略号，框内仍按宽度换行）。 */
+export const MAP_NODE_LABEL_MAX = 80
+
+export function labelTruncate(text: string, max = MAP_NODE_LABEL_MAX): string {
+  const t = text.trim()
+  if (t.length <= max) return t
+  return `${t.slice(0, Math.max(1, max - 1))}…`
+}

@@ -150,11 +150,10 @@ function docReadDraftRoute(
   doc: MapGraphDoc,
   nodeId: string,
 ): MapSubAgentParams | undefined {
-  const instanceId = mapIdReadSubAgent(nodeId)
-  if (!instanceId) return undefined
   const draft = doc.draft
   if (!draft || !('routeInstructions' in draft)) return undefined
-  return draft.routeInstructions?.find(r => mapIdCreateRoute(r) === nodeId)
+  const parentId = 'claimId' in draft ? draft.claimId : NEWS_ROOT_ID
+  return draft.routeInstructions?.find(r => mapIdCreateRoute(r, parentId) === nodeId)
 }
 
 type GraphRunProgressPayload = Exclude<GraphProgressPayload, { event: 'subagent_tool' }>
@@ -254,17 +253,77 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
   doc.draft = payload.state
 
   if (payload.graphType === 'split') {
-    const splitState = payload.state as GraphSplitState
     doc.nodes = []
     doc.edges = []
-    docUpdateNews(doc, splitState.content)
-    docUpdateSplitState(doc, splitState)
-  } else {
-    docUpdateClaimPersist(doc)
-    docUpdateVerifyState(doc, payload.state as GraphVerifyState)
   }
+  docProjectGraphState(doc, payload.graphType, payload.state, {
+    upcomingGate: payload.nextNode,
+  })
 
   docUpdateFocus(doc)
+}
+
+/**
+ * 将 LangGraph checkpoint 投影到 Map 图。
+ * 与 HITL 中断解耦：auto 模式在每个节点执行后也会调用（见 graphRunInterrupt.onStateProject）。
+ */
+export function docProjectGraphState(
+  doc: MapGraphDoc,
+  graphType: GraphType,
+  state: GraphSplitState | GraphVerifyState,
+  ctx?: {
+    /** interrupt 时：即将进入的门闩 */
+    upcomingGate?: GraphInterruptNode
+    /** 节点执行后：刚跑完的节点 */
+    completedNode?: string
+  },
+): void {
+  if (graphType === 'split') {
+    const splitState = state as GraphSplitState
+    docUpdateNews(doc, splitState.content)
+    docProjectSplitState(doc, splitState, ctx)
+    return
+  }
+
+  docUpdateClaimPersist(doc)
+  docUpdateVerifyState(doc, state as GraphVerifyState)
+}
+
+function docProjectSplitState(
+  doc: MapGraphDoc,
+  state: GraphSplitState,
+  ctx?: {
+    upcomingGate?: GraphInterruptNode
+    completedNode?: string
+  },
+): void {
+  const routes = state.routeInstructions ?? []
+  docUpdateSplitRoutes(doc, routes)
+
+  const useNumbered =
+    ctx?.upcomingGate === 'save'
+    || ctx?.completedNode === 'validate'
+    || ctx?.completedNode === 'save'
+    || (state.saveIndex > 0 && !!state.mergedClaims?.length)
+
+  if (useNumbered && state.mergedClaims?.length) {
+    docUpdateNumberedClaims(doc, state, routes)
+    return
+  }
+
+  if (
+    state.mergedClaims?.length
+    || ctx?.upcomingGate === 'validate'
+    || ctx?.completedNode === 'merge'
+  ) {
+    docUpdateDraftClaims(doc, state)
+    docUpdateSaveFlags(doc, state)
+    return
+  }
+
+  if (state.subAgentResults?.length) {
+    docUpdateDraftClaims(doc, state)
+  }
 }
 
 /** split 完成进入 verify：不读 DB，只整理内存图运行态。 */
@@ -456,7 +515,7 @@ export function docReadInstanceIds(
   const draft = doc.draft
   if (draft && 'routeInstructions' in draft && draft.routeInstructions) {
     for (const r of draft.routeInstructions) {
-      const nodeId = mapIdCreateRoute(r)
+      const nodeId = mapIdCreateRoute(r, parentId)
       const node = doc.nodes.find(n => n.id === nodeId)
       if (node?.parentId === parentId) {
         if (!ids.some(i => i.instanceId === r.instanceId)) {
@@ -625,7 +684,7 @@ export function docUpdateSubAgent(
   parentId: string,
   route: MapSubAgentParams,
 ): string {
-  const id = mapIdCreateRoute(route)
+  const id = mapIdCreateRoute(route, parentId)
   const existing = doc.nodes.find((n): n is MapSubAgentNode => n.id === id)
   if (existing) {
     const prevParent = existing.parentId
@@ -755,7 +814,7 @@ function docReadClaimParent(
   if (source.instanceId) {
     const route = splitRoutes.find(r => r.instanceId === source.instanceId)
     if (route) {
-      const id = mapIdCreateRoute(route)
+      const id = mapIdCreateRoute(route, NEWS_ROOT_ID)
       if (nodes.some(n => n.id === id)) return id
     }
     const byId = nodes.find(
@@ -766,7 +825,7 @@ function docReadClaimParent(
   if (source.agentName) {
     const byName = splitRoutes.filter(r => r.agentName === source.agentName)
     if (byName.length === 1) {
-      const id = mapIdCreateRoute(byName[0])
+      const id = mapIdCreateRoute(byName[0], NEWS_ROOT_ID)
       if (nodes.some(n => n.id === id)) return id
     }
     const nodeByName = nodes.find(
@@ -830,26 +889,6 @@ function docUpdateNumberedClaims(
   })
 }
 
-function docUpdateSplitState(doc: MapGraphDoc, state: GraphSplitState): void {
-  const routes = state.routeInstructions ?? []
-  docUpdateSplitRoutes(doc, routes)
-
-  if (doc.pendingTool === 'validate') {
-    docUpdateDraftClaims(doc, state)
-    docUpdateSaveFlags(doc, state)
-    return
-  }
-
-  if (doc.pendingTool === 'save' || (state.saveIndex > 0 && state.mergedClaims?.length)) {
-    docUpdateNumberedClaims(doc, state, routes)
-    return
-  }
-
-  if (state.subAgentResults?.length && !state.mergedClaims?.length) {
-    docUpdateDraftClaims(doc, state)
-  }
-}
-
 function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
   const claimId = state.claimId
   const existingClaim = doc.nodes.find((n): n is MapClaimNode => n.id === claimId)
@@ -871,7 +910,7 @@ function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
   }
 
   const routes = state.routeInstructions ?? []
-  const routeNodeIds = new Set(routes.map(r => mapIdCreateRoute(r)))
+  const routeNodeIds = new Set(routes.map(r => mapIdCreateRoute(r, claimId)))
   const staleIds = new Set(
     doc.nodes
       .filter(n => n.kind === 'subAgent' && n.parentId === claimId && !routeNodeIds.has(n.id))
@@ -881,6 +920,17 @@ function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
     if (n.parentId && staleIds.has(n.parentId)) staleIds.add(n.id)
   }
   docDeleteNodes(doc, staleIds)
+
+  const workerOutOpinionIds = new Set(
+    doc.nodes
+      .filter(
+        n => n.kind === 'opinion'
+          && n.dataPhase === 'workerOut'
+          && n.id.startsWith(`opinion:${claimId}:`),
+      )
+      .map(n => n.id),
+  )
+  docDeleteNodes(doc, workerOutOpinionIds)
 
   docUpdateSplitRoutes(doc, routes, claimId)
   docUpdateVerifyOpinions(

@@ -231,6 +231,16 @@ export interface GraphCompletedPayload {
   state: GraphSplitState | GraphVerifyState
 }
 
+/** 每个 LangGraph 节点执行后的 checkpoint 状态（auto / 步进共用） */
+export interface GraphStatePayload {
+  runId: string
+  newsId: string
+  graphType: GraphType
+  /** 刚执行完的节点名 */
+  completedNode: string
+  state: GraphSplitState | GraphVerifyState
+}
+
 export interface GraphErrorPayload {
   runId: string
   newsId: string
@@ -301,6 +311,8 @@ export interface RestoreRunInput {
   gate: GraphInterruptNode
   pendingTool?: GraphToolKind
   activeNodeId?: string
+  /** verify 恢复时 draft 缺 claimId 的回退 */
+  claimId?: string
   draft: GraphSplitState | GraphVerifyState
 }
 
@@ -317,6 +329,7 @@ export interface GraphAPI {
 
 export interface GraphEventAPI {
   onInterrupted(callback: (payload: GraphInterruptedPayload) => void): () => void
+  onState(callback: (payload: GraphStatePayload) => void): () => void
   onCompleted(callback: (payload: GraphCompletedPayload) => void): () => void
   onError(callback: (payload: GraphErrorPayload) => void): () => void
   onProgress(callback: (payload: GraphProgressPayload) => void): () => void

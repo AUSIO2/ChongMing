@@ -2,7 +2,8 @@
  * Map 节点 id 规则 —— Electron 与渲染进程 Port 共用，保证 focus / 投影一致。
  *
  * - news 根：NEWS_ROOT_ID
- * - subAgent：sub:${instanceId}，instanceId = agentName#n
+ * - subAgent（拆分）：sub:${instanceId}
+ * - subAgent（核查 claim 下）：sub:${claimId}:${instanceId}
  * - claim（merge/落库）：String(saveIndex+1)
  * - opinion：opinion:${claimId}:${index}
  *
@@ -18,10 +19,34 @@ export function mapIdCreateSubAgent(instanceId: string): string {
 }
 
 export function mapIdReadSubAgent(nodeId: string): string | undefined {
-  return nodeId.startsWith('sub:') ? nodeId.slice('sub:'.length) : undefined
+  if (!nodeId.startsWith('sub:')) return undefined
+  const rest = nodeId.slice('sub:'.length)
+  const colon = rest.indexOf(':')
+  // sub:{claimId}:{instanceId} — claimId 段不含 #
+  if (colon >= 0 && !rest.slice(0, colon).includes('#')) {
+    return rest.slice(colon + 1)
+  }
+  return rest
 }
 
-export function mapIdCreateRoute(route: Pick<MapSubAgentParams, 'instanceId'>): string {
+/** 核查槽节点 id 中的 claimId；拆分槽返回 undefined。 */
+export function mapIdReadRouteClaim(nodeId: string): string | undefined {
+  if (!nodeId.startsWith('sub:')) return undefined
+  const rest = nodeId.slice('sub:'.length)
+  const colon = rest.indexOf(':')
+  if (colon >= 0 && !rest.slice(0, colon).includes('#')) {
+    return rest.slice(0, colon)
+  }
+  return undefined
+}
+
+export function mapIdCreateRoute(
+  route: Pick<MapSubAgentParams, 'instanceId'>,
+  parentId?: string,
+): string {
+  if (parentId && parentId !== NEWS_ROOT_ID) {
+    return `sub:${parentId}:${route.instanceId}`
+  }
   return mapIdCreateSubAgent(route.instanceId)
 }
 

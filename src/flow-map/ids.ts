@@ -15,6 +15,7 @@ export {
   mapIdCreateInstance,
   mapIdUpdateInstance,
   mapIdReadNodeFocus,
+  mapIdReadRouteClaim,
   mapIdReadInterruptFocus,
   DRAFT_CLAIM_PREFIX,
 } from '../../electron/shared/map-ids'

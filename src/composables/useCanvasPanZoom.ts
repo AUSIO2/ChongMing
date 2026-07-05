@@ -2,7 +2,10 @@ import { computed, onMounted, onUnmounted, ref, type Ref } from 'vue'
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 3
-const ZOOM_STEP = 1.15
+/** 工具栏 +/- 每档缩放比 */
+const BUTTON_ZOOM_STEP = 1.12
+/** 滚轮指数系数，越大越灵敏 */
+const WHEEL_ZOOM_INTENSITY = 0.002
 
 export interface CanvasPanZoomOptions {
   containerRef: Ref<HTMLElement | null>
@@ -50,9 +53,23 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
+  function viewCenterPoint(): { x: number; y: number } | null {
+    const container = options.containerRef.value
+    const svg = options.svgRef.value
+    if (!container || !svg) return null
+    const cRect = container.getBoundingClientRect()
+    const sRect = svg.getBoundingClientRect()
+    return {
+      x: cRect.left + cRect.width / 2 - sRect.left,
+      y: cRect.top + cRect.height / 2 - sRect.top,
+    }
+  }
+
   function onWheel(e: WheelEvent) {
     e.preventDefault()
-    zoomAt(e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP, localPoint(e) ?? undefined)
+    const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_INTENSITY)
+    if (Math.abs(factor - 1) < 1e-4) return
+    zoomAt(factor, localPoint(e) ?? undefined)
   }
 
   let panning = false
@@ -63,7 +80,7 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
 
   function onPointerDown(e: PointerEvent) {
     const target = e.target as Element
-    if (target.closest('.fm-node')) return
+    if (target.closest('.fm-node') || target.closest('.zoom-controls')) return
     if (e.button !== 0 && e.button !== 1) return
     panning = true
     panStartX = e.clientX
@@ -86,29 +103,11 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
   }
 
   function zoomIn() {
-    const container = options.containerRef.value
-    if (!container) {
-      zoomAt(ZOOM_STEP)
-      return
-    }
-    const rect = container.getBoundingClientRect()
-    zoomAt(ZOOM_STEP, {
-      x: rect.width / 2,
-      y: rect.height / 2,
-    })
+    zoomAt(BUTTON_ZOOM_STEP, viewCenterPoint() ?? undefined)
   }
 
   function zoomOut() {
-    const container = options.containerRef.value
-    if (!container) {
-      zoomAt(1 / ZOOM_STEP)
-      return
-    }
-    const rect = container.getBoundingClientRect()
-    zoomAt(1 / ZOOM_STEP, {
-      x: rect.width / 2,
-      y: rect.height / 2,
-    })
+    zoomAt(1 / BUTTON_ZOOM_STEP, viewCenterPoint() ?? undefined)
   }
 
   function resetView() {
