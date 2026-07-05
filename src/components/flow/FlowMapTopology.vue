@@ -267,6 +267,8 @@ function onCanvasClick() {
   overflow: hidden;
   position: relative;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .flow-map-topology:active {
@@ -420,5 +422,7 @@ function onCanvasClick() {
   line-clamp: 3;
   text-overflow: ellipsis;
   height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
 }
 </style>
