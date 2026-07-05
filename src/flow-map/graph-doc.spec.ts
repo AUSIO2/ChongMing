@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { NEWS_ROOT_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews } from './ids'
+import { MAP_DEFAULT_NEWS_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews } from './ids'
 import type { MapSnapshot } from './types'
+import { timelineCreateDefault } from './timeline'
 import {
   docUpdateInterrupt,
   docUpdateProgress,
@@ -17,6 +18,8 @@ import {
   docResetMap,
   docUpdateDraft,
   docReadRoutes,
+  docAddRootNews,
+  docAddRootClaim,
   type MapGraphDoc,
 } from './graph-doc'
 import type { DisplayMap, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
@@ -28,92 +31,103 @@ function baseSnapshot(overrides: Partial<MapSnapshot> = {}): MapSnapshot {
     edges: [],
     runPhase: 'idle',
     mode: 'human-in-loop',
+    timeline: timelineCreateDefault(),
     ...overrides,
   }
 }
 
 describe('graph-doc capability', () => {
-  it('idle 只编辑正文，禁止预置拆分 subAgent', () => {
+  it('idle news 无槽：正文可编、route 可预置', () => {
     const snap = baseSnapshot({
       nodes: [
         {
-          id: NEWS_ROOT_ID,
+          id: MAP_DEFAULT_NEWS_ID,
           kind: 'news',
           params: { content: '' },
         },
       ],
     })
-    expect(docCanAddSubAgent(snap, NEWS_ROOT_ID)).toBe(false)
+    expect(docCanAddSubAgent(snap, MAP_DEFAULT_NEWS_ID)).toBe(true)
     expect(docIsParamLock(snap, snap.nodes[0])).toBe(false)
   })
 
-  it('非 idle 时锁定新闻正文', () => {
+  it('news 有 subAgent 无 claim：正文锁、route 仍可配', () => {
     const news = {
-      id: NEWS_ROOT_ID,
+      id: MAP_DEFAULT_NEWS_ID,
       kind: 'news' as const,
       params: { content: 'x' },
     }
-    expect(docIsParamLock(baseSnapshot({ runPhase: 'running', nodes: [news] }), news)).toBe(true)
+    const sa = {
+      id: 'sub:x',
+      kind: 'subAgent' as const,
+      parentId: MAP_DEFAULT_NEWS_ID,
+      params: { agentName: 'a', priority: 'medium' as const, instanceId: 'a' },
+    }
+    const snap = baseSnapshot({ nodes: [news, sa] })
+    expect(docIsParamLock(snap, news)).toBe(true)
+    expect(docCanAddSubAgent(snap, MAP_DEFAULT_NEWS_ID)).toBe(true)
+  })
+
+  it('running 仅锁 active scope 子树', () => {
+    const newsA = { id: MAP_DEFAULT_NEWS_ID, kind: 'news' as const, params: { content: 'a' } }
+    const newsB = { id: 'news:chain:b', kind: 'news' as const, params: { content: 'b' } }
+    const snap = baseSnapshot({
+      runPhase: 'running',
+      activeNodeId: MAP_DEFAULT_NEWS_ID,
+      timeline: { ...timelineCreateDefault(MAP_DEFAULT_NEWS_ID), activeScope: MAP_DEFAULT_NEWS_ID },
+      nodes: [newsA, newsB],
+    })
+    expect(docIsParamLock(snap, newsA)).toBe(true)
+    expect(docIsParamLock(snap, newsB)).toBe(false)
+  })
+
+  it('interrupted 不全局锁 news 正文（无工艺后代时）', () => {
+    const news = {
+      id: MAP_DEFAULT_NEWS_ID,
+      kind: 'news' as const,
+      params: { content: 'x' },
+    }
     expect(docIsParamLock(
       baseSnapshot({ runPhase: 'interrupted', pendingTool: 'invoke', nodes: [news] }),
       news,
-    )).toBe(true)
-  })
-
-  it('running 或 save 中断时禁止添加；confirmRoute(invoke) 允许', () => {
-    expect(docCanAddSubAgent(baseSnapshot({ runPhase: 'running' }), NEWS_ROOT_ID)).toBe(false)
-    expect(docCanAddSubAgent(
-      baseSnapshot({ runPhase: 'interrupted', pendingTool: 'save' }),
-      NEWS_ROOT_ID,
     )).toBe(false)
-    expect(docCanAddSubAgent(
-      baseSnapshot({ runPhase: 'interrupted', pendingTool: 'invoke' }),
-      NEWS_ROOT_ID,
-    )).toBe(true)
   })
 
-  it('仅 invoke 配置期允许往已持久化 claim 添加核查 subAgent', () => {
+  it('running 禁止 route；idle 允许', () => {
+    const news = { id: MAP_DEFAULT_NEWS_ID, kind: 'news' as const, params: { content: '' } }
+    expect(docCanAddSubAgent(
+      baseSnapshot({
+        runPhase: 'running',
+        activeNodeId: MAP_DEFAULT_NEWS_ID,
+        timeline: { ...timelineCreateDefault(MAP_DEFAULT_NEWS_ID), activeScope: MAP_DEFAULT_NEWS_ID },
+        nodes: [news],
+      }),
+      MAP_DEFAULT_NEWS_ID,
+    )).toBe(false)
+    expect(docCanAddSubAgent(baseSnapshot({ nodes: [news] }), MAP_DEFAULT_NEWS_ID)).toBe(true)
+  })
+
+  it('persisted claim 无 opinion 时可配核查 route', () => {
     const claim: MapSnapshot['nodes'][number] = {
-      id: 'claim:x:0',
+      id: '1',
       kind: 'claim',
-      parentId: 'sub:x',
       params: { content: 'c' },
       dataPhase: 'persisted',
       shouldSave: true,
     }
-    expect(docCanAddSubAgent(baseSnapshot({ nodes: [claim] }), 'claim:x:0')).toBe(false)
+    expect(docCanAddSubAgent(baseSnapshot({ nodes: [claim] }), '1')).toBe(true)
     expect(docCanAddSubAgent(
       baseSnapshot({
-        runPhase: 'interrupted',
-        pendingTool: 'invoke',
+        runPhase: 'running',
+        activeNodeId: '1',
+        timeline: { ...timelineCreateDefault(), activeScope: '1' },
         nodes: [claim],
       }),
-      'claim:x:0',
-    )).toBe(true)
-    expect(docCanAddSubAgent(
-      baseSnapshot({
-        runPhase: 'interrupted',
-        pendingTool: 'save',
-        nodes: [claim],
-      }),
-      'claim:x:0',
+      '1',
     )).toBe(false)
   })
 
-  it('running 时禁止往已持久化 claim 添加核查 subAgent', () => {
-    const claim: MapSnapshot['nodes'][number] = {
-      id: 'claim:x:0',
-      kind: 'claim',
-      parentId: 'sub:x',
-      params: { content: 'c' },
-      dataPhase: 'persisted',
-      shouldSave: true,
-    }
-    const snap = baseSnapshot({ runPhase: 'running', nodes: [claim] })
-    expect(docCanAddSubAgent(snap, 'claim:x:0')).toBe(false)
-  })
-
-  it('禁止把核查 subAgent 挂到未持久化的 claim 上', () => {
+  it('禁止把核查 subAgent 挂到 workerOut claim 上', () => {
     const claim: MapSnapshot['nodes'][number] = {
       id: 'claim:x:0',
       kind: 'claim',
@@ -122,12 +136,7 @@ describe('graph-doc capability', () => {
       dataPhase: 'workerOut',
       shouldSave: true,
     }
-    const snap = baseSnapshot({
-      runPhase: 'interrupted',
-      pendingTool: 'invoke',
-      nodes: [claim],
-    })
-    expect(docCanAddSubAgent(snap, 'claim:x:0')).toBe(false)
+    expect(docCanAddSubAgent(baseSnapshot({ nodes: [claim] }), 'claim:x:0')).toBe(false)
   })
 
   it('claim 一旦离开 workerOut 就锁定参数；opinion 始终锁定', () => {
@@ -173,30 +182,35 @@ describe('graph-doc capability', () => {
     expect(docCanEditNode(snap, child.id)).toBe(true)
   })
 
-  it('仅 invoke 配置期允许删除无下游的 subAgent 槽', () => {
+  it('news 有 claim 后 route 锁', () => {
+    const news = { id: MAP_DEFAULT_NEWS_ID, kind: 'news' as const, params: { content: 'x' } }
+    const sa = {
+      id: 'sub:x',
+      kind: 'subAgent' as const,
+      parentId: MAP_DEFAULT_NEWS_ID,
+      params: { agentName: 'a', priority: 'medium' as const, instanceId: 'a' },
+    }
+    const claim: MapSnapshot['nodes'][number] = {
+      id: 'claim:x:0',
+      kind: 'claim',
+      parentId: 'sub:x',
+      params: { content: 'c' },
+      dataPhase: 'workerOut',
+      shouldSave: true,
+    }
+    const snap = baseSnapshot({ nodes: [news, sa, claim] })
+    expect(docCanAddSubAgent(snap, MAP_DEFAULT_NEWS_ID)).toBe(false)
+  })
+
+  it('idle 可删除无下游 subAgent 槽', () => {
     const sa: MapSnapshot['nodes'][number] = {
       id: 'sub:x',
       kind: 'subAgent',
-      parentId: NEWS_ROOT_ID,
+      parentId: MAP_DEFAULT_NEWS_ID,
       params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
     }
-    expect(docCanRemoveNode(baseSnapshot({ nodes: [sa] }), sa.id)).toBe(false)
-    expect(docCanRemoveNode(
-      baseSnapshot({
-        runPhase: 'interrupted',
-        pendingTool: 'invoke',
-        nodes: [sa],
-      }),
-      sa.id,
-    )).toBe(true)
-    expect(docCanRemoveNode(
-      baseSnapshot({
-        runPhase: 'interrupted',
-        pendingTool: 'save',
-        nodes: [sa],
-      }),
-      sa.id,
-    )).toBe(false)
+    const news = { id: MAP_DEFAULT_NEWS_ID, kind: 'news' as const, params: { content: '' } }
+    expect(docCanRemoveNode(baseSnapshot({ nodes: [news, sa] }), sa.id)).toBe(true)
 
     const child: MapSnapshot['nodes'][number] = {
       id: 'claim:x:0',
@@ -207,11 +221,7 @@ describe('graph-doc capability', () => {
       shouldSave: true,
     }
     expect(docCanRemoveNode(
-      baseSnapshot({
-        runPhase: 'interrupted',
-        pendingTool: 'invoke',
-        nodes: [sa, child],
-      }),
+      baseSnapshot({ nodes: [news, sa, child] }),
       sa.id,
     )).toBe(false)
   })
@@ -223,6 +233,7 @@ function emptyMap(id = 'n1'): DisplayMap {
     content: 'hello',
     context: {},
     claims: [],
+    timeline: { startX: 0, endX: 3, activeScope: MAP_DEFAULT_NEWS_ID },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -231,7 +242,7 @@ function emptyMap(id = 'n1'): DisplayMap {
 function splitState(overrides: Partial<GraphSplitState> = {}): GraphSplitState {
   return {
     mapId: 'n1',
-    parentNodeId: NEWS_ROOT_ID,
+    parentNodeId: MAP_DEFAULT_NEWS_ID,
     mode: 'human-in-loop',
     content: 'hello',
     visibleContext: {},
@@ -262,7 +273,7 @@ describe('graph-doc state', () => {
     doc.runId = 'run-1'
     doc.transitionKey = '1-2'
     doc.draft = splitState()
-    doc.activeNodeId = NEWS_ROOT_ID
+    doc.activeNodeId = MAP_DEFAULT_NEWS_ID
     doc.pendingTool = 'validate'
     doc.error = 'x'
     docResetMap(doc, emptyMap())
@@ -278,24 +289,24 @@ describe('graph-doc state', () => {
 
   it('docUpdateProgress 在焦点上挂 activeTool，并清 snapshot pendingTool', () => {
     const doc = docCreate('n1')
-    doc.nodes = [{ id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } }]
+    doc.nodes = [{ id: MAP_DEFAULT_NEWS_ID, kind: 'news', params: { content: 'x' } }]
     doc.runPhase = 'interrupted'
     doc.runId = 'run-1'
-    doc.activeNodeId = NEWS_ROOT_ID
+    doc.activeNodeId = MAP_DEFAULT_NEWS_ID
     doc.pendingTool = 'validate'
     doc.nodes[0].runtime = { pendingTool: 'validate' }
 
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'node_enter',
       node: '',
     })
     expect(doc.runPhase).toBe('running')
     expect(doc.pendingTool).toBeUndefined()
-    expect(doc.activeNodeId).toBe(NEWS_ROOT_ID)
+    expect(doc.activeNodeId).toBe(MAP_DEFAULT_NEWS_ID)
     expect(doc.nodes[0].runtime).toEqual({ activeTool: 'validate' })
   })
 
@@ -327,12 +338,12 @@ describe('graph-doc state', () => {
     const payload: GraphInterruptedPayload = {
       runId: 'r1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       nextNode: 'validate',
       mode: 'human-in-loop',
       state,
-      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      focus: { kind: 'news', id: MAP_DEFAULT_NEWS_ID },
       pendingTool: 'validate',
     }
     const doc = docCreate('n1')
@@ -401,11 +412,11 @@ describe('graph-doc state', () => {
     const claimId = '2'
     const doc = docCreate('n1')
     doc.nodes = [
-      { id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } },
+      { id: MAP_DEFAULT_NEWS_ID, kind: 'news', params: { content: 'x' } },
       {
         id: claimId,
         kind: 'claim',
-        parentId: NEWS_ROOT_ID,
+        parentId: MAP_DEFAULT_NEWS_ID,
         params: { content: 'c' },
         dataPhase: 'persisted',
         shouldSave: true,
@@ -423,7 +434,7 @@ describe('graph-doc state', () => {
       state: {
         mapId: 'n1',
         parentNodeId: claimId,
-        scopeNodeId: NEWS_ROOT_ID,
+        scopeNodeId: MAP_DEFAULT_NEWS_ID,
         mode: 'human-in-loop',
         claimContent: 'c',
         originalContent: 'x',
@@ -471,11 +482,11 @@ describe('graph-doc state', () => {
     const claimId = '3'
     const doc = docCreate('n1')
     doc.nodes = [
-      { id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } },
+      { id: MAP_DEFAULT_NEWS_ID, kind: 'news', params: { content: 'x' } },
       {
         id: claimId,
         kind: 'claim',
-        parentId: NEWS_ROOT_ID,
+        parentId: MAP_DEFAULT_NEWS_ID,
         params: { content: 'c' },
         dataPhase: 'persisted',
         shouldSave: true,
@@ -484,7 +495,7 @@ describe('graph-doc state', () => {
     docProjectGraphState(doc, '2-3', {
       mapId: 'n1',
       parentNodeId: claimId,
-      scopeNodeId: NEWS_ROOT_ID,
+      scopeNodeId: MAP_DEFAULT_NEWS_ID,
       mode: 'auto',
       claimContent: 'c',
       originalContent: 'x',
@@ -523,9 +534,9 @@ describe('graph-doc state', () => {
   it('docUpdateSubAgent 核查：不同 claim 同 instanceId 不共用节点', () => {
     const doc = docCreate('n1')
     doc.nodes = [
-      { id: NEWS_ROOT_ID, kind: 'news', params: { content: '' } },
-      { id: '1', kind: 'claim', parentId: NEWS_ROOT_ID, params: { content: 'c1' }, dataPhase: 'persisted', shouldSave: true },
-      { id: '2', kind: 'claim', parentId: NEWS_ROOT_ID, params: { content: 'c2' }, dataPhase: 'persisted', shouldSave: true },
+      { id: MAP_DEFAULT_NEWS_ID, kind: 'news', params: { content: '' } },
+      { id: '1', kind: 'claim', parentId: MAP_DEFAULT_NEWS_ID, params: { content: 'c1' }, dataPhase: 'persisted', shouldSave: true },
+      { id: '2', kind: 'claim', parentId: MAP_DEFAULT_NEWS_ID, params: { content: 'c2' }, dataPhase: 'persisted', shouldSave: true },
     ]
     const route = { agentName: 'a', priority: 'medium' as const, instanceId: 'a#1' }
     const id1 = docUpdateSubAgent(doc, '1', route)
@@ -537,13 +548,13 @@ describe('graph-doc state', () => {
 
   it('docUpdateSubAgent 重复 id 更新 parent、边不重复', () => {
     const doc: MapGraphDoc = docCreate('n1')
-    doc.nodes = [{ id: NEWS_ROOT_ID, kind: 'news', params: { content: '' } }]
-    const id1 = docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    doc.nodes = [{ id: MAP_DEFAULT_NEWS_ID, kind: 'news', params: { content: '' } }]
+    const id1 = docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'medium',
       instanceId: 'a',
     })
-    const id2 = docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    const id2 = docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a',
@@ -594,6 +605,7 @@ describe('graph-doc state', () => {
       },
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
+      timeline: { startX: 0, endX: 3, activeScope: MAP_DEFAULT_NEWS_ID },
     } as DisplayMap
 
     const doc = docCreateMap(news)
@@ -605,7 +617,7 @@ describe('graph-doc state', () => {
   it('subagent_tool start 写入 activeSkill（含 argsSummary）', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: '来源可信度',
       priority: 'high',
       instanceId: '来源可信度#1',
@@ -614,7 +626,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'start',
@@ -634,12 +646,12 @@ describe('graph-doc state', () => {
   it('subagent_tool end 仅清除对应节点 activeSkill', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
     })
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'b',
       priority: 'medium',
       instanceId: 'b#1',
@@ -652,7 +664,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'end',
@@ -667,12 +679,12 @@ describe('graph-doc state', () => {
   it('node_enter 不清除其他 SubAgent 的 activeSkill', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
     })
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'b',
       priority: 'medium',
       instanceId: 'b#1',
@@ -683,7 +695,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'node_enter',
       node: 'subAgent',
@@ -695,7 +707,7 @@ describe('graph-doc state', () => {
   it('node_exit subAgent 清除全部 activeSkill', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
@@ -706,7 +718,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'node_exit',
       node: 'subAgent',
@@ -723,7 +735,7 @@ describe('graph-doc state', () => {
     doc.draft = {
       mapId: 'n1',
       parentNodeId: '1',
-      scopeNodeId: NEWS_ROOT_ID,
+      scopeNodeId: MAP_DEFAULT_NEWS_ID,
       mode: 'human-in-loop',
       claimContent: 'c',
       originalContent: 'o',
@@ -769,7 +781,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'fanout_spawn',
       node: 'subAgent',
@@ -783,7 +795,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'start',
@@ -803,7 +815,7 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-a'
     doc.runPhase = 'running'
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
@@ -812,7 +824,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-b',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'subagent_tool',
       phase: 'start',
@@ -828,7 +840,7 @@ describe('graph-doc state', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'
     doc.runPhase = 'completed'
-    docUpdateSubAgent(doc, NEWS_ROOT_ID, {
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
       agentName: 'a',
       priority: 'high',
       instanceId: 'a#1',
@@ -837,7 +849,7 @@ describe('graph-doc state', () => {
     docUpdateProgress(doc, {
       runId: 'run-1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       event: 'node_enter',
       node: 'subAgent',
@@ -851,12 +863,12 @@ describe('graph-doc state', () => {
     const payload: GraphInterruptedPayload = {
       runId: 'r1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       nextNode: 'validate',
       mode: 'human-in-loop',
       state: splitState(),
-      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      focus: { kind: 'news', id: MAP_DEFAULT_NEWS_ID },
       pendingTool: 'validate',
     }
     docUpdateInterrupt(doc, payload)
@@ -877,12 +889,12 @@ describe('graph-doc state', () => {
     docUpdateInterrupt(doc, {
       runId: 'r1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       nextNode: 'save',
       mode: 'human-in-loop',
       state,
-      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      focus: { kind: 'news', id: MAP_DEFAULT_NEWS_ID },
       pendingTool: 'save',
     })
     const claims = doc.nodes.filter(n => n.kind === 'claim')
@@ -901,12 +913,12 @@ describe('graph-doc state', () => {
     docUpdateInterrupt(doc, {
       runId: 'r1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       nextNode: 'confirmRoute',
       mode: 'human-in-loop',
       state,
-      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      focus: { kind: 'news', id: MAP_DEFAULT_NEWS_ID },
       pendingTool: 'invoke',
     })
     expect(doc.nodes.filter(n => n.kind === 'claim')).toHaveLength(0)
@@ -944,12 +956,12 @@ describe('graph-doc state', () => {
     docUpdateInterrupt(doc, {
       runId: 'r1',
       mapId: 'n1',
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       transitionKey: '1-2',
       nextNode: 'validate',
       mode: 'human-in-loop',
       state,
-      focus: { kind: 'news', id: NEWS_ROOT_ID },
+      focus: { kind: 'news', id: MAP_DEFAULT_NEWS_ID },
       pendingTool: 'validate',
     })
     const edge = (from: string, to: string) =>
@@ -961,16 +973,30 @@ describe('graph-doc state', () => {
   it('docReadRoutes 从图上 subAgent 读路由', () => {
     const doc = docCreate('n1')
     doc.nodes = [
-      { id: NEWS_ROOT_ID, kind: 'news', params: { content: 'x' } },
+      { id: MAP_DEFAULT_NEWS_ID, kind: 'news', params: { content: 'x' } },
       {
         id: 'sub:a#1',
         kind: 'subAgent',
-        parentId: NEWS_ROOT_ID,
+        parentId: MAP_DEFAULT_NEWS_ID,
         params: { agentName: 'a', priority: 'high', instanceId: 'a#1' },
       },
     ]
-    expect(docReadRoutes(doc, NEWS_ROOT_ID)).toEqual([
+    expect(docReadRoutes(doc, MAP_DEFAULT_NEWS_ID)).toEqual([
       { agentName: 'a', priority: 'high', instanceId: 'a#1' },
     ])
+  })
+
+  it('docAddRootNews 追加独立新闻根', () => {
+    const doc = docCreate('n1')
+    const newsId = docAddRootNews(doc)
+    expect(doc.nodes.some(n => n.id === newsId && n.kind === 'news' && !n.parentId)).toBe(true)
+  })
+
+  it('docAddRootClaim 追加独立事实根', () => {
+    const doc = docCreate('n1')
+    const claimId = docAddRootClaim(doc)
+    const claim = doc.nodes.find(n => n.id === claimId)
+    expect(claim?.kind).toBe('claim')
+    expect(claim?.parentId).toBeUndefined()
   })
 })

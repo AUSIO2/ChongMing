@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import type {
   ExecutionMode,
@@ -7,8 +7,9 @@ import type {
   MapSubAgentParams,
   CatalogSubAgent,
   UpdateNodeParamsPatch,
+  MapTimeline,
 } from '../flow-map'
-import { NEWS_ROOT_ID, portReadApi } from '../flow-map'
+import { MAP_DEFAULT_NEWS_ID, portReadApi } from '../flow-map'
 import { errReadApp } from '../../electron/shared/errors'
 
 export const useFlowMapStore = defineStore('flow-map', () => {
@@ -81,7 +82,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   async function loadRootCatalog() {
-    await loadCatalogFor(NEWS_ROOT_ID)
+    await loadCatalogFor(MAP_DEFAULT_NEWS_ID)
   }
 
   async function addSubAgent(
@@ -115,6 +116,37 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     try {
       snapshot.value = await portReadApi().removeNode({ mapId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
+      errorMessage.value = null
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+    }
+  }
+
+  async function runTimeline() {
+    const mapId = currentMapId.value
+    if (!mapId) return
+    if (snapshot.value) {
+      snapshot.value = { ...snapshot.value, runPhase: 'running' }
+    }
+    try {
+      const { snapshot: next } = await portReadApi().runTimeline(
+        mapId,
+        mode.value,
+        selectedNodeId.value,
+      )
+      snapshot.value = next
+      errorMessage.value = null
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+      await refresh()
+    }
+  }
+
+  async function updateTimeline(patch: Partial<MapTimeline>) {
+    const mapId = currentMapId.value
+    if (!mapId) return
+    try {
+      snapshot.value = await portReadApi().updateTimeline(mapId, patch)
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -201,15 +233,40 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     }
   }
 
-  async function addSourceChain(uri: string, label?: string) {
-    const mapId = currentMapId.value
+  async function addSourceChain(uri: string, label?: string, forMapId?: string) {
+    const mapId = forMapId ?? currentMapId.value
     if (!mapId) return
+    if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
       snapshot.value = await portReadApi().addSourceChain(mapId, {
         uri,
         kind: 'file',
         label,
       })
+      errorMessage.value = null
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+    }
+  }
+
+  async function addRootNews(forMapId?: string) {
+    const mapId = forMapId ?? currentMapId.value
+    if (!mapId) return
+    if (currentMapId.value !== mapId) await attachMap(mapId)
+    try {
+      snapshot.value = await portReadApi().addRootNews(mapId)
+      errorMessage.value = null
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+    }
+  }
+
+  async function addRootClaim(forMapId?: string) {
+    const mapId = forMapId ?? currentMapId.value
+    if (!mapId) return
+    if (currentMapId.value !== mapId) await attachMap(mapId)
+    try {
+      snapshot.value = await portReadApi().addRootClaim(mapId)
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -239,11 +296,19 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     addSubAgent,
     updateNodeParams,
     removeNode,
+    runTimeline,
+    updateTimeline,
     startRun,
     startParse,
     addSourceChain,
+    addRootNews,
+    addRootClaim,
     continueStep,
     cancelRun,
     setMode,
   }
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useFlowMapStore, import.meta.hot))
+}

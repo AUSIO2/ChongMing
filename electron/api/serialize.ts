@@ -2,6 +2,7 @@ import type { NewsContext, MapSubAgentParams } from '../shared/types'
 import {
   MAP_DEFAULT_SCOPE,
   mapScopeReadContext,
+  mapScopeReadKey,
   type MapChainScope,
 } from '../shared/map-scope'
 import type {
@@ -14,6 +15,7 @@ import type {
   GraphVerifyState,
   MapGraphPersist,
   MapRunPersist,
+  MapTimelineDto,
 } from './types'
 
 function toIsoString(value: unknown): string | undefined {
@@ -44,6 +46,43 @@ function serialReadPlain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+function serialReadStateIndex(value: unknown): 0 | 1 | 2 | 3 | undefined {
+  if (typeof value !== 'number' || value < 0 || value > 3) return undefined
+  return value as 0 | 1 | 2 | 3
+}
+
+function serialReadTimeline(raw: unknown): MapTimelineDto {
+  if (!raw || typeof raw !== 'object') {
+    return { startX: 0, endX: 3, activeScope: '' }
+  }
+  const t = raw as Record<string, unknown>
+
+  if (t.scopes && typeof t.scopes === 'object') {
+    const activeScope = String(t.activeScope ?? '')
+    const scopes = t.scopes as Record<string, {
+      startX?: number
+      endX?: number
+      stateIndex?: number
+    }>
+    const scope = (activeScope && scopes[activeScope])
+      ? scopes[activeScope]
+      : Object.values(scopes)[0]
+    return {
+      startX: serialReadStateIndex(scope?.startX) ?? 0,
+      endX: serialReadStateIndex(scope?.endX) ?? 3,
+      stateIndex: serialReadStateIndex(scope?.stateIndex),
+      activeScope,
+    }
+  }
+
+  return {
+    startX: serialReadStateIndex(t.startX) ?? 0,
+    endX: serialReadStateIndex(t.endX) ?? 3,
+    stateIndex: serialReadStateIndex(t.stateIndex),
+    activeScope: String(t.activeScope ?? ''),
+  }
+}
+
 function scopeReadForDisplay(
   doc: { chains?: unknown },
   scopeNodeId: string = MAP_DEFAULT_SCOPE,
@@ -68,9 +107,9 @@ function scopeReadForDisplay(
   } | undefined
 
   if (chains instanceof Map) {
-    scope = chains.get(scopeNodeId)
+    scope = chains.get(mapScopeReadKey(scopeNodeId))
   } else if (chains) {
-    scope = chains[scopeNodeId]
+    scope = chains[mapScopeReadKey(scopeNodeId)]
   }
 
   if (!scope) {
@@ -107,13 +146,16 @@ export function serialReadMap(doc: unknown, scopeNodeId = MAP_DEFAULT_SCOPE): Di
 
   const mapRunRaw = (raw as Record<string, unknown>).mapRun as MapRunPersist | null | undefined
   const mapGraphRaw = (raw as Record<string, unknown>).mapGraph as MapGraphPersist | null | undefined
+  const rawName = (raw as Record<string, unknown>).name
 
   return {
     _id: String(raw._id),
+    name: typeof rawName === 'string' && rawName.trim() ? rawName.trim() : undefined,
     content: scope.content,
     context: scope.context,
     claims: scope.claims,
     splitMeta: scope.splitMeta,
+    timeline: serialReadTimeline((raw as Record<string, unknown>).timeline),
     mapRun: mapRunRaw
       ? serialReadPlain({
           ...mapRunRaw,
@@ -135,6 +177,7 @@ export function serialReadMap(doc: unknown, scopeNodeId = MAP_DEFAULT_SCOPE): Di
 
 export function serialReadMapSummary(doc: {
   _id: unknown
+  name?: unknown
   chains?: unknown
   createdAt?: unknown
   updatedAt?: unknown
@@ -142,6 +185,7 @@ export function serialReadMapSummary(doc: {
   const scope = scopeReadForDisplay(doc)
   return {
     _id: String(doc._id),
+    name: typeof doc.name === 'string' && doc.name.trim() ? doc.name.trim() : undefined,
     content: scope.content,
     claimCount: scope.claims.length,
     createdAt: toIsoString(doc.createdAt) ?? new Date().toISOString(),

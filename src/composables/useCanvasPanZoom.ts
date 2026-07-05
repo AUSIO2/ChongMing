@@ -80,7 +80,11 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
 
   function onPointerDown(e: PointerEvent) {
     const target = e.target as Element
-    if (target.closest('.fm-node') || target.closest('.zoom-controls')) return
+    if (
+      target.closest('.fm-node')
+      || target.closest('.zoom-controls')
+      || target.closest('.canvas-context-menu')
+    ) return
     if (e.button !== 0 && e.button !== 1) return
     panning = true
     panStartX = e.clientX

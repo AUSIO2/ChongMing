@@ -6,6 +6,7 @@ import type {
   MapSubAgentParams,
   CatalogSubAgent,
 } from './types'
+import type { MapTimeline } from './timeline'
 
 /** 后端推送导致快照变化的原因（用户 mutation 返回值已更新 store，无需 refresh）。 */
 export type MapUpdateReason = 'progress' | 'interrupt' | 'completed' | 'error'
@@ -36,6 +37,19 @@ export interface MapAPI {
   updateNodeParams(input: UpdateNodeParamsInput): Promise<MapSnapshot>
   removeNode(input: { mapId: string; nodeId: string }): Promise<MapSnapshot>
 
+  updateTimeline(
+    mapId: string,
+    patch: Partial<MapTimeline>,
+  ): Promise<MapSnapshot>
+  runTimeline(
+    mapId: string,
+    mode?: ExecutionMode,
+    selectedNewsId?: string | null,
+  ): Promise<{
+    runId: string
+    snapshot: MapSnapshot
+    status: 'done' | 'interrupted'
+  }>
   startRun(
     mapId: string,
     mode?: ExecutionMode,
@@ -48,6 +62,8 @@ export interface MapAPI {
     mapId: string,
     input: { uri: string; kind?: 'file' | 'url'; label?: string },
   ): Promise<MapSnapshot>
+  addRootNews(mapId: string): Promise<MapSnapshot>
+  addRootClaim(mapId: string): Promise<MapSnapshot>
   continueStep(mapId: string): Promise<MapSnapshot>
   cancel(mapId: string): Promise<MapSnapshot>
   setMode(mapId: string, mode: ExecutionMode): Promise<MapSnapshot>

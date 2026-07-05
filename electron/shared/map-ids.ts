@@ -1,7 +1,7 @@
 /**
  * Map 节点 id 规则 —— Electron 与渲染进程 Port 共用，保证 focus / 投影一致。
  *
- * - news 根：NEWS_ROOT_ID
+ * - 默认新闻根：MAP_DEFAULT_NEWS_ID（news:default）
  * - subAgent（拆分）：sub:${instanceId}
  * - subAgent（核查 claim 下）：sub:${claimId}:${instanceId}
  * - claim（merge/落库）：String(saveIndex+1)
@@ -12,11 +12,17 @@
 
 import type { MapSubAgentParams, RouteInstructionDraft } from './types'
 
-export const NEWS_ROOT_ID = '__news_root__'
+export const MAP_DEFAULT_CHAIN_ID = 'default'
 
 const SOURCE_PREFIX = 'source:'
 const PARSE_PREFIX = 'parse:'
 const NEWS_PREFIX = 'news:'
+
+export const MAP_DEFAULT_NEWS_ID = `${NEWS_PREFIX}${MAP_DEFAULT_CHAIN_ID}`
+
+export function mapIdIsDefaultNews(nodeId: string): boolean {
+  return nodeId === MAP_DEFAULT_NEWS_ID
+}
 
 export function mapIdCreateChain(): string {
   return crypto.randomUUID().slice(0, 8)
@@ -86,7 +92,7 @@ export function mapIdCreateRoute(
   route: Pick<MapSubAgentParams, 'instanceId'>,
   parentId?: string,
 ): string {
-  if (parentId && parentId !== NEWS_ROOT_ID) {
+  if (parentId && !mapIdIsDefaultNews(parentId)) {
     return `sub:${parentId}:${route.instanceId}`
   }
   return mapIdCreateSubAgent(route.instanceId)
@@ -197,7 +203,7 @@ export function mapIdReadNodeFocus(
   if (activeNodeId.startsWith(SOURCE_PREFIX)) {
     return { kind: 'source', id: activeNodeId }
   }
-  if (activeNodeId === NEWS_ROOT_ID || activeNodeId.startsWith(NEWS_PREFIX)) {
+  if (mapIdIsDefaultNews(activeNodeId) || activeNodeId.startsWith(NEWS_PREFIX)) {
     return { kind: 'news', id: activeNodeId }
   }
   if (activeNodeId.startsWith('sub:')) {

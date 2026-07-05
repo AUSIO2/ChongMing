@@ -2,7 +2,7 @@ import { Send, getConfig, isGraphInterrupt } from '@langchain/langgraph'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ExecutionMode, MapSubAgentParams, AgentRuntimeConfig } from './types'
 import { ErrorCode, errUpdateNormalize } from './errors'
-import { NEWS_ROOT_ID, mapIdCreateRoute, mapIdUpdateInstance } from './map-ids'
+import { MAP_DEFAULT_NEWS_ID, mapIdCreateRoute, mapIdUpdateInstance } from './map-ids'
 import { promptRead, promptFormat } from './prompt-loader'
 import {
   llmReadMessage,
@@ -358,7 +358,7 @@ export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>
         && 'parentNodeId' in stateAfterInterrupt
         && typeof (stateAfterInterrupt as { parentNodeId?: string }).parentNodeId === 'string'
           ? (stateAfterInterrupt as { parentNodeId: string }).parentNodeId
-          : NEWS_ROOT_ID
+          : MAP_DEFAULT_NEWS_ID
       instructions.forEach((instruction, index) => {
         const nodeId = session.fanoutReadNodeId
           ? session.fanoutReadNodeId(instruction, parentNodeId)

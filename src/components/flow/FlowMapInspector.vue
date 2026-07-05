@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { NEWS_ROOT_ID, docCanAddSubAgent, docCanEditNode, docCanRemoveNode, labelFormatNodeKind, labelFormatHitl, DATA_PHASE_LABEL } from '../../flow-map'
+import { docCanAddSubAgent, docCanEditNode, docCanRemoveNode, docReadLockReason, labelFormatNodeKind, labelFormatHitl, DATA_PHASE_LABEL } from '../../flow-map'
 import SubAgentCatalogPicker from './SubAgentCatalogPicker.vue'
 import type {
   MapNode,
@@ -38,10 +38,18 @@ watch(
   },
 )
 
-const isRootAddable = computed(() => {
+const isNewsRouteAddable = computed(() => {
   const s = snapshot.value
-  if (!s) return false
-  return docCanAddSubAgent(s, NEWS_ROOT_ID)
+  const id = selectedNodeId.value
+  if (!s || !id) return false
+  return docCanAddSubAgent(s, id)
+})
+
+const lockReason = computed(() => {
+  const s = snapshot.value
+  const id = selectedNodeId.value
+  if (!s || !id) return undefined
+  return docReadLockReason(s, id)
 })
 
 const isSelectedClaimAddable = computed(() => {
@@ -158,6 +166,7 @@ async function onRemove(node: MapNode) {
           <span v-else-if="selectedNode.runtime?.activeTool" class="tool">
             执行 · {{ labelFormatHitl(selectedNode.runtime.activeTool, 'active') }}
           </span>
+          <span v-if="lockReason" class="phase">{{ lockReason }}</span>
         </div>
 
         <!-- News -->
@@ -175,21 +184,21 @@ async function onRemove(node: MapNode) {
           <div class="add-section">
             <button
               class="primary"
-              :disabled="!isRootAddable"
-              @click="beginAddFor(NEWS_ROOT_ID)"
+              :disabled="!isNewsRouteAddable"
+              @click="beginAddFor(selectedNode.id)"
             >
               添加拆分 SubAgent
             </button>
             <SubAgentCatalogPicker
               :catalog="catalog"
-              :visible="showAddPanel && catalogParent === NEWS_ROOT_ID"
+              :visible="showAddPanel && catalogParent === selectedNode.id"
               :selected-agent-name="draftAgent?.agentName"
               @select="draftAgent = $event"
-              @confirm="confirmAdd(NEWS_ROOT_ID)"
+              @confirm="confirmAdd(selectedNode.id)"
               @cancel="showAddPanel = false"
             >
               <template #confirm>
-                <button :disabled="!draftAgent" @click="confirmAdd(NEWS_ROOT_ID)">确认添加</button>
+                <button :disabled="!draftAgent" @click="confirmAdd(selectedNode.id)">确认添加</button>
               </template>
             </SubAgentCatalogPicker>
           </div>

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { layoutReadSnapshot } from './layout'
-import { NEWS_ROOT_ID } from './ids'
+import { MAP_DEFAULT_NEWS_ID } from './ids'
 import { MAP_COLUMN } from './columns'
+import { timelineCreateDefault } from './timeline'
 import type { MapNode, MapSnapshot } from './types'
 
 const newsNode: MapNode = {
-  id: NEWS_ROOT_ID,
+  id: MAP_DEFAULT_NEWS_ID,
   kind: 'news',
   params: { content: '' },
 }
@@ -17,6 +18,7 @@ function make(overrides: Partial<MapSnapshot>): MapSnapshot {
     edges: [],
     runPhase: 'idle',
     mode: 'human-in-loop',
+    timeline: timelineCreateDefault(),
     ...rest,
     nodes: [newsNode, ...(nodes ?? [])],
   }
@@ -29,7 +31,7 @@ describe('layout', () => {
         {
           id: 'sub:a',
           kind: 'subAgent',
-          parentId: NEWS_ROOT_ID,
+          parentId: MAP_DEFAULT_NEWS_ID,
           params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
         },
         {
@@ -50,7 +52,7 @@ describe('layout', () => {
         },
       ],
       edges: [
-        { id: 'e:root->sub:a', from: NEWS_ROOT_ID, to: 'sub:a' },
+        { id: 'e:root->sub:a', from: MAP_DEFAULT_NEWS_ID, to: 'sub:a' },
         { id: 'e:sub:a->claim:a:0', from: 'sub:a', to: 'claim:a:0' },
         { id: 'e:sub:a->claim:a:1', from: 'sub:a', to: 'claim:a:1' },
       ],
@@ -71,7 +73,7 @@ describe('layout', () => {
         {
           id: 'sub:a',
           kind: 'subAgent',
-          parentId: NEWS_ROOT_ID,
+          parentId: MAP_DEFAULT_NEWS_ID,
           params: { agentName: 'a', priority: 'medium', instanceId: 'a' },
         },
         {
@@ -90,14 +92,14 @@ describe('layout', () => {
         },
       ],
       edges: [
-        { id: 'e:root->sub:a', from: NEWS_ROOT_ID, to: 'sub:a' },
+        { id: 'e:root->sub:a', from: MAP_DEFAULT_NEWS_ID, to: 'sub:a' },
         { id: 'e:sub:a->claim:a:0', from: 'sub:a', to: 'claim:a:0' },
         { id: 'e:claim:a:0->sub:v', from: 'claim:a:0', to: 'sub:v' },
       ],
     })
 
     const out = layoutReadSnapshot(snap)
-    const news = out.nodes.find(n => n.node.id === NEWS_ROOT_ID)!
+    const news = out.nodes.find(n => n.node.id === MAP_DEFAULT_NEWS_ID)!
     const sa = out.nodes.find(n => n.node.id === 'sub:a')!
     const claim = out.nodes.find(n => n.node.id === 'claim:a:0')!
     const sv = out.nodes.find(n => n.node.id === 'sub:v')!

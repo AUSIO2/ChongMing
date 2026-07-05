@@ -56,12 +56,22 @@ export interface DisplaySplitMeta {
   splitAt: string
 }
 
+export interface MapTimelineDto {
+  startX: 0 | 1 | 2 | 3
+  endX: 0 | 1 | 2 | 3
+  stateIndex?: 0 | 1 | 2 | 3
+  activeScope: string
+}
+
 export interface DisplayMap {
   _id: string
+  /** 用户自定义名称；未设置时 UI 显示「Map」。 */
+  name?: string
   content: string
   context: NewsContext
   claims: DisplayClaim[]
   splitMeta?: DisplaySplitMeta
+  timeline: MapTimelineDto
   mapRun?: MapRunPersist
   mapGraph?: MapGraphPersist
   confidence?: number
@@ -72,6 +82,7 @@ export interface DisplayMap {
 
 export interface DisplayMapSummary {
   _id: string
+  name?: string
   content: string
   claimCount: number
   createdAt: string
@@ -80,15 +91,18 @@ export interface DisplayMapSummary {
 
 export interface CreateMapInput {
   _id?: string
+  name?: string
   content: string
   context: NewsContext
   scopeNodeId?: string
 }
 
 export interface UpdateMapInput {
+  name?: string
   scopeNodeId?: string
   content?: string
   context?: NewsContext
+  timeline?: Partial<MapTimelineDto>
 }
 
 // ==========================================

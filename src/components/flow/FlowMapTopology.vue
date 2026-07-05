@@ -1,17 +1,35 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useFlowMap } from '../../composables/use-flow-map'
 import { useCanvasPanZoom } from '../../composables/useCanvasPanZoom'
+import { useWorkspaceStore } from '../../stores/workspace'
 import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
 import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind, labelTruncate } from '../../flow-map'
+import { MAP_COLUMN, MAP_COLUMN_LABEL } from '../../flow-map/columns'
 
 const props = defineProps<{ mapId: string | null }>()
 
+const workspace = useWorkspaceStore()
 const { store, layout, snapshot, selectedNodeId } = useFlowMap(() => props.mapId)
 
 const containerRef = ref<HTMLElement | null>(null)
 const svgRef = ref<SVGSVGElement | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+type DataRootKind = 'source' | 'news' | 'claim'
+
+const CREATE_ROOT_MENU: { kind: DataRootKind, label: string }[] = [
+  { kind: 'source', label: `新建${MAP_COLUMN_LABEL[MAP_COLUMN.source]}` },
+  { kind: 'news', label: `新建${MAP_COLUMN_LABEL[MAP_COLUMN.news]}` },
+  { kind: 'claim', label: `新建${MAP_COLUMN_LABEL[MAP_COLUMN.claim]}` },
+]
+
+const contextMenu = ref<{ visible: boolean, x: number, y: number }>({
+  visible: false,
+  x: 0,
+  y: 0,
+})
 
 const contentWidth = computed(() => Math.max(layout.value?.width ?? 600, 600))
 const contentHeight = computed(() => Math.max(layout.value?.height ?? 300, 300))
@@ -129,7 +147,104 @@ function onSelectNode(id: string) {
 }
 
 function onCanvasClick() {
+  closeContextMenu()
   void store.selectNode(null)
+}
+
+async function ensureMapReady(): Promise<string | null> {
+  let mapId = props.mapId ?? workspace.currentMapId
+  if (!mapId) {
+    await workspace.createMap()
+    mapId = workspace.currentMapId
+  }
+  if (!mapId) return null
+  await store.attachMap(mapId)
+  return mapId
+}
+
+function onCreateRoot(kind: DataRootKind) {
+  if (kind === 'source') {
+    const input = fileInput.value
+    if (!input) return
+    if (typeof input.showPicker === 'function') {
+      try {
+        input.showPicker()
+        return
+      } catch {
+        /* fallback */
+      }
+    }
+    input.click()
+    return
+  }
+  void createDataRoot(kind)
+}
+
+async function createDataRoot(kind: 'news' | 'claim') {
+  const mapId = await ensureMapReady()
+  if (!mapId) return
+  if (kind === 'news') {
+    await store.addRootNews(mapId)
+  } else {
+    await store.addRootClaim(mapId)
+  }
+  await nextTick()
+  fitToView()
+}
+
+function onContextMenu(ev: MouseEvent) {
+  ev.preventDefault()
+  contextMenu.value = { visible: true, x: ev.clientX, y: ev.clientY }
+}
+
+let dismissMenu: (() => void) | null = null
+
+function closeContextMenu() {
+  contextMenu.value.visible = false
+  dismissMenu?.()
+  dismissMenu = null
+}
+
+watch(
+  () => contextMenu.value.visible,
+  (visible) => {
+    dismissMenu?.()
+    dismissMenu = null
+    if (!visible) return
+    const onDismiss = (ev: Event) => {
+      if ((ev.target as Element).closest('.canvas-context-menu')) return
+      closeContextMenu()
+    }
+    const onDismissKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') closeContextMenu()
+    }
+    dismissMenu = () => {
+      document.removeEventListener('pointerdown', onDismiss)
+      document.removeEventListener('keydown', onDismissKey)
+    }
+    requestAnimationFrame(() => {
+      document.addEventListener('pointerdown', onDismiss)
+      document.addEventListener('keydown', onDismissKey)
+    })
+  },
+)
+
+function onMenuPick(kind: DataRootKind) {
+  closeContextMenu()
+  onCreateRoot(kind)
+}
+
+async function onFileSelected(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const mapId = await ensureMapReady()
+  if (!mapId) return
+  const path = (file as File & { path?: string }).path ?? file.name
+  await store.addSourceChain(path, file.name, mapId)
+  await nextTick()
+  fitToView()
 }
 </script>
 
@@ -138,6 +253,7 @@ function onCanvasClick() {
     ref="containerRef"
     class="flow-map-topology"
     @click="onCanvasClick"
+    @contextmenu="onContextMenu"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
@@ -149,6 +265,33 @@ function onCanvasClick() {
       <button type="button" class="zoom-btn zoom-btn-wide" title="适应画布" @click="fitToView">适应</button>
       <button type="button" class="zoom-btn zoom-btn-wide" title="重置为 100%" @click="resetView">{{ scalePercent }}</button>
     </div>
+
+    <Teleport to="body">
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".txt,.md,text/plain"
+        class="hidden-file"
+        @change="onFileSelected"
+      >
+
+      <ul
+        v-if="contextMenu.visible"
+        class="canvas-context-menu"
+        :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+        @pointerdown.stop
+        @mousedown.stop
+        @click.stop
+      >
+        <li
+          v-for="item in CREATE_ROOT_MENU"
+          :key="item.kind"
+          @pointerdown.stop.prevent="onMenuPick(item.kind)"
+        >
+          {{ item.label }}
+        </li>
+      </ul>
+    </Teleport>
 
     <svg
       ref="svgRef"
@@ -192,6 +335,7 @@ function onCanvasClick() {
           class="fm-node"
           :class="nodeClasses(ln)"
           @click.stop="onSelectNode(ln.node.id)"
+          @contextmenu.stop
         >
           <rect
             :width="ln.width"
@@ -329,6 +473,39 @@ function onCanvasClick() {
   color: var(--text-muted);
   font-size: var(--ui-font-size-md);
   pointer-events: none;
+}
+
+.hidden-file {
+  position: fixed;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.canvas-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 120px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+}
+
+.canvas-context-menu li {
+  padding: 6px 12px;
+  font-size: var(--ui-font-size-md);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.canvas-context-menu li:hover {
+  background: var(--bg-hover);
 }
 
 .fm-edge {

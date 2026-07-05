@@ -7,7 +7,9 @@ export type {
   MapUpdateReason,
 } from './api'
 export {
-  NEWS_ROOT_ID,
+  MAP_DEFAULT_NEWS_ID,
+  MAP_DEFAULT_CHAIN_ID,
+  mapIdIsDefaultNews,
   mapIdCreateRoute,
 } from './ids'
 export {
@@ -25,6 +27,8 @@ export {
   docCanAddSubAgent,
   docCanEditNode,
   docCanRemoveNode,
+  docReadLockReason,
+  docCollectSubtree,
   docReadSnapshot,
   type MapGraphDoc,
 } from './graph-doc'
@@ -34,6 +38,43 @@ export {
   type MapLayoutEdge,
   type MapLayoutSnapshot,
 } from './layout'
+export {
+  STATE_CHAIN,
+  STATE_CHAIN_LABEL,
+  STATE_TRANSITION_LABEL,
+  timelineCreateDefault,
+  timelineDeriveStateIndex,
+  timelineReadEffectiveIndex,
+  timelineReadScope,
+  timelineValidate,
+  type MapTimeline,
+  type StateIndex,
+  type StateKind,
+} from './timeline'
+export {
+  MAP_DATA_FRAME,
+  DATA_FRAME_LABEL,
+  FRAME_ANCHOR,
+  FRAME_COUNT,
+  frameReadDataIndex,
+  frameReadStateIndex,
+  frameIsDataColumn,
+  frameToX,
+  frameReadCanvasWidth,
+  frameReadRulerHeight,
+  frameReadGutterWidth,
+  frameReadCellWidth,
+  layoutYScale,
+  type FrameIndex,
+  type DataFrameIndex,
+} from './timeline-frame'
+export {
+  timelineProjectLines,
+  timelineReadGlobalStart,
+  timelineReadGlobalFrame,
+  timelineReadDataEnd,
+  type TimelineLine,
+} from './timeline-project'
 export {
   portRegisterApi,
   portReadApi,

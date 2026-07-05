@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus, mapIdCreateRoute, mapIdReadSubAgent, mapIdReadRouteClaim, NEWS_ROOT_ID } from './ids'
+import { mapIdCreateInstance, mapIdReadAgentName, mapIdUpdateInstance, mapIdReadInterruptFocus, mapIdCreateRoute, mapIdReadSubAgent, mapIdReadRouteClaim, MAP_DEFAULT_NEWS_ID } from './ids'
 
 describe('map-ids', () => {
   it('mapIdCreateInstance 按 parent 已有槽递增', () => {
@@ -63,7 +63,7 @@ describe('map-ids', () => {
       mapIdCreateRoute({ instanceId: 'a#1' }, '2'),
     ).toBe('sub:2:a#1')
     expect(
-      mapIdCreateRoute({ instanceId: 'a#1' }, '__news_root__'),
+      mapIdCreateRoute({ instanceId: 'a#1' }, 'news:default'),
     ).toBe('sub:a#1')
     expect(mapIdReadSubAgent('sub:2:a#1')).toBe('a#1')
     expect(mapIdReadRouteClaim('sub:2:a#1')).toBe('2')
@@ -72,7 +72,7 @@ describe('map-ids', () => {
 
   it('mapIdReadInterruptFocus save 拆分指向当前 claim', () => {
     const { focus, pendingTool } = mapIdReadInterruptFocus('1-2', 'save', {
-      parentNodeId: NEWS_ROOT_ID,
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
       saveIndex: 1,
     })
     expect(focus).toEqual({ kind: 'claim', id: '2' })

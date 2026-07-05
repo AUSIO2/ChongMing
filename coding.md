@@ -77,6 +77,7 @@
 | `doc` | `src/flow-map/graph-doc.ts` |
 | `mapId` | `electron/shared/map-ids.ts` |
 | `layout` | `src/flow-map/layout.ts` |
+| `timeline` | `src/flow-map/timeline.ts` |
 | `label` | `src/flow-map/tool-labels.ts` |
 | `port` | `src/flow-map/port.ts` |
 | `adapter` | `src/flow-map/adapters/electron-ipc.ts` |

@@ -3,7 +3,18 @@
  */
 import { AppError, ErrorCode, errReadApp } from '../../../electron/shared/errors'
 import type { AddSubAgentInput, MapAPI, MapUpdateReason, UpdateNodeParamsInput } from '../api'
-import { NEWS_ROOT_ID, mapIdUpdateInstance } from '../ids'
+import { MAP_DEFAULT_NEWS_ID, mapIdIsDefaultNews, mapIdIsScopedNews, mapIdUpdateInstance } from '../ids'
+import {
+  timelineCreateDefault,
+  timelineReadEffectiveIndex,
+  timelineReadNextStateIndex,
+  timelineReadParents,
+  timelineReadScope,
+  timelineReadScopeAfterParse,
+  timelineResolveKeys,
+  type MapTimeline,
+  type TransitionKey,
+} from '../timeline'
 import {
   docUpdateError,
   docUpdateInterrupt,
@@ -19,7 +30,6 @@ import {
   docUpdateSubAgent,
   docCreatePersist,
   docUpdateRunEnd,
-  docUpdateVerify,
   docDeleteClaims,
   docDeleteNodes,
   docResetMap,
@@ -29,6 +39,8 @@ import {
   docReadSnapshot,
   docReadInstanceIds,
   docAddSourceChain,
+  docAddRootNews,
+  docAddRootClaim,
   docReadPendingParseSource,
   type MapGraphDoc,
 } from '../graph-doc'
@@ -37,6 +49,51 @@ import type {
   Priority,
 } from '../types'
 import type { ElectronAPI } from '../../../electron/api/types'
+import type { DisplayClaim } from '../../../electron/api/types'
+
+type RunOutcome = 'completed' | 'interrupted' | 'error'
+
+function graphListenRunEnd(
+  api: ElectronAPI,
+  mapId: string,
+): { wait: (runId: string) => Promise<RunOutcome>; dispose: () => void } {
+  const pending = new Map<string, (outcome: RunOutcome) => void>()
+
+  function settle(runId: string, outcome: RunOutcome) {
+    const resolve = pending.get(runId)
+    if (!resolve) return
+    pending.delete(runId)
+    resolve(outcome)
+  }
+
+  const offCompleted = api.events.onCompleted((payload) => {
+    if (payload.mapId !== mapId) return
+    settle(payload.runId, 'completed')
+  })
+  const offInterrupted = api.events.onInterrupted((payload) => {
+    if (payload.mapId !== mapId) return
+    settle(payload.runId, 'interrupted')
+  })
+  const offError = api.events.onError((payload) => {
+    if (payload.mapId !== mapId) return
+    if (!payload.runId) return
+    settle(payload.runId, 'error')
+  })
+
+  return {
+    wait(runId: string) {
+      return new Promise<RunOutcome>((resolve) => {
+        pending.set(runId, resolve)
+      })
+    },
+    dispose() {
+      offCompleted()
+      offInterrupted()
+      offError()
+      pending.clear()
+    },
+  }
+}
 
 export function adapterBuildIpc(api: ElectronAPI): MapAPI {
   const listeners = new Set<(mapId: string, reason: MapUpdateReason) => void>()
@@ -90,6 +147,9 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
 
     if (map.mapGraph && Array.isArray(map.mapGraph.nodes) && map.mapGraph.nodes.length > 0) {
       const doc = docCreatePersist(mapId, map.mapGraph, map.mapRun)
+      doc.timeline = map.timeline
+        ? { ...map.timeline }
+        : timelineCreateDefault()
       graphs.set(mapId, doc)
 
       const run = map.mapRun
@@ -127,7 +187,9 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       return doc
     }
 
-    const doc = docCreateMap(map, existing?.mode ?? 'human-in-loop')
+    if (existing) return existing
+
+    const doc = docCreateMap(map, 'human-in-loop')
     graphs.set(mapId, doc)
     return doc
   }
@@ -146,38 +208,40 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     return doc
   }
 
-  async function startNextVerify(mapId: string): Promise<void> {
-    const doc = getDoc(mapId)
-    doc.runId = undefined
-    doc.threadId = undefined
-    const map = await api.map.get(mapId)
-    if (!map) return
+  async function runOneTransition(
+    doc: MapGraphDoc,
+    mapId: string,
+    key: TransitionKey,
+    parentNodeId: string,
+    wait: (runId: string) => Promise<RunOutcome>,
+  ): Promise<RunOutcome> {
+    doc.error = undefined
+    doc.runPhase = 'running'
+    doc.draft = undefined
+    docDeleteFocus(doc)
+    doc.transitionKey = key
+    doc.parentNodeId = parentNodeId
 
-    const next = map.claims.find(c => !c.verifyResult)
-    if (!next) {
-      docUpdateRunEnd(doc)
-      await persistDoc(doc)
-      return
-    }
-
-    docUpdateVerify(doc)
-    doc.transitionKey = '2-3'
-    doc.parentNodeId = next.claimId
+    const scopeNodeId = key === '1-2' && parentNodeId !== MAP_DEFAULT_NEWS_ID
+      ? parentNodeId
+      : undefined
 
     const { runId } = await api.graph.runTransition({
       mapId,
-      transitionKey: '2-3',
-      parentNodeId: next.claimId,
+      transitionKey: key,
+      parentNodeId,
+      scopeNodeId,
       mode: doc.mode,
     })
     doc.runId = runId
     doc.threadId = runId
     await persistDoc(doc)
+    return wait(runId)
   }
 
   function wireEvents() {
     api.events.onInterrupted((payload) => {
-      const mapId = payload.state.mapId
+      const mapId = payload.mapId
       const doc = getLoadedDoc(mapId)
       if (!doc) return
       docUpdateInterrupt(doc, payload)
@@ -197,20 +261,11 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     })
 
     api.events.onCompleted((payload) => {
-      const mapId = payload.state.mapId
+      const mapId = payload.mapId
       const doc = getLoadedDoc(mapId)
       if (!doc) return
-      doc.runId = undefined
-      doc.threadId = undefined
-      void (async () => {
-        try {
-          await startNextVerify(mapId)
-        } catch (e) {
-          docUpdateError(doc, errReadApp(e).msg)
-          await persistDoc(doc)
-        }
-        emitPush(mapId, 'completed')
-      })()
+      docUpdateRunEnd(doc)
+      void persistDoc(doc).then(() => emitPush(mapId, 'completed'))
     })
 
     api.events.onError((payload) => {
@@ -245,7 +300,9 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     },
 
     async getSubAgentCatalog(parentNodeId) {
-      const module = parentNodeId === NEWS_ROOT_ID ? 'split' : 'verify'
+      const module = mapIdIsDefaultNews(parentNodeId) || mapIdIsScopedNews(parentNodeId)
+        ? 'split'
+        : 'verify'
       return api.catalog.list(module)
     },
 
@@ -312,7 +369,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
         const node = doc.nodes.find(n => n.id === input.nodeId)!
         const content = (input.params as { content?: string }).content
         if (content !== undefined) {
-          const scopeNodeId = node.id === NEWS_ROOT_ID ? undefined : node.id
+          const scopeNodeId = mapIdIsDefaultNews(node.id) ? undefined : node.id
           await api.map.update(input.mapId, {
             content,
             ...(scopeNodeId ? { scopeNodeId } : {}),
@@ -343,6 +400,118 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
         docAddSourceChain(doc, input)
       })
       return docReadSnapshot(doc)
+    },
+
+    async addRootNews(mapId) {
+      const doc = await adapterMutate(mapId, (doc) => {
+        docAddRootNews(doc)
+      })
+      return docReadSnapshot(doc)
+    },
+
+    async addRootClaim(mapId) {
+      const doc = await adapterMutate(mapId, (doc) => {
+        docAddRootClaim(doc)
+      })
+      return docReadSnapshot(doc)
+    },
+
+    async updateTimeline(mapId, patch) {
+      await ensureGraph(mapId)
+      const map = await api.map.update(mapId, { timeline: patch })
+      const doc = getDoc(mapId)
+      doc.timeline = map.timeline
+      return docReadSnapshot(doc)
+    },
+
+    async runTimeline(mapId, mode, selectedNewsId) {
+      const listener = graphListenRunEnd(api, mapId)
+      try {
+        const doc = await ensureGraph(mapId)
+        if (mode) doc.mode = mode
+
+        let map = await api.map.get(mapId)
+        if (!map) {
+          throw new AppError(ErrorCode.MAP_NOT_FOUND, `map not found: ${mapId}`)
+        }
+
+        let timeline: MapTimeline = map.timeline
+          ? { ...map.timeline }
+          : doc.timeline
+        doc.timeline = timeline
+
+        let claims: DisplayClaim[] = map.claims
+
+        const readSnap = () => docReadSnapshot(doc)
+        let scope = timelineReadScope(readSnap(), timeline, selectedNewsId)
+        const effectiveX = timelineReadEffectiveIndex(
+          timeline,
+          readSnap(),
+          claims,
+          scope,
+        )
+        const keys = timelineResolveKeys(timeline, effectiveX)
+
+        for (const key of keys) {
+          const parents = timelineReadParents(readSnap(), key, scope, claims)
+          if (parents.length === 0) continue
+
+          for (const parentId of parents) {
+            const outcome = await runOneTransition(doc, mapId, key, parentId, listener.wait)
+            if (outcome === 'interrupted') {
+              return {
+                runId: doc.runId!,
+                snapshot: readSnap(),
+                status: 'interrupted' as const,
+              }
+            }
+            if (outcome === 'error') {
+              throw new AppError(ErrorCode.MAP_SCOPE_NOT_FOUND, `transition ${key} failed`)
+            }
+
+            map = await api.map.get(mapId)
+            if (map) claims = map.claims
+
+            if (key === '0-1') {
+              const nextScope = timelineReadScopeAfterParse(parentId)
+              if (nextScope) {
+                scope = nextScope
+                timeline = { ...timeline, activeScope: nextScope }
+                doc.timeline = timeline
+                const updated = await api.map.update(mapId, {
+                  timeline: { activeScope: nextScope },
+                })
+                timeline = updated.timeline
+                doc.timeline = timeline
+              }
+            }
+          }
+
+          const nextIdx = timelineReadNextStateIndex(key)
+          timeline = { ...timeline, stateIndex: nextIdx }
+          doc.timeline = timeline
+          const updated = await api.map.update(mapId, { timeline: { stateIndex: nextIdx } })
+          timeline = updated.timeline
+          doc.timeline = timeline
+        }
+
+        docUpdateRunEnd(doc)
+        await persistDoc(doc)
+        return {
+          runId: doc.runId ?? '',
+          snapshot: readSnap(),
+          status: 'done' as const,
+        }
+      } catch (e) {
+        const doc = getDoc(mapId)
+        docUpdateError(doc, errReadApp(e).msg)
+        doc.runId = undefined
+        doc.threadId = undefined
+        await persistDoc(doc)
+        throw e
+      } finally {
+        listener.dispose()
+      }
     },
 
     async startParse(mapId, sourceId) {
@@ -392,7 +561,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           docDeleteFocus(doc)
 
           const scopedNews = doc.nodes.find(
-            n => n.kind === 'news' && n.id !== NEWS_ROOT_ID && n.params.content.trim(),
+            n => n.kind === 'news' && n.id !== MAP_DEFAULT_NEWS_ID && n.params.content.trim(),
           )
           if (scopedNews) {
             doc.transitionKey = '1-2'
@@ -400,12 +569,12 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           } else {
             const newsNode = doc.nodes.find(
               (n): n is import('../types').MapNewsNode =>
-                n.id === NEWS_ROOT_ID && n.kind === 'news',
+                n.id === MAP_DEFAULT_NEWS_ID && n.kind === 'news',
             )
             doc.nodes = newsNode ? [newsNode] : []
             doc.edges = []
             doc.transitionKey = '1-2'
-            doc.parentNodeId = NEWS_ROOT_ID
+            doc.parentNodeId = MAP_DEFAULT_NEWS_ID
           }
 
           const { runId } = await api.graph.runTransition({

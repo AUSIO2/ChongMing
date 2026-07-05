@@ -6,7 +6,7 @@ import AppShell from '../components/shell/AppShell.vue'
 import NewsSidebar from '../components/NewsSidebar.vue'
 import RightSidebar from '../components/RightSidebar.vue'
 import FlowMapTopology from '../components/flow/FlowMapTopology.vue'
-import FlowMapControls from '../components/flow/FlowMapControls.vue'
+import FlowMapTimelinePanel from '../components/flow/FlowMapTimelinePanel.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
 import { portIsInstalled, portReadApi } from '../flow-map'
@@ -74,8 +74,8 @@ onMounted(async () => {
         <RightSidebar />
       </template>
 
-      <template #bottom>
-        <FlowMapControls />
+      <template #bottom-dock>
+        <FlowMapTimelinePanel />
       </template>
     </AppShell>
   </div>

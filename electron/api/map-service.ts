@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
-import { MAP_DEFAULT_SCOPE } from '../shared/map-scope'
+import { MAP_DEFAULT_SCOPE, mapScopeReadKey } from '../shared/map-scope'
 import type {
   CreateMapInput,
   DisplayMap,
   DisplayMapSummary,
   MapGraphPersist,
   MapRunPersist,
+  MapTimelineDto,
   UpdateMapInput,
 } from './types'
 import {
@@ -20,15 +21,16 @@ function chainScopeEnsure(
   doc: InstanceType<typeof MapModel>,
   scopeNodeId: string,
 ) {
+  const chainKey = mapScopeReadKey(scopeNodeId)
   const chains = doc.get('chains') as Map<string, Record<string, unknown>>
-  if (!chains.has(scopeNodeId)) {
-    chains.set(scopeNodeId, {
+  if (!chains.has(chainKey)) {
+    chains.set(chainKey, {
       content: '',
       context: new Map(),
       claims: [],
     })
   }
-  return chains.get(scopeNodeId)!
+  return chains.get(chainKey)!
 }
 
 export async function mapCreate(input: CreateMapInput): Promise<DisplayMap> {
@@ -52,15 +54,18 @@ export async function mapCreate(input: CreateMapInput): Promise<DisplayMap> {
 
   const doc = await MapModel.create({
     _id,
+    name: input.name?.trim() || undefined,
     chains,
     timeline: hasContent
       ? {
+          startX: 0,
+          endX: 3,
           activeScope: scopeNodeId,
-          scopes: { [scopeNodeId]: { startX: 1, endX: 3 } },
         }
       : {
+          startX: 0,
+          endX: 3,
           activeScope: '',
-          scopes: {},
         },
   })
   return serialReadMap(doc, hasContent ? scopeNodeId : '')
@@ -89,16 +94,43 @@ export async function mapUpdate(
   }
 
   const scopeNodeId = patch.scopeNodeId ?? MAP_DEFAULT_SCOPE
-  const scope = chainScopeEnsure(doc, scopeNodeId)
 
-  if (patch.content !== undefined) {
-    scope.content = patch.content
-  }
-  if (patch.context !== undefined) {
-    scope.context = serialReadContextMap(patch.context)
+  if (patch.content !== undefined || patch.context !== undefined) {
+    const scope = chainScopeEnsure(doc, scopeNodeId)
+    if (patch.content !== undefined) {
+      scope.content = patch.content
+    }
+    if (patch.context !== undefined) {
+      scope.context = serialReadContextMap(patch.context)
+    }
+    doc.markModified('chains')
   }
 
-  doc.markModified('chains')
+  if (patch.name !== undefined) {
+    const trimmed = patch.name.trim()
+    doc.set('name', trimmed || undefined)
+  }
+
+  if (patch.timeline !== undefined) {
+    const current = (doc.timeline ?? {}) as MapTimelineDto
+    const next: MapTimelineDto = {
+      startX: patch.timeline.startX ?? current.startX ?? 0,
+      endX: patch.timeline.endX ?? current.endX ?? 3,
+      activeScope: patch.timeline.activeScope ?? current.activeScope ?? '',
+      stateIndex: patch.timeline.stateIndex !== undefined
+        ? patch.timeline.stateIndex
+        : current.stateIndex,
+    }
+    if (next.startX > next.endX) {
+      throw new AppError(
+        ErrorCode.MAP_SCOPE_NOT_FOUND,
+        `timeline startX ${next.startX} > endX ${next.endX}`,
+      )
+    }
+    doc.set('timeline', next)
+    doc.markModified('timeline')
+  }
+
   await doc.save()
   return serialReadMap(doc, scopeNodeId)
 }

@@ -158,4 +158,6 @@ export interface MapSnapshot {
   pendingTool?: MapToolKind
   /** 最近一次运行/API 错误；runPhase 可为 error，拓扑仍保留。 */
   error?: string
+  /** Map 级全局 Timeline（状态链起止与游标）。 */
+  timeline: import('./timeline').MapTimeline
 }

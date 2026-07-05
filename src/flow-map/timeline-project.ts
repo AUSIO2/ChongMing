@@ -1,0 +1,101 @@
+import { MAP_COLUMN_LABEL, layoutReadNodeColumn } from './columns'
+import { docCollectSubtree } from './graph-doc'
+import { layoutReadSnapshot } from './layout'
+import type { MapTimeline } from './timeline'
+import type { MapNode, MapSnapshot } from './types'
+import type { DataFrameIndex, FrameIndex } from './timeline-frame'
+import { frameReadDataIndex } from './timeline-frame'
+
+export interface TimelineLine {
+  rootId: string
+  leafId: string
+  label: string
+  layoutY: number
+  xStart: FrameIndex
+  xEnd: FrameIndex
+  effectiveFrame: FrameIndex
+  frames: Partial<Record<FrameIndex, string[]>>
+}
+
+function timelineFormatRootLabel(node: MapNode, nodes: MapNode[], index: number): string {
+  const col = layoutReadNodeColumn(node, nodes)
+  const typeLabel = MAP_COLUMN_LABEL[col] ?? node.kind
+  return `${typeLabel}${index}`
+}
+
+export function timelineProjectLines(snapshot: MapSnapshot): TimelineLine[] {
+  const layout = layoutReadSnapshot(snapshot)
+  const byId = new Map(layout.nodes.map(n => [n.node.id, n]))
+  const nodeById = new Map(snapshot.nodes.map(n => [n.id, n]))
+
+  const rootIds = layout.nodes
+    .filter(n => !n.node.parentId)
+    .sort((a, b) => a.y - b.y)
+    .map(n => n.node.id)
+
+  const typeCounters = new Map<number, number>()
+
+  return rootIds.map(rootId => {
+    const subtree = docCollectSubtree(snapshot, rootId)
+    const rootLayout = byId.get(rootId)!
+    const rootNode = nodeById.get(rootId)!
+    const rootCol = layoutReadNodeColumn(rootNode, snapshot.nodes)
+    const seq = (typeCounters.get(rootCol) ?? 0) + 1
+    typeCounters.set(rootCol, seq)
+
+    const leaves = [...subtree].filter(
+      id => !snapshot.nodes.some(n => n.parentId === id && subtree.has(n.id)),
+    )
+
+    let leafId = rootId
+    let minDepth = Number.POSITIVE_INFINITY
+    for (const lid of leaves) {
+      const ln = byId.get(lid)
+      if (!ln) continue
+      if (ln.depth < minDepth || (ln.depth === minDepth && lid < leafId)) {
+        minDepth = ln.depth
+        leafId = lid
+      }
+    }
+    if (!Number.isFinite(minDepth)) {
+      minDepth = rootLayout.depth
+    }
+    const leafLayout = byId.get(leafId)!
+
+    const frames: Partial<Record<FrameIndex, string[]>> = {}
+    let effectiveFrame = rootLayout.depth as FrameIndex
+    for (const id of subtree) {
+      const ln = byId.get(id)
+      if (!ln) continue
+      const f = ln.depth as FrameIndex
+      if (!frames[f]) frames[f] = []
+      frames[f]!.push(id)
+      if (ln.depth > effectiveFrame) effectiveFrame = ln.depth as FrameIndex
+    }
+
+    return {
+      rootId,
+      leafId,
+      label: timelineFormatRootLabel(rootNode, snapshot.nodes, seq),
+      layoutY: rootLayout.y,
+      xStart: rootLayout.depth as FrameIndex,
+      xEnd: leafLayout.depth as FrameIndex,
+      effectiveFrame,
+      frames,
+    }
+  })
+}
+
+export function timelineReadGlobalStart(lines: TimelineLine[]): FrameIndex {
+  if (lines.length === 0) return 0
+  return Math.min(...lines.map(l => l.xStart)) as FrameIndex
+}
+
+export function timelineReadGlobalFrame(lines: TimelineLine[]): FrameIndex {
+  if (lines.length === 0) return 0
+  return Math.max(...lines.map(l => l.effectiveFrame)) as FrameIndex
+}
+
+export function timelineReadDataEnd(timeline: MapTimeline): DataFrameIndex {
+  return frameReadDataIndex(timeline.endX)
+}

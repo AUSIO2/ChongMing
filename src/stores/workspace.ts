@@ -42,6 +42,23 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.currentMap = await api.map.get(this.currentMapId)
     },
 
+    async renameMap(mapId: string, name: string) {
+      const api = getApi()
+      if (!api) return
+      const map = await api.map.update(mapId, { name: name.trim() })
+      const idx = this.mapList.findIndex(m => m._id === mapId)
+      if (idx >= 0) {
+        this.mapList[idx] = {
+          ...this.mapList[idx],
+          name: map.name,
+          updatedAt: map.updatedAt,
+        }
+      }
+      if (this.currentMapId === mapId) {
+        this.currentMap = map
+      }
+    },
+
     async createMap() {
       const api = getApi()
       if (!api) return

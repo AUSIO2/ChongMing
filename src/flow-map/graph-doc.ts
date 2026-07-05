@@ -3,7 +3,7 @@
  * 含快照上的能力判定（锁 / canAdd / canEdit / canRemove）。
  */
 import {
-  NEWS_ROOT_ID,
+  MAP_DEFAULT_NEWS_ID,
   mapIdReadDraftIndex,
   mapIdCreateDraftClaim,
   mapIdCreateEdge,
@@ -26,6 +26,7 @@ import type {
   MapClaimNode,
   MapEdge,
   MapNode,
+  MapNodeKind,
   MapNewsNode,
   MapOpinionNode,
   MapParseAgentNode,
@@ -37,6 +38,11 @@ import type {
   MapToolKind,
   Priority,
 } from './types'
+import {
+  timelineCreateDefault,
+  type MapTimeline,
+} from './timeline'
+import { layoutReadNodeColumn } from './columns'
 import {
   apiCanWriteRoute,
   type DisplayMap,
@@ -68,6 +74,7 @@ export interface MapGraphDoc {
   parentNodeId?: string
   draft?: GraphSplitState | GraphVerifyState | GraphParseState
   error?: string
+  timeline: MapTimeline
 }
 
 export function docReadSnapshot(doc: MapGraphDoc): MapSnapshot {
@@ -80,6 +87,7 @@ export function docReadSnapshot(doc: MapGraphDoc): MapSnapshot {
     activeNodeId: doc.activeNodeId,
     pendingTool: doc.pendingTool,
     error: doc.error,
+    timeline: doc.timeline,
   }
 }
 
@@ -90,6 +98,7 @@ export function docCreate(mapId: string, mode: ExecutionMode = 'human-in-loop'):
     edges: [],
     runPhase: 'idle',
     mode,
+    timeline: timelineCreateDefault(),
   }
 }
 
@@ -99,6 +108,9 @@ export function docCreateMap(
   mode: ExecutionMode = 'human-in-loop',
 ): MapGraphDoc {
   const doc = docCreate(news._id, mode)
+  doc.timeline = news.timeline
+    ? { ...news.timeline }
+    : timelineCreateDefault(news.content?.trim() ? MAP_DEFAULT_NEWS_ID : '')
   if (news.content?.trim()) {
     docUpdateMap(doc, news.content)
   }
@@ -157,6 +169,47 @@ export function docAddSourceChain(
 
   doc.nodes.push(sourceNode)
   return { sourceId, chainId }
+}
+
+/** 追加独立新闻根（scoped news，无 parentId）。 */
+export function docAddRootNews(
+  doc: MapGraphDoc,
+  content = '',
+): string {
+  const chainId = mapIdCreateChain()
+  const newsId = mapIdCreateNews(chainId)
+  doc.nodes.push({
+    id: newsId,
+    kind: 'news',
+    params: { content },
+  })
+  return newsId
+}
+
+function docReadNextClaimId(doc: MapGraphDoc): string {
+  let max = 0
+  for (const n of doc.nodes) {
+    if (n.kind !== 'claim' || mapIdIsDraftClaim(n.id)) continue
+    const num = Number(n.id)
+    if (Number.isFinite(num)) max = Math.max(max, num)
+  }
+  return mapIdCreateClaim(max)
+}
+
+/** 追加独立事实根（无 parentId）。 */
+export function docAddRootClaim(
+  doc: MapGraphDoc,
+  content = '',
+): string {
+  const id = docReadNextClaimId(doc)
+  doc.nodes.push({
+    id,
+    kind: 'claim',
+    params: { content },
+    dataPhase: 'workerOut',
+    shouldSave: true,
+  })
+  return id
 }
 
 /** 查找首个待解析的 source 根（对应 news 正文仍为空）。 */
@@ -338,7 +391,7 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
       docPruneSplitUnder(doc, payload.parentNodeId)
     } else {
       const newsNode = doc.nodes.find(
-        (n): n is MapNewsNode => n.id === NEWS_ROOT_ID && n.kind === 'news',
+        (n): n is MapNewsNode => n.id === MAP_DEFAULT_NEWS_ID && n.kind === 'news',
       )
       doc.nodes = newsNode ? [newsNode] : []
       doc.edges = []
@@ -470,7 +523,7 @@ export function docUpdateVerify(doc: MapGraphDoc): void {
 
 export function docUpdateRunEnd(doc: MapGraphDoc): void {
   docUpdateClaimPersist(doc)
-  doc.runPhase = 'completed'
+  doc.runPhase = 'idle'
   doc.runId = undefined
   doc.threadId = undefined
   doc.transitionKey = undefined
@@ -501,6 +554,7 @@ export function docCreatePersist(
     runId: mapRun?.runId,
     threadId: mapRun?.threadId,
     parentNodeId: mapRun?.parentNodeId,
+    timeline: timelineCreateDefault(),
   }
 }
 
@@ -556,6 +610,7 @@ export function docResetMap(doc: MapGraphDoc, news: DisplayMap): void {
   doc.nodes = next.nodes
   doc.edges = next.edges
   doc.mode = mode
+  doc.timeline = next.timeline
   docDeleteRunSession(doc)
 }
 
@@ -610,7 +665,7 @@ export function docUpdateDraft(doc: MapGraphDoc): void {
   if (doc.transitionKey === '1-2' && 'routeInstructions' in doc.draft) {
     doc.draft = {
       ...doc.draft,
-      routeInstructions: docReadRoutes(doc, NEWS_ROOT_ID),
+      routeInstructions: docReadRoutes(doc, MAP_DEFAULT_NEWS_ID),
     }
 
     if ('mergedClaims' in doc.draft) {
@@ -665,7 +720,7 @@ export function docReadInstanceIds(
         if (!ids.some(i => i.instanceId === r.instanceId)) {
           ids.push({ instanceId: r.instanceId })
         }
-      } else if (!node && parentId === NEWS_ROOT_ID) {
+      } else if (!node && parentId === MAP_DEFAULT_NEWS_ID) {
         if (!ids.some(i => i.instanceId === r.instanceId)) {
           ids.push({ instanceId: r.instanceId })
         }
@@ -711,7 +766,7 @@ function docReadClaims(doc: MapGraphDoc, phase: 'draft' | 'numbered'): MapClaimN
 function docUpdateSplitRoutes(
   doc: MapGraphDoc,
   routes: MapSubAgentParams[],
-  parentId = NEWS_ROOT_ID,
+  parentId = MAP_DEFAULT_NEWS_ID,
 ): void {
   for (const route of routes) {
     docUpdateSubAgent(doc, parentId, route)
@@ -831,7 +886,7 @@ function docPruneSplitUnder(doc: MapGraphDoc, newsParentId: string): void {
 function docUpdateMap(
   doc: MapGraphDoc,
   content: string,
-  newsId: string = NEWS_ROOT_ID,
+  newsId: string = MAP_DEFAULT_NEWS_ID,
 ): void {
   const existing = doc.nodes.find(
     (n): n is MapNewsNode => n.id === newsId && n.kind === 'news',
@@ -840,9 +895,9 @@ function docUpdateMap(
     existing.params = { content }
     return
   }
-  if (newsId === NEWS_ROOT_ID) {
+  if (newsId === MAP_DEFAULT_NEWS_ID) {
     doc.nodes.push({
-      id: NEWS_ROOT_ID,
+      id: MAP_DEFAULT_NEWS_ID,
       kind: 'news',
       params: { content },
     })
@@ -984,7 +1039,7 @@ function docReadClaimParent(
   if (source.instanceId) {
     const route = splitRoutes.find(r => r.instanceId === source.instanceId)
     if (route) {
-      const id = mapIdCreateRoute(route, NEWS_ROOT_ID)
+      const id = mapIdCreateRoute(route, MAP_DEFAULT_NEWS_ID)
       if (nodes.some(n => n.id === id)) return id
     }
     const byId = nodes.find(
@@ -995,7 +1050,7 @@ function docReadClaimParent(
   if (source.agentName) {
     const byName = splitRoutes.filter(r => r.agentName === source.agentName)
     if (byName.length === 1) {
-      const id = mapIdCreateRoute(byName[0], NEWS_ROOT_ID)
+      const id = mapIdCreateRoute(byName[0], MAP_DEFAULT_NEWS_ID)
       if (nodes.some(n => n.id === id)) return id
     }
     const nodeByName = nodes.find(
@@ -1003,7 +1058,7 @@ function docReadClaimParent(
     )
     if (nodeByName) return nodeByName.id
   }
-  return NEWS_ROOT_ID
+  return MAP_DEFAULT_NEWS_ID
 }
 
 function docUpdateDraftClaims(doc: MapGraphDoc, state: GraphSplitState): void {
@@ -1072,7 +1127,7 @@ function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
   } else {
     docUpdateClaim(doc, {
       id: claimId,
-      parentId: NEWS_ROOT_ID,
+      parentId: MAP_DEFAULT_NEWS_ID,
       content: state.claimContent,
       dataPhase: 'persisted',
       shouldSave: true,
@@ -1114,77 +1169,163 @@ function docUpdateVerifyState(doc: MapGraphDoc, state: GraphVerifyState): void {
 
 // —— 快照能力判定（纯函数，不改图）——
 
-/**
- * 参数是否已锁定（不可再编辑）。
- * 规则：
- *   - runPhase 为 running 时全部锁
- *   - claim 一旦进入 persisted 就锁；opinion 始终只读
- *   - subAgent 只要有已产出的下游 claim/opinion（任何 dataPhase）就锁
- *   - news：idle 可改正文；一旦进入流程（非 idle）即锁，保证 loadNews 读的是已编辑正文
- */
-export function docIsParamLock(snapshot: MapSnapshot, node: MapNode): boolean {
-  if (snapshot.runPhase === 'running') return true
-
-  if (node.kind === 'opinion') return true
-
-  if (node.kind === 'source' || node.kind === 'parseAgent') {
-    return snapshot.runPhase !== 'idle'
-  }
-
-  if (node.kind === 'claim') {
-    return node.dataPhase !== 'workerOut'
-  }
-
-  if (node.kind === 'news') {
-    return snapshot.runPhase !== 'idle'
-  }
-
-  const hasChildOutput = snapshot.nodes.some(
-    n => n.parentId === node.id && (n.kind === 'claim' || n.kind === 'opinion'),
-  )
-  return hasChildOutput
+function docIsDataKind(kind: MapNodeKind): boolean {
+  return kind === 'source' || kind === 'news' || kind === 'claim' || kind === 'opinion'
 }
 
-/**
- * 能否在 parentNodeId 下新增 SubAgent。
- *   - 拆分/核查槽：仅 AI route 之后、invoke 确认前（interrupted + pendingTool=invoke）
- *   - idle 只编辑正文，不预置槽
- *   - runPhase === 'running' 时一律禁止
- */
-export function docCanAddSubAgent(snapshot: MapSnapshot, parentNodeId: string): boolean {
-  if (snapshot.runPhase === 'running') return false
+function docIsAgentKind(kind: MapNodeKind): boolean {
+  return kind === 'parseAgent' || kind === 'subAgent'
+}
 
-  const configuring =
-    snapshot.runPhase === 'interrupted' && snapshot.pendingTool === 'invoke'
-  if (!configuring) return false
+export function docCollectSubtree(snapshot: MapSnapshot, rootId: string): Set<string> {
+  const childrenByParent = new Map<string, string[]>()
+  for (const n of snapshot.nodes) {
+    if (!n.parentId) continue
+    const arr = childrenByParent.get(n.parentId) ?? []
+    arr.push(n.id)
+    childrenByParent.set(n.parentId, arr)
+  }
+  const ids = new Set<string>()
+  const stack = [rootId]
+  while (stack.length) {
+    const id = stack.pop()!
+    if (ids.has(id)) continue
+    ids.add(id)
+    for (const c of childrenByParent.get(id) ?? []) stack.push(c)
+  }
+  return ids
+}
 
-  if (parentNodeId === NEWS_ROOT_ID) return true
+function docReadScopeRoot(snapshot: MapSnapshot, nodeId: string): string | undefined {
+  const byId = new Map(snapshot.nodes.map(n => [n.id, n]))
+  let id: string | undefined = nodeId
+  while (id) {
+    const node = byId.get(id)
+    if (!node) return undefined
+    if (!node.parentId) return id
+    id = node.parentId
+  }
+  return undefined
+}
 
-  const parent = snapshot.nodes.find(n => n.id === parentNodeId)
-  if (parent?.kind === 'claim' && parent.dataPhase === 'persisted') return true
+function docReadRunScopeRoot(snapshot: MapSnapshot): string | undefined {
+  const anchor = snapshot.activeNodeId ?? snapshot.timeline.activeScope
+  if (!anchor) return undefined
+  if (!snapshot.nodes.some(n => n.id === anchor)) return undefined
+  return docReadScopeRoot(snapshot, anchor)
+}
+
+function docIsInRunScope(snapshot: MapSnapshot, nodeId: string): boolean {
+  const root = docReadRunScopeRoot(snapshot)
+  if (!root) return false
+  return docCollectSubtree(snapshot, root).has(nodeId)
+}
+
+function docIsRunScopeLock(snapshot: MapSnapshot, nodeId: string): boolean {
+  return snapshot.runPhase === 'running' && docIsInRunScope(snapshot, nodeId)
+}
+
+function docHasSuccessorAgent(snapshot: MapSnapshot, nodeId: string): boolean {
+  const subtree = docCollectSubtree(snapshot, nodeId)
+  subtree.delete(nodeId)
+  return snapshot.nodes.some(
+    n => subtree.has(n.id) && docIsAgentKind(n.kind),
+  )
+}
+
+function docHasSuccessorData(snapshot: MapSnapshot, nodeId: string): boolean {
+  const node = snapshot.nodes.find(n => n.id === nodeId)
+  if (!node) return false
+  const baseCol = layoutReadNodeColumn(node, snapshot.nodes)
+  const subtree = docCollectSubtree(snapshot, nodeId)
+  subtree.delete(nodeId)
+  return snapshot.nodes.some(n => {
+    if (!subtree.has(n.id) || !docIsDataKind(n.kind)) return false
+    return layoutReadNodeColumn(n, snapshot.nodes) > baseCol
+  })
+}
+
+function docIsRouteParent(node: MapNode): boolean {
+  if (node.kind === 'news') return true
+  if (node.kind === 'claim' && node.dataPhase === 'persisted') return true
   return false
 }
 
-/** 能否编辑节点参数。 */
+function docCanEditDataContent(snapshot: MapSnapshot, nodeId: string): boolean {
+  if (docIsRunScopeLock(snapshot, nodeId)) return false
+  const node = snapshot.nodes.find(n => n.id === nodeId)
+  if (!node) return false
+  if (node.kind === 'opinion' || node.kind === 'parseAgent') return false
+  if (node.kind === 'claim') {
+    if (node.dataPhase !== 'workerOut') return false
+    return !docHasSuccessorAgent(snapshot, nodeId)
+  }
+  if (node.kind === 'news' || node.kind === 'source') {
+    return !docHasSuccessorAgent(snapshot, nodeId)
+  }
+  return false
+}
+
+function docCanEditDataRoute(snapshot: MapSnapshot, nodeId: string): boolean {
+  if (docIsRunScopeLock(snapshot, nodeId)) return false
+  const node = snapshot.nodes.find(n => n.id === nodeId)
+  if (!node || !docIsRouteParent(node)) return false
+  return !docHasSuccessorData(snapshot, nodeId)
+}
+
+function docCanEditSubAgentParams(snapshot: MapSnapshot, nodeId: string): boolean {
+  if (docIsRunScopeLock(snapshot, nodeId)) return false
+  const node = snapshot.nodes.find(n => n.id === nodeId)
+  if (!node || node.kind !== 'subAgent') return false
+  return !docHasSuccessorData(snapshot, nodeId)
+}
+
+/** 正文/params 维是否锁定（Topology 半锁样式、Inspector textarea）。 */
+export function docIsParamLock(snapshot: MapSnapshot, node: MapNode): boolean {
+  if (node.kind === 'opinion' || node.kind === 'parseAgent') return true
+  if (node.kind === 'claim' && node.dataPhase !== 'workerOut') return true
+  if (node.kind === 'subAgent') {
+    return !docCanEditSubAgentParams(snapshot, node.id)
+  }
+  return !docCanEditDataContent(snapshot, node.id)
+}
+
+/** 能否编辑节点 params（正文 / SubAgent priority·hint）。 */
 export function docCanEditNode(snapshot: MapSnapshot, nodeId: string): boolean {
   const node = snapshot.nodes.find(n => n.id === nodeId)
   if (!node) return false
-  return !docIsParamLock(snapshot, node)
+  if (node.kind === 'subAgent') return docCanEditSubAgentParams(snapshot, nodeId)
+  return docCanEditDataContent(snapshot, nodeId)
 }
 
-/**
- * 能否手动移除节点（仅空 SubAgent 槽）。
- * 仅 invoke 配置期（confirmRoute）允许；idle / running / 其它中断 / completed / error 禁止。
- */
+/** 能否在 parent 下新增 SubAgent（route 维）。 */
+export function docCanAddSubAgent(snapshot: MapSnapshot, parentNodeId: string): boolean {
+  return docCanEditDataRoute(snapshot, parentNodeId)
+}
+
+/** 能否手动移除空 SubAgent 槽（route 维，与 add 对称）。 */
 export function docCanRemoveNode(snapshot: MapSnapshot, nodeId: string): boolean {
   const node = snapshot.nodes.find(n => n.id === nodeId)
   if (!node || node.kind !== 'subAgent') return false
-  if (snapshot.runPhase !== 'interrupted' || snapshot.pendingTool !== 'invoke') {
-    return false
-  }
-  return !docReadDescendants(snapshot, nodeId)
+  if (docHasSuccessorData(snapshot, nodeId)) return false
+  if (!node.parentId) return false
+  return docCanEditDataRoute(snapshot, node.parentId)
 }
 
-function docReadDescendants(snapshot: MapSnapshot, nodeId: string): boolean {
-  return snapshot.nodes.some(n => n.parentId === nodeId)
+/** Inspector 锁定原因一行文案。 */
+export function docReadLockReason(snapshot: MapSnapshot, nodeId: string): string | undefined {
+  const node = snapshot.nodes.find(n => n.id === nodeId)
+  if (!node) return undefined
+  if (node.kind === 'opinion') return '意见节点只读'
+  if (node.kind === 'parseAgent') return '解析节点不可编辑'
+  if (docIsRunScopeLock(snapshot, nodeId)) return '当前子树正在运行'
+  if (node.kind === 'subAgent' && docHasSuccessorData(snapshot, nodeId)) {
+    return '已产出下游数据'
+  }
+  if (node.kind === 'claim' && node.dataPhase === 'persisted') return '事实已持久化'
+  if (docHasSuccessorAgent(snapshot, nodeId)) return '已配置工艺节点'
+  if ((node.kind === 'news' || node.kind === 'claim') && docHasSuccessorData(snapshot, nodeId)) {
+    return '已产出下游数据'
+  }
+  return undefined
 }

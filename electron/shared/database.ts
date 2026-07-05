@@ -1,5 +1,6 @@
 import mongoose, { Schema } from 'mongoose'
 import { errReadMessage } from './errors'
+import { MAP_DEFAULT_NEWS_ID, MAP_DEFAULT_CHAIN_ID } from './map-ids'
 import { MAP_DEFAULT_SCOPE } from './map-scope'
 
 // ==========================================
@@ -66,19 +67,11 @@ const mapChainScopeSchema = new Schema({
   splitMeta: splitMetaSchema,
 }, { _id: false })
 
-const mapTimelineScopeSchema = new Schema({
-  startX: { type: Number, default: 1 },
+const mapTimelineSchema = new Schema({
+  startX: { type: Number, default: 0 },
   endX: { type: Number, default: 3 },
   stateIndex: Number,
-}, { _id: false })
-
-const mapTimelineSchema = new Schema({
-  activeScope: { type: String, default: MAP_DEFAULT_SCOPE },
-  scopes: {
-    type: Map,
-    of: mapTimelineScopeSchema,
-    default: () => new Map(),
-  },
+  activeScope: { type: String, default: '' },
 }, { _id: false })
 
 const mapRunSchema = new Schema({
@@ -114,6 +107,7 @@ const mapGraphSchema = new Schema({
 
 const mapDocumentSchema = new Schema({
   _id: { type: String, required: true },
+  name: String,
   chains: {
     type: Map,
     of: mapChainScopeSchema,
@@ -205,10 +199,9 @@ async function dbMigrateNewsToMap(): Promise<void> {
       _id: mapId,
       chains: { [MAP_DEFAULT_SCOPE]: scope },
       timeline: {
+        startX: 0,
+        endX: 3,
         activeScope: MAP_DEFAULT_SCOPE,
-        scopes: {
-          [MAP_DEFAULT_SCOPE]: { startX: 1, endX: 3 },
-        },
       },
       ...(mapRun ? { mapRun } : {}),
       ...(mapGraph ? { mapGraph } : {}),
@@ -223,6 +216,101 @@ async function dbMigrateNewsToMap(): Promise<void> {
   console.log(`[db] 已迁移 ${docs.length} 条 News → Map`)
 }
 
+const LEGACY_NEWS_ROOT_ID = '__news_root__'
+
+function graphMigrateLegacyNewsRoot(graph: {
+  nodes?: Array<{ id?: string; parentId?: string }>
+  edges?: Array<{ id?: string; from?: string; to?: string }>
+}): boolean {
+  let changed = false
+  if (Array.isArray(graph.nodes)) {
+    for (const node of graph.nodes) {
+      if (node.id === LEGACY_NEWS_ROOT_ID) {
+        node.id = MAP_DEFAULT_NEWS_ID
+        changed = true
+      }
+      if (node.parentId === LEGACY_NEWS_ROOT_ID) {
+        node.parentId = MAP_DEFAULT_NEWS_ID
+        changed = true
+      }
+    }
+  }
+  if (Array.isArray(graph.edges)) {
+    for (const edge of graph.edges) {
+      if (edge.from === LEGACY_NEWS_ROOT_ID) {
+        edge.from = MAP_DEFAULT_NEWS_ID
+        changed = true
+      }
+      if (edge.to === LEGACY_NEWS_ROOT_ID) {
+        edge.to = MAP_DEFAULT_NEWS_ID
+        changed = true
+      }
+      if (edge.id?.includes(LEGACY_NEWS_ROOT_ID)) {
+        edge.id = edge.id.replaceAll(LEGACY_NEWS_ROOT_ID, MAP_DEFAULT_NEWS_ID)
+        changed = true
+      }
+    }
+  }
+  return changed
+}
+
+/** 一次性：__news_root__ → default(chains) / news:default(图节点) */
+async function dbMigrateLegacyNewsRoot(): Promise<void> {
+  const cursor = MapModel.find({}).cursor()
+  let count = 0
+  for await (const doc of cursor) {
+    let dirty = false
+
+    if (doc.chains instanceof Map) {
+      if (doc.chains.has(LEGACY_NEWS_ROOT_ID)) {
+        if (!doc.chains.has(MAP_DEFAULT_SCOPE)) {
+          doc.chains.set(MAP_DEFAULT_SCOPE, doc.chains.get(LEGACY_NEWS_ROOT_ID))
+        }
+        doc.chains.delete(LEGACY_NEWS_ROOT_ID)
+        dirty = true
+      }
+      // 修复误迁移为 news:default 的 chains 键
+      if (doc.chains.has(MAP_DEFAULT_NEWS_ID)) {
+        if (!doc.chains.has(MAP_DEFAULT_SCOPE)) {
+          doc.chains.set(MAP_DEFAULT_SCOPE, doc.chains.get(MAP_DEFAULT_NEWS_ID))
+        }
+        doc.chains.delete(MAP_DEFAULT_NEWS_ID)
+        dirty = true
+      }
+    }
+
+    const graph = doc.mapGraph as {
+      nodes?: Array<{ id?: string; parentId?: string }>
+      edges?: Array<{ id?: string; from?: string; to?: string }>
+    } | undefined
+    if (graph && graphMigrateLegacyNewsRoot(graph)) {
+      doc.mapGraph = graph as typeof doc.mapGraph
+      doc.markModified('mapGraph')
+      dirty = true
+    }
+
+    if (doc.timeline?.activeScope === LEGACY_NEWS_ROOT_ID) {
+      doc.timeline.activeScope = MAP_DEFAULT_NEWS_ID
+      doc.markModified('timeline')
+      dirty = true
+    }
+
+    if (doc.mapRun?.parentNodeId === LEGACY_NEWS_ROOT_ID) {
+      doc.mapRun.parentNodeId = MAP_DEFAULT_NEWS_ID
+      doc.markModified('mapRun')
+      dirty = true
+    }
+
+    if (dirty) {
+      await doc.save({ validateBeforeSave: false })
+      count++
+    }
+  }
+  if (count > 0) {
+    console.log(`[db] 已迁移 ${count} 条 Map legacy news root → ${MAP_DEFAULT_NEWS_ID}`)
+  }
+}
+
 export async function dbCreate(uri?: string): Promise<void> {
   const configured = uri
     ?? process.env.MONGO_URI
@@ -233,6 +321,7 @@ export async function dbCreate(uri?: string): Promise<void> {
     await mongoose.connect(memUri)
     console.log('[db] 使用内存数据库 (mongodb-memory-server)')
     await dbMigrateNewsToMap()
+    await dbMigrateLegacyNewsRoot()
     return
   }
 
@@ -255,6 +344,7 @@ export async function dbCreate(uri?: string): Promise<void> {
   }
 
   await dbMigrateNewsToMap()
+  await dbMigrateLegacyNewsRoot()
 }
 
 export async function dbDelete(): Promise<void> {
