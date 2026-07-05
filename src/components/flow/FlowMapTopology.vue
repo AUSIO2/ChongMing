@@ -49,6 +49,8 @@ type RuntimeBadge = {
 }
 
 function nodeBodyText(n: MapNode): string {
+  if (n.kind === 'source') return (n.params.label ?? n.params.uri).trim() || '（源）'
+  if (n.kind === 'parseAgent') return n.params.agentName
   if (n.kind === 'news') return n.params.content.trim() || '（暂无正文）'
   if (n.kind === 'subAgent') return n.params.agentName
   return n.params.content
@@ -343,6 +345,8 @@ function onCanvasClick() {
   stroke-width: 1;
 }
 
+.fm-node.source .fm-rect   { fill: #fffbeb; stroke: #b45309; }
+.fm-node.parseAgent .fm-rect { fill: #f0f9ff; stroke: #0369a1; }
 .fm-node.news .fm-rect      { fill: #f8fafc; stroke: #334155; }
 .fm-node.subAgent .fm-rect { fill: var(--flow-node-bg, #eef2ff); stroke: #6366f1; }
 .fm-node.claim .fm-rect     { fill: #fefce8; stroke: #ca8a04; }

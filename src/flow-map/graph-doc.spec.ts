@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NEWS_ROOT_ID } from './ids'
+import { NEWS_ROOT_ID, mapIdCreateSource, mapIdCreateParse, mapIdCreateNews } from './ids'
 import type { MapSnapshot } from './types'
 import {
   docUpdateInterrupt,
@@ -353,6 +353,48 @@ describe('graph-doc state', () => {
     expect(doc.draft && 'mergedClaims' in doc.draft && doc.draft.mergedClaims).toEqual([
       { content: 'c1', category: undefined, sourceAgent: 'a', shouldSave: true },
     ])
+  })
+
+  it('scoped news 拆分中断保留源链', () => {
+    const chainId = '7f2bd485'
+    const sourceId = mapIdCreateSource(chainId)
+    const parseId = mapIdCreateParse(chainId)
+    const newsId = mapIdCreateNews(chainId)
+    const doc = docCreate('n1')
+    doc.nodes = [
+      { id: sourceId, kind: 'source', params: { uri: '/a.txt', kind: 'file' } },
+      { id: parseId, kind: 'parseAgent', parentId: sourceId, params: { agentName: 'parse' } },
+      { id: newsId, kind: 'news', parentId: parseId, params: { content: '正文' } },
+    ]
+    doc.edges = [
+      { id: 'e1', from: sourceId, to: parseId },
+      { id: 'e2', from: parseId, to: newsId },
+    ]
+
+    docUpdateInterrupt(doc, {
+      runId: 'r1',
+      mapId: 'n1',
+      parentNodeId: newsId,
+      transitionKey: '1-2',
+      nextNode: 'confirmRoute',
+      mode: 'human-in-loop',
+      state: splitState({
+        parentNodeId: newsId,
+        content: '正文',
+        routeInstructions: [
+          { agentName: '数据事实', priority: 'medium', instanceId: '数据事实#1' },
+        ],
+        subAgentResults: [],
+        mergedClaims: [],
+      }),
+      focus: { kind: 'news', id: newsId },
+      pendingTool: 'invoke',
+    })
+
+    expect(doc.nodes.some(n => n.kind === 'source')).toBe(true)
+    expect(doc.nodes.some(n => n.kind === 'parseAgent')).toBe(true)
+    expect(doc.nodes.find(n => n.id === newsId)?.kind).toBe('news')
+    expect(doc.nodes.some(n => n.kind === 'subAgent' && n.parentId === newsId)).toBe(true)
   })
 
   it('verify 同名多槽：各挂一条 opinion，不合并到同一 subAgent', () => {

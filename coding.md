@@ -82,7 +82,7 @@
 | `adapter` | `src/flow-map/adapters/electron-ipc.ts` |
 | `run` | `electron/api/graph-service.ts` |
 | `graph` | `electron/shared/graph-utils.ts` |
-| `split` / `verify` | `extractor.ts` / `verifier.ts` |
+| `split` / `verify` / `parse` | `extractor.ts` / `verifier.ts` / `parser.ts` |
 | `llm` | `electron/shared/llm-utils.ts` |
 | `err` | `electron/shared/errors.ts` |
 | `ctx` | `electron/shared/context.ts` |
@@ -164,3 +164,28 @@
 | 每个节点 `kind` 后接五层 optional chaining | `graph-doc` 入口校验一次，内部用窄类型 |
 | `parentNodeId ?? NEWS_ROOT_ID ?? mapId` 链式默认 | 启动 `runTransition` 时必填，缺则 `MAP_INVALID_SCOPE` |
 | `catch { return [] }` 隐藏 DB 失败 | `AppError` 向上抛，adapter 统一展示 |
+
+## 6. 修 Bug：先发掘根因
+
+修 Bug 时**先定位根因再改代码**，禁止用兜底、重试、绕路把症状盖住。
+
+### 规则
+
+- 复现 → 缩小范围（哪一层、哪条数据路径）→ 解释「为什么会发生」→ 再写最小修复
+- 修复应打在**产生错误不变式的源头**（序列化、类型契约、状态机），而不是在更外层吞掉异常
+- 若修复依赖「某字段可能为空所以 `??` 默认值」，须先证明该空值是合法输入；否则应修上游保证或 `throw`
+- 回归：根因修复应配**能失败在没有修复时的测试**（单测 / 最小复现），避免同类问题复发
+
+### 自问清单
+
+1. 这是表象还是根因？（例如 IPC clone 失败 → 根因是 Mongoose DocumentArray，不是「再包一层 try/catch」）
+2. 同类数据路径是否还有相同漏洞？
+3. 修复后能否用一句话说明「为什么不会再发生」？
+
+### 正反例
+
+| 差 | 优 |
+|----|-----|
+| `map:get` 失败就 `catch` 返回 `null` | 查明 `claims` 为 DocumentArray，序列化层转纯对象 |
+| 布局错位就硬编码 offset | 查清 `parentId` 与 layout 深度契约不一致，改投影 |
+| 偶发失败加重试 3 次 | 查清 race 在 `runId` 校验，改 gate 逻辑 |

@@ -13,6 +13,12 @@ import {
   mapIdReadSubAgent,
   mapIdCreateRoute,
   mapIdReadSubAgentClaim,
+  mapIdCreateChain,
+  mapIdCreateSource,
+  mapIdCreateParse,
+  mapIdCreateNews,
+  mapIdReadChain,
+  mapIdIsScopedNews,
 } from './ids'
 import { mergeUpdateDraftFlags } from '../../electron/shared/merge-flags'
 import type {
@@ -22,8 +28,10 @@ import type {
   MapNode,
   MapNewsNode,
   MapOpinionNode,
+  MapParseAgentNode,
   MapRunPhase,
   MapSnapshot,
+  MapSourceNode,
   MapSubAgentNode,
   MapSubAgentParams,
   MapToolKind,
@@ -38,6 +46,7 @@ import {
   type GraphSplitState,
   type GraphStatePatch,
   type TransitionKey,
+  type GraphParseState,
   type GraphVerifyState,
   type MapGraphPersist,
   type MapRunPersist,
@@ -57,7 +66,7 @@ export interface MapGraphDoc {
   threadId?: string
   transitionKey?: TransitionKey
   parentNodeId?: string
-  draft?: GraphSplitState | GraphVerifyState
+  draft?: GraphSplitState | GraphVerifyState | GraphParseState
   error?: string
 }
 
@@ -90,7 +99,9 @@ export function docCreateMap(
   mode: ExecutionMode = 'human-in-loop',
 ): MapGraphDoc {
   const doc = docCreate(news._id, mode)
-  docUpdateMap(doc, news.content)
+  if (news.content?.trim()) {
+    docUpdateMap(doc, news.content)
+  }
 
   const splitRoutes = docReadMapRoutes(news)
   docUpdateSplitRoutes(doc, splitRoutes)
@@ -119,6 +130,50 @@ export function docCreateMap(
   doc.error = undefined
   docDeleteFocus(doc)
   return doc
+}
+
+/** 追加源节点；parse / news 在 0-1 路由投影时出现。 */
+export function docAddSourceChain(
+  doc: MapGraphDoc,
+  input: {
+    uri: string
+    kind?: 'file' | 'url'
+    label?: string
+    chainId?: string
+  },
+): { sourceId: string; chainId: string } {
+  const chainId = input.chainId ?? mapIdCreateChain()
+  const sourceId = mapIdCreateSource(chainId)
+
+  const sourceNode: MapSourceNode = {
+    id: sourceId,
+    kind: 'source',
+    params: {
+      uri: input.uri,
+      kind: input.kind ?? 'file',
+      label: input.label,
+    },
+  }
+
+  doc.nodes.push(sourceNode)
+  return { sourceId, chainId }
+}
+
+/** 查找首个待解析的 source 根（对应 news 正文仍为空）。 */
+export function docReadPendingParseSource(
+  doc: Pick<MapGraphDoc, 'nodes'>,
+): string | undefined {
+  for (const node of doc.nodes) {
+    if (node.kind !== 'source' || node.parentId) continue
+    const chainId = mapIdReadChain(node.id)
+    if (!chainId) continue
+    const newsId = mapIdCreateNews(chainId)
+    const news = doc.nodes.find(
+      (n): n is MapNewsNode => n.id === newsId && n.kind === 'news',
+    )
+    if (!news || !news.params.content.trim()) return node.id
+  }
+  return undefined
 }
 
 /** 从 splitMeta.routeInstructions 还原拆分槽位。 */
@@ -175,6 +230,27 @@ function docUpdateFanoutSubAgent(
   docUpdateSubAgent(doc, payload.parentNodeId, route)
 }
 
+function docUpdateFanoutParseAgent(
+  doc: MapGraphDoc,
+  payload: GraphFanoutSpawnPayload,
+): void {
+  const parentId = payload.parentNodeId
+  if (!parentId) return
+  const chainId = mapIdReadChain(parentId)
+  if (!chainId) return
+  const parseId = mapIdCreateParse(chainId)
+  if (doc.nodes.some(n => n.id === parseId)) return
+
+  const parseNode: MapParseAgentNode = {
+    id: parseId,
+    kind: 'parseAgent',
+    parentId,
+    params: { agentName: payload.agentName ?? 'parse' },
+  }
+  doc.nodes.push(parseNode)
+  docUpdateEdge(doc, parentId, parseId)
+}
+
 function docUpdateToolProgress(
   doc: MapGraphDoc,
   payload: Extract<GraphProgressPayload, { event: 'subagent_tool' }>,
@@ -212,7 +288,11 @@ function docUpdateGraphProgress(
   docDeleteHitlRuntime(doc)
 
   if (payload.event === 'fanout_spawn' && payload.nodeId) {
-    docUpdateFanoutSubAgent(doc, payload as GraphFanoutSpawnPayload)
+    if (doc.transitionKey === '0-1') {
+      docUpdateFanoutParseAgent(doc, payload as GraphFanoutSpawnPayload)
+    } else {
+      docUpdateFanoutSubAgent(doc, payload as GraphFanoutSpawnPayload)
+    }
   }
 
   if (payload.event === 'node_exit' && payload.node === 'subAgent') {
@@ -254,8 +334,15 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
   doc.draft = payload.state
 
   if (payload.transitionKey === '1-2') {
-    doc.nodes = []
-    doc.edges = []
+    if (mapIdIsScopedNews(payload.parentNodeId)) {
+      docPruneSplitUnder(doc, payload.parentNodeId)
+    } else {
+      const newsNode = doc.nodes.find(
+        (n): n is MapNewsNode => n.id === NEWS_ROOT_ID && n.kind === 'news',
+      )
+      doc.nodes = newsNode ? [newsNode] : []
+      doc.edges = []
+    }
   }
   docProjectGraphState(doc, payload.transitionKey, payload.state, {
     upcomingGate: payload.nextNode,
@@ -271,7 +358,7 @@ export function docUpdateInterrupt(doc: MapGraphDoc, payload: GraphInterruptedPa
 export function docProjectGraphState(
   doc: MapGraphDoc,
   transitionKey: TransitionKey,
-  state: GraphSplitState | GraphVerifyState,
+  state: GraphSplitState | GraphVerifyState | GraphParseState,
   ctx?: {
     /** interrupt 时：即将进入的门闩 */
     upcomingGate?: GraphInterruptNode
@@ -279,15 +366,58 @@ export function docProjectGraphState(
     completedNode?: string
   },
 ): void {
+  if (transitionKey === '0-1') {
+    docProjectParseState(doc, state as GraphParseState)
+    return
+  }
   if (transitionKey === '1-2') {
     const splitState = state as GraphSplitState
-    docUpdateMap(doc, splitState.content)
+    docUpdateMap(doc, splitState.content, splitState.parentNodeId)
     docProjectSplitState(doc, splitState, ctx)
     return
   }
 
   docUpdateClaimPersist(doc)
   docUpdateVerifyState(doc, state as GraphVerifyState)
+}
+
+function docProjectParseState(doc: MapGraphDoc, state: GraphParseState): void {
+  const chainId = mapIdReadChain(state.newsNodeId) ?? mapIdReadChain(state.parentNodeId)
+  if (!chainId) return
+
+  const sourceId = mapIdCreateSource(chainId)
+  const parseId = mapIdCreateParse(chainId)
+
+  for (const route of state.routeInstructions ?? []) {
+    if (!doc.nodes.some(n => n.id === parseId)) {
+      const parseNode: MapParseAgentNode = {
+        id: parseId,
+        kind: 'parseAgent',
+        parentId: sourceId,
+        params: { agentName: route.agentName },
+      }
+      doc.nodes.push(parseNode)
+      docUpdateEdge(doc, sourceId, parseId)
+    }
+  }
+
+  if (!state.parsedContent.trim()) return
+
+  const existing = doc.nodes.find(
+    (n): n is MapNewsNode => n.id === state.newsNodeId && n.kind === 'news',
+  )
+  if (existing) {
+    existing.params.content = state.parsedContent
+    return
+  }
+
+  doc.nodes.push({
+    id: state.newsNodeId,
+    kind: 'news',
+    parentId: parseId,
+    params: { content: state.parsedContent },
+  })
+  docUpdateEdge(doc, parseId, state.newsNodeId)
 }
 
 function docProjectSplitState(
@@ -298,8 +428,9 @@ function docProjectSplitState(
     completedNode?: string
   },
 ): void {
+  const parentId = state.parentNodeId
   const routes = state.routeInstructions ?? []
-  docUpdateSplitRoutes(doc, routes)
+  docUpdateSplitRoutes(doc, routes, parentId)
 
   const useNumbered =
     ctx?.upcomingGate === 'save'
@@ -465,6 +596,10 @@ export function docReadResume(doc: MapGraphDoc): GraphStatePatch {
     return { mergedClaims: state.mergedClaims }
   }
 
+  if (doc.pendingTool === 'save' && 'parsedContent' in state) {
+    return { parsedContent: state.parsedContent }
+  }
+
   return null
 }
 
@@ -499,6 +634,16 @@ export function docUpdateDraft(doc: MapGraphDoc): void {
     doc.draft = {
       ...doc.draft,
       routeInstructions: docReadRoutes(doc, doc.draft.parentNodeId),
+    }
+  }
+
+  if (doc.transitionKey === '0-1' && doc.draft && 'parsedContent' in doc.draft && 'newsNodeId' in doc.draft) {
+    const parseDraft = doc.draft
+    const newsNode = doc.nodes.find(
+      (n): n is MapNewsNode => n.id === parseDraft.newsNodeId && n.kind === 'news',
+    )
+    if (newsNode) {
+      doc.draft = { ...doc.draft, parsedContent: newsNode.params.content }
     }
   }
 }
@@ -665,17 +810,43 @@ function docUpdateFocus(doc: MapGraphDoc): void {
   }
 }
 
-function docUpdateMap(doc: MapGraphDoc, content: string): void {
-  const existing = doc.nodes.find((n): n is MapNewsNode => n.kind === 'news')
+function docPruneSplitUnder(doc: MapGraphDoc, newsParentId: string): void {
+  const remove = new Set<string>()
+  const collect = (parentId: string) => {
+    for (const n of doc.nodes) {
+      if (
+        n.parentId === parentId
+        && (n.kind === 'subAgent' || n.kind === 'claim' || n.kind === 'opinion')
+        && !remove.has(n.id)
+      ) {
+        remove.add(n.id)
+        collect(n.id)
+      }
+    }
+  }
+  collect(newsParentId)
+  if (remove.size > 0) docDeleteNodes(doc, remove)
+}
+
+function docUpdateMap(
+  doc: MapGraphDoc,
+  content: string,
+  newsId: string = NEWS_ROOT_ID,
+): void {
+  const existing = doc.nodes.find(
+    (n): n is MapNewsNode => n.id === newsId && n.kind === 'news',
+  )
   if (existing) {
     existing.params = { content }
     return
   }
-  doc.nodes.push({
-    id: NEWS_ROOT_ID,
-    kind: 'news',
-    params: { content },
-  })
+  if (newsId === NEWS_ROOT_ID) {
+    doc.nodes.push({
+      id: NEWS_ROOT_ID,
+      kind: 'news',
+      params: { content },
+    })
+  }
 }
 
 export function docUpdateSubAgent(
@@ -955,6 +1126,10 @@ export function docIsParamLock(snapshot: MapSnapshot, node: MapNode): boolean {
   if (snapshot.runPhase === 'running') return true
 
   if (node.kind === 'opinion') return true
+
+  if (node.kind === 'source' || node.kind === 'parseAgent') {
+    return snapshot.runPhase !== 'idle'
+  }
 
   if (node.kind === 'claim') {
     return node.dataPhase !== 'workerOut'

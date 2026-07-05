@@ -65,3 +65,10 @@ export function agentReadVerifyConfig(): GraphConfig {
     maxConcurrency: 3,
   }
 }
+
+export function agentReadParseConfig(): import('../fact-parser/types').ParseGraphConfig {
+  return {
+    defaultModel: agentCreateModel(),
+    extractPromptPath: 'fact-parser/extract',
+  }
+}

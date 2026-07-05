@@ -1,22 +1,58 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import PanelRegion from './shell/PanelRegion.vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useFlowMapStore } from '../stores/flow-map'
 
 const store = useWorkspaceStore()
+const flowMap = useFlowMapStore()
 const { mapList, currentMapId, loading } = storeToRefs(store)
+
+const fileInput = ref<HTMLInputElement | null>(null)
 
 onMounted(() => store.loadMapList())
 
 function preview(content: string) {
   return content.length > 36 ? `${content.slice(0, 36)}…` : content
 }
+
+function onImportClick() {
+  fileInput.value?.click()
+}
+
+async function onFileSelected(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  let mapId = currentMapId.value
+  if (!mapId) {
+    await store.createMap()
+    mapId = currentMapId.value
+  }
+  if (!mapId) return
+
+  await flowMap.attachMap(mapId)
+  const path = (file as File & { path?: string }).path ?? file.name
+  await flowMap.addSourceChain(path, file.name)
+}
 </script>
 
 <template>
   <PanelRegion title="案件" class="sidebar">
     <template #actions>
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".txt,.md,text/plain"
+        class="hidden-file"
+        @change="onFileSelected"
+      >
+      <button class="secondary" :disabled="loading" @click="onImportClick">
+        导入
+      </button>
       <button class="primary" :disabled="loading" @click="store.createMap()">
         + 新建
       </button>
@@ -83,5 +119,13 @@ function preview(content: string) {
 .empty {
   padding: var(--space-md);
   color: var(--text-dim);
+}
+
+.hidden-file {
+  display: none;
+}
+
+button.secondary {
+  margin-right: var(--space-xs);
 }
 </style>

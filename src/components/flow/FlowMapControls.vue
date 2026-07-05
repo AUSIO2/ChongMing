@@ -2,18 +2,27 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { RUN_PHASE_LABEL, labelFormatFocusNode, labelFormatHitl } from '../../flow-map'
+import { RUN_PHASE_LABEL, labelFormatFocusNode, labelFormatHitl, NEWS_ROOT_ID } from '../../flow-map'
+import { docReadPendingParseSource } from '../../flow-map/graph-doc'
 import type { ExecutionMode } from '../../flow-map'
 
 const store = useFlowMapStore()
 const { snapshot, runPhase, mode, isRunning, isInterrupted } = storeToRefs(store)
 
+const hasPendingParse = computed(() => {
+  const s = snapshot.value
+  if (!s) return false
+  return !!docReadPendingParseSource({ nodes: s.nodes })
+})
+
 const label = computed(() => RUN_PHASE_LABEL[runPhase.value])
 
-/** 主按钮：idle/error → 运行；interrupted → 继续 */
+/** 主按钮：idle/error/completed → 运行；interrupted → 继续 */
 const primaryAction = computed<'run' | 'continue' | null>(() => {
   if (!snapshot.value) return null
-  if (runPhase.value === 'idle' || runPhase.value === 'error') return 'run'
+  if (runPhase.value === 'idle' || runPhase.value === 'error' || runPhase.value === 'completed') {
+    return 'run'
+  }
   if (runPhase.value === 'interrupted') return 'continue'
   return null
 })
@@ -28,7 +37,14 @@ const primaryHint = computed(() => {
   if (!snapshot.value) return '等待新闻加载…'
   if (runPhase.value === 'running') return '执行中（调用模型，请稍候或取消）'
   if (runPhase.value === 'interrupted') return '已暂停，点主按钮推进下一步'
-  if (runPhase.value === 'completed') return '已完成（取消可回到空闲）'
+  if (runPhase.value === 'completed') {
+    const s = snapshot.value
+    const hasScopedNews = s?.nodes.some(
+      n => n.kind === 'news' && n.id !== NEWS_ROOT_ID && n.params.content.trim(),
+    )
+    if (hasScopedNews) return '解析已完成，点运行执行拆分'
+    return '本阶段已完成（取消可回到空闲）'
+  }
   if (runPhase.value === 'error') return '上次出错，可重新运行'
   return null
 })
@@ -63,6 +79,10 @@ function onPrimary() {
     void store.startRun()
   }
 }
+
+function onParse() {
+  void store.startParse()
+}
 </script>
 
 <template>
@@ -78,6 +98,15 @@ function onPrimary() {
     </label>
 
     <div class="btn-row">
+      <button
+        v-if="hasPendingParse && (runPhase === 'idle' || runPhase === 'error')"
+        class="parse"
+        :disabled="isRunning"
+        title="从源文件解析新闻正文"
+        @click="onParse"
+      >
+        解析
+      </button>
       <button
         class="primary"
         :class="{ continue: isInterrupted }"
@@ -127,6 +156,7 @@ function onPrimary() {
 button { cursor: pointer; padding: 4px 10px; border-radius: 3px; border: 1px solid var(--border-subtle); background: var(--bg-panel); }
 button.primary { background: var(--accent, #2563eb); color: #fff; border: none; }
 button.primary.continue { background: var(--warning, #d97706); }
+button.parse { background: #0d9488; color: #fff; border: none; }
 button[disabled] { opacity: 0.5; cursor: not-allowed; }
 
 .graph-tag { font-size: var(--ui-font-size); color: var(--text-dim); }

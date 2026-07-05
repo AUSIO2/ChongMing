@@ -110,6 +110,17 @@ export function graphCreateRoute<TState>(
   }
 }
 
+/**
+ * 无 LLM 的固定路由 —— 用于 0-1 源→新闻 1:1 mock 解析槽。
+ */
+export function graphCreateMockRoute<TState>(
+  seeds: Array<Pick<MapSubAgentParams, 'agentName' | 'priority' | 'instanceId' | 'hint'>>,
+) {
+  return async (_state: TState) => ({
+    routeInstructions: mapIdUpdateInstance(seeds),
+  })
+}
+
 /** route 与扇出之间的空节点，供 interruptBefore 做人审（改槽后再 fan-out）。 */
 export async function graphUpdateRouteConfirm(): Promise<Record<string, never>> {
   return {}
@@ -209,6 +220,11 @@ export interface GraphRunSession {
   /** 每个节点执行后，将 checkpoint 投影到 Map */
   onStateProject?: (state: unknown, completedNode: string) => void
   fanoutEmitted?: boolean
+  /** 扇出时 Map 节点 id（如 0-1 用 parse:{chainId} 而非 sub:） */
+  fanoutReadNodeId?: (
+    instruction: MapSubAgentParams,
+    parentNodeId: string,
+  ) => string
   /** 协作式取消：编排循环在安全点检查并退出 */
   cancelled?: boolean
   /** 稳定 thread id，用于断点恢复 */
@@ -344,12 +360,15 @@ export async function graphRunInterrupt<TState extends { mode?: ExecutionMode }>
           ? (stateAfterInterrupt as { parentNodeId: string }).parentNodeId
           : NEWS_ROOT_ID
       instructions.forEach((instruction, index) => {
+        const nodeId = session.fanoutReadNodeId
+          ? session.fanoutReadNodeId(instruction, parentNodeId)
+          : mapIdCreateRoute(instruction, parentNodeId)
         session.onProgress!({
           event: 'fanout_spawn',
           node: 'subAgent',
           agentName: instruction.agentName,
           spawnIndex: index,
-          nodeId: mapIdCreateRoute(instruction, parentNodeId),
+          nodeId,
           parentNodeId,
         })
       })

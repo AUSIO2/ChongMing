@@ -25,7 +25,7 @@ import type {
 
 export type { MapSubAgentParams, Priority, Confidence, ExecutionMode, CatalogSubAgent }
 
-export type MapNodeKind = 'news' | 'subAgent' | 'claim' | 'opinion'
+export type MapNodeKind = 'source' | 'parseAgent' | 'news' | 'subAgent' | 'claim' | 'opinion'
 
 /** 工具：无 params，不是图上的独立实体。 */
 export type MapToolKind = 'invoke' | 'validate' | 'save'
@@ -35,6 +35,16 @@ export type MapDataPhase = 'workerOut' | 'persisted'
 export type MapRunPhase = 'idle' | 'running' | 'interrupted' | 'completed' | 'error'
 
 // ---------- 参数（节点的可编辑数据） ----------
+
+export interface MapSourceParams {
+  uri: string
+  kind: 'file' | 'url'
+  label?: string
+}
+
+export interface MapParseAgentParams {
+  agentName: string
+}
 
 export interface MapNewsParams {
   content: string
@@ -77,6 +87,16 @@ interface MapNodeBase {
   }
 }
 
+export interface MapSourceNode extends MapNodeBase {
+  kind: 'source'
+  params: MapSourceParams
+}
+
+export interface MapParseAgentNode extends MapNodeBase {
+  kind: 'parseAgent'
+  params: MapParseAgentParams
+}
+
 export interface MapNewsNode extends MapNodeBase {
   kind: 'news'
   params: MapNewsParams
@@ -105,7 +125,13 @@ export interface MapOpinionNode extends MapNodeBase {
   dataPhase: MapDataPhase
 }
 
-export type MapNode = MapNewsNode | MapSubAgentNode | MapClaimNode | MapOpinionNode
+export type MapNode =
+  | MapSourceNode
+  | MapParseAgentNode
+  | MapNewsNode
+  | MapSubAgentNode
+  | MapClaimNode
+  | MapOpinionNode
 
 // ---------- 边 ----------
 

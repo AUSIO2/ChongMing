@@ -10,6 +10,8 @@ export const RUN_PHASE_LABEL: Record<import('./types').MapRunPhase, string> = {
 }
 
 export const NODE_KIND_LABEL: Record<MapNodeKind, string> = {
+  source: '源',
+  parseAgent: '解析',
   news: '新闻',
   subAgent: 'SubAgent',
   claim: '事实',
@@ -28,6 +30,7 @@ export function labelFormatNodeKind(node: MapNode): string {
 /** Controls 焦点行：subAgent 显示 agentName，其余用 kind 标签。 */
 export function labelFormatFocusNode(node: MapNode): string {
   if (node.kind === 'subAgent') return node.params.agentName
+  if (node.kind === 'source') return node.params.label ?? node.params.uri
   return NODE_KIND_LABEL[node.kind]
 }
 

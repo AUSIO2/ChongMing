@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { layoutReadSnapshot } from './layout'
 import { NEWS_ROOT_ID } from './ids'
+import { MAP_COLUMN } from './columns'
 import type { MapNode, MapSnapshot } from './types'
 
 const newsNode: MapNode = {
@@ -64,7 +65,7 @@ describe('layout', () => {
     expect(sa.x).toBeLessThan(c0.x)
   })
 
-  it('news → subAgent → claim → verify subAgent 深度递增，无 split/verify 特殊分支', () => {
+  it('news → subAgent → claim → verify subAgent 列号递增', () => {
     const snap = make({
       nodes: [
         {
@@ -100,10 +101,10 @@ describe('layout', () => {
     const sa = out.nodes.find(n => n.node.id === 'sub:a')!
     const claim = out.nodes.find(n => n.node.id === 'claim:a:0')!
     const sv = out.nodes.find(n => n.node.id === 'sub:v')!
-    expect(news.depth).toBe(0)
-    expect(sa.depth).toBe(1)
-    expect(claim.depth).toBe(2)
-    expect(sv.depth).toBe(3)
+    expect(news.depth).toBe(MAP_COLUMN.news)
+    expect(sa.depth).toBe(MAP_COLUMN.splitAgent)
+    expect(claim.depth).toBe(MAP_COLUMN.claim)
+    expect(sv.depth).toBe(MAP_COLUMN.verifyAgent)
     expect(news.x).toBeLessThan(sa.x)
     expect(sa.x).toBeLessThan(claim.x)
     expect(claim.x).toBeLessThan(sv.x)

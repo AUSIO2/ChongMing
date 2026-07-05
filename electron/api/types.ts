@@ -96,7 +96,7 @@ export interface UpdateMapInput {
 // ==========================================
 
 /** 列间过渡 key：父数据列 x → 子数据列 x+1 */
-export type TransitionKey = '1-2' | '2-3'
+export type TransitionKey = '0-1' | '1-2' | '2-3'
 
 export type GraphInterruptNode = 'confirmRoute' | 'validate' | 'save'
 export type GraphToolKind = 'invoke' | 'validate' | 'save'
@@ -106,8 +106,21 @@ export function apiCanWriteRoute(pendingTool?: GraphToolKind): boolean {
 }
 
 export interface GraphInterruptFocus {
-  kind: 'news' | 'subAgent' | 'claim' | 'opinion'
+  kind: 'source' | 'news' | 'subAgent' | 'claim' | 'opinion'
   id: string
+}
+
+export interface GraphParseState {
+  mapId: string
+  parentNodeId: string
+  newsNodeId: string
+  mode: ExecutionMode
+  sourceUri: string
+  sourceKind: 'file' | 'url'
+  rawContent: string
+  routeInstructions: MapSubAgentParams[]
+  subAgentResults: GraphSplitRecordDto[]
+  parsedContent: string
 }
 
 export interface GraphClaimDto {
@@ -170,7 +183,7 @@ export interface MapGraphPersist {
   pendingTool?: GraphToolKind
   nextNode?: GraphInterruptNode
   transitionKey?: TransitionKey
-  draft?: GraphSplitState | GraphVerifyState
+  draft?: GraphSplitState | GraphVerifyState | GraphParseState
   error?: string
   updatedAt: string
 }
@@ -194,7 +207,7 @@ export interface GraphInterruptedPayload {
   parentNodeId: string
   nextNode: GraphInterruptNode
   mode: ExecutionMode
-  state: GraphSplitState | GraphVerifyState
+  state: GraphSplitState | GraphVerifyState | GraphParseState
   focus?: GraphInterruptFocus
   pendingTool?: GraphToolKind
 }
@@ -209,7 +222,7 @@ export interface GraphActiveRun {
   nextNode?: GraphInterruptNode
   focus?: GraphInterruptFocus
   pendingTool?: GraphToolKind
-  state?: GraphSplitState | GraphVerifyState
+  state?: GraphSplitState | GraphVerifyState | GraphParseState
 }
 
 export interface GraphCompletedPayload {
@@ -217,7 +230,7 @@ export interface GraphCompletedPayload {
   mapId: string
   transitionKey: TransitionKey
   parentNodeId: string
-  state: GraphSplitState | GraphVerifyState
+  state: GraphSplitState | GraphVerifyState | GraphParseState
 }
 
 export interface GraphStatePayload {
@@ -226,7 +239,7 @@ export interface GraphStatePayload {
   transitionKey: TransitionKey
   parentNodeId: string
   completedNode: string
-  state: GraphSplitState | GraphVerifyState
+  state: GraphSplitState | GraphVerifyState | GraphParseState
 }
 
 export interface GraphErrorPayload {
@@ -266,7 +279,8 @@ export type GraphProgressPayload = {
 
 export type SplitStatePatch = Partial<GraphSplitState>
 export type VerifyStatePatch = Partial<GraphVerifyState>
-export type GraphStatePatch = SplitStatePatch | VerifyStatePatch | null
+export type ParseStatePatch = Partial<GraphParseState>
+export type GraphStatePatch = SplitStatePatch | VerifyStatePatch | ParseStatePatch | null
 
 // ==========================================
 // ElectronAPI
@@ -301,7 +315,7 @@ export interface RestoreRunInput {
   gate: GraphInterruptNode
   pendingTool?: GraphToolKind
   activeNodeId?: string
-  draft: GraphSplitState | GraphVerifyState
+  draft: GraphSplitState | GraphVerifyState | GraphParseState
 }
 
 export interface GraphAPI {

@@ -34,23 +34,36 @@ function chainScopeEnsure(
 export async function mapCreate(input: CreateMapInput): Promise<DisplayMap> {
   const _id = input._id ?? randomUUID()
   const scopeNodeId = input.scopeNodeId ?? MAP_DEFAULT_SCOPE
+  const hasContent = Boolean(input.content?.trim())
+
+  const chains: Record<string, {
+    content: string
+    context: ReturnType<typeof serialReadContextMap>
+    claims: []
+  }> = {}
+
+  if (hasContent) {
+    chains[scopeNodeId] = {
+      content: input.content ?? '',
+      context: serialReadContextMap(input.context),
+      claims: [],
+    }
+  }
+
   const doc = await MapModel.create({
     _id,
-    chains: {
-      [scopeNodeId]: {
-        content: input.content,
-        context: serialReadContextMap(input.context),
-        claims: [],
-      },
-    },
-    timeline: {
-      activeScope: scopeNodeId,
-      scopes: {
-        [scopeNodeId]: { startX: 1, endX: 3 },
-      },
-    },
+    chains,
+    timeline: hasContent
+      ? {
+          activeScope: scopeNodeId,
+          scopes: { [scopeNodeId]: { startX: 1, endX: 3 } },
+        }
+      : {
+          activeScope: '',
+          scopes: {},
+        },
   })
-  return serialReadMap(doc, scopeNodeId)
+  return serialReadMap(doc, hasContent ? scopeNodeId : '')
 }
 
 export async function mapReadIndex(): Promise<DisplayMapSummary[]> {

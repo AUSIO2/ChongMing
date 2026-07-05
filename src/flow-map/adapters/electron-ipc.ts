@@ -28,6 +28,8 @@ import {
   docReadPersistRun,
   docReadSnapshot,
   docReadInstanceIds,
+  docAddSourceChain,
+  docReadPendingParseSource,
   type MapGraphDoc,
 } from '../graph-doc'
 import type {
@@ -307,9 +309,14 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       })
 
       if (doc.nodes.find(n => n.id === input.nodeId)?.kind === 'news') {
+        const node = doc.nodes.find(n => n.id === input.nodeId)!
         const content = (input.params as { content?: string }).content
         if (content !== undefined) {
-          await api.map.update(input.mapId, { content })
+          const scopeNodeId = node.id === NEWS_ROOT_ID ? undefined : node.id
+          await api.map.update(input.mapId, {
+            content,
+            ...(scopeNodeId ? { scopeNodeId } : {}),
+          })
         }
       }
 
@@ -331,6 +338,50 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       return docReadSnapshot(doc)
     },
 
+    async addSourceChain(mapId, input) {
+      const doc = await adapterMutate(mapId, (doc) => {
+        docAddSourceChain(doc, input)
+      })
+      return docReadSnapshot(doc)
+    },
+
+    async startParse(mapId, sourceId) {
+      try {
+        const doc = await adapterMutate(mapId, async (doc) => {
+          const parentNodeId = sourceId ?? docReadPendingParseSource(doc)
+          if (!parentNodeId) {
+            throw new AppError(
+              ErrorCode.MAP_SCOPE_NOT_FOUND,
+              'no pending source to parse',
+            )
+          }
+          doc.error = undefined
+          doc.runPhase = 'running'
+          doc.draft = undefined
+          docDeleteFocus(doc)
+          doc.transitionKey = '0-1'
+          doc.parentNodeId = parentNodeId
+
+          const { runId } = await api.graph.runTransition({
+            mapId,
+            transitionKey: '0-1',
+            parentNodeId,
+            mode: doc.mode,
+          })
+          doc.runId = runId
+          doc.threadId = runId
+        })
+        return { runId: doc.runId!, snapshot: docReadSnapshot(doc) }
+      } catch (e) {
+        const doc = getDoc(mapId)
+        docUpdateError(doc, errReadApp(e).msg)
+        doc.runId = undefined
+        doc.threadId = undefined
+        await persistDoc(doc)
+        throw e
+      }
+    },
+
     async startRun(mapId, mode) {
       try {
         const doc = await adapterMutate(mapId, async (doc) => {
@@ -339,17 +390,28 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           doc.runPhase = 'running'
           doc.draft = undefined
           docDeleteFocus(doc)
-          const newsNode = doc.nodes.find(n => n.kind === 'news')
-          doc.nodes = newsNode ? [newsNode] : []
-          doc.edges = []
 
-          doc.transitionKey = '1-2'
-          doc.parentNodeId = NEWS_ROOT_ID
+          const scopedNews = doc.nodes.find(
+            n => n.kind === 'news' && n.id !== NEWS_ROOT_ID && n.params.content.trim(),
+          )
+          if (scopedNews) {
+            doc.transitionKey = '1-2'
+            doc.parentNodeId = scopedNews.id
+          } else {
+            const newsNode = doc.nodes.find(
+              (n): n is import('../types').MapNewsNode =>
+                n.id === NEWS_ROOT_ID && n.kind === 'news',
+            )
+            doc.nodes = newsNode ? [newsNode] : []
+            doc.edges = []
+            doc.transitionKey = '1-2'
+            doc.parentNodeId = NEWS_ROOT_ID
+          }
 
           const { runId } = await api.graph.runTransition({
             mapId,
             transitionKey: '1-2',
-            parentNodeId: NEWS_ROOT_ID,
+            parentNodeId: doc.parentNodeId!,
             mode: doc.mode,
           })
           doc.runId = runId

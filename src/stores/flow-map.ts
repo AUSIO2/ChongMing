@@ -185,6 +185,37 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     }
   }
 
+  async function startParse(sourceId?: string) {
+    const mapId = currentMapId.value
+    if (!mapId) return
+    if (snapshot.value) {
+      snapshot.value = { ...snapshot.value, runPhase: 'running' }
+    }
+    try {
+      const { snapshot: next } = await portReadApi().startParse(mapId, sourceId)
+      snapshot.value = next
+      errorMessage.value = null
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+      await refresh()
+    }
+  }
+
+  async function addSourceChain(uri: string, label?: string) {
+    const mapId = currentMapId.value
+    if (!mapId) return
+    try {
+      snapshot.value = await portReadApi().addSourceChain(mapId, {
+        uri,
+        kind: 'file',
+        label,
+      })
+      errorMessage.value = null
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+    }
+  }
+
   return {
     currentMapId,
     snapshot,
@@ -209,6 +240,8 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     updateNodeParams,
     removeNode,
     startRun,
+    startParse,
+    addSourceChain,
     continueStep,
     cancelRun,
     setMode,

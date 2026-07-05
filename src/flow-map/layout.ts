@@ -1,7 +1,8 @@
 import type { MapEdge, MapNode, MapSnapshot, MapNodeKind } from './types'
+import { layoutReadNodeColumn } from './columns'
 
 /**
- * 布局仅依赖节点拓扑（parentId + edges），无 split/verify 分支。
+ * 布局：列号由 MAP_COLUMN 决定 x；同 parent 子树递归分行决定 y。
  */
 
 const PAD_X = 80
@@ -9,11 +10,12 @@ const PAD_Y = 60
 const GAP_X = 240
 const GAP_Y = 100
 
-/** 各类节点统一外框尺寸 */
 export const MAP_NODE_WIDTH = 200
 export const MAP_NODE_HEIGHT = 80
 
 const NODE_SIZE: Record<MapNodeKind, { width: number; height: number }> = {
+  source: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
+  parseAgent: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
   news: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
   subAgent: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
   claim: { width: MAP_NODE_WIDTH, height: MAP_NODE_HEIGHT },
@@ -26,7 +28,7 @@ export interface MapLayoutNode {
   y: number
   width: number
   height: number
-  /** 距离 news root 的深度，仅用于调试/CSS 分层。 */
+  /** 列号（MAP_COLUMN），用于调试 / CSS */
   depth: number
 }
 
@@ -47,92 +49,77 @@ export interface MapLayoutSnapshot {
   height: number
 }
 
-/**
- * BFS 从 NEWS_ROOT_ID 出发计算每个节点的深度：
- *   x = PAD_X + depth * GAP_X
- * 同一 parent 下的子节点纵向分行；父节点自身在 y 方向居中于其子行。
- */
 export function layoutReadSnapshot(snapshot: MapSnapshot): MapLayoutSnapshot {
   const { nodes, edges } = snapshot
-
-  const childrenByParent = groupChildren(nodes)
-
-  // 拓扑根：所有 parentId 为空的节点。news 节点通常在这里。
+  const childrenByParent = layoutGroupChildren(nodes)
   const roots = nodes.filter(n => !n.parentId)
-
   const layoutByNodeId = new Map<string, MapLayoutNode>()
 
-  // 递归计算：先给自己占一行，再递归子树；父的 y 取子树 y 的中值
   let cursorRow = 0
-  const rowY: number[] = []
 
-  function place(nodeId: string, depth: number): { firstRow: number; lastRow: number } {
+  function place(nodeId: string, startRow: number): number {
     const node = nodes.find(n => n.id === nodeId)
-    if (!node) return { firstRow: cursorRow, lastRow: cursorRow }
+    if (!node) return startRow
 
     const kids = childrenByParent.get(nodeId) ?? []
+    const col = layoutReadNodeColumn(node, nodes)
 
     if (kids.length === 0) {
-      const row = cursorRow++
-      rowY[row] = PAD_Y + row * GAP_Y
+      const row = startRow
       const size = NODE_SIZE[node.kind]
       layoutByNodeId.set(nodeId, {
         node,
-        x: PAD_X + depth * GAP_X,
-        y: rowY[row],
+        x: PAD_X + col * GAP_X,
+        y: PAD_Y + row * GAP_Y,
         width: size.width,
         height: size.height,
-        depth,
+        depth: col,
       })
-      return { firstRow: row, lastRow: row }
+      return startRow + 1
     }
 
-    const childRows: Array<{ firstRow: number; lastRow: number }> = []
+    let nextRow = startRow
+    const endRows: number[] = []
     for (const k of kids) {
-      childRows.push(place(k.id, depth + 1))
+      endRows.push(place(k.id, nextRow))
+      nextRow = endRows[endRows.length - 1]
     }
-    const firstRow = childRows[0].firstRow
-    const lastRow = childRows[childRows.length - 1].lastRow
-    const midY = (rowY[firstRow] + rowY[lastRow]) / 2
-
+    const lastRow = endRows[endRows.length - 1] - 1
+    const midRow = (startRow + lastRow) / 2
     const size = NODE_SIZE[node.kind]
     layoutByNodeId.set(nodeId, {
       node,
-      x: PAD_X + depth * GAP_X,
-      y: midY,
+      x: PAD_X + col * GAP_X,
+      y: PAD_Y + midRow * GAP_Y,
       width: size.width,
       height: size.height,
-      depth,
+      depth: col,
     })
-    return { firstRow, lastRow }
+    return endRows[endRows.length - 1]
   }
 
   for (const root of roots) {
     if (layoutByNodeId.has(root.id)) continue
-    place(root.id, 0)
+    cursorRow = place(root.id, cursorRow)
   }
 
-  // 兜底：任何没被 root 覆盖的节点（如孤立测试用）直接以最新一行放置在 depth=0
   for (const n of nodes) {
-    if (!layoutByNodeId.has(n.id)) {
-      const row = cursorRow++
-      rowY[row] = PAD_Y + row * GAP_Y
-      const size = NODE_SIZE[n.kind]
-      layoutByNodeId.set(n.id, {
-        node: n,
-        x: PAD_X,
-        y: rowY[row],
-        width: size.width,
-        height: size.height,
-        depth: 0,
-      })
-    }
+    if (layoutByNodeId.has(n.id)) continue
+    const col = layoutReadNodeColumn(n, nodes)
+    const size = NODE_SIZE[n.kind]
+    layoutByNodeId.set(n.id, {
+      node: n,
+      x: PAD_X + col * GAP_X,
+      y: PAD_Y + cursorRow * GAP_Y,
+      width: size.width,
+      height: size.height,
+      depth: col,
+    })
+    cursorRow++
   }
 
   const laidOutNodes = [...layoutByNodeId.values()]
-
-  const laidOutEdges: MapLayoutEdge[] = edges.map(e => edgeLayout(e, layoutByNodeId))
-
+  const laidOutEdges: MapLayoutEdge[] = edges.map(e => layoutEdge(e, layoutByNodeId))
   const maxRight = laidOutNodes.reduce((m, n) => Math.max(m, n.x + n.width), 0)
   const maxBottom = laidOutNodes.reduce((m, n) => Math.max(m, n.y + n.height), 0)
 
@@ -144,10 +131,9 @@ export function layoutReadSnapshot(snapshot: MapSnapshot): MapLayoutSnapshot {
   }
 }
 
-function groupChildren(nodes: MapNode[]): Map<string, MapNode[]> {
+function layoutGroupChildren(nodes: MapNode[]): Map<string, MapNode[]> {
   const map = new Map<string, MapNode[]>()
   for (const n of nodes) {
-    // 仅按显式 parentId 建树；根节点（无 parentId）不参与，避免 NEWS_ROOT_ID 自环
     if (!n.parentId) continue
     const arr = map.get(n.parentId) ?? []
     arr.push(n)
@@ -156,7 +142,7 @@ function groupChildren(nodes: MapNode[]): Map<string, MapNode[]> {
   return map
 }
 
-function edgeLayout(edge: MapEdge, byId: Map<string, MapLayoutNode>): MapLayoutEdge {
+function layoutEdge(edge: MapEdge, byId: Map<string, MapLayoutNode>): MapLayoutEdge {
   const from = byId.get(edge.from)
   const to = byId.get(edge.to)
   const x1 = from ? from.x + from.width : 0

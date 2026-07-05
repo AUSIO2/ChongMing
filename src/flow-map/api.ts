@@ -40,6 +40,14 @@ export interface MapAPI {
     mapId: string,
     mode?: ExecutionMode,
   ): Promise<{ runId: string; snapshot: MapSnapshot }>
+  startParse(
+    mapId: string,
+    sourceId?: string,
+  ): Promise<{ runId: string; snapshot: MapSnapshot }>
+  addSourceChain(
+    mapId: string,
+    input: { uri: string; kind?: 'file' | 'url'; label?: string },
+  ): Promise<MapSnapshot>
   continueStep(mapId: string): Promise<MapSnapshot>
   cancel(mapId: string): Promise<MapSnapshot>
   setMode(mapId: string, mode: ExecutionMode): Promise<MapSnapshot>

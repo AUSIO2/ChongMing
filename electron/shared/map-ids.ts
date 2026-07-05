@@ -14,6 +14,48 @@ import type { MapSubAgentParams, RouteInstructionDraft } from './types'
 
 export const NEWS_ROOT_ID = '__news_root__'
 
+const SOURCE_PREFIX = 'source:'
+const PARSE_PREFIX = 'parse:'
+const NEWS_PREFIX = 'news:'
+
+export function mapIdCreateChain(): string {
+  return crypto.randomUUID().slice(0, 8)
+}
+
+export function mapIdCreateSource(chainId: string): string {
+  return `${SOURCE_PREFIX}${chainId}`
+}
+
+export function mapIdCreateParse(chainId: string): string {
+  return `${PARSE_PREFIX}${chainId}`
+}
+
+export function mapIdCreateNews(chainId: string): string {
+  return `${NEWS_PREFIX}${chainId}`
+}
+
+/** 从 source / parse / scoped news 节点 id 解析 chainId。 */
+export function mapIdReadChain(nodeId: string): string | undefined {
+  if (nodeId.startsWith(SOURCE_PREFIX)) {
+    return nodeId.slice(SOURCE_PREFIX.length)
+  }
+  if (nodeId.startsWith(PARSE_PREFIX)) {
+    return nodeId.slice(PARSE_PREFIX.length)
+  }
+  if (nodeId.startsWith(NEWS_PREFIX)) {
+    return nodeId.slice(NEWS_PREFIX.length)
+  }
+  return undefined
+}
+
+export function mapIdIsSourceRoot(nodeId: string): boolean {
+  return nodeId.startsWith(SOURCE_PREFIX)
+}
+
+export function mapIdIsScopedNews(nodeId: string): boolean {
+  return nodeId.startsWith(NEWS_PREFIX)
+}
+
 export function mapIdCreateSubAgent(instanceId: string): string {
   return `sub:${instanceId}`
 }
@@ -151,9 +193,12 @@ export function mapIdUpdateInstance(
 /** 从 Map 节点 id 推断 interrupt 焦点 kind（restore 时 deriveInterruptFocus 无结果则用）。 */
 export function mapIdReadNodeFocus(
   activeNodeId: string,
-): { kind: 'news' | 'subAgent' | 'claim' | 'opinion'; id: string } {
-  if (activeNodeId === NEWS_ROOT_ID) {
-    return { kind: 'news', id: NEWS_ROOT_ID }
+): { kind: 'source' | 'news' | 'subAgent' | 'claim' | 'opinion'; id: string } {
+  if (activeNodeId.startsWith(SOURCE_PREFIX)) {
+    return { kind: 'source', id: activeNodeId }
+  }
+  if (activeNodeId === NEWS_ROOT_ID || activeNodeId.startsWith(NEWS_PREFIX)) {
+    return { kind: 'news', id: activeNodeId }
   }
   if (activeNodeId.startsWith('sub:')) {
     return { kind: 'subAgent', id: activeNodeId }
@@ -167,20 +212,36 @@ export function mapIdReadNodeFocus(
 export type MapInterruptTool = 'invoke' | 'validate' | 'save'
 
 export interface MapInterruptFocus {
-  kind: 'news' | 'subAgent' | 'claim' | 'opinion'
+  kind: 'source' | 'news' | 'subAgent' | 'claim' | 'opinion'
   id: string
 }
 
 /** LangGraph 中断点 → Map 焦点节点与 pendingTool。 */
 export function mapIdReadInterruptFocus(
-  transitionKey: '1-2' | '2-3',
+  transitionKey: '0-1' | '1-2' | '2-3',
   nextNode: string,
   state: {
     parentNodeId: string
+    newsNodeId?: string
     saveIndex?: number
     opinionSaveIndex?: number
   },
 ): { focus?: MapInterruptFocus; pendingTool?: MapInterruptTool } {
+  if (transitionKey === '0-1') {
+    if (nextNode === 'confirmRoute') {
+      return { focus: { kind: 'source', id: state.parentNodeId }, pendingTool: 'invoke' }
+    }
+    if (nextNode === 'validate' && state.newsNodeId) {
+      return { focus: { kind: 'news', id: state.newsNodeId }, pendingTool: 'validate' }
+    }
+    if (nextNode === 'save' && state.newsNodeId) {
+      return {
+        focus: { kind: 'news', id: state.newsNodeId },
+        pendingTool: 'save',
+      }
+    }
+    return {}
+  }
   if (nextNode === 'confirmRoute') {
     if (transitionKey === '1-2') {
       return { focus: { kind: 'news', id: state.parentNodeId }, pendingTool: 'invoke' }

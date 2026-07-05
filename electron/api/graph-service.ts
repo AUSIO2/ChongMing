@@ -15,6 +15,7 @@ import type {
   GraphStatePatch,
   TransitionKey,
   GraphSplitState,
+  GraphParseState,
   StartGraphResult,
   StartTransitionInput,
   GraphVerifyState,
@@ -24,6 +25,8 @@ import type { GraphProgressEventLocal } from '../shared/graph-utils'
 import {
   mapIdReadNodeFocus,
   mapIdReadInterruptFocus,
+  mapIdCreateParse,
+  mapIdReadChain,
 } from '../shared/map-ids'
 import {
   transitionReadSpec,
@@ -80,7 +83,7 @@ function waitForResume(runId: string): Promise<GraphStatePatch> {
 function serialReadTransitionState(
   transitionKey: TransitionKey,
   state: Record<string, unknown>,
-): GraphSplitState | GraphVerifyState {
+): GraphSplitState | GraphVerifyState | GraphParseState {
   const spec = transitionReadSpec(transitionKey)
   return spec.serialize(state)
 }
@@ -211,6 +214,12 @@ function createRunSession(
     graph: undefined,
     config: undefined,
     fanoutEmitted: false,
+    fanoutReadNodeId: ctx.transitionKey === '0-1'
+      ? (_instruction, parentNodeId) => {
+          const chainId = mapIdReadChain(parentNodeId)
+          return chainId ? mapIdCreateParse(chainId) : parentNodeId
+        }
+      : undefined,
   }
 }
 

@@ -1,6 +1,13 @@
 /** 与 electron/shared/map-ids 同源，保证 focus / 投影 id 一致。 */
 export {
   NEWS_ROOT_ID,
+  mapIdCreateChain,
+  mapIdCreateSource,
+  mapIdCreateParse,
+  mapIdCreateNews,
+  mapIdReadChain,
+  mapIdIsSourceRoot,
+  mapIdIsScopedNews,
   mapIdCreateSubAgent,
   mapIdReadSubAgent,
   mapIdCreateRoute,

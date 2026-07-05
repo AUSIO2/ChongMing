@@ -1,15 +1,14 @@
-import type { NewsContext } from '../shared/types'
+import type { NewsContext, MapSubAgentParams } from '../shared/types'
 import {
   MAP_DEFAULT_SCOPE,
   mapScopeReadContext,
-  mapScopeReadDefault,
   type MapChainScope,
-  type MapDocLike,
 } from '../shared/map-scope'
 import type {
   DisplayMap,
   DisplayMapSummary,
   DisplaySplitMeta,
+  GraphParseState,
   GraphSplitState,
   GraphSplitRecordDto,
   GraphVerifyState,
@@ -75,7 +74,12 @@ function scopeReadForDisplay(
   }
 
   if (!scope) {
-    scope = mapScopeReadDefault(doc as MapDocLike)
+    return {
+      content: '',
+      context: {},
+      claims: [],
+      splitMeta: undefined,
+    }
   }
 
   return {
@@ -142,6 +146,32 @@ export function serialReadMapSummary(doc: {
     claimCount: scope.claims.length,
     createdAt: toIsoString(doc.createdAt) ?? new Date().toISOString(),
     updatedAt: toIsoString(doc.updatedAt) ?? new Date().toISOString(),
+  }
+}
+
+export function serialReadParseState(state: {
+  mapId: string
+  parentNodeId: string
+  newsNodeId: string
+  mode: GraphParseState['mode']
+  sourceUri: string
+  sourceKind: GraphParseState['sourceKind']
+  rawContent: string
+  routeInstructions?: MapSubAgentParams[]
+  subAgentResults?: GraphSplitRecordDto[]
+  parsedContent: string
+}): GraphParseState {
+  return {
+    mapId: state.mapId,
+    parentNodeId: state.parentNodeId,
+    newsNodeId: state.newsNodeId,
+    mode: state.mode,
+    sourceUri: state.sourceUri,
+    sourceKind: state.sourceKind,
+    rawContent: state.rawContent,
+    routeInstructions: state.routeInstructions ?? [],
+    subAgentResults: state.subAgentResults ?? [],
+    parsedContent: state.parsedContent,
   }
 }
 

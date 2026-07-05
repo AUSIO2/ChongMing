@@ -84,7 +84,7 @@ const mapTimelineSchema = new Schema({
 const mapRunSchema = new Schema({
   runId: { type: String, required: true },
   threadId: { type: String, required: true },
-  transitionKey: { type: String, enum: ['1-2', '2-3'], required: true },
+  transitionKey: { type: String, enum: ['0-1', '1-2', '2-3'], required: true },
   parentNodeId: { type: String, required: true },
   mode: { type: String, enum: ['auto', 'human-in-loop'], required: true },
   gate: { type: String, enum: ['confirmRoute', 'validate', 'save'] },
