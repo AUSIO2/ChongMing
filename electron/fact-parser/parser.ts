@@ -5,7 +5,9 @@ import { AppError, ErrorCode } from '../shared/errors'
 import { graphCreateMockRoute } from '../shared/graph-utils'
 import { graphBuildHitl } from '../shared/graph-hitl'
 import { mapIdCreateNews, mapIdReadChain, mapIdReadSubAgentClaim } from '../shared/map-ids'
-import { promptRead, promptFormat } from '../shared/prompt-loader'
+import { llmResolvePromptModel } from '../shared/llm-model'
+import { promptRead } from '../shared/prompt-loader'
+import { promptRender } from '../shared/prompt-vars'
 import { llmReadMessage, llmRunInvoke } from '../shared/llm-utils'
 import type { ExecutionMode, MapSubAgentParams } from '../shared/types'
 import type { ParseGraphConfig } from './types'
@@ -104,10 +106,14 @@ function createParseWorker(config: ParseGraphConfig) {
       ._agentConfig as { name: string }
 
     const promptConfig = promptRead(config.extractPromptPath)
-    const prompt = promptFormat(promptConfig.content, {
-      rawContent: state.rawContent,
-    })
-    const rawResponse = await llmRunInvoke(config.defaultModel, [], prompt)
+    const parseModel = llmResolvePromptModel(promptConfig, config.defaultModel)
+    const prompt = promptRender(
+      promptConfig.content,
+      promptConfig.promptVars,
+      'parseExtract',
+      { rawContent: state.rawContent },
+    )
+    const rawResponse = await llmRunInvoke(parseModel, [], prompt)
     const parsedContent = llmReadMessage(rawResponse).trim() || state.rawContent.trim()
 
     return {

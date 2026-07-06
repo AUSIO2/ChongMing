@@ -3,6 +3,7 @@ import {
   timelineCreateDefault,
   timelineDeriveStateIndex,
   timelinePickWork,
+  timelinePickWorks,
   timelineReadEffectiveIndex,
   timelineReadNextStateIndex,
   timelineReadParents,
@@ -257,5 +258,33 @@ describe('timeline', () => {
     const pending = timelineReadPending(s, [], '1-2')
     void pending
     expect(timelinePickWork(s, [], '1-2', pending, tl, newsB)?.parentNodeId).toBe(newsA)
+  })
+
+  it('timelinePickWorks limit=1 等同 pickWork', () => {
+    const newsA = mapIdCreateNews('aaaa')
+    const newsB = mapIdCreateNews('bbbb')
+    const s = snap([
+      { id: newsA, kind: 'news', params: { content: 'A' } },
+      { id: newsB, kind: 'news', params: { content: 'B' } },
+    ])
+    const tl = timelineCreateDefault(newsA)
+    const pending = timelineReadPending(s, [], '1-2')
+    const works = timelinePickWorks(s, [], '1-2', pending, tl, 1)
+    expect(works).toHaveLength(1)
+    expect(works[0]?.parentNodeId).toBe(newsA)
+  })
+
+  it('timelinePickWorks auto limit>1 跨源链取多个 news', () => {
+    const newsA = mapIdCreateNews('aaaa')
+    const newsB = mapIdCreateNews('bbbb')
+    const s = snap([
+      { id: newsA, kind: 'news', params: { content: 'A' } },
+      { id: newsB, kind: 'news', params: { content: 'B' } },
+    ])
+    const tl = timelineCreateDefault()
+    const pending = timelineReadPending(s, [], '1-2')
+    const works = timelinePickWorks(s, [], '1-2', pending, tl, 2)
+    expect(works).toHaveLength(2)
+    expect(works.map(w => w.parentNodeId).sort()).toEqual([newsA, newsB].sort())
   })
 })

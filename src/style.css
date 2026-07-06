@@ -29,6 +29,7 @@
   --radius: 2px;
   /** macOS hiddenInset 标题栏：红绿灯区域 */
   --titlebar-height: 28px;
+  --workspace-head-height: 28px;
   --traffic-light-inset: 76px;
   --content-font: Georgia, 'Songti SC', 'SimSun', serif;
   --ui-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -108,7 +109,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
-input,
+input[type="checkbox"],
+input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
   border: 1px solid var(--border);

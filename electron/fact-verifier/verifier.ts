@@ -12,7 +12,9 @@ import {
   mapScopeReadKey,
   mapScopeRequire,
 } from '../shared/map-scope'
-import { promptRead, promptFormat } from '../shared/prompt-loader'
+import { llmResolvePromptModel } from '../shared/llm-model'
+import { promptRead } from '../shared/prompt-loader'
+import { promptReadKindForPath, promptRender } from '../shared/prompt-vars'
 import {
   graphCreateRoute,
   graphCreateSkillEmitter,
@@ -108,12 +110,17 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
       ._routeInstruction as MapSubAgentParams
     const promptConfig = promptRead(agentConfig.promptPath)
 
-    const prompt = promptFormat(promptConfig.content, {
-      claimContent: state.claimContent,
-      originalContent: state.originalContent,
-      context: ctxFormat(state.visibleContext),
-      hint: instruction.hint ?? '',
-    })
+    const prompt = promptRender(
+      promptConfig.content,
+      promptConfig.promptVars,
+      promptReadKindForPath(agentConfig.promptPath)!,
+      {
+        claimContent: state.claimContent,
+        originalContent: state.originalContent,
+        context: ctxFormat(state.visibleContext),
+        hint: instruction.hint ?? '',
+      },
+    )
 
     const model = agentConfig.model ?? defaultModel
     const tools = agentConfig.tools ?? []
@@ -151,6 +158,7 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
 function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
   return async (state: typeof VerifyGraphState.State) => {
     const promptConfig = promptRead(mergePromptPath)
+    const mergeModel = llmResolvePromptModel(promptConfig, model)
     const opinionsText = state.subAgentOpinions
       .map(
         o =>
@@ -158,13 +166,18 @@ function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
       )
       .join('\n\n')
 
-    const prompt = promptFormat(promptConfig.content, {
-      claimContent: state.claimContent,
-      originalContent: state.originalContent,
-      opinions: opinionsText,
-    })
+    const prompt = promptRender(
+      promptConfig.content,
+      promptConfig.promptVars,
+      promptReadKindForPath(mergePromptPath)!,
+      {
+        claimContent: state.claimContent,
+        originalContent: state.originalContent,
+        opinions: opinionsText,
+      },
+    )
 
-    const response = await model.invoke(prompt)
+    const response = await mergeModel.invoke(prompt)
     const rawMergeResponse = llmReadMessage(response.content)
 
     const result = llmReadJsonObject(

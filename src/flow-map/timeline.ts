@@ -7,6 +7,7 @@ import {
 import {
   scheduleDeriveStateIndex,
   schedulePickWork,
+  schedulePickWorks,
   scheduleReadInterruptStale,
   scheduleReadPending,
   scheduleReadScopePatch,
@@ -198,6 +199,25 @@ export function timelinePickWork(
     key,
     items,
     timeline,
+    selectedNewsId,
+  )
+}
+
+export function timelinePickWorks(
+  snapshot: MapSnapshot,
+  claims: DisplayClaim[],
+  key: TransitionKey,
+  items: TimelineWorkItem[],
+  timeline: MapTimeline,
+  limit: number,
+  selectedNewsId?: string | null,
+): TimelineWorkItem[] {
+  return schedulePickWorks(
+    timelineReadScheduleContext(snapshot, claims),
+    key,
+    items,
+    timeline,
+    limit,
     selectedNewsId,
   )
 }

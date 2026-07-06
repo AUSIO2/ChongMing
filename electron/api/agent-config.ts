@@ -1,41 +1,29 @@
-import { ChatOpenAI } from '@langchain/openai'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { AppError, ErrorCode } from '../shared/errors'
 import type { GraphConfig, AgentRuntimeConfig } from '../shared/types'
+import { llmCreateChatModel } from '../shared/llm-model'
 import { toolRead } from '../tools'
 import {
   catalogRead,
   type CatalogSubAgentEntry,
 } from './sub-agent-catalog'
 
+function agentCreateModel(overrides?: { model?: string, baseUrl?: string }): BaseChatModel {
+  return llmCreateChatModel(overrides)
+}
+
 function toSubAgentConfig(entry: CatalogSubAgentEntry): AgentRuntimeConfig {
-  return {
+  const config: AgentRuntimeConfig = {
     name: entry.agentName,
     promptPath: entry.promptPath,
     tools: toolRead(entry.tools),
   }
-}
-
-/** 创建默认 ChatModel — DeepSeek OpenAI 兼容接口 */
-export function agentCreateModel(): BaseChatModel {
-  const apiKey = process.env.DEEPSEEK_API_KEY
-  if (!apiKey) {
-    throw new AppError(
-      ErrorCode.CONFIG_API_KEY_MISSING,
-      'DEEPSEEK_API_KEY 未设置，请在项目根目录 .env 中配置',
-    )
+  if (entry.model?.trim() || entry.baseUrl?.trim()) {
+    config.model = agentCreateModel({
+      model: entry.model,
+      baseUrl: entry.baseUrl,
+    })
   }
-
-  return new ChatOpenAI({
-    model: process.env.DEEPSEEK_MODEL ?? 'deepseek-v4-flash',
-    apiKey,
-    temperature: 0,
-    timeout: 60_000,
-    maxRetries: 1,
-    configuration: {
-      baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
-    },
-  })
+  return config
 }
 
 export function agentReadSplitAgents(): AgentRuntimeConfig[] {
@@ -66,9 +54,13 @@ export function agentReadVerifyConfig(): GraphConfig {
   }
 }
 
+export { agentReadMaxSubAgent } from '../shared/agent-limits'
+
 export function agentReadParseConfig(): import('../fact-parser/types').ParseGraphConfig {
   return {
     defaultModel: agentCreateModel(),
     extractPromptPath: 'fact-parser/extract',
   }
 }
+
+export { agentCreateModel }

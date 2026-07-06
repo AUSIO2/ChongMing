@@ -20,6 +20,8 @@ export interface CatalogSubAgentEntry {
   defaultPriority?: Priority
   description?: string
   tools?: string[]
+  model?: string
+  baseUrl?: string
 }
 
 /** 给渲染进程 / Map 的目录项（无 promptPath / tools）。 */
@@ -45,6 +47,8 @@ interface SubAgentConfigFile {
   defaultPriority?: unknown
   description?: unknown
   tools?: unknown
+  model?: unknown
+  baseUrl?: unknown
   content?: unknown
 }
 
@@ -105,6 +109,18 @@ function loadModuleCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
         `Invalid description in ${promptPath}.json`,
       )
     }
+    if (raw.model !== undefined && typeof raw.model !== 'string') {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Invalid model in ${promptPath}.json`,
+      )
+    }
+    if (raw.baseUrl !== undefined && typeof raw.baseUrl !== 'string') {
+      throw new AppError(
+        ErrorCode.CONFIG_INVALID_SUBAGENT,
+        `Invalid baseUrl in ${promptPath}.json`,
+      )
+    }
 
     return {
       agentName: raw.agentName,
@@ -114,6 +130,12 @@ function loadModuleCatalog(module: SubAgentModule): CatalogSubAgentEntry[] {
       defaultPriority: raw.defaultPriority as Priority | undefined,
       description: raw.description as string | undefined,
       tools: parseTools(raw.tools, promptPath),
+      model: typeof raw.model === 'string' && raw.model.trim()
+        ? raw.model.trim()
+        : undefined,
+      baseUrl: typeof raw.baseUrl === 'string' && raw.baseUrl.trim()
+        ? raw.baseUrl.trim()
+        : undefined,
     }
   })
 

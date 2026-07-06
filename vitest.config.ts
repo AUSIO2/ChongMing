@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@flow-map': path.resolve(__dirname, 'src/flow-map'),
+      '@chrome': path.resolve(__dirname, 'src/chrome'),
       '@tests': path.resolve(__dirname, 'tests'),
     },
   },

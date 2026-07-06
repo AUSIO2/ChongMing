@@ -2,11 +2,15 @@
 import { onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { DisplayMapSummary } from '../../electron/api/types'
-import PanelRegion from './shell/PanelRegion.vue'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useWorkspaceTabsStore } from '../stores/workspace-tabs'
+import { useMapSidebar } from '../composables/useMapSidebar'
 
 const store = useWorkspaceStore()
-const { mapList, currentMapId, loading } = storeToRefs(store)
+const tabsStore = useWorkspaceTabsStore()
+const { mapList } = storeToRefs(store)
+const { activeMapId } = storeToRefs(tabsStore)
+const { mapSidebarExpanded } = useMapSidebar()
 
 const editingId = ref<string | null>(null)
 const editDraft = ref('')
@@ -27,7 +31,8 @@ function mapReadTitle(item: DisplayMapSummary): string {
 async function onSelectMap(mapId: string) {
   if (editingId.value) return
   closeContextMenu()
-  await store.selectMap(mapId)
+  const item = mapList.value.find(m => m._id === mapId)
+  await tabsStore.openMapTab(mapId, item ? mapReadTitle(item) : undefined)
 }
 
 function startRename(item: DisplayMapSummary) {
@@ -114,18 +119,12 @@ async function onMenuDelete() {
 </script>
 
 <template>
-  <PanelRegion title="Map" class="sidebar">
-    <template #actions>
-      <button class="primary" :disabled="loading" @click="store.createMap()">
-        + 新建
-      </button>
-    </template>
-
+  <div v-show="mapSidebarExpanded" class="sidebar-body">
     <ul v-if="mapList.length" class="map-list">
       <li
         v-for="item in mapList"
         :key="item._id"
-        :class="{ active: item._id === currentMapId }"
+        :class="{ active: item._id === activeMapId }"
         @click="onSelectMap(item._id)"
         @contextmenu="onContextMenu($event, item)"
       >
@@ -160,18 +159,14 @@ async function onMenuDelete() {
         <li class="danger" @pointerdown.stop.prevent="onMenuDelete">删除</li>
       </ul>
     </Teleport>
-  </PanelRegion>
+  </div>
 </template>
 
 <style scoped>
-.sidebar {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar :deep(.panel-region-head) {
-  gap: var(--space-sm);
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .map-list {

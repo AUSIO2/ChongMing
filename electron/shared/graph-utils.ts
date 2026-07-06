@@ -3,7 +3,9 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ExecutionMode, MapSubAgentParams, AgentRuntimeConfig } from './types'
 import { ErrorCode, errUpdateNormalize } from './errors'
 import { MAP_DEFAULT_NEWS_ID, mapIdCreateRoute, mapIdUpdateInstance } from './map-ids'
-import { promptRead, promptFormat } from './prompt-loader'
+import { promptRead } from './prompt-loader'
+import { llmResolvePromptModel } from './llm-model'
+import { promptReadKindForPath, promptRender } from './prompt-vars'
 import {
   llmReadMessage,
   llmReadRoute,
@@ -87,13 +89,19 @@ export function graphCreateRoute<TState>(
 ) {
   return async (state: TState) => {
     const promptConfig = promptRead(routePromptPath)
+    const routeModel = llmResolvePromptModel(promptConfig, model)
     const agentList = availableAgents.map(a => `- ${a.name}`).join('\n')
-    const prompt = promptFormat(promptConfig.content, {
-      ...buildVars(state),
-      availableAgents: agentList,
-    })
+    const prompt = promptRender(
+      promptConfig.content,
+      promptConfig.promptVars,
+      promptReadKindForPath(routePromptPath)!,
+      {
+        ...buildVars(state),
+        availableAgents: agentList,
+      },
+    )
 
-    const response = await model.invoke(prompt)
+    const response = await routeModel.invoke(prompt)
     let routeInstructions = llmReadRoute(
       llmReadMessage(response.content),
       availableAgents,

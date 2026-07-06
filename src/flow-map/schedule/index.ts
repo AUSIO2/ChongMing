@@ -14,6 +14,7 @@ export {
   scheduleDeriveStateIndex,
   scheduleReadActiveLine,
   schedulePickWork,
+  schedulePickWorks,
   scheduleReadTransitionKey,
   scheduleLinePendingEmpty,
 } from './pipeline'

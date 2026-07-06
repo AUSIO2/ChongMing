@@ -36,6 +36,12 @@ export type ExecutionMode = 'auto' | 'human-in-loop'
 export interface PromptConfig {
   description?: string
   content: string
+  /** 启用的运行时注入块 id，顺序即拼装顺序 */
+  promptVars?: string[]
+  /** Split SubAgent 返回 JSON 的 category 字段 */
+  claimCategory?: 'data' | 'quote' | 'causal'
+  model?: string
+  baseUrl?: string
 }
 
 // ==========================================

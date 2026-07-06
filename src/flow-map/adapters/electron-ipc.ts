@@ -2,6 +2,7 @@
  * Electron IPC Adapter — 维护每 mapId 一张内存图，翻译 LangGraph 事件与人的 CRUD。
  */
 import { AppError, ErrorCode, errReadApp } from '../../../electron/shared/errors'
+import { agentReadMaxSubAgent } from '../../../electron/shared/agent-limits'
 import type { AddSubAgentInput, MapAPI, MapUpdateReason, UpdateNodeParamsInput } from '../api'
 import { MAP_DEFAULT_NEWS_ID, mapIdIsDefaultNews, mapIdIsScopedNews, mapIdUpdateInstance, mapIdReadTransitionScope, mapIdReadInterruptFocus } from '../ids'
 import {
@@ -12,13 +13,14 @@ import {
   timelineReadPending,
   timelineReadRunParent,
   timelineReadScopePatch,
-  timelinePickWork,
+  timelinePickWorks,
   scheduleLinePendingEmpty,
   scheduleReadTransitionKey,
   timelineReadScheduleContext,
   type MapTimeline,
   type TransitionKey,
 } from '../timeline'
+import type { TimelineWorkItem } from '../schedule'
 import {
   docUpdateError,
   docUpdateInterrupt,
@@ -48,6 +50,8 @@ import {
   docAddRootNews,
   docAddRootClaim,
   docReadPendingParseSource,
+  docDedupClaims,
+  docBatchUpdateSubAgents,
   type MapGraphDoc,
 } from '../graph-doc'
 import type {
@@ -111,9 +115,30 @@ function graphListenRunEnd(
 export function adapterBuildIpc(api: ElectronAPI): MapAPI {
   const listeners = new Set<(mapId: string, reason: MapUpdateReason) => void>()
   const graphs = new Map<string, MapGraphDoc>()
+  const batchRunIds = new Map<string, Set<string>>()
+  const docWriteTail = new Map<string, Promise<void>>()
 
   function emitPush(mapId: string, reason: MapUpdateReason) {
     for (const l of listeners) l(mapId, reason)
+  }
+
+  function adapterEnqueueDoc(mapId: string, fn: () => void | Promise<void>): void {
+    const prev = docWriteTail.get(mapId) ?? Promise.resolve()
+    const next = prev.then(() => fn())
+    docWriteTail.set(mapId, next.then(() => {}, () => {}))
+  }
+
+  function adapterAcceptRun(mapId: string, runId: string | undefined): boolean {
+    if (!runId) return true
+    const batch = batchRunIds.get(mapId)
+    if (batch) return batch.has(runId)
+    const doc = getLoadedDoc(mapId)
+    if (!doc?.runId) return doc?.runPhase === 'running'
+    return doc.runId === runId
+  }
+
+  function adapterClearBatch(mapId: string): void {
+    batchRunIds.delete(mapId)
   }
 
   function getLoadedDoc(mapId: string): MapGraphDoc | undefined {
@@ -341,6 +366,14 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     parentNodeId: string,
     wait: (runId: string) => Promise<RunOutcome>,
   ): Promise<RunOutcome> {
+    const active = await api.graph.getActiveRun(mapId)
+    if (active?.parentNodeId === parentNodeId) {
+      throw new AppError(
+        ErrorCode.MAP_SCOPE_NOT_FOUND,
+        `transition already running for ${parentNodeId}`,
+      )
+    }
+
     doc.error = undefined
     doc.runPhase = 'running'
     doc.draft = undefined
@@ -363,56 +396,141 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     return wait(runId)
   }
 
+  async function runParallelTransitions(
+    doc: MapGraphDoc,
+    mapId: string,
+    key: TransitionKey,
+    works: TimelineWorkItem[],
+    wait: (runId: string) => Promise<RunOutcome>,
+  ): Promise<RunOutcome> {
+    doc.error = undefined
+    doc.runPhase = 'running'
+    doc.draft = undefined
+    docDeleteFocus(doc)
+    doc.transitionKey = key
+    doc.runId = undefined
+    doc.threadId = undefined
+    doc.parentNodeId = undefined
+
+    const runIds: string[] = []
+    for (const work of works) {
+      const active = await api.graph.getActiveRun(mapId)
+      if (active?.parentNodeId === work.parentNodeId) {
+        throw new AppError(
+          ErrorCode.MAP_SCOPE_NOT_FOUND,
+          `transition already running for ${work.parentNodeId}`,
+        )
+      }
+      const scopeNodeId = work.scopeNodeId
+        ?? mapIdReadTransitionScope(key, work.parentNodeId)
+      const { runId } = await api.graph.runTransition({
+        mapId,
+        transitionKey: key,
+        parentNodeId: work.parentNodeId,
+        scopeNodeId,
+        mode: doc.mode,
+      })
+      runIds.push(runId)
+    }
+
+    batchRunIds.set(mapId, new Set(runIds))
+    await persistDoc(doc)
+
+    const outcomes = await Promise.all(runIds.map(id => wait(id)))
+    adapterClearBatch(mapId)
+
+    if (outcomes.some(o => o === 'error')) return 'error'
+    if (outcomes.some(o => o === 'interrupted')) return 'interrupted'
+    return 'completed'
+  }
+
   function wireEvents() {
     api.events.onInterrupted((payload) => {
-      const mapId = payload.mapId
-      const doc = getLoadedDoc(mapId)
-      if (!doc) return
-      docUpdateInterrupt(doc, payload)
-      void persistDoc(doc)
-      emitPush(mapId, 'interrupt')
+      if (!adapterAcceptRun(payload.mapId, payload.runId)) return
+      adapterEnqueueDoc(payload.mapId, async () => {
+        const mapId = payload.mapId
+        const doc = getLoadedDoc(mapId)
+        if (!doc) return
+        const batch = batchRunIds.get(mapId)
+        if (batch && batch.size > 1) {
+          adapterClearBatch(mapId)
+          docUpdateError(doc, 'parallel batch does not support interrupt')
+          await persistDoc(doc)
+          emitPush(mapId, 'error')
+          return
+        }
+        docUpdateInterrupt(doc, payload)
+        await persistDoc(doc)
+        emitPush(mapId, 'interrupt')
+      })
     })
 
     api.events.onState((payload) => {
-      const doc = getLoadedDoc(payload.mapId)
-      if (!doc || doc.runId !== payload.runId) return
-      if (doc.runPhase === 'error' || doc.runPhase === 'completed') return
-      docProjectGraphState(doc, payload.transitionKey, payload.state, {
-        completedNode: payload.completedNode,
+      if (!adapterAcceptRun(payload.mapId, payload.runId)) return
+      adapterEnqueueDoc(payload.mapId, async () => {
+        const doc = getLoadedDoc(payload.mapId)
+        if (!doc || doc.runPhase === 'error' || doc.runPhase === 'completed') return
+        docProjectGraphState(doc, payload.transitionKey, payload.state, {
+          completedNode: payload.completedNode,
+        })
+        await persistDoc(doc)
+        emitPush(payload.mapId, 'progress')
       })
-      void persistDoc(doc)
-      emitPush(payload.mapId, 'progress')
     })
 
     api.events.onCompleted((payload) => {
-      const mapId = payload.mapId
-      const doc = getLoadedDoc(mapId)
-      if (!doc) return
-      docProjectGraphState(doc, payload.transitionKey, payload.state)
-      docUpdateRunEnd(doc)
-      void persistDoc(doc).then(() => emitPush(mapId, 'completed'))
+      if (!adapterAcceptRun(payload.mapId, payload.runId)) return
+      adapterEnqueueDoc(payload.mapId, async () => {
+        const mapId = payload.mapId
+        const doc = getLoadedDoc(mapId)
+        if (!doc) return
+        docProjectGraphState(doc, payload.transitionKey, payload.state)
+
+        const batch = batchRunIds.get(mapId)
+        if (batch) {
+          batch.delete(payload.runId)
+          if (batch.size > 0) {
+            await persistDoc(doc)
+            emitPush(mapId, 'progress')
+            return
+          }
+          adapterClearBatch(mapId)
+        }
+
+        docUpdateRunEnd(doc)
+        await persistDoc(doc)
+        emitPush(mapId, 'completed')
+      })
     })
 
     api.events.onError((payload) => {
-      const doc = getLoadedDoc(payload.mapId)
-      if (!doc) return
-      docUpdateError(
-        doc,
-        payload.failedNode
-          ? `[${payload.failedNode}] ${payload.msg}`
-          : payload.msg,
-      )
-      doc.runId = undefined
-      doc.threadId = undefined
-      void persistDoc(doc)
-      emitPush(payload.mapId, 'error')
+      if (payload.runId && !adapterAcceptRun(payload.mapId, payload.runId)) return
+      adapterEnqueueDoc(payload.mapId, async () => {
+        const mapId = payload.mapId
+        const doc = getLoadedDoc(mapId)
+        if (!doc) return
+        adapterClearBatch(mapId)
+        docUpdateError(
+          doc,
+          payload.failedNode
+            ? `[${payload.failedNode}] ${payload.msg}`
+            : payload.msg,
+        )
+        doc.runId = undefined
+        doc.threadId = undefined
+        await persistDoc(doc)
+        emitPush(mapId, 'error')
+      })
     })
 
     api.events.onProgress((payload) => {
-      const doc = getLoadedDoc(payload.mapId)
-      if (!doc) return
-      docUpdateProgress(doc, payload)
-      emitPush(payload.mapId, 'progress')
+      if (!adapterAcceptRun(payload.mapId, payload.runId)) return
+      adapterEnqueueDoc(payload.mapId, async () => {
+        const doc = getLoadedDoc(payload.mapId)
+        if (!doc) return
+        docUpdateProgress(doc, payload)
+        emitPush(payload.mapId, 'progress')
+      })
     })
   }
 
@@ -619,16 +737,18 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           }
         }
 
-        const ctx = timelineReadScheduleContext(readSnap(), claims)
-        const work = timelinePickWork(
+        const pending = timelineReadPending(readSnap(), claims, key)
+        const pickLimit = doc.mode === 'auto' ? agentReadMaxSubAgent() : 1
+        const works = timelinePickWorks(
           readSnap(),
           claims,
           key,
-          timelineReadPending(readSnap(), claims, key),
+          pending,
           timeline,
+          pickLimit,
           selectedNewsId,
         )
-        if (!work) {
+        if (works.length === 0) {
           docUpdateRunEnd(doc)
           await persistDoc(doc)
           return {
@@ -638,9 +758,10 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           }
         }
 
-        const scopePatch = work.scopeNodeId
-          ? { activeScope: work.scopeNodeId }
-          : timelineReadScopePatch(key, work.parentNodeId)
+        const lead = works[0]!
+        const scopePatch = lead.scopeNodeId
+          ? { activeScope: lead.scopeNodeId }
+          : timelineReadScopePatch(key, lead.parentNodeId)
         if (scopePatch?.activeScope && timeline.activeScope !== scopePatch.activeScope) {
           timeline = { ...timeline, activeScope: scopePatch.activeScope }
           doc.timeline = timeline
@@ -651,13 +772,15 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           doc.timeline = timeline
         }
 
-        const outcome = await runOneTransition(
-          doc,
-          mapId,
-          key,
-          work.parentNodeId,
-          listener.wait,
-        )
+        const outcome = works.length === 1
+          ? await runOneTransition(
+            doc,
+            mapId,
+            key,
+            lead.parentNodeId,
+            listener.wait,
+          )
+          : await runParallelTransitions(doc, mapId, key, works, listener.wait)
         if (outcome === 'interrupted') {
           return {
             runId: doc.runId!,
@@ -881,6 +1004,25 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
 
     unloadMap(mapId) {
       graphs.delete(mapId)
+    },
+
+    async flushMap(mapId) {
+      await ensureGraph(mapId)
+      await persistDoc(getDoc(mapId))
+    },
+
+    async toolDedupClaims(mapId) {
+      const doc = await adapterMutate(mapId, (doc) => {
+        docDedupClaims(doc)
+      })
+      return docReadSnapshot(doc)
+    },
+
+    async toolBatchUpdateSubAgents(mapId, patch) {
+      const doc = await adapterMutate(mapId, (doc) => {
+        docBatchUpdateSubAgents(doc, patch)
+      })
+      return docReadSnapshot(doc)
     },
 
     onUpdated(cb) {

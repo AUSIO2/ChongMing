@@ -1,4 +1,5 @@
 import { tool } from '@langchain/core/tools'
+import { appReadTavilyKey } from '../shared/app-settings'
 
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search'
 const DEFAULT_MAX_RESULTS = 5
@@ -35,9 +36,9 @@ function formatResults(query: string, results: TavilyResult[]): string {
 }
 
 async function searchWeb(query: string, maxResults: number): Promise<string> {
-  const apiKey = process.env.TAVILY_API_KEY
+  const apiKey = appReadTavilyKey()
   if (!apiKey) {
-    return 'Error: TAVILY_API_KEY is not configured. Cannot perform web search.'
+    return 'Error: Tavily API Key 未配置，请在智能体设置或 .env 中配置 TAVILY_API_KEY。'
   }
 
   const response = await fetch(TAVILY_SEARCH_URL, {

@@ -550,6 +550,76 @@ function docUpdateClaimPersist(doc: MapGraphDoc): void {
   }
 }
 
+export interface DocDedupClaimsResult {
+  removedIds: string[]
+  kept: number
+}
+
+export interface DocBatchSubAgentPatch {
+  priority?: Priority
+  hint?: string
+  agentName?: string
+  parentNodeId?: string
+}
+
+/** 同 parent 下按 content+category 去重 claim。 */
+export function docDedupClaims(doc: MapGraphDoc): DocDedupClaimsResult {
+  const removedIds: string[] = []
+  const byParent = new Map<string, MapClaimNode[]>()
+
+  for (const node of doc.nodes) {
+    if (node.kind !== 'claim') continue
+    const parent = node.parentId
+    if (!parent) continue
+    const list = byParent.get(parent) ?? []
+    list.push(node)
+    byParent.set(parent, list)
+  }
+
+  const toRemove = new Set<string>()
+  for (const claims of byParent.values()) {
+    const seen = new Map<string, string>()
+    for (const claim of claims) {
+      const key = `${claim.params.content.trim().toLowerCase()}|${(claim.params.category ?? '').trim().toLowerCase()}`
+      if (seen.has(key)) {
+        toRemove.add(claim.id)
+        removedIds.push(claim.id)
+      } else {
+        seen.set(key, claim.id)
+      }
+    }
+  }
+
+  if (toRemove.size > 0) docDeleteNodes(doc, toRemove)
+  return {
+    removedIds,
+    kept: doc.nodes.filter(n => n.kind === 'claim').length,
+  }
+}
+
+export function docBatchUpdateSubAgents(
+  doc: MapGraphDoc,
+  patch: DocBatchSubAgentPatch,
+): number {
+  let count = 0
+  for (const node of doc.nodes) {
+    if (node.kind !== 'subAgent') continue
+    if (patch.parentNodeId && node.parentId !== patch.parentNodeId) continue
+    if (patch.agentName && node.params.agentName !== patch.agentName) continue
+    let touched = false
+    if (patch.priority !== undefined) {
+      node.params.priority = patch.priority
+      touched = true
+    }
+    if (patch.hint !== undefined) {
+      node.params.hint = patch.hint
+      touched = true
+    }
+    if (touched) count++
+  }
+  return count
+}
+
 /** 剔除 shouldSave=false 的草稿 claim。 */
 export function docDeleteClaims(doc: MapGraphDoc): void {
   const removed = new Set(

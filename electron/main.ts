@@ -4,6 +4,7 @@ import path from 'node:path'
 import { loadEnv } from './shared/load-env'
 import { handlerRegisterIpc } from './api/register-handlers'
 import { dbCreate, dbDelete } from './shared/database'
+import { dbReadSettings } from './shared/db-settings'
 import { ckptCreate } from './shared/checkpointer'
 import { promptUpdateConfigRoot } from './shared/prompt-loader'
 
@@ -69,7 +70,7 @@ app.on('before-quit', () => {
 })
 
 app.whenReady().then(async () => {
-  await dbCreate()
+  await dbCreate(dbReadSettings().uri)
   await ckptCreate()
   createWindow()
 })

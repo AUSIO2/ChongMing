@@ -166,6 +166,51 @@ export function schedulePickWork(
   return pool.slice().sort((a, b) => scheduleCompareWorkRank(ctx, a, b, key))[0] ?? null
 }
 
+export function schedulePickWorks(
+  ctx: TimelineScheduleContext,
+  key: ScheduleTransitionKey,
+  items: TimelineWorkItem[],
+  timeline: MapTimeline,
+  limit: number,
+  selectedNewsId?: string | null,
+): TimelineWorkItem[] {
+  if (items.length === 0 || limit < 1) return []
+  if (limit === 1) {
+    const one = schedulePickWork(ctx, key, items, timeline, selectedNewsId)
+    return one ? [one] : []
+  }
+
+  const pool = items.slice()
+  if (selectedNewsId) {
+    const hit = pool.find(w => w.scopeNodeId === selectedNewsId)
+    if (hit) {
+      const seen = new Set([hit.parentNodeId])
+      const rest = pool
+        .filter(w => !seen.has(w.parentNodeId))
+        .sort((a, b) => scheduleCompareWorkRank(ctx, a, b, key))
+        .filter((w) => {
+          if (seen.has(w.parentNodeId)) return false
+          seen.add(w.parentNodeId)
+          return true
+        })
+        .slice(0, limit - 1)
+      return [hit, ...rest]
+    }
+  }
+
+  const seen = new Set<string>()
+  const ranked = pool
+    .slice()
+    .sort((a, b) => scheduleCompareWorkRank(ctx, a, b, key))
+    .filter((w) => {
+      if (seen.has(w.parentNodeId)) return false
+      seen.add(w.parentNodeId)
+      return true
+    })
+
+  return ranked.slice(0, limit)
+}
+
 export function scheduleReadTransitionKey(derived: StateIndex): TransitionKey | null {
   if (derived >= 3) return null
   return `${derived}-${derived + 1}` as TransitionKey

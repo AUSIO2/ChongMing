@@ -57,6 +57,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (this.currentMapId === mapId) {
         this.currentMap = map
       }
+      const { useWorkspaceTabsStore } = await import('./workspace-tabs')
+      useWorkspaceTabsStore().updateMapTitle(mapId, map.name?.trim() || 'Map')
     },
 
     async deleteMap(mapId: string) {
@@ -65,16 +67,17 @@ export const useWorkspaceStore = defineStore('workspace', {
         throw new Error('map.delete API 不可用，请重启 Electron 应用')
       }
       await api.map.delete(mapId)
-      if (this.currentMapId === mapId) {
-        const { useFlowMapStore } = await import('./flow-map')
-        useFlowMapStore().detachMap()
+      const { useWorkspaceTabsStore } = await import('./workspace-tabs')
+      const { useFlowMapStore } = await import('./flow-map')
+      const tabs = useWorkspaceTabsStore()
+      if (tabs.hasMapTab(mapId)) {
+        await tabs.closeTab(mapId, { forceCancelRunning: true })
+      } else if (this.currentMapId === mapId) {
+        useFlowMapStore().detachMap({ unload: true })
         this.currentMapId = null
         this.currentMap = null
       }
       await this.loadMapList()
-      if (this.currentMapId) return
-      const next = this.mapList[0]
-      if (next) await this.selectMap(next._id)
     },
 
     async createMap() {
@@ -87,7 +90,8 @@ export const useWorkspaceStore = defineStore('workspace', {
           context: {},
         })
         await this.loadMapList()
-        await this.selectMap(map._id)
+        const { useWorkspaceTabsStore } = await import('./workspace-tabs')
+        await useWorkspaceTabsStore().openMapTab(map._id, map.name?.trim() || 'Map')
       } finally {
         this.loading = false
       }

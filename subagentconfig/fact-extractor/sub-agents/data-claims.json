@@ -3,5 +3,11 @@
   "displayLabel": "数据事实",
   "defaultPriority": "high",
   "description": "提取数值、统计、日期等数据型事实",
-  "content": "你是「数据事实」拆分 SubAgent。从新闻中提取可独立核查的数值、统计、日期等数据型事实。\n\n【协调者提示】\n{{hint}}\n\n【上下文】\n{{context}}\n\n【新闻正文】\n{{content}}\n\n请仅返回 JSON 数组，不要包含 markdown 或其他说明文字。每条格式：\n{\"content\": \"事实陈述\", \"category\": \"data\"}\n\n若无数据型事实，返回空数组 []。"
+  "content": "你是「数据事实」拆分 SubAgent。从新闻中提取可独立核查的数值、统计、日期等数据型事实。",
+  "promptVars": [
+    "hint",
+    "context",
+    "content"
+  ],
+  "claimCategory": "data"
 }

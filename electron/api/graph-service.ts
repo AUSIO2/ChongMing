@@ -457,6 +457,26 @@ export function runReadSession(mapId: string): GraphActiveRun | null {
   return null
 }
 
+export function runReadAllSessions(mapId: string): GraphActiveRun[] {
+  const out: GraphActiveRun[] = []
+  for (const run of activeRuns.values()) {
+    if (run.mapId !== mapId || run.cancelled) continue
+    out.push({
+      runId: run.runId,
+      mapId: run.mapId,
+      transitionKey: run.transitionKey,
+      parentNodeId: run.parentNodeId,
+      mode: run.mode,
+      threadId: run.threadId,
+      nextNode: run.lastInterrupt?.nextNode,
+      focus: run.lastInterrupt?.focus,
+      pendingTool: run.lastInterrupt?.pendingTool,
+      state: run.lastInterrupt?.state,
+    })
+  }
+  return out
+}
+
 export function runUpdateResume(runId: string, modifications: GraphStatePatch): void {
   const run = activeRuns.get(runId)
   if (!run) {

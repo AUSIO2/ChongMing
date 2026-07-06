@@ -8,7 +8,41 @@ export const IPC_CHANNELS = {
   MAP_SAVE: 'map:save',
   MAP_READ_ALL_CLAIMS: 'map:read-all-claims',
 
+  FILE_EXPORT_MAP: 'file:export-map',
+
+  DB_GET_SETTINGS: 'db:get-settings',
+  DB_SAVE_SETTINGS: 'db:save-settings',
+  DB_GET_STATUS: 'db:get-status',
+  DB_TEST_CONNECTION: 'db:test-connection',
+  DB_RECONNECT: 'db:reconnect',
+  DB_SWITCH: 'db:switch',
+
   CATALOG_LIST: 'catalog:list',
+  CATALOG_LIST_ALL: 'catalog:list-all',
+  CATALOG_GET: 'catalog:get',
+  CATALOG_CREATE: 'catalog:create',
+  CATALOG_UPDATE: 'catalog:update',
+  CATALOG_DELETE: 'catalog:delete',
+  CATALOG_RELOAD: 'catalog:reload',
+
+  APP_GET_SETTINGS: 'app:get-settings',
+  APP_SAVE_SETTINGS: 'app:save-settings',
+  APP_TEST_LLM: 'app:test-llm',
+
+  SKILLS_LIST: 'skills:list',
+
+  PROMPT_VARS_LIST: 'prompt-vars:list',
+  PROMPT_CONFIG_LIST: 'prompt-config:list',
+  PROMPT_CONFIG_GET: 'prompt-config:get',
+  PROMPT_CONFIG_UPDATE: 'prompt-config:update',
+
+  AGENT_REGISTRY_LIST: 'agent-registry:list',
+  AGENT_REGISTRY_GET: 'agent-registry:get',
+  AGENT_REGISTRY_CREATE: 'agent-registry:create',
+  AGENT_REGISTRY_UPDATE: 'agent-registry:update',
+  AGENT_REGISTRY_DELETE: 'agent-registry:delete',
+  AGENT_REGISTRY_RELOAD: 'agent-registry:reload',
+  AGENT_REGISTRY_PREVIEW_OUTPUT: 'agent-registry:preview-output',
 
   GRAPH_RUN_TRANSITION: 'graph:run-transition',
   GRAPH_RESUME: 'graph:resume',

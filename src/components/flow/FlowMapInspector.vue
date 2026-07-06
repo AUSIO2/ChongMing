@@ -132,15 +132,12 @@ async function onRemove(node: MapNode) {
 </script>
 
 <template>
-  <div class="flow-map-inspector">
+  <div class="flow-map-inspector" :class="{ 'has-selection': !!selectedNode }">
     <p v-if="storeReadError" class="error">{{ storeReadError }}</p>
 
     <!-- 无选中：提示点新闻节点 -->
     <template v-if="!selectedNode">
-      <section class="panel">
-        <h4>Map 层</h4>
-        <p class="muted">未选中节点。请先点「新闻」编辑正文并失焦保存，再点「运行」：系统会加载正文并自动 AI 配槽，暂停后可增删 SubAgent。</p>
-      </section>
+      <p class="muted empty-hint">未选中节点。请先点「新闻」编辑正文并失焦保存，再点「运行」：系统会加载正文并自动 AI 配槽，暂停后可增删 SubAgent。</p>
     </template>
 
     <!-- 有选中 -->
@@ -306,13 +303,18 @@ async function onRemove(node: MapNode) {
 
 <style scoped>
 .flow-map-inspector {
+  flex: 0 0 auto;
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.flow-map-inspector.has-selection {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: var(--space-md);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
 }
 
 .panel {
@@ -346,6 +348,11 @@ async function onRemove(node: MapNode) {
 .row .k { color: var(--text-muted); }
 .row-actions { display: flex; justify-content: flex-end; }
 .muted { color: var(--text-muted); }
+.empty-hint {
+  margin: 0;
+  font-size: var(--ui-font-size-sm);
+  line-height: 1.45;
+}
 .small { font-size: 12px; }
 .opinion-body { margin: 0; font-size: var(--ui-font-size); line-height: 1.45; white-space: pre-wrap; }
 

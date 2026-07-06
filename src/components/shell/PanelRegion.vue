@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-
 const props = withDefaults(defineProps<{
   title: string
   collapsible?: boolean
-  defaultExpanded?: boolean
+  headOnly?: boolean
 }>(), {
   collapsible: true,
-  defaultExpanded: true,
+  headOnly: false,
 })
 
-const expanded = ref(props.defaultExpanded)
+const expanded = defineModel<boolean>('expanded', { default: true })
 
 function toggle() {
   if (!props.collapsible) return
@@ -20,6 +18,7 @@ function toggle() {
 
 <template>
   <section
+    v-if="!headOnly"
     class="panel-region"
     :class="{ collapsed: collapsible && !expanded }"
   >
@@ -42,6 +41,22 @@ function toggle() {
       <slot />
     </div>
   </section>
+  <header
+    v-else
+    class="panel-region-head"
+    :class="{ clickable: collapsible }"
+    @click="toggle"
+  >
+    <div class="panel-title-row">
+      <span v-if="collapsible" class="chevron" aria-hidden="true">
+        {{ expanded ? '▾' : '▸' }}
+      </span>
+      <h2 class="panel-title">{{ title }}</h2>
+    </div>
+    <div v-if="$slots.actions" class="panel-actions" @click.stop>
+      <slot name="actions" />
+    </div>
+  </header>
 </template>
 
 <style scoped>
@@ -60,7 +75,8 @@ function toggle() {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
-  min-height: 22px;
+  height: var(--workspace-head-height);
+  min-height: var(--workspace-head-height);
   padding: 0 var(--space-md);
   background: var(--bg-header);
   border-bottom: 1px solid var(--border);

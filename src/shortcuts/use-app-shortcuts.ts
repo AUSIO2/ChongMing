@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, type MaybeRefOrGetter, toValue } from 'vue'
 import type { LayoutNavDir } from '../flow-map/layout-nav'
 import { useFlowMapStore } from '../stores/flow-map'
 import { shortcutIsRunContinue, shortcutReadIgnore } from './read-ignore'
@@ -10,10 +10,11 @@ const ARROW_DIR: Record<string, LayoutNavDir> = {
   ArrowRight: 'right',
 }
 
-export function useAppShortcuts() {
+export function useAppShortcuts(enabled: MaybeRefOrGetter<boolean> = true) {
   const flowMap = useFlowMapStore()
 
   function onKeyDown(ev: KeyboardEvent) {
+    if (!toValue(enabled)) return
     if (shortcutIsRunContinue(ev)) {
       ev.preventDefault()
       void flowMap.runOrContinuePrimary()

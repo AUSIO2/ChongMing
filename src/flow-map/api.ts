@@ -69,6 +69,13 @@ export interface MapAPI {
   cancel(mapId: string): Promise<MapSnapshot>
   setMode(mapId: string, mode: ExecutionMode): Promise<MapSnapshot>
 
+  flushMap(mapId: string): Promise<void>
+  toolDedupClaims(mapId: string): Promise<MapSnapshot>
+  toolBatchUpdateSubAgents(
+    mapId: string,
+    patch: { priority?: import('./types').Priority, hint?: string, agentName?: string, parentNodeId?: string },
+  ): Promise<MapSnapshot>
+
   unloadMap(mapId: string): void
 
   onUpdated(cb: (mapId: string, reason: MapUpdateReason) => void): () => void

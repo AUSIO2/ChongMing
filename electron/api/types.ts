@@ -318,6 +318,209 @@ export interface MapAPI {
 
 export interface CatalogAPI {
   list(module: 'split' | 'verify'): Promise<CatalogSubAgent[]>
+  listAll(): Promise<{ split: CatalogSubAgent[], verify: CatalogSubAgent[] }>
+  get(module: 'split' | 'verify', agentName: string): Promise<CatalogSubAgent & {
+    content: string
+    promptVars: string[]
+    claimCategory?: ClaimCategory
+    tools?: string[]
+    model?: string
+    baseUrl?: string
+  }>
+  create(module: 'split' | 'verify', input: CatalogWriteInput): Promise<CatalogSubAgent>
+  update(
+    module: 'split' | 'verify',
+    agentName: string,
+    patch: Partial<CatalogWriteInput>,
+  ): Promise<CatalogSubAgent>
+  delete(module: 'split' | 'verify', agentName: string): Promise<void>
+  reload(): Promise<void>
+}
+
+export interface CatalogWriteInput {
+  agentName: string
+  displayLabel: string
+  content: string
+  promptVars?: string[]
+  claimCategory?: ClaimCategory
+  defaultPriority?: Priority
+  description?: string
+  tools?: string[]
+  model?: string
+  baseUrl?: string
+  fileSlug?: string
+}
+
+export type ClaimCategory = 'data' | 'quote' | 'causal'
+
+export type AgentType = 'split' | 'verify' | 'parse' | 'coordinator'
+
+export interface AgentRegistryItem {
+  id: string
+  agentType: AgentType
+  promptPath: string
+  displayLabel: string
+  agentName?: string
+  kind: PromptKind
+  deletable: boolean
+}
+
+export interface AgentRegistryDetail extends AgentRegistryItem {
+  content: string
+  promptVars: string[]
+  description?: string
+  defaultPriority?: Priority
+  tools?: string[]
+  model?: string
+  baseUrl?: string
+  claimCategory?: ClaimCategory
+}
+
+export interface AgentRegistryCreateInput {
+  agentType: 'split' | 'verify'
+  agentName: string
+  displayLabel: string
+  content: string
+  endpointSlug: string
+  promptVars?: string[]
+  claimCategory?: ClaimCategory
+  defaultPriority?: Priority
+  description?: string
+  tools?: string[]
+  model?: string
+  baseUrl?: string
+}
+
+export interface AgentRegistryUpdateInput {
+  agentName?: string
+  displayLabel?: string
+  content?: string
+  promptVars?: string[]
+  claimCategory?: ClaimCategory
+  defaultPriority?: Priority
+  description?: string
+  tools?: string[]
+  model?: string
+  baseUrl?: string
+}
+
+export interface AgentRegistryAPI {
+  list(): Promise<AgentRegistryItem[]>
+  get(promptPath: string): Promise<AgentRegistryDetail>
+  create(input: AgentRegistryCreateInput): Promise<AgentRegistryDetail>
+  update(promptPath: string, patch: AgentRegistryUpdateInput): Promise<AgentRegistryDetail>
+  delete(promptPath: string): Promise<void>
+  reload(): Promise<void>
+  previewOutput(
+    kind: PromptKind,
+    params?: { claimCategory?: ClaimCategory },
+  ): Promise<string>
+}
+
+export interface SkillDescriptor {
+  id: string
+  displayLabel: string
+  description: string
+  requiredKeys: Array<'tavilyApiKey'>
+}
+
+export interface AppLlmSettingsDto {
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+}
+
+export interface AppSkillSettingsDto {
+  tavilyApiKey?: string
+}
+
+export interface AppSettingsDto {
+  llm: AppLlmSettingsDto
+  skills: AppSkillSettingsDto
+  defaults: {
+    baseUrl: string
+    model: string
+  }
+  configured: {
+    llmApiKey: boolean
+    tavilyApiKey: boolean
+  }
+}
+
+export interface AppAPI {
+  getSettings(): Promise<AppSettingsDto>
+  saveSettings(input: {
+    llm?: AppLlmSettingsDto
+    skills?: AppSkillSettingsDto
+  }): Promise<void>
+  testLlm(): Promise<{ ok: boolean, error?: string }>
+}
+
+export interface PromptVarDescriptor {
+  id: string
+  label: string
+  placeholder: string
+  description?: string
+}
+
+export type PromptKind =
+  | 'splitSubAgent'
+  | 'verifySubAgent'
+  | 'splitRoute'
+  | 'splitMerge'
+  | 'verifyRoute'
+  | 'verifyMerge'
+  | 'parseExtract'
+
+export interface PromptConfigEntry {
+  promptPath: string
+  kind: PromptKind
+  description?: string
+  content: string
+  promptVars: string[]
+  model?: string
+  baseUrl?: string
+}
+
+export interface PromptVarsAPI {
+  list(kind: PromptKind): Promise<PromptVarDescriptor[]>
+}
+
+export interface PromptConfigAPI {
+  list(): Promise<PromptConfigEntry[]>
+  get(promptPath: string): Promise<PromptConfigEntry>
+  update(
+    promptPath: string,
+    patch: {
+      content?: string
+      promptVars?: string[]
+      description?: string
+      model?: string
+      baseUrl?: string
+    },
+  ): Promise<PromptConfigEntry>
+}
+
+export interface SkillsAPI {
+  list(): Promise<SkillDescriptor[]>
+}
+
+export interface FileAPI {
+  exportMap(mapId: string): Promise<{ ok: boolean, path?: string, cancelled?: boolean }>
+}
+
+export interface DbAPI {
+  getSettings(): Promise<{ uri: string, defaultUri: string }>
+  saveSettings(uri: string): Promise<void>
+  getStatus(): Promise<{
+    uri: string
+    connected: boolean
+    readyState: number
+    databaseName?: string
+  }>
+  testConnection(uri: string): Promise<{ ok: boolean, error?: string }>
+  reconnect(): Promise<DisplayMapSummary[]>
+  switch(uri: string): Promise<DisplayMapSummary[]>
 }
 
 export interface RestoreRunInput {
@@ -354,6 +557,13 @@ export interface GraphEventAPI {
 export interface ElectronAPI {
   map: MapAPI
   catalog: CatalogAPI
+  file: FileAPI
+  db: DbAPI
+  app: AppAPI
+  skills: SkillsAPI
+  promptVars: PromptVarsAPI
+  promptConfig: PromptConfigAPI
+  agentRegistry: AgentRegistryAPI
   graph: GraphAPI
   events: GraphEventAPI
 }

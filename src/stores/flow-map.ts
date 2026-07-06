@@ -45,9 +45,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     errorMessage.value = null
   }
 
-  function detachMap() {
+  function detachMap(options?: { unload?: boolean }) {
     const mapId = currentMapId.value
-    if (mapId) portReadApi().unloadMap(mapId)
+    if (mapId && options?.unload) portReadApi().unloadMap(mapId)
     currentMapId.value = null
     snapshot.value = null
     resetSession()

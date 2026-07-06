@@ -1,4 +1,9 @@
 {
   "description": "[MOCK] 事实核查 — MainAgent 汇总评分（占位提示词，仅用于联调跑通流程，正式版需重写）",
-  "content": "你是事实核查协调者（MainAgent · merge）。汇总各 SubAgent 的核查意见，给出最终置信度评分。\n\n【待核查事实】\n{{claimContent}}\n\n【新闻原文（参照）】\n{{originalContent}}\n\n【各 SubAgent 意见】\n{{opinions}}\n\n评分枚举（必须三选一）：\n- 1：可信\n- 0.5：不确定\n- 0：不可信\n\n请仅返回 JSON 对象，不要包含 markdown 或其他说明文字。格式：\n{\"score\": 1, \"reason\": \"汇总理由\"}"
+  "content": "你是事实核查协调者（MainAgent · merge）。汇总各 SubAgent 的核查意见，给出最终置信度评分。",
+  "promptVars": [
+    "claimContent",
+    "originalContent",
+    "opinions"
+  ]
 }

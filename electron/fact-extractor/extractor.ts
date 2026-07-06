@@ -12,7 +12,9 @@ import {
   mapScopeReadContext,
   mapScopeRequire,
 } from '../shared/map-scope'
-import { promptRead, promptFormat } from '../shared/prompt-loader'
+import { llmResolvePromptModel } from '../shared/llm-model'
+import { promptRead } from '../shared/prompt-loader'
+import { promptReadKindForPath, promptRender, promptReadOutputParams } from '../shared/prompt-vars'
 import { mapIdReadSubAgentClaim } from '../shared/map-ids'
 import { mergeReadShouldSave, mergeUpdateClaims } from '../shared/merge-flags'
 import {
@@ -86,11 +88,18 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
       ._routeInstruction as MapSubAgentParams
     const promptConfig = promptRead(agentConfig.promptPath)
 
-    const prompt = promptFormat(promptConfig.content, {
-      content: state.content,
-      context: ctxFormat(state.visibleContext),
-      hint: instruction.hint ?? '',
-    })
+    const kind = promptReadKindForPath(agentConfig.promptPath)!
+    const prompt = promptRender(
+      promptConfig.content,
+      promptConfig.promptVars,
+      kind,
+      {
+        content: state.content,
+        context: ctxFormat(state.visibleContext),
+        hint: instruction.hint ?? '',
+      },
+      promptReadOutputParams(promptConfig, kind),
+    )
 
     const model = agentConfig.model ?? defaultModel
     const tools = agentConfig.tools ?? []
@@ -135,17 +144,23 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
   return async (state: typeof SplitGraphState.State) => {
     const drafts = flattenDraftClaims(state)
     const promptConfig = promptRead(mergePromptPath)
+    const mergeModel = llmResolvePromptModel(promptConfig, model)
     const subResultsText = drafts
       .map((c, i) => `[${i}] (${c.sourceAgent ?? '?'}) ${c.content}`)
       .join('\n')
 
-    const prompt = promptFormat(promptConfig.content, {
-      content: state.content,
-      subResults: subResultsText,
-    })
+    const prompt = promptRender(
+      promptConfig.content,
+      promptConfig.promptVars,
+      promptReadKindForPath(mergePromptPath)!,
+      {
+        content: state.content,
+        subResults: subResultsText,
+      },
+    )
 
     const rawMergeResponse = llmReadMessage(
-      (await model.invoke(prompt)).content,
+      (await mergeModel.invoke(prompt)).content,
     )
 
     const flags = mergeReadShouldSave(rawMergeResponse)

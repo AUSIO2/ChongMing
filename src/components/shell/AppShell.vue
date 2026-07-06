@@ -22,15 +22,25 @@ const mainStyle = computed(() => ({
     <div class="main-row">
       <div class="workspace-bundle">
         <div class="workspace-row">
-          <aside class="panel-left">
-            <slot name="left" />
-          </aside>
+          <div class="workspace-col-left">
+            <div class="workspace-head">
+              <slot name="left-head" />
+            </div>
+            <div class="workspace-col-body panel-left">
+              <slot name="left" />
+            </div>
+          </div>
 
           <ResizableSplit side="left" @drag-start="startResizeLeft" />
 
-          <main class="panel-center">
-            <slot name="center" />
-          </main>
+          <div class="workspace-col-center">
+            <div class="workspace-head">
+              <slot name="center-head" />
+            </div>
+            <div class="workspace-col-body panel-center">
+              <slot name="center" />
+            </div>
+          </div>
         </div>
 
         <ResizableRowSplit
@@ -84,24 +94,45 @@ const mainStyle = computed(() => ({
   display: flex;
 }
 
-.panel-left {
+.workspace-col-left,
+.workspace-col-center {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.workspace-col-left {
   width: var(--panel-left-width);
   flex-shrink: 0;
+}
+
+.workspace-col-center {
+  flex: 1;
+  min-width: 200px;
+}
+
+.workspace-head {
+  flex-shrink: 0;
+  height: var(--workspace-head-height);
+  min-height: var(--workspace-head-height);
+  overflow: hidden;
+}
+
+.workspace-col-body {
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-left {
   background: var(--bg-panel);
   border-right: none;
 }
 
 .panel-center {
-  flex: 1;
-  min-width: 200px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   background: var(--bg-viewport);
-  overflow: hidden;
 }
 
 .panel-right {

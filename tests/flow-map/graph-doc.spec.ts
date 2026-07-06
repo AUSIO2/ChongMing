@@ -21,6 +21,8 @@ import {
   docAddRootNews,
   docAddRootClaim,
   docReconcileVerify,
+  docDedupClaims,
+  docBatchUpdateSubAgents,
   type MapGraphDoc,
 } from '@flow-map/graph-doc'
 import type { DisplayMap, GraphInterruptedPayload, GraphSplitState } from '../../electron/api/types'
@@ -1140,5 +1142,84 @@ describe('graph-doc state', () => {
     expect(politicalDraft?.parentId).toBe(`sub:${newsB}:政治事实#1`)
     expect(medicalDraft?.params.content).toBe('医疗 claim')
     expect(politicalDraft?.params.content).toBe('政治 claim')
+  })
+})
+
+describe('graph-doc tools', () => {
+  it('docDedupClaims 同 parent 下按 content+category 去重', () => {
+    const parent = 'sub:news:1:agent#1'
+    const doc: MapGraphDoc = {
+      mapId: 'm1',
+      nodes: [
+        {
+          id: 'c1',
+          kind: 'claim',
+          parentId: parent,
+          params: { content: 'Hello', category: 'fact' },
+        },
+        {
+          id: 'c2',
+          kind: 'claim',
+          parentId: parent,
+          params: { content: 'hello', category: 'fact' },
+        },
+        {
+          id: 'c3',
+          kind: 'claim',
+          parentId: parent,
+          params: { content: 'Hello', category: 'opinion' },
+        },
+        {
+          id: 'c4',
+          kind: 'claim',
+          parentId: 'sub:other',
+          params: { content: 'Hello', category: 'fact' },
+        },
+      ],
+      edges: [],
+      runPhase: 'idle',
+      mode: 'human-in-loop',
+      timeline: timelineCreateDefault(),
+    }
+    const result = docDedupClaims(doc)
+    expect(result.removedIds).toEqual(['c2'])
+    expect(result.kept).toBe(3)
+    expect(doc.nodes.map(n => n.id).sort()).toEqual(['c1', 'c3', 'c4'])
+  })
+
+  it('docBatchUpdateSubAgents 按 agentName 批量改 priority/hint', () => {
+    const doc: MapGraphDoc = {
+      mapId: 'm1',
+      nodes: [
+        {
+          id: 'sa1',
+          kind: 'subAgent',
+          parentId: 'news:1',
+          params: { agentName: 'a', priority: 'low', instanceId: 'a#1' },
+        },
+        {
+          id: 'sa2',
+          kind: 'subAgent',
+          parentId: 'news:1',
+          params: { agentName: 'b', priority: 'low', instanceId: 'b#1' },
+        },
+      ],
+      edges: [],
+      runPhase: 'idle',
+      mode: 'human-in-loop',
+      timeline: timelineCreateDefault(),
+    }
+    const count = docBatchUpdateSubAgents(doc, {
+      agentName: 'a',
+      priority: 'high',
+      hint: 'focus',
+    })
+    expect(count).toBe(1)
+    const sa1 = doc.nodes.find(n => n.id === 'sa1')
+    expect(sa1?.kind).toBe('subAgent')
+    if (sa1?.kind === 'subAgent') {
+      expect(sa1.params.priority).toBe('high')
+      expect(sa1.params.hint).toBe('focus')
+    }
   })
 })

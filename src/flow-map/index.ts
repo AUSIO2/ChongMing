@@ -30,7 +30,11 @@ export {
   docReadLockReason,
   docCollectSubtree,
   docReadSnapshot,
+  docDedupClaims,
+  docBatchUpdateSubAgents,
   type MapGraphDoc,
+  type DocDedupClaimsResult,
+  type DocBatchSubAgentPatch,
 } from './graph-doc'
 export {
   layoutReadSnapshot,
