@@ -183,7 +183,7 @@ export function registryGet(promptPath: string): AgentRegistryDetail {
       throw new AppError(ErrorCode.CONFIG_INVALID_SUBAGENT, `Agent not found: ${promptPath}`)
     }
     const detail = catalogGet(module, entry.agentName)
-    const raw = promptRead(promptPath) as Record<string, unknown>
+    const raw = promptRead(promptPath) as unknown as Record<string, unknown>
     return {
       id: promptPath,
       agentType,
@@ -270,8 +270,9 @@ export function registryUpdate(
     return registryGet(nextEntry?.promptPath ?? promptPath)
   }
 
+  const existing = promptConfigGet(promptPath)
   promptConfigUpdate(promptPath, {
-    content: patch.content,
+    content: patch.content ?? existing.content,
     promptVars: patch.promptVars,
     description: patch.displayLabel ?? patch.description,
     model: patch.model,

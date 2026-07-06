@@ -38,7 +38,6 @@ import { layoutReadNodeColumn } from './columns'
 import {
   docDeleteNodes,
   docReadClaims,
-  docReadRoutes,
   docUpdateClaim,
   docUpdateEdge,
   docUpdateMap,

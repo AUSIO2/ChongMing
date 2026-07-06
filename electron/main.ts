@@ -28,13 +28,14 @@ function getWindow(): BrowserWindow | null {
 }
 
 function createWindow() {
+  const isMac = process.platform === 'darwin'
   win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
     title: '崇明',
-    titleBarStyle: 'hiddenInset',
+    ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

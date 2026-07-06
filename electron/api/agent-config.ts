@@ -54,7 +54,7 @@ export function agentReadVerifyConfig(): GraphConfig {
   }
 }
 
-export { agentReadMaxSubAgent } from '../shared/agent-limits'
+export { agentReadMaxSubAgent, AGENT_DEFAULT_MAX_SUB_AGENT } from '../shared/agent-limits'
 
 export function agentReadParseConfig(): import('../fact-parser/types').ParseGraphConfig {
   return {

@@ -155,6 +155,10 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
 
   handle(IPC_CHANNELS.APP_PING_ENDPOINT, () => appService.appPingEndpoint())
 
+  handle(IPC_CHANNELS.APP_SET_TITLE, (title: string) => {
+    getWindow()?.setTitle(title)
+  })
+
   handle(IPC_CHANNELS.SKILLS_LIST, () => skillList())
 
   handle(

@@ -23,7 +23,7 @@ export interface PromptConfigEntry {
 }
 
 export interface PromptConfigWriteInput {
-  content: string
+  content?: string
   promptVars?: string[]
   description?: string
   model?: string
@@ -86,7 +86,7 @@ export function promptConfigUpdate(
   patch: PromptConfigWriteInput,
 ): PromptConfigEntry {
   const entry = promptConfigGet(promptPath)
-  const raw = promptRead(promptPath) as Record<string, unknown>
+  const raw = promptRead(promptPath) as unknown as Record<string, unknown>
   const data: Record<string, unknown> = {
     ...raw,
     content: patch.content ?? entry.content,

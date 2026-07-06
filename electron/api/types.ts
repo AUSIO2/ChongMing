@@ -464,6 +464,7 @@ export interface AppAPI {
   testLlm(): Promise<{ ok: boolean, error?: string }>
   getVersion(): Promise<string>
   pingEndpoint(): Promise<AppEndpointPingDto>
+  setTitle(title: string): Promise<void>
 }
 
 export interface PromptVarDescriptor {

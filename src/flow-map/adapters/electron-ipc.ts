@@ -2,7 +2,7 @@
  * Electron IPC Adapter — 维护每 mapId 一张内存图，翻译 LangGraph 事件与人的 CRUD。
  */
 import { AppError, ErrorCode, errReadApp } from '../../../electron/shared/errors'
-import { agentReadMaxSubAgent } from '../../../electron/shared/agent-limits'
+import { agentReadMaxSubAgent } from '../agent-limits'
 import type { AddSubAgentInput, MapAPI, MapUpdateReason, UpdateNodeParamsInput } from '../api'
 import { MAP_DEFAULT_NEWS_ID, mapIdIsDefaultNews, mapIdIsScopedNews, mapIdUpdateInstance, mapIdReadTransitionScope, mapIdReadInterruptFocus } from '../ids'
 import {

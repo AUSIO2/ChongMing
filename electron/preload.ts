@@ -45,6 +45,7 @@ const electronAPI: ElectronAPI = {
     testLlm: () => ipcRenderer.invoke(IPC_CHANNELS.APP_TEST_LLM),
     getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
     pingEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.APP_PING_ENDPOINT),
+    setTitle: (title: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_SET_TITLE, title),
   },
   skills: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.SKILLS_LIST),

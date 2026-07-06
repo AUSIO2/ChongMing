@@ -1,8 +1,8 @@
+import { uiReadIsMac } from '../shared/platform'
+
 export function shortcutIsRunContinue(ev: KeyboardEvent): boolean {
   if (ev.key !== 'Enter') return false
-  const mod = /Mac|iPhone|iPod|iPad/i.test(navigator.platform)
-    ? ev.metaKey
-    : ev.ctrlKey
+  const mod = uiReadIsMac() ? ev.metaKey : ev.ctrlKey
   return mod && !ev.altKey && !ev.shiftKey
 }
 
