@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ExecutionMode, MapRunPhase } from '../../flow-map'
+import type { ExecutionMode } from '../../flow-map'
 import {
   DATA_FRAME_LABEL,
   MAP_DATA_FRAME,
@@ -8,8 +8,6 @@ import {
 } from '../../flow-map/timeline-frame'
 
 defineProps<{
-  statusLabel: string
-  runPhase: MapRunPhase
   mode: ExecutionMode
   isRunning: boolean
   isInterrupted: boolean
@@ -43,8 +41,6 @@ function onEndChange(ev: Event) {
 
 <template>
   <header class="timeline-player">
-    <span class="status" :class="[runPhase]">{{ statusLabel }}</span>
-
     <label class="mode-select">
       回放
       <select :value="mode" :disabled="isRunning" @change="onModeChange">
@@ -125,18 +121,6 @@ function onEndChange(ev: Event) {
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
 }
-
-.status {
-  padding: 1px 6px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.status.running { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
-.status.interrupted { border-color: var(--warning, #d97706); color: var(--warning, #d97706); }
-.status.error { border-color: var(--danger, #dc2626); color: var(--danger, #dc2626); }
 
 .mode-select,
 .end-select {

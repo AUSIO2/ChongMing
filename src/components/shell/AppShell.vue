@@ -62,6 +62,8 @@ const mainStyle = computed(() => ({
         <slot name="right" />
       </aside>
     </div>
+
+    <slot name="footer" />
   </div>
 </template>
 

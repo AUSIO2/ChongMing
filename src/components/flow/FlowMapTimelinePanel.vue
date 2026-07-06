@@ -4,7 +4,6 @@ import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
 import { useWorkspaceStore } from '../../stores/workspace'
 import {
-  RUN_PHASE_LABEL,
   timelineCreateDefault,
   timelineReadEffectiveIndex,
   timelineReadScope,
@@ -82,8 +81,6 @@ const playheadFrame = computed<FrameIndex>(() => {
   }
   return f as FrameIndex
 })
-
-const statusLabel = computed(() => RUN_PHASE_LABEL[runPhase.value])
 
 const primaryAction = computed<'run' | 'continue' | null>(() => {
   if (!snapshot.value) return null
@@ -165,8 +162,6 @@ function onJumpEnd() {
 <template>
   <div v-if="snapshot" class="timeline-panel">
     <FlowMapTimelinePlayer
-      :status-label="statusLabel"
-      :run-phase="runPhase"
       :mode="mode"
       :is-running="isRunning"
       :is-interrupted="isInterrupted"

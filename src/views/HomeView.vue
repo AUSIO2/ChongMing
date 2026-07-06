@@ -20,6 +20,7 @@ import { useAppShortcuts } from '../shortcuts'
 import ToolDedupDialog from '../components/tools/ToolDedupDialog.vue'
 import ToolBatchSubAgentDialog from '../components/tools/ToolBatchSubAgentDialog.vue'
 import { toolDialogOpen } from '../chrome/tool-dialogs'
+import { AppStatusBar } from '../chrome'
 
 const workspace = useWorkspaceStore()
 const flowMapStore = useFlowMapStore()
@@ -114,6 +115,10 @@ onMounted(async () => {
 
       <template #bottom-dock>
         <FlowMapTimelinePanel v-if="isMapTab" />
+      </template>
+
+      <template #footer>
+        <AppStatusBar />
       </template>
     </AppShell>
 

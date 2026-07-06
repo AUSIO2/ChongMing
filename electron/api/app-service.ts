@@ -1,4 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai'
+import { connect } from 'node:net'
+import { app } from 'electron'
 import { AppError, ErrorCode } from '../shared/errors'
 import {
   appReadLlmResolved,
@@ -43,6 +45,80 @@ export async function appTestLlm(): Promise<{ ok: boolean, error?: string }> {
   } catch (e) {
     return {
       ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
+}
+
+export interface AppEndpointPing {
+  ok: boolean
+  latencyMs: number
+  host: string
+  baseUrl: string
+  error?: string
+}
+
+function appReadPingTarget(baseUrl: string): {
+  host: string
+  port: number
+  baseUrl: string
+} {
+  const parsed = new URL(baseUrl)
+  const port = parsed.port
+    ? Number(parsed.port)
+    : parsed.protocol === 'https:' ? 443 : 80
+  return { host: parsed.hostname, port, baseUrl }
+}
+
+function appTcpPing(host: string, port: number, timeoutMs: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now()
+    const socket = connect({ host, port, timeout: timeoutMs }, () => {
+      const latencyMs = Date.now() - start
+      socket.destroy()
+      resolve(latencyMs)
+    })
+    socket.on('error', reject)
+    socket.on('timeout', () => {
+      socket.destroy()
+      reject(new Error('连接超时'))
+    })
+  })
+}
+
+export function appGetVersion(): string {
+  return app.getVersion()
+}
+
+export async function appPingEndpoint(): Promise<AppEndpointPing> {
+  const { baseUrl } = appReadLlmResolved()
+  let target: ReturnType<typeof appReadPingTarget>
+  try {
+    target = appReadPingTarget(baseUrl)
+  } catch {
+    return {
+      ok: false,
+      latencyMs: 0,
+      host: baseUrl,
+      baseUrl,
+      error: '无效的 baseUrl',
+    }
+  }
+
+  try {
+    const latencyMs = await appTcpPing(target.host, target.port, 5_000)
+    return {
+      ok: true,
+      latencyMs,
+      host: target.host,
+      baseUrl: target.baseUrl,
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      latencyMs: 0,
+      host: target.host,
+      baseUrl: target.baseUrl,
       error: e instanceof Error ? e.message : String(e),
     }
   }

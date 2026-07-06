@@ -15,3 +15,4 @@ export {
   useChromeMenuDismiss,
 } from './use-chrome-menu'
 export { default as AppMenuBar } from './AppMenuBar.vue'
+export { default as AppStatusBar } from './AppStatusBar.vue'

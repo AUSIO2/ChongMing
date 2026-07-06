@@ -447,6 +447,14 @@ export interface AppSettingsDto {
   }
 }
 
+export interface AppEndpointPingDto {
+  ok: boolean
+  latencyMs: number
+  host: string
+  baseUrl: string
+  error?: string
+}
+
 export interface AppAPI {
   getSettings(): Promise<AppSettingsDto>
   saveSettings(input: {
@@ -454,6 +462,8 @@ export interface AppAPI {
     skills?: AppSkillSettingsDto
   }): Promise<void>
   testLlm(): Promise<{ ok: boolean, error?: string }>
+  getVersion(): Promise<string>
+  pingEndpoint(): Promise<AppEndpointPingDto>
 }
 
 export interface PromptVarDescriptor {

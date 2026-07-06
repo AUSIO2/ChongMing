@@ -151,6 +151,10 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
 
   handle(IPC_CHANNELS.APP_TEST_LLM, () => appService.appTestLlm())
 
+  handle(IPC_CHANNELS.APP_GET_VERSION, () => appService.appGetVersion())
+
+  handle(IPC_CHANNELS.APP_PING_ENDPOINT, () => appService.appPingEndpoint())
+
   handle(IPC_CHANNELS.SKILLS_LIST, () => skillList())
 
   handle(

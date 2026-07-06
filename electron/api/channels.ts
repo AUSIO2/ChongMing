@@ -28,6 +28,8 @@ export const IPC_CHANNELS = {
   APP_GET_SETTINGS: 'app:get-settings',
   APP_SAVE_SETTINGS: 'app:save-settings',
   APP_TEST_LLM: 'app:test-llm',
+  APP_GET_VERSION: 'app:get-version',
+  APP_PING_ENDPOINT: 'app:ping-endpoint',
 
   SKILLS_LIST: 'skills:list',
 

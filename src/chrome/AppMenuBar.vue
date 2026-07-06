@@ -1,8 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useFlowMapStore } from '../stores/flow-map'
-import { RUN_PHASE_LABEL } from '../flow-map'
 import { CHROME_MENUS } from './menu-registry'
 import AppMenuDropdown from './AppMenuDropdown.vue'
 import {
@@ -13,15 +9,10 @@ import {
 } from './use-chrome-menu'
 import type { ChromeMenuId } from './types'
 
-const flowMap = useFlowMapStore()
-const { runPhase } = storeToRefs(flowMap)
-
 const openMenuId = chromeReadOpenMenu()
 const toastMessage = chromeReadToast()
 
 useChromeMenuDismiss()
-
-const statusText = computed(() => RUN_PHASE_LABEL[runPhase.value])
 
 function isOpen(id: ChromeMenuId): boolean {
   return openMenuId.value === id
@@ -59,11 +50,6 @@ function onMenuPointerDown(id: ChromeMenuId) {
       </nav>
     </div>
 
-    <div class="status-area">
-      <span class="status-dot" :class="[runPhase]" />
-      <span class="status-text">{{ statusText }}</span>
-    </div>
-
     <Teleport to="body">
       <div v-if="toastMessage" class="chrome-toast" role="status">
         {{ toastMessage }}
@@ -76,7 +62,6 @@ function onMenuPointerDown(id: ChromeMenuId) {
 .chrome-menu-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   height: 28px;
   padding: 0 var(--space-md);
   -webkit-app-region: no-drag;
@@ -122,35 +107,12 @@ function onMenuPointerDown(id: ChromeMenuId) {
 .menu-trigger.open {
   background: var(--bg-hover);
 }
-
-.status-area {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--ui-font-size);
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-dim);
-}
-
-.status-dot.running,
-.status-dot.interrupted { background: var(--warning); }
-.status-dot.completed,
-.status-dot.idle { background: var(--text-dim); }
-.status-dot.error { background: var(--danger); }
-.status-dot.running { background: var(--accent); }
 </style>
 
 <style>
 .chrome-toast {
   position: fixed;
-  bottom: 24px;
+  bottom: calc(24px + var(--statusbar-height));
   left: 50%;
   transform: translateX(-50%);
   z-index: 10001;
