@@ -41,6 +41,7 @@ const {
   zoomOut,
   resetView,
   fitToView,
+  focusLayoutRect,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -53,6 +54,15 @@ const {
 
 watch(() => props.mapId, () => {
   resetView()
+})
+
+watch(selectedNodeId, (id) => {
+  if (!id || !layout.value) return
+  const ln = layout.value.nodes.find(n => n.node.id === id)
+  if (!ln) return
+  void nextTick(() => {
+    focusLayoutRect(ln.x, ln.y, ln.width, ln.height)
+  })
 })
 
 const viewBox = computed(() => `0 0 ${contentWidth.value} ${contentHeight.value}`)

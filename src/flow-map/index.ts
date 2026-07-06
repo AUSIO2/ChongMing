@@ -39,6 +39,11 @@ export {
   type MapLayoutSnapshot,
 } from './layout'
 export {
+  layoutFindNeighbor,
+  layoutReadFirstNodeId,
+  type LayoutNavDir,
+} from './layout-nav'
+export {
   STATE_CHAIN,
   STATE_CHAIN_LABEL,
   STATE_TRANSITION_LABEL,

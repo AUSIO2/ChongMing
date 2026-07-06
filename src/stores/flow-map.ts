@@ -1,5 +1,7 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
+import { layoutReadSnapshot } from '../flow-map'
+import type { LayoutNavDir } from '../flow-map/layout-nav'
 import type {
   ExecutionMode,
   MapNode,
@@ -9,7 +11,7 @@ import type {
   UpdateNodeParamsPatch,
   MapTimeline,
 } from '../flow-map'
-import { MAP_DEFAULT_NEWS_ID, portReadApi } from '../flow-map'
+import { MAP_DEFAULT_NEWS_ID, portReadApi, layoutFindNeighbor } from '../flow-map'
 import { errReadApp } from '../../electron/shared/errors'
 
 export const useFlowMapStore = defineStore('flow-map', () => {
@@ -70,6 +72,29 @@ export const useFlowMapStore = defineStore('flow-map', () => {
 
   async function selectNode(nodeId: string | null) {
     selectedNodeId.value = nodeId
+  }
+
+  function selectLayoutNeighbor(dir: LayoutNavDir) {
+    const s = snapshot.value
+    if (!s) return
+    const layout = layoutReadSnapshot(s)
+    const nextId = layoutFindNeighbor(layout, selectedNodeId.value, dir)
+    if (nextId) selectedNodeId.value = nextId
+  }
+
+  function runOrContinuePrimary() {
+    if (runPhase.value === 'running') return
+    if (runPhase.value === 'interrupted') {
+      void continueStep()
+      return
+    }
+    if (
+      runPhase.value === 'idle'
+      || runPhase.value === 'error'
+      || runPhase.value === 'completed'
+    ) {
+      void runTimeline()
+    }
   }
 
   async function loadCatalogFor(parentNodeId: string) {
@@ -295,6 +320,8 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     attachMap,
     refresh,
     selectNode,
+    selectLayoutNeighbor,
+    runOrContinuePrimary,
     loadCatalogFor,
     loadRootCatalog,
     addSubAgent,

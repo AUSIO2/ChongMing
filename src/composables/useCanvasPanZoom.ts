@@ -145,6 +145,78 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
     translateY.value = pad + (availH - ch * nextScale) / 2
   }
 
+  function layoutRectScreenBounds(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): { left: number, top: number, right: number, bottom: number } | null {
+    const svg = options.svgRef.value
+    const container = options.containerRef.value
+    if (!svg || !container) return null
+
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return null
+
+    const containerRect = container.getBoundingClientRect()
+    const corners = [
+      { x, y },
+      { x: x + width, y },
+      { x, y: y + height },
+      { x: x + width, y: y + height },
+    ]
+
+    let left = Infinity
+    let top = Infinity
+    let right = -Infinity
+    let bottom = -Infinity
+
+    for (const c of corners) {
+      const pt = svg.createSVGPoint()
+      pt.x = c.x
+      pt.y = c.y
+      const sp = pt.matrixTransform(ctm)
+      left = Math.min(left, sp.x - containerRect.left)
+      top = Math.min(top, sp.y - containerRect.top)
+      right = Math.max(right, sp.x - containerRect.left)
+      bottom = Math.max(bottom, sp.y - containerRect.top)
+    }
+
+    return { left, top, right, bottom }
+  }
+
+  function focusLayoutRect(x: number, y: number, width: number, height: number) {
+    const container = options.containerRef.value
+    if (!container) return
+
+    const pad = 32
+    const viewW = container.clientWidth
+    const viewH = container.clientHeight
+    const bounds = layoutRectScreenBounds(x, y, width, height)
+    if (!bounds) return
+
+    if (
+      bounds.left >= pad
+      && bounds.top >= pad
+      && bounds.right <= viewW - pad
+      && bounds.bottom <= viewH - pad
+    ) {
+      return
+    }
+
+    let dx = 0
+    let dy = 0
+    if (bounds.left < pad) dx = pad - bounds.left
+    else if (bounds.right > viewW - pad) dx = (viewW - pad) - bounds.right
+    if (bounds.top < pad) dy = pad - bounds.top
+    else if (bounds.bottom > viewH - pad) dy = (viewH - pad) - bounds.bottom
+
+    if (dx !== 0 || dy !== 0) {
+      translateX.value += dx
+      translateY.value += dy
+    }
+  }
+
   onMounted(() => {
     const el = options.containerRef.value
     el?.addEventListener('wheel', onWheel, { passive: false })
@@ -162,6 +234,7 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
     zoomOut,
     resetView,
     fitToView,
+    focusLayoutRect,
     onPointerDown,
     onPointerMove,
     onPointerUp,

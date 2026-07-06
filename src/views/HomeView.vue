@@ -10,6 +10,7 @@ import FlowMapTimelinePanel from '../components/flow/FlowMapTimelinePanel.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
 import { portIsInstalled, portReadApi } from '../flow-map'
+import { useAppShortcuts } from '../shortcuts'
 
 const store = useWorkspaceStore()
 const flowMapStore = useFlowMapStore()
@@ -19,6 +20,8 @@ const { storeReadError } = storeToRefs(flowMapStore)
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
 const canRun = computed(() => hasElectron && portIsInstalled())
 const currentMapId = computed(() => currentMap.value?._id ?? null)
+
+useAppShortcuts()
 
 let mapUnsub: (() => void) | null = null
 

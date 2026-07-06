@@ -27,6 +27,7 @@ import {
 import { layoutReadSnapshot } from '../../flow-map/layout'
 import FlowMapTimelinePlayer from './FlowMapTimelinePlayer.vue'
 import FlowMapTimelineCanvas from './FlowMapTimelineCanvas.vue'
+import { shortcutFormatRunContinueHint } from '../../shortcuts'
 
 const store = useFlowMapStore()
 const workspace = useWorkspaceStore()
@@ -100,14 +101,19 @@ const primaryLabel = computed(() =>
 const primaryDisabled = computed(() => primaryAction.value == null)
 
 const primaryHint = computed(() => {
-  if (!snapshot.value) return '等待 Map 加载…'
-  if (runPhase.value === 'running') return '执行中'
-  if (runPhase.value === 'interrupted') {
-    return focusText.value || '已暂停，点继续推进'
+  let base: string
+  if (!snapshot.value) base = '等待 Map 加载…'
+  else if (runPhase.value === 'running') base = '执行中'
+  else if (runPhase.value === 'interrupted') {
+    base = focusText.value || '已暂停，点继续推进'
+  } else if (runPhase.value === 'completed') base = '本阶段已完成'
+  else if (runPhase.value === 'error') base = '上次出错，可重新运行'
+  else base = '按结束帧自动调度过渡'
+
+  if (primaryAction.value) {
+    return `${base}（${shortcutFormatRunContinueHint()}）`
   }
-  if (runPhase.value === 'completed') return '本阶段已完成'
-  if (runPhase.value === 'error') return '上次出错，可重新运行'
-  return '按结束帧自动调度过渡'
+  return base
 })
 
 const canCancel = computed(

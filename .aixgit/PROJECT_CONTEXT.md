@@ -30,3 +30,4 @@
 - 统一Map链键，扁平化时间线
 - 新增Map删除与中断修复
 - 提取图操作到graph-mutators和projection模块
+- 新增跨scope claim读取及中断恢复
