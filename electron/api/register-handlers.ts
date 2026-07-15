@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
 import * as mapService from './map-service'
+import * as workspaceService from './workspace-service'
 import * as graphService from './graph-service'
 import * as fileService from './file-service'
 import * as dbService from './db-service'
@@ -15,12 +16,15 @@ import { errUpdateNormalize, errReadSerialize } from '../shared/errors'
 import type { ExecutionMode } from '../shared/types'
 import type {
   CreateMapInput,
+  CreateWorkspaceInput,
   GraphStatePatch,
   MapGraphPersist,
   MapRunPersist,
   RestoreRunInput,
   StartTransitionInput,
   UpdateMapInput,
+  UpdateWorkspaceInput,
+  UploadLocalAgentsMode,
 } from './types'
 import type { CatalogWriteInput } from './catalog-service'
 
@@ -45,7 +49,36 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
 
   handle(
     IPC_CHANNELS.MAP_LIST,
-    () => mapService.mapReadIndex(),
+    (workspaceId: string) => mapService.mapReadIndex(workspaceId),
+  )
+
+  handle(IPC_CHANNELS.WORKSPACE_LIST, () => workspaceService.workspaceList())
+
+  handle(
+    IPC_CHANNELS.WORKSPACE_GET,
+    (workspaceId: string) => workspaceService.workspaceGet(workspaceId),
+  )
+
+  handle(
+    IPC_CHANNELS.WORKSPACE_CREATE,
+    (input: CreateWorkspaceInput) => workspaceService.workspaceCreate(input),
+  )
+
+  handle(
+    IPC_CHANNELS.WORKSPACE_UPDATE,
+    (workspaceId: string, patch: UpdateWorkspaceInput) =>
+      workspaceService.workspaceUpdate(workspaceId, patch),
+  )
+
+  handle(
+    IPC_CHANNELS.WORKSPACE_DELETE,
+    (workspaceId: string) => workspaceService.workspaceDelete(workspaceId),
+  )
+
+  handle(
+    IPC_CHANNELS.WORKSPACE_UPLOAD_LOCAL_AGENTS,
+    (workspaceId: string, mode?: UploadLocalAgentsMode) =>
+      workspaceService.workspaceUploadLocalAgents(workspaceId, mode),
   )
 
   handle(
@@ -118,6 +151,16 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
   handle(
     IPC_CHANNELS.FILE_EXPORT_MAP,
     (mapId: string) => fileService.fileExportMap(getWindow, mapId),
+  )
+
+  handle(
+    IPC_CHANNELS.FILE_EXPORT_WORKSPACE,
+    (workspaceId: string) => fileService.fileExportWorkspace(getWindow, workspaceId),
+  )
+
+  handle(
+    IPC_CHANNELS.FILE_IMPORT_WORKSPACE,
+    () => fileService.fileImportWorkspace(getWindow),
   )
 
   handle(IPC_CHANNELS.DB_GET_SETTINGS, () => dbService.dbGetSettings())

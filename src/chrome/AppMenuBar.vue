@@ -1,24 +1,25 @@
 <script setup lang="ts">
 import { CHROME_MENUS } from './menu-registry'
 import AppMenuDropdown from './AppMenuDropdown.vue'
+import WorkspacePicker from './WorkspacePicker.vue'
 import {
   chromeReadOpenMenu,
   chromeReadToast,
   chromeToggleMenu,
   useChromeMenuDismiss,
 } from './use-chrome-menu'
-import type { ChromeMenuId } from './types'
+import type { ChromeMenuId, ChromePopupId } from './types'
 
-const openMenuId = chromeReadOpenMenu()
+const openPopupId = chromeReadOpenMenu()
 const toastMessage = chromeReadToast()
 
 useChromeMenuDismiss()
 
 function isOpen(id: ChromeMenuId): boolean {
-  return openMenuId.value === id
+  return openPopupId.value === id
 }
 
-function onMenuPointerDown(id: ChromeMenuId) {
+function onMenuPointerDown(id: ChromePopupId) {
   chromeToggleMenu(id)
 }
 </script>
@@ -27,6 +28,7 @@ function onMenuPointerDown(id: ChromeMenuId) {
   <div class="chrome-menu-bar">
     <div class="chrome-menu-left">
       <h1 class="brand">重明</h1>
+      <WorkspacePicker />
       <nav class="menus" aria-label="应用菜单">
         <div
           v-for="menu in CHROME_MENUS"

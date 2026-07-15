@@ -62,6 +62,7 @@ export function testSeedMap(
 
   const base: DisplayMap = {
     _id: mapId,
+    workspaceId: 'workspace:default',
     content: 'hello',
     context: {},
     claims: [],

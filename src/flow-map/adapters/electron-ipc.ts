@@ -546,6 +546,22 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       const module = mapIdIsDefaultNews(parentNodeId) || mapIdIsScopedNews(parentNodeId)
         ? 'split'
         : 'verify'
+      const { useWorkspaceStore } = await import('../../stores/workspace')
+      const workspaceId = useWorkspaceStore().currentWorkspaceId
+      if (workspaceId && api.workspace) {
+        const ws = await api.workspace.get(workspaceId)
+        if (ws?.agents?.length) {
+          return ws.agents
+            .filter(a => a.agentType === module && a.agentName)
+            .map(a => ({
+              agentName: a.agentName!,
+              module,
+              displayLabel: a.displayLabel,
+              defaultPriority: a.defaultPriority,
+              description: a.description,
+            }))
+        }
+      }
       return api.catalog.list(module)
     },
 

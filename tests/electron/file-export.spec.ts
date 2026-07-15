@@ -5,6 +5,7 @@ import type { DisplayMap } from '../../electron/api/types'
 function sampleMap(): DisplayMap {
   return {
     _id: 'map-1',
+    workspaceId: 'workspace:default',
     name: '测试图',
     content: '正文',
     context: { newsId: 'n1', title: '标题', source: 'src' },

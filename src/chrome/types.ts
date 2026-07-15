@@ -1,5 +1,8 @@
 export type ChromeMenuId = 'file' | 'database' | 'tools' | 'agents'
 
+/** 顶栏互斥弹层：四组菜单 + 工作区选择器 */
+export type ChromePopupId = ChromeMenuId | 'workspace'
+
 export type ChromeMenuAction =
   | 'placeholder'
   | 'file:save'

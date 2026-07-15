@@ -148,8 +148,13 @@ export function serialReadMap(doc: unknown, scopeNodeId = MAP_DEFAULT_SCOPE): Di
   const mapGraphRaw = (raw as Record<string, unknown>).mapGraph as MapGraphPersist | null | undefined
   const rawName = (raw as Record<string, unknown>).name
 
+  const rawWorkspaceId = (raw as Record<string, unknown>).workspaceId
+
   return {
     _id: String(raw._id),
+    workspaceId: typeof rawWorkspaceId === 'string' && rawWorkspaceId
+      ? rawWorkspaceId
+      : 'workspace:default',
     name: typeof rawName === 'string' && rawName.trim() ? rawName.trim() : undefined,
     content: scope.content,
     context: scope.context,
@@ -177,6 +182,7 @@ export function serialReadMap(doc: unknown, scopeNodeId = MAP_DEFAULT_SCOPE): Di
 
 export function serialReadMapSummary(doc: {
   _id: unknown
+  workspaceId?: unknown
   name?: unknown
   chains?: unknown
   createdAt?: unknown
@@ -185,6 +191,9 @@ export function serialReadMapSummary(doc: {
   const scope = scopeReadForDisplay(doc)
   return {
     _id: String(doc._id),
+    workspaceId: typeof doc.workspaceId === 'string' && doc.workspaceId
+      ? doc.workspaceId
+      : 'workspace:default',
     name: typeof doc.name === 'string' && doc.name.trim() ? doc.name.trim() : undefined,
     content: scope.content,
     claimCount: scope.claims.length,

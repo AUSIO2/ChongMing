@@ -1,6 +1,5 @@
 import type {
   CreateMapInput,
-  DisplayClaim,
   DisplayMap,
   MapGraphPersist,
   MapRunPersist,
@@ -68,11 +67,12 @@ export function mockMapBuildAPI(): ElectronMapAPI {
   return {
     async create(input: CreateMapInput) {
       const map: DisplayMap = {
-        _id: input.mapId ?? crypto.randomUUID(),
+        _id: input._id ?? crypto.randomUUID(),
+        workspaceId: input.workspaceId,
         content: input.content ?? '',
         context: input.context ?? {},
         claims: [],
-        timeline: input.timeline,
+        timeline: { startX: 0, endX: 3, activeScope: '' },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
@@ -80,12 +80,18 @@ export function mockMapBuildAPI(): ElectronMapAPI {
       return structuredClone(map)
     },
 
-    async list() {
-      return [...store.values()].map(m => ({
-        _id: m._id,
-        content: m.content,
-        updatedAt: m.updatedAt,
-      }))
+    async list(workspaceId: string) {
+      return [...store.values()]
+        .filter(m => m.workspaceId === workspaceId)
+        .map(m => ({
+          _id: m._id,
+          workspaceId: m.workspaceId,
+          name: m.name,
+          content: m.content,
+          claimCount: m.claims.length,
+          createdAt: m.createdAt,
+          updatedAt: m.updatedAt,
+        }))
     },
 
     async get(mapId) {

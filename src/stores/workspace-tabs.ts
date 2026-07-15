@@ -144,10 +144,20 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
   async function onDbSwitched(mapList: DisplayMapSummary[]) {
     closeAllMapTabs()
     const workspace = useWorkspaceStore()
-    workspace.mapList = mapList
     workspace.currentMapId = null
     workspace.currentMap = null
     useFlowMapStore().detachMap()
+    await workspace.loadWorkspaces()
+    if (mapList.length > 0 && workspace.currentWorkspaceId) {
+      workspace.mapList = mapList.filter(
+        m => m.workspaceId === workspace.currentWorkspaceId,
+      )
+      if (workspace.mapList.length === 0) {
+        await workspace.loadMapList()
+      }
+    } else {
+      await workspace.loadMapList()
+    }
     if (tabs.value.some(t => t.id === TAB_ID_DATABASE)) {
       activeTabId.value = TAB_ID_DATABASE
       await activateTab(TAB_ID_DATABASE)

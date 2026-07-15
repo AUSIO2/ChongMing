@@ -1,4 +1,7 @@
-import { agentReadVerifyConfig } from '../api/agent-config'
+import {
+  agentReadVerifyConfig,
+  agentReadVerifyConfigFromDocs,
+} from '../api/agent-config'
 import { serialReadVerifyState } from '../api/serialize'
 import { verifyBuildGraph } from '../fact-verifier/verifier'
 import { MAP_DEFAULT_SCOPE } from '../shared/map-scope'
@@ -7,7 +10,11 @@ import type { ColumnTransitionSpec, TransitionRunContext } from './types'
 export const verifyTransitionSpec: ColumnTransitionSpec = {
   key: '2-3',
   loadNode: 'loadClaim',
-  buildGraph: () => verifyBuildGraph(agentReadVerifyConfig()),
+  buildGraph: agents => verifyBuildGraph(
+    agents?.length
+      ? agentReadVerifyConfigFromDocs(agents)
+      : agentReadVerifyConfig(),
+  ),
   readInitialInput: (ctx: TransitionRunContext, threadId: string) => ({
     mapId: ctx.mapId,
     parentNodeId: ctx.parentNodeId,

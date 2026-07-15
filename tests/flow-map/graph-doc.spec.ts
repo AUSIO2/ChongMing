@@ -233,6 +233,7 @@ describe('graph-doc capability', () => {
 function emptyMap(id = 'n1'): DisplayMap {
   return {
     _id: id,
+    workspaceId: 'workspace:default',
     content: 'hello',
     context: {},
     claims: [],

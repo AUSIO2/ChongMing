@@ -8,7 +8,16 @@ export const IPC_CHANNELS = {
   MAP_SAVE: 'map:save',
   MAP_READ_ALL_CLAIMS: 'map:read-all-claims',
 
+  WORKSPACE_LIST: 'workspace:list',
+  WORKSPACE_GET: 'workspace:get',
+  WORKSPACE_CREATE: 'workspace:create',
+  WORKSPACE_UPDATE: 'workspace:update',
+  WORKSPACE_DELETE: 'workspace:delete',
+  WORKSPACE_UPLOAD_LOCAL_AGENTS: 'workspace:upload-local-agents',
+
   FILE_EXPORT_MAP: 'file:export-map',
+  FILE_EXPORT_WORKSPACE: 'file:export-workspace',
+  FILE_IMPORT_WORKSPACE: 'file:import-workspace',
 
   DB_GET_SETTINGS: 'db:get-settings',
   DB_SAVE_SETTINGS: 'db:save-settings',

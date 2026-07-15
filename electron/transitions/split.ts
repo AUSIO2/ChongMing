@@ -1,4 +1,7 @@
-import { agentReadSplitConfig } from '../api/agent-config'
+import {
+  agentReadSplitConfig,
+  agentReadSplitConfigFromDocs,
+} from '../api/agent-config'
 import { serialReadSplitState } from '../api/serialize'
 import { splitBuildGraph } from '../fact-extractor/extractor'
 import { MAP_DEFAULT_SCOPE } from '../shared/map-scope'
@@ -7,7 +10,11 @@ import type { ColumnTransitionSpec, TransitionRunContext } from './types'
 export const splitTransitionSpec: ColumnTransitionSpec = {
   key: '1-2',
   loadNode: 'loadNews',
-  buildGraph: () => splitBuildGraph(agentReadSplitConfig()),
+  buildGraph: agents => splitBuildGraph(
+    agents?.length
+      ? agentReadSplitConfigFromDocs(agents)
+      : agentReadSplitConfig(),
+  ),
   readInitialInput: (ctx: TransitionRunContext, threadId: string) => ({
     mapId: ctx.mapId,
     parentNodeId: ctx.parentNodeId,

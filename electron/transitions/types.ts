@@ -19,8 +19,12 @@ export type GraphTransitionState = GraphSplitState | GraphVerifyState | GraphPar
 export interface ColumnTransitionSpec {
   key: TransitionKey
   loadNode: string
+  /**
+   * 构建图。agents 来自当前 Map 所属工作区（已激活 prompt overlay）。
+   * 未传 agents 时回落磁盘 catalog（测试）。
+   */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  buildGraph: () => any
+  buildGraph: (agents?: import('../shared/types').AgentDoc[]) => any
   readInitialInput: (
     ctx: TransitionRunContext,
     threadId: string,

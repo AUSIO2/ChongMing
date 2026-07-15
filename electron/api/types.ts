@@ -1,4 +1,6 @@
 import type {
+  AgentDoc,
+  AgentType,
   Confidence,
   ExecutionMode,
   NewsContext,
@@ -8,7 +10,15 @@ import type {
 import type { ErrorCode } from '../shared/errors'
 import type { CatalogSubAgent } from './sub-agent-catalog'
 
-export type { Confidence, ExecutionMode, NewsContext, Priority, MapSubAgentParams }
+export type {
+  AgentDoc,
+  AgentType,
+  Confidence,
+  ExecutionMode,
+  NewsContext,
+  Priority,
+  MapSubAgentParams,
+}
 export type { CatalogSubAgent }
 
 // ==========================================
@@ -65,6 +75,7 @@ export interface MapTimelineDto {
 
 export interface DisplayMap {
   _id: string
+  workspaceId: string
   /** 用户自定义名称；未设置时 UI 显示「Map」。 */
   name?: string
   content: string
@@ -82,6 +93,7 @@ export interface DisplayMap {
 
 export interface DisplayMapSummary {
   _id: string
+  workspaceId: string
   name?: string
   content: string
   claimCount: number
@@ -91,10 +103,82 @@ export interface DisplayMapSummary {
 
 export interface CreateMapInput {
   _id?: string
+  workspaceId: string
   name?: string
   content: string
   context: NewsContext
   scopeNodeId?: string
+}
+
+// ==========================================
+// Workspace DTO
+// ==========================================
+
+export interface DisplayWorkspaceSummary {
+  _id: string
+  name: string
+  description?: string
+  agentCount: number
+  mapCount: number
+  updatedAt: string
+}
+
+export interface DisplayWorkspace {
+  _id: string
+  name: string
+  description?: string
+  agents: AgentDoc[]
+  mapIds: string[]
+  ui?: {
+    currentMapId?: string
+    openMapIds?: string[]
+  }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateWorkspaceInput {
+  _id?: string
+  name: string
+  description?: string
+  /** 创建时整包拷贝本地 Agent */
+  copyLocalAgents?: boolean
+  agents?: AgentDoc[]
+}
+
+export interface UpdateWorkspaceInput {
+  name?: string
+  description?: string
+  agents?: AgentDoc[]
+  ui?: DisplayWorkspace['ui']
+}
+
+export type UploadLocalAgentsMode = 'merge' | 'replace'
+
+export interface ChongMingWorkspaceBundle {
+  format: 'chongming-workspace'
+  version: 1
+  exportedAt: string
+  workspace: {
+    _id: string
+    name: string
+    description?: string
+    agents: AgentDoc[]
+    ui?: DisplayWorkspace['ui']
+  }
+  maps: DisplayMap[]
+}
+
+export interface WorkspaceAPI {
+  list(): Promise<DisplayWorkspaceSummary[]>
+  get(workspaceId: string): Promise<DisplayWorkspace | null>
+  create(input: CreateWorkspaceInput): Promise<DisplayWorkspace>
+  update(workspaceId: string, patch: UpdateWorkspaceInput): Promise<DisplayWorkspace>
+  delete(workspaceId: string): Promise<void>
+  uploadLocalAgents(
+    workspaceId: string,
+    mode?: UploadLocalAgentsMode,
+  ): Promise<DisplayWorkspace>
 }
 
 export interface UpdateMapInput {
@@ -302,7 +386,7 @@ export type GraphStatePatch = SplitStatePatch | VerifyStatePatch | ParseStatePat
 
 export interface MapAPI {
   create(input: CreateMapInput): Promise<DisplayMap>
-  list(): Promise<DisplayMapSummary[]>
+  list(workspaceId: string): Promise<DisplayMapSummary[]>
   get(mapId: string): Promise<DisplayMap | null>
   update(mapId: string, patch: UpdateMapInput): Promise<DisplayMap>
   delete(mapId: string): Promise<void>
@@ -352,8 +436,6 @@ export interface CatalogWriteInput {
 }
 
 export type ClaimCategory = 'data' | 'quote' | 'causal'
-
-export type AgentType = 'split' | 'verify' | 'parse' | 'coordinator'
 
 export interface AgentRegistryItem {
   id: string
@@ -518,6 +600,17 @@ export interface SkillsAPI {
 
 export interface FileAPI {
   exportMap(mapId: string): Promise<{ ok: boolean, path?: string, cancelled?: boolean }>
+  exportWorkspace(workspaceId: string): Promise<{
+    ok: boolean
+    path?: string
+    cancelled?: boolean
+  }>
+  importWorkspace(): Promise<{
+    ok: boolean
+    workspaceId?: string
+    cancelled?: boolean
+    error?: string
+  }>
 }
 
 export interface DbAPI {
@@ -567,6 +660,7 @@ export interface GraphEventAPI {
 
 export interface ElectronAPI {
   map: MapAPI
+  workspace: WorkspaceAPI
   catalog: CatalogAPI
   file: FileAPI
   db: DbAPI

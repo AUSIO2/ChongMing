@@ -52,7 +52,11 @@ export async function dbTestConnection(uri: string): Promise<{ ok: boolean, erro
 async function dbReconnectUri(uri: string): Promise<DisplayMapSummary[]> {
   await dbDelete()
   await dbCreate(uri)
-  return mapService.mapReadIndex()
+  const { workspaceBootstrapAfterConnect, WORKSPACE_DEFAULT_ID } = await import(
+    './workspace-service'
+  )
+  await workspaceBootstrapAfterConnect()
+  return mapService.mapReadIndex(WORKSPACE_DEFAULT_ID)
 }
 
 export async function dbReconnect(): Promise<DisplayMapSummary[]> {

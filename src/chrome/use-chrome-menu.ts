@@ -1,25 +1,25 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { chromeDispatchAndClose } from './chrome-dispatch'
-import type { ChromeMenuAction, ChromeMenuId } from './types'
+import type { ChromeMenuAction, ChromePopupId } from './types'
 
-const openMenuId = ref<ChromeMenuId | null>(null)
+const openPopupId = ref<ChromePopupId | null>(null)
 const toastMessage = ref<string | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
-export function chromeReadOpenMenu(): typeof openMenuId {
-  return openMenuId
+export function chromeReadOpenMenu(): typeof openPopupId {
+  return openPopupId
 }
 
 export function chromeReadToast(): typeof toastMessage {
   return toastMessage
 }
 
-export function chromeToggleMenu(id: ChromeMenuId) {
-  openMenuId.value = openMenuId.value === id ? null : id
+export function chromeToggleMenu(id: ChromePopupId) {
+  openPopupId.value = openPopupId.value === id ? null : id
 }
 
 export function chromeCloseMenu() {
-  openMenuId.value = null
+  openPopupId.value = null
 }
 
 export function chromeShowToast(message: string) {
@@ -42,7 +42,13 @@ export function useChromeMenuDismiss() {
 
   function onPointerDown(ev: Event) {
     const target = ev.target as Element
-    if (target.closest('.chrome-menu-bar') || target.closest('.chrome-menu-dropdown')) return
+    if (
+      target.closest('.chrome-menu-bar')
+      || target.closest('.chrome-menu-dropdown')
+      || target.closest('.workspace-picker')
+    ) {
+      return
+    }
     chromeCloseMenu()
   }
 

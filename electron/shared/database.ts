@@ -107,6 +107,7 @@ const mapGraphSchema = new Schema({
 
 const mapDocumentSchema = new Schema({
   _id: { type: String, required: true },
+  workspaceId: { type: String, index: true },
   name: String,
   chains: {
     type: Map,
@@ -121,6 +122,72 @@ const mapDocumentSchema = new Schema({
 }, { timestamps: true })
 
 export const MapModel = mongoose.model('Map', mapDocumentSchema)
+
+const agentDocSchema = new Schema({
+  promptPath: { type: String, required: true },
+  agentType: {
+    type: String,
+    enum: ['split', 'verify', 'parse', 'coordinator'],
+    required: true,
+  },
+  agentName: String,
+  displayLabel: { type: String, required: true },
+  description: String,
+  content: { type: String, required: true },
+  promptVars: { type: [String], default: [] },
+  defaultPriority: { type: String, enum: ['high', 'medium', 'low'] },
+  claimCategory: { type: String, enum: ['data', 'quote', 'causal'] },
+  tools: [String],
+  model: String,
+  baseUrl: String,
+  updatedAt: { type: Date, default: Date.now },
+}, { _id: false })
+
+const localAgentSchema = new Schema({
+  _id: { type: String, required: true },
+  promptPath: { type: String, required: true },
+  agentType: {
+    type: String,
+    enum: ['split', 'verify', 'parse', 'coordinator'],
+    required: true,
+  },
+  agentName: String,
+  displayLabel: { type: String, required: true },
+  description: String,
+  content: { type: String, required: true },
+  promptVars: { type: [String], default: [] },
+  defaultPriority: { type: String, enum: ['high', 'medium', 'low'] },
+  claimCategory: { type: String, enum: ['data', 'quote', 'causal'] },
+  tools: [String],
+  model: String,
+  baseUrl: String,
+}, { timestamps: true })
+
+export const LocalAgentModel = mongoose.model('LocalAgent', localAgentSchema)
+
+const workspaceUiSchema = new Schema({
+  currentMapId: String,
+  openMapIds: [String],
+}, { _id: false })
+
+const agentSourceSchema = new Schema({
+  promptPath: { type: String, required: true },
+  copiedFrom: { type: String, enum: ['local'], required: true },
+  localUpdatedAt: Date,
+  uploadedAt: { type: Date, required: true },
+}, { _id: false })
+
+const workspaceDocumentSchema = new Schema({
+  _id: { type: String, required: true },
+  name: { type: String, required: true },
+  description: String,
+  agents: { type: [agentDocSchema], default: [] },
+  agentSources: { type: [agentSourceSchema], default: [] },
+  mapIds: { type: [String], default: [] },
+  ui: workspaceUiSchema,
+}, { timestamps: true })
+
+export const WorkspaceModel = mongoose.model('Workspace', workspaceDocumentSchema)
 
 // ==========================================
 // 连接管理

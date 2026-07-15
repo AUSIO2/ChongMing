@@ -134,6 +134,7 @@ export function catalogCreate(module: SubAgentModule, input: CatalogWriteInput):
 
   writeFileSync(fullPath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8')
   catalogDeleteCache()
+  void import('./local-agent-service').then(m => m.localAgentSyncFromDiskPath(promptPath))
   return catalogGet(module, input.agentName)
 }
 
@@ -165,6 +166,9 @@ export function catalogUpdate(
     else delete data.baseUrl
   }
   catalogWriteFile(entry.promptPath, data)
+  void import('./local-agent-service').then(m =>
+    m.localAgentSyncFromDiskPath(entry.promptPath),
+  )
   return catalogGet(module, nextName)
 }
 
@@ -173,8 +177,10 @@ export function catalogDelete(module: SubAgentModule, agentName: string): void {
   const fullPath = path.join(promptReadConfigRoot(), `${entry.promptPath}.json`)
   unlinkSync(fullPath)
   catalogDeleteCache()
+  void import('./local-agent-service').then(m => m.localAgentDelete(entry.promptPath))
 }
 
 export function catalogReload(): void {
   catalogDeleteCache()
+  void import('./local-agent-service').then(m => m.localAgentSeedFromDisk(true))
 }

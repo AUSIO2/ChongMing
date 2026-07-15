@@ -234,15 +234,17 @@ function createRunSession(
   }
 }
 
-function runGraphLoop(
+async function runGraphLoop(
   ctx: TransitionRunContext,
   threadId: string,
   onInterrupt: ReturnType<typeof createInterruptHandler>,
   session: ActiveRun,
   options?: RunGraphOptions,
 ) {
+  const { agentActivateForMap } = await import('./agent-config')
+  const agents = await agentActivateForMap(ctx.mapId)
   const spec = transitionReadSpec(ctx.transitionKey)
-  const graph = spec.buildGraph()
+  const graph = spec.buildGraph(agents)
   const initial = spec.readInitialInput(ctx, threadId)
   return graphRunInterrupt(
     graph,

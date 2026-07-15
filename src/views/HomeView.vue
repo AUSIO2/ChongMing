@@ -64,6 +64,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   if (!canRun.value) return
+  await workspace.loadWorkspaces()
   await workspace.loadMapList()
 })
 </script>

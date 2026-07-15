@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
 import { MAP_DEFAULT_SCOPE, mapScopeReadKey, mapScopeReadAllClaims } from '../shared/map-scope'
+import { WORKSPACE_DEFAULT_ID } from '../shared/types'
 import type {
   CreateMapInput,
   DisplayMap,
@@ -16,6 +17,11 @@ import {
   serialReadMap,
   serialReadMapSummary,
 } from './serialize'
+import {
+  workspaceAttachMap,
+  workspaceDetachMap,
+  workspaceGet,
+} from './workspace-service'
 
 function chainScopeEnsure(
   doc: InstanceType<typeof MapModel>,
@@ -34,6 +40,12 @@ function chainScopeEnsure(
 }
 
 export async function mapCreate(input: CreateMapInput): Promise<DisplayMap> {
+  const workspaceId = input.workspaceId?.trim() || WORKSPACE_DEFAULT_ID
+  const ws = await workspaceGet(workspaceId)
+  if (!ws) {
+    throw new AppError(ErrorCode.WORKSPACE_NOT_FOUND, `Workspace not found: ${workspaceId}`)
+  }
+
   const _id = input._id ?? randomUUID()
   const scopeNodeId = input.scopeNodeId ?? MAP_DEFAULT_SCOPE
   const hasContent = Boolean(input.content?.trim())
@@ -54,6 +66,7 @@ export async function mapCreate(input: CreateMapInput): Promise<DisplayMap> {
 
   const doc = await MapModel.create({
     _id,
+    workspaceId,
     name: input.name?.trim() || undefined,
     chains,
     timeline: hasContent
@@ -68,11 +81,13 @@ export async function mapCreate(input: CreateMapInput): Promise<DisplayMap> {
           activeScope: '',
         },
   })
+  await workspaceAttachMap(workspaceId, _id)
   return serialReadMap(doc, hasContent ? scopeNodeId : '')
 }
 
-export async function mapReadIndex(): Promise<DisplayMapSummary[]> {
-  const docs = await MapModel.find().sort({ updatedAt: -1 }).lean()
+export async function mapReadIndex(workspaceId: string): Promise<DisplayMapSummary[]> {
+  const id = workspaceId?.trim() || WORKSPACE_DEFAULT_ID
+  const docs = await MapModel.find({ workspaceId: id }).sort({ updatedAt: -1 }).lean()
   return docs.map(doc => serialReadMapSummary(doc))
 }
 
@@ -177,8 +192,16 @@ export async function mapUpdatePersistMap(
 }
 
 export async function mapDelete(mapId: string): Promise<void> {
+  const existing = await MapModel.findById(mapId).select('workspaceId').lean()
+  if (!existing) {
+    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${mapId}`)
+  }
   const result = await MapModel.deleteOne({ _id: mapId })
   if (result.deletedCount === 0) {
     throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${mapId}`)
+  }
+  const workspaceId = (existing as { workspaceId?: string }).workspaceId
+  if (workspaceId) {
+    await workspaceDetachMap(workspaceId, mapId)
   }
 }

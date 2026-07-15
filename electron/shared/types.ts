@@ -44,6 +44,31 @@ export interface PromptConfig {
   baseUrl?: string
 }
 
+/** Agent 类型 — local_agents / Workspace.agents 共用 */
+export type AgentType = 'split' | 'verify' | 'parse' | 'coordinator'
+
+/**
+ * 持久化 Agent 文档形状（本地池与工作区私有 Agent 共用）。
+ * promptPath 为逻辑唯一键。
+ */
+export interface AgentDoc {
+  promptPath: string
+  agentType: AgentType
+  agentName?: string
+  displayLabel: string
+  description?: string
+  content: string
+  promptVars: string[]
+  defaultPriority?: Priority
+  claimCategory?: 'data' | 'quote' | 'causal'
+  tools?: string[]
+  model?: string
+  baseUrl?: string
+  updatedAt?: Date | string
+}
+
+export const WORKSPACE_DEFAULT_ID = 'workspace:default'
+
 // ==========================================
 // Agent 配置类型
 // ==========================================
