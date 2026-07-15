@@ -11,15 +11,17 @@ const {
   dbHealth,
   endpointPing,
   endpointHealth,
+  endpointChecking,
   refreshEndpoint,
 } = useStatusBarHealth()
 
 const statusText = computed(() => RUN_PHASE_LABEL[runPhase.value])
 
 const endpointLabel = computed(() => {
+  if (endpointChecking.value) return '检测中…'
   const ping = endpointPing.value
-  if (!ping) return '检测中…'
-  if (!ping.ok) return ping.host
+  if (!ping) return '—'
+  if (!ping.ok) return `${ping.host} · 不可用`
   return `${ping.host} · ${ping.latencyMs}ms`
 })
 

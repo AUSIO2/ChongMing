@@ -1,5 +1,6 @@
 import { ChatOpenAI } from '@langchain/openai'
-import { connect } from 'node:net'
+import { lookup } from 'node:dns/promises'
+import { connect as tlsConnect } from 'node:tls'
 import { app } from 'electron'
 import { AppError, ErrorCode } from '../shared/errors'
 import {
@@ -70,10 +71,16 @@ function appReadPingTarget(baseUrl: string): {
   return { host: parsed.hostname, port, baseUrl }
 }
 
-function appTcpPing(host: string, port: number, timeoutMs: number): Promise<number> {
+function appTlsPing(host: string, port: number, timeoutMs: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const start = Date.now()
-    const socket = connect({ host, port, timeout: timeoutMs }, () => {
+    const socket = tlsConnect({
+      host,
+      port,
+      servername: host,
+      timeout: timeoutMs,
+      rejectUnauthorized: true,
+    }, () => {
       const latencyMs = Date.now() - start
       socket.destroy()
       resolve(latencyMs)
@@ -84,10 +91,6 @@ function appTcpPing(host: string, port: number, timeoutMs: number): Promise<numb
       reject(new Error('连接超时'))
     })
   })
-}
-
-export function appGetVersion(): string {
-  return app.getVersion()
 }
 
 export async function appPingEndpoint(): Promise<AppEndpointPing> {
@@ -105,8 +108,10 @@ export async function appPingEndpoint(): Promise<AppEndpointPing> {
     }
   }
 
+  const timeoutMs = 5_000
   try {
-    const latencyMs = await appTcpPing(target.host, target.port, 5_000)
+    await lookup(target.host, { timeout: timeoutMs })
+    const latencyMs = await appTlsPing(target.host, target.port, timeoutMs)
     return {
       ok: true,
       latencyMs,
@@ -122,6 +127,10 @@ export async function appPingEndpoint(): Promise<AppEndpointPing> {
       error: e instanceof Error ? e.message : String(e),
     }
   }
+}
+
+export function appGetVersion(): string {
+  return app.getVersion()
 }
 
 export function appRequireLlmKey(): string {

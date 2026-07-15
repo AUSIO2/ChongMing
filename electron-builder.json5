@@ -7,9 +7,27 @@
   "directories": {
     "output": "release/${version}"
   },
+  // 白名单：仅打包产物与运行时配置；显式排除测试、开发文档、源码与 .env
   "files": [
-    "dist",
-    "dist-electron"
+    "dist/**/*",
+    "dist-electron/**/*",
+    "subagentconfig/**/*",
+    "package.json",
+    "!tests/**",
+    "!develop-docs/**",
+    "!docs/**",
+    "!src/**",
+    "!electron/**",
+    "!.env",
+    "!.env.*",
+    "!.env.example",
+    "!.aixgit/**",
+    "!**/*.spec.ts",
+    "!**/*.test.ts",
+    "!vitest.config.ts",
+    "!coding.md",
+    "!tsconfig*.json",
+    "!vite.config.ts"
   ],
   "mac": {
     "target": [

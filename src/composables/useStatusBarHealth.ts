@@ -67,6 +67,7 @@ export function useStatusBarHealth() {
   async function refreshEndpoint() {
     endpointChecking.value = true
     endpointHealth.value = 'checking'
+    endpointPing.value = null
     try {
       const ping = await window.electronAPI.app.pingEndpoint()
       endpointPing.value = ping
@@ -98,6 +99,7 @@ export function useStatusBarHealth() {
     dbHealth,
     endpointPing,
     endpointHealth,
+    endpointChecking,
     refreshEndpoint,
   }
 }

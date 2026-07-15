@@ -34,7 +34,7 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    title: '崇明',
+    title: '重明',
     ...(isMac ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

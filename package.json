@@ -2,10 +2,11 @@
   "name": "chongming",
   "private": true,
   "version": "0.1.0",
-  "description": "崇明 — 事实核查智能体",
+  "description": "重明 — 事实核查智能体",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE vite",
-    "build": "vue-tsc && vite build && electron-builder",
+    "build": "vite build && electron-builder",
+    "build:check": "vue-tsc && vite build && electron-builder",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
     "test:map": "vitest run --config vitest.config.ts tests/flow-map"

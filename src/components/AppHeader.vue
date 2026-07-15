@@ -11,7 +11,7 @@ const { activeTab } = storeToRefs(tabsStore)
 const usesCustomTitleBar = uiReadUsesCustomTitleBar()
 
 const documentTitle = computed(() => {
-  if (!activeTab.value) return '崇明 — 未打开画布'
+  if (!activeTab.value) return '重明 — 未打开画布'
   return activeTab.value.title
 })
 
