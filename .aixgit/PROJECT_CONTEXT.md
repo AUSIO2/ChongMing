@@ -39,3 +39,5 @@
 - 新增IPC通道设置窗口标题
 - TLS ping与DNS前置检查
 - 新增工作区系统
+- 新增Map写租约与LLM增量流
+- 新增无头CLI部署（进程内ElectronAPI）

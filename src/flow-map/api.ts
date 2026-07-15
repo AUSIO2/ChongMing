@@ -63,8 +63,8 @@ export interface MapAPI {
     mapId: string,
     input: { uri: string; kind?: 'file' | 'url'; label?: string },
   ): Promise<MapSnapshot>
-  addRootNews(mapId: string): Promise<MapSnapshot>
-  addRootClaim(mapId: string): Promise<MapSnapshot>
+  addRootNews(mapId: string, content?: string): Promise<MapSnapshot>
+  addRootClaim(mapId: string, content?: string): Promise<MapSnapshot>
   continueStep(mapId: string): Promise<MapSnapshot>
   cancel(mapId: string): Promise<MapSnapshot>
   setMode(mapId: string, mode: ExecutionMode): Promise<MapSnapshot>

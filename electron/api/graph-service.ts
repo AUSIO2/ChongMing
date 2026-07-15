@@ -5,6 +5,7 @@ import { AppError, ErrorCode, errUpdateNormalize } from '../shared/errors'
 import type { GraphRunSession, RunGraphOptions } from '../shared/graph-utils'
 import { graphRunInterrupt } from '../shared/graph-utils'
 import { IPC_CHANNELS } from './channels'
+import { graphEmit } from './graph-events'
 import type {
   GraphActiveRun,
   GraphCompletedPayload,
@@ -73,6 +74,7 @@ function sendToRenderer(
   channel: string,
   payload: unknown,
 ): void {
+  graphEmit(channel, payload)
   const win = getWindow()
   if (!win) return
   win.webContents.send(channel, payload)

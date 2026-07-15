@@ -705,16 +705,16 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
       return docReadSnapshot(doc)
     },
 
-    async addRootNews(mapId) {
+    async addRootNews(mapId, content) {
       const doc = await adapterMutate(mapId, (doc) => {
-        docAddRootNews(doc)
+        docAddRootNews(doc, content ?? '')
       })
       return docReadSnapshot(doc)
     },
 
-    async addRootClaim(mapId) {
+    async addRootClaim(mapId, content) {
       const doc = await adapterMutate(mapId, (doc) => {
-        docAddRootClaim(doc)
+        docAddRootClaim(doc, content ?? '')
       })
       return docReadSnapshot(doc)
     },

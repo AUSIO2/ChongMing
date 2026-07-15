@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { app } from 'electron'
+import { pathsReadSettingsDir } from './paths'
 
 interface ClientIdentityFile {
   clientId?: string
@@ -12,7 +12,7 @@ let cachedClientId: string | null = null
 let testClientId: string | null = null
 
 function clientReadPath(): string {
-  const dir = path.join(app.getPath('userData'), 'settings')
+  const dir = pathsReadSettingsDir()
   mkdirSync(dir, { recursive: true })
   return path.join(dir, 'client-identity.json')
 }

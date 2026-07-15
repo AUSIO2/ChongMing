@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { app } from 'electron'
+import { pathsReadSettingsDir } from './paths'
 
 export interface AppLlmSettings {
   apiKey?: string
@@ -40,7 +40,7 @@ const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 
 function appReadSettingsPath(): string {
-  const dir = path.join(app.getPath('userData'), 'settings')
+  const dir = pathsReadSettingsDir()
   mkdirSync(dir, { recursive: true })
   return path.join(dir, 'app-settings.json')
 }

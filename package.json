@@ -9,7 +9,8 @@
     "build:check": "vue-tsc && vite build && electron-builder",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
-    "test:map": "vitest run --config vitest.config.ts tests/flow-map"
+    "test:map": "vitest run --config vitest.config.ts tests/flow-map",
+    "headless": "node --import tsx server/cli.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.1",
@@ -27,6 +28,7 @@
     "electron": "^30.0.1",
     "electron-builder": "^24.13.3",
     "mongodb-memory-server": "^11.2.0",
+    "tsx": "^4.19.3",
     "typescript": "^5.2.2",
     "vite": "^5.1.6",
     "vite-plugin-electron": "^0.28.6",

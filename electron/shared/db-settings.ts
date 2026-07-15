@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { app } from 'electron'
+import { pathsReadSettingsDir } from './paths'
 
 export interface DbSettings {
   uri: string
@@ -9,7 +9,7 @@ export interface DbSettings {
 const DEFAULT_URI = process.env.MONGO_URI ?? 'mongodb://localhost:27017/chongming'
 
 function dbReadSettingsPath(): string {
-  const dir = path.join(app.getPath('userData'), 'settings')
+  const dir = pathsReadSettingsDir()
   mkdirSync(dir, { recursive: true })
   return path.join(dir, 'db-settings.json')
 }
