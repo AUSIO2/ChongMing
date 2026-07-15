@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { END, Annotation } from '@langchain/langgraph'
 import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
+import { mapChainWriteScope } from '../api/map-chain-writers'
 import { graphCreateMockRoute } from '../shared/graph-utils'
 import { graphBuildHitl } from '../shared/graph-hitl'
 import { mapIdCreateNews, mapIdReadChain, mapIdReadSubAgentClaim } from '../shared/map-ids'
@@ -137,19 +138,11 @@ async function mergeParse(state: typeof ParseGraphState.State) {
 }
 
 async function saveNews(state: typeof ParseGraphState.State) {
-  const doc = await MapModel.findById(state.mapId)
-  if (!doc) {
-    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${state.mapId}`)
-  }
-
-  const chains = doc.get('chains') as Map<string, Record<string, unknown>>
-  chains.set(state.newsNodeId, {
+  await mapChainWriteScope(state.mapId, state.newsNodeId, {
     content: state.parsedContent,
-    context: new Map(),
+    context: {},
     claims: [],
   })
-  doc.markModified('chains')
-  await doc.save()
   return {}
 }
 

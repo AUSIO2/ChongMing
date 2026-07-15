@@ -36,8 +36,11 @@ function mockSyncClaimsFromGraph(map: DisplayMap, mapGraph: MapGraphPersist): vo
   )
   const existing = new Map(map.claims.map(c => [c.claimId, c]))
   for (const node of claimNodes) {
+    // opinion.parentId 是 subAgent；用 id 前缀 opinion:{claimId}: 关联
     const opinions = nodes.filter(
-      o => o.kind === 'opinion' && o.parentId === node.id && o.dataPhase === 'persisted',
+      o => o.kind === 'opinion'
+        && o.dataPhase === 'persisted'
+        && (o.parentId === node.id || o.id.startsWith(`opinion:${node.id}:`)),
     )
     const verifyResult = opinions.length > 0
       ? {
@@ -130,6 +133,41 @@ export function mockMapBuildAPI(): ElectronMapAPI {
     async readAllClaims(mapId) {
       const map = store.get(mapId)
       return map ? structuredClone(map.claims) : []
+    },
+
+    async tryAcquireLease() {
+      return {
+        ok: true,
+        lease: {
+          holderId: 'mock-client',
+          acquiredAt: new Date().toISOString(),
+          heartbeatAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          isMine: true,
+        },
+      }
+    },
+
+    async heartbeatLease() {
+      return {
+        holderId: 'mock-client',
+        acquiredAt: new Date().toISOString(),
+        heartbeatAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        isMine: true,
+      }
+    },
+
+    async releaseLease() {},
+
+    async leaseStatus() {
+      return {
+        holderId: 'mock-client',
+        acquiredAt: new Date().toISOString(),
+        heartbeatAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        isMine: true,
+      }
     },
   }
 }

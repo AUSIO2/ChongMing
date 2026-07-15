@@ -118,20 +118,36 @@ export const useWorkspaceStore = defineStore('workspace', {
     async renameMap(mapId: string, name: string) {
       const api = getApi()
       if (!api) return
-      const map = await api.map.update(mapId, { name: name.trim() })
-      const idx = this.mapList.findIndex(m => m._id === mapId)
-      if (idx >= 0) {
-        this.mapList[idx] = {
-          ...this.mapList[idx],
-          name: map.name,
-          updatedAt: map.updatedAt,
+      const { useWorkspaceTabsStore } = await import('./workspace-tabs')
+      const tabs = useWorkspaceTabsStore()
+      const hadTab = tabs.hasMapTab(mapId)
+      let acquiredHere = false
+      if (api.map.tryAcquireLease) {
+        const lease = await api.map.tryAcquireLease(mapId)
+        if (!lease.ok) {
+          throw new Error('地图正被其他客户端占用，无法重命名')
+        }
+        acquiredHere = !hadTab
+      }
+      try {
+        const map = await api.map.update(mapId, { name: name.trim() })
+        const idx = this.mapList.findIndex(m => m._id === mapId)
+        if (idx >= 0) {
+          this.mapList[idx] = {
+            ...this.mapList[idx],
+            name: map.name,
+            updatedAt: map.updatedAt,
+          }
+        }
+        if (this.currentMapId === mapId) {
+          this.currentMap = map
+        }
+        tabs.updateMapTitle(mapId, map.name?.trim() || 'Map')
+      } finally {
+        if (acquiredHere && api.map.releaseLease) {
+          await api.map.releaseLease(mapId)
         }
       }
-      if (this.currentMapId === mapId) {
-        this.currentMap = map
-      }
-      const { useWorkspaceTabsStore } = await import('./workspace-tabs')
-      useWorkspaceTabsStore().updateMapTitle(mapId, map.name?.trim() || 'Map')
     },
 
     async deleteMap(mapId: string) {

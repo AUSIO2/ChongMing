@@ -37,6 +37,8 @@ const {
   runPhase,
   mode,
   isInterrupted,
+  leaseWritable,
+  leaseHint,
 } = storeToRefs(store)
 const { currentMap } = storeToRefs(workspace)
 
@@ -95,9 +97,14 @@ const primaryLabel = computed(() =>
   primaryAction.value === 'continue' ? '继续' : '运行',
 )
 
-const primaryDisabled = computed(() => primaryAction.value == null)
+const primaryDisabled = computed(
+  () => primaryAction.value == null || !leaseWritable.value,
+)
 
 const primaryHint = computed(() => {
+  if (!leaseWritable.value) {
+    return leaseHint.value ?? '地图为只读（未持有写锁）'
+  }
   let base: string
   if (!snapshot.value) base = '等待 Map 加载…'
   else if (runPhase.value === 'running') base = '执行中'

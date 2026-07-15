@@ -117,6 +117,11 @@ const mapDocumentSchema = new Schema({
   timeline: mapTimelineSchema,
   mapRun: mapRunSchema,
   mapGraph: mapGraphSchema,
+  writeLease: {
+    holderId: String,
+    acquiredAt: Date,
+    heartbeatAt: Date,
+  },
   confidence: Number,
   confidenceUpdatedAt: Date,
 }, { timestamps: true })

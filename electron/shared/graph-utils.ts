@@ -7,8 +7,9 @@ import { promptRead } from './prompt-loader'
 import { llmResolvePromptModel } from './llm-model'
 import { promptReadKindForPath, promptRender } from './prompt-vars'
 import {
-  llmReadMessage,
   llmReadRoute,
+  llmRunInvoke,
+  type DeltaActivityCallback,
   type SkillActivityCallback,
 } from './llm-utils'
 
@@ -101,11 +102,11 @@ export function graphCreateRoute<TState>(
       },
     )
 
-    const response = await routeModel.invoke(prompt)
-    let routeInstructions = llmReadRoute(
-      llmReadMessage(response.content),
-      availableAgents,
-    )
+    const threadId = getConfig()?.configurable?.thread_id as string | undefined
+    const raw = await llmRunInvoke(routeModel, [], prompt, {
+      onDeltaActivity: graphCreateAgentEmitter('route', threadId),
+    })
+    let routeInstructions = llmReadRoute(raw, availableAgents)
 
     if (routeInstructions.length === 0) {
       routeInstructions = availableAgents.map((agent, index) => ({
@@ -150,6 +151,8 @@ interface CompiledGraph<TState> {
   ) => Promise<unknown>
 }
 
+export type GraphAgentNode = 'route' | 'merge'
+
 /** 运行时会话 — 支持运行中随时切换 mode */
 export type GraphProgressEventLocal = {
   event: 'node_enter' | 'node_exit' | 'fanout_spawn'
@@ -164,6 +167,16 @@ export type GraphProgressEventLocal = {
   nodeId: string
   toolName: string
   argsSummary?: string
+} | {
+  event: 'subagent_delta'
+  nodeId: string
+  channel: 'thinking' | 'text'
+  text: string
+} | {
+  event: 'agent_delta'
+  node: GraphAgentNode
+  channel: 'thinking' | 'text'
+  text: string
 }
 
 const sessionsByThread = new Map<string, GraphRunSession>()
@@ -215,6 +228,59 @@ export function graphCreateSkillEmitter(
       phase: 'end',
       nodeId,
       toolName: activity.toolName,
+    })
+  }
+}
+
+/** SubAgent 节点：将 thinking/text 增量桥接到 onProgress。 */
+export function graphCreateDeltaEmitter(
+  instruction: Pick<MapSubAgentParams, 'instanceId'>,
+  threadId: string | undefined,
+  parentNodeId?: string,
+): DeltaActivityCallback {
+  if (typeof threadId !== 'string') return () => {}
+
+  const nodeId = mapIdCreateRoute(instruction, parentNodeId)
+
+  return (activity) => {
+    const session = graphReadSession(threadId)
+    if (!session?.onProgress) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[graph] subagent_delta dropped: session not found', threadId)
+      }
+      return
+    }
+    if (!activity.text) return
+    session.onProgress({
+      event: 'subagent_delta',
+      nodeId,
+      channel: activity.channel,
+      text: activity.text,
+    })
+  }
+}
+
+/** route / merge：将增量桥接到 onProgress（快照级 agentStream）。 */
+export function graphCreateAgentEmitter(
+  node: GraphAgentNode,
+  threadId: string | undefined,
+): DeltaActivityCallback {
+  if (typeof threadId !== 'string') return () => {}
+
+  return (activity) => {
+    const session = graphReadSession(threadId)
+    if (!session?.onProgress) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[graph] agent_delta dropped: session not found', threadId)
+      }
+      return
+    }
+    if (!activity.text) return
+    session.onProgress({
+      event: 'agent_delta',
+      node,
+      channel: activity.channel,
+      text: activity.text,
     })
   }
 }

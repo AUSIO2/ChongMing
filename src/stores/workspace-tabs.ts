@@ -1,6 +1,7 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed, ref } from 'vue'
 import type { DisplayMapSummary } from '../../electron/api/types'
+import { errReadApp } from '../../electron/shared/errors'
 import { portReadApi } from '../flow-map'
 import { useFlowMapStore } from './flow-map'
 import { useRunCoordinatorStore } from './run-coordinator'
@@ -46,11 +47,38 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
     tab.selectedNodeId = useFlowMapStore().selectedNodeId
   }
 
+  async function tabAcquireLease(mapId: string) {
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    const flowMap = useFlowMapStore()
+    if (!api?.map?.tryAcquireLease) {
+      flowMap.clearLeaseState()
+      return
+    }
+    try {
+      const result = await api.map.tryAcquireLease(mapId)
+      flowMap.applyLeaseResult(result)
+    } catch (e) {
+      flowMap.applyLeaseResult({ ok: false, lease: null })
+      flowMap.errorMessage = errReadApp(e).msg
+    }
+  }
+
+  async function tabReleaseLease(mapId: string) {
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (!api?.map?.releaseLease) return
+    try {
+      await api.map.releaseLease(mapId)
+    } catch {
+      /* ignore */
+    }
+  }
+
   async function tabActivateMap(mapId: string, selectedNodeId?: string | null) {
     const workspace = useWorkspaceStore()
     const flowMap = useFlowMapStore()
     await workspace.selectMap(mapId)
     await flowMap.attachMap(mapId)
+    await tabAcquireLease(mapId)
     if (selectedNodeId) await flowMap.selectNode(selectedNodeId)
   }
 
@@ -110,6 +138,7 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
         await portReadApi().cancel(tab.id)
       }
       coordinator.runUntrackMap(tab.id)
+      await tabReleaseLease(tab.id)
     }
 
     const idx = tabs.value.findIndex(t => t.id === id)
@@ -137,7 +166,9 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
     for (const mapId of mapIds) {
       coordinator.runUntrackMap(mapId)
       portReadApi().unloadMap(mapId)
+      void tabReleaseLease(mapId)
     }
+    useFlowMapStore().clearLeaseState()
     return mapIds
   }
 

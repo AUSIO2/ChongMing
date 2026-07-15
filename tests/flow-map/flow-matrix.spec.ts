@@ -106,6 +106,63 @@ describe('flow integration（adapter + scripted graph，主代码有 bug 时可�
     expect(result.status).toBe('done')
     const snap = await mapApi.getSnapshot(seed.mapId)
     expect(snap.runPhase).toBe('idle')
+    expect(snap.pendingTool).toBeUndefined()
+    expect(snap.nodes.some(n => n.kind === 'claim')).toBe(true)
+  })
+
+  it('auto multi_news 1-2 一次跑完两新闻', async () => {
+    const seed = testSeedMap('multi_news', { startX: 1, endX: 2 }, 'auto')
+    const mapApi = testBuildMapApi(seed)
+    await testFlushAsync()
+    const result = await mapApi.runTimeline(seed.mapId, 'auto')
+    await testFlushAsync()
+    expect(result.status).toBe('done')
+    const snap = await mapApi.getSnapshot(seed.mapId)
+    expect(snap.runPhase).toBe('idle')
+    expect(snap.nodes.filter(n => n.kind === 'claim' && n.dataPhase === 'persisted').length)
+      .toBeGreaterThanOrEqual(2)
+  })
+
+  it('auto 1-2→2-3 一次跨列跑完', async () => {
+    const seed = testSeedMap('default_news', { startX: 1, endX: 3 }, 'auto')
+    const mapApi = testBuildMapApi(seed)
+    await testFlushAsync()
+    const result = await mapApi.runTimeline(seed.mapId, 'auto')
+    await testFlushAsync()
+    expect(result.status).toBe('done')
+    const snap = await mapApi.getSnapshot(seed.mapId)
+    expect(snap.runPhase).toBe('idle')
+    expect(snap.nodes.some(n => n.kind === 'claim')).toBe(true)
+    expect(snap.nodes.some(n => n.kind === 'opinion')).toBe(true)
+  })
+
+  it('HITL multi_news 1-2 单次 run 只推进一条', async () => {
+    const seed = testSeedMap('multi_news', { startX: 1, endX: 2 }, 'human-in-loop')
+    const mapApi = testBuildMapApi(seed)
+    await testFlushAsync()
+    const result = await mapApi.runTimeline(seed.mapId, 'human-in-loop')
+    await testFlushAsync()
+    expect(result.status).toBe('interrupted')
+    expect(result.snapshot.runPhase).toBe('interrupted')
+  })
+
+  it('步进中切到 auto：门闸消失并跑完当前过渡', async () => {
+    const seed = testSeedMap('default_news', { startX: 1, endX: 2 }, 'human-in-loop')
+    const mapApi = testBuildMapApi(seed)
+    await testFlushAsync()
+    const first = await mapApi.runTimeline(seed.mapId, 'human-in-loop')
+    await testFlushAsync()
+    expect(first.status).toBe('interrupted')
+
+    const afterMode = await mapApi.setMode(seed.mapId, 'auto')
+    expect(afterMode.mode).toBe('auto')
+    expect(afterMode.runPhase).toBe('running')
+    expect(afterMode.pendingTool).toBeUndefined()
+
+    await testFlushAsync()
+    const snap = await mapApi.getSnapshot(seed.mapId)
+    expect(snap.runPhase).toBe('idle')
+    expect(snap.nodes.some(n => n.kind === 'claim')).toBe(true)
   })
 
   it('continueStep 仅在 interrupted 态推进', async () => {

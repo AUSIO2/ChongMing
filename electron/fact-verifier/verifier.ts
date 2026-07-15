@@ -8,8 +8,11 @@ import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
 import { ctxReadAiContext, ctxFormat } from '../shared/context'
 import {
+  mapChainRequireScope,
+  mapChainWriteVerifyResult,
+} from '../api/map-chain-writers'
+import {
   mapScopeReadContext,
-  mapScopeReadKey,
   mapScopeRequire,
 } from '../shared/map-scope'
 import { llmResolvePromptModel } from '../shared/llm-model'
@@ -18,11 +21,12 @@ import { promptReadKindForPath, promptRender } from '../shared/prompt-vars'
 import {
   graphCreateRoute,
   graphCreateSkillEmitter,
+  graphCreateDeltaEmitter,
+  graphCreateAgentEmitter,
 } from '../shared/graph-utils'
 import { graphBuildHitl } from '../shared/graph-hitl'
 import {
   llmRunInvoke,
-  llmReadMessage,
   llmReadJsonObject,
 } from '../shared/llm-utils'
 
@@ -133,6 +137,11 @@ function createVerifySubAgentNode(defaultModel: BaseChatModel) {
         threadId,
         state.parentNodeId,
       ),
+      onDeltaActivity: graphCreateDeltaEmitter(
+        instruction,
+        threadId,
+        state.parentNodeId,
+      ),
     })
 
     const opinion = llmReadJsonObject(
@@ -177,8 +186,10 @@ function createVerifyMergeNode(model: BaseChatModel, mergePromptPath: string) {
       },
     )
 
-    const response = await mergeModel.invoke(prompt)
-    const rawMergeResponse = llmReadMessage(response.content)
+    const threadId = getConfig()?.configurable?.thread_id as string | undefined
+    const rawMergeResponse = await llmRunInvoke(mergeModel, [], prompt, {
+      onDeltaActivity: graphCreateAgentEmitter('merge', threadId),
+    })
 
     const result = llmReadJsonObject(
       rawMergeResponse,
@@ -216,20 +227,7 @@ async function writeVerifyResult(
   opinions: typeof state.subAgentOpinions,
   includeFinal = true,
 ) {
-  const doc = await MapModel.findById(state.mapId)
-  if (!doc) {
-    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${state.mapId}`)
-  }
-
-  const chains = doc.get('chains') as Map<string, Record<string, unknown>>
-  const scope = chains.get(mapScopeReadKey(state.scopeNodeId))
-  if (!scope) {
-    throw new AppError(
-      ErrorCode.MAP_SCOPE_NOT_FOUND,
-      `Map scope not found: ${state.scopeNodeId}`,
-    )
-  }
-
+  const scope = await mapChainRequireScope(state.mapId, state.scopeNodeId)
   const claims = scope.claims as Array<{
     claimId: string
     verifyResult?: unknown
@@ -242,16 +240,24 @@ async function writeVerifyResult(
     )
   }
 
-  claims[claimIndex].verifyResult = {
-    score: includeFinal ? state.finalScore : (claims[claimIndex].verifyResult as { score?: number } | undefined)?.score ?? 0.5,
-    reason: includeFinal ? state.finalReason : (claims[claimIndex].verifyResult as { reason?: string } | undefined)?.reason ?? '',
+  const prev = claims[claimIndex].verifyResult as
+    | { score?: number; reason?: string }
+    | undefined
+
+  const verifyResult = {
+    score: includeFinal ? state.finalScore : prev?.score ?? 0.5,
+    reason: includeFinal ? state.finalReason : prev?.reason ?? '',
     opinions,
     rawMergeResponse: state.rawMergeResponse,
     verifiedAt: new Date(),
   }
 
-  doc.markModified('chains')
-  await doc.save()
+  await mapChainWriteVerifyResult(
+    state.mapId,
+    state.scopeNodeId,
+    state.parentNodeId,
+    verifyResult,
+  )
 }
 
 function routeAfterOpinionSave(state: typeof VerifyGraphState.State): string {

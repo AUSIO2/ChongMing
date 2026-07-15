@@ -7,6 +7,10 @@ export const IPC_CHANNELS = {
   MAP_DELETE: 'map:delete',
   MAP_SAVE: 'map:save',
   MAP_READ_ALL_CLAIMS: 'map:read-all-claims',
+  MAP_LEASE_TRY_ACQUIRE: 'map:lease-try-acquire',
+  MAP_LEASE_HEARTBEAT: 'map:lease-heartbeat',
+  MAP_LEASE_RELEASE: 'map:lease-release',
+  MAP_LEASE_STATUS: 'map:lease-status',
 
   WORKSPACE_LIST: 'workspace:list',
   WORKSPACE_GET: 'workspace:get',

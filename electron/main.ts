@@ -5,6 +5,8 @@ import { loadEnv } from './shared/load-env'
 import { handlerRegisterIpc } from './api/register-handlers'
 import { dbCreate, dbDelete } from './shared/database'
 import { dbReadSettings } from './shared/db-settings'
+import { clientReadId } from './shared/client-identity'
+import { mapLeaseReleaseAllHeld } from './api/map-lease'
 import { ckptCreate } from './shared/checkpointer'
 import { promptUpdateConfigRoot } from './shared/prompt-loader'
 
@@ -67,11 +69,16 @@ app.on('activate', () => {
 handlerRegisterIpc(getWindow)
 
 app.on('before-quit', () => {
-  void dbDelete()
+  void mapLeaseReleaseAllHeld().finally(() => {
+    void dbDelete()
+  })
 })
 
 app.whenReady().then(async () => {
+  clientReadId()
   await dbCreate(dbReadSettings().uri)
+  const { workspaceBootstrapAfterConnect } = await import('./api/workspace-service')
+  await workspaceBootstrapAfterConnect()
   await ckptCreate()
   createWindow()
 })

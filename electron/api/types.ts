@@ -373,6 +373,18 @@ export type GraphProgressPayload = {
     toolName: string
     argsSummary?: string
   }
+  | {
+    event: 'subagent_delta'
+    nodeId: string
+    channel: 'thinking' | 'text'
+    text: string
+  }
+  | {
+    event: 'agent_delta'
+    node: 'route' | 'merge'
+    channel: 'thinking' | 'text'
+    text: string
+  }
 )
 
 export type SplitStatePatch = Partial<GraphSplitState>
@@ -383,6 +395,19 @@ export type GraphStatePatch = SplitStatePatch | VerifyStatePatch | ParseStatePat
 // ==========================================
 // ElectronAPI
 // ==========================================
+
+export interface MapLeaseInfo {
+  holderId: string
+  acquiredAt: string
+  heartbeatAt: string
+  expiresAt: string
+  isMine: boolean
+}
+
+export interface MapLeaseAcquireResult {
+  ok: boolean
+  lease: MapLeaseInfo | null
+}
 
 export interface MapAPI {
   create(input: CreateMapInput): Promise<DisplayMap>
@@ -398,6 +423,10 @@ export interface MapAPI {
     },
   ): Promise<void>
   readAllClaims(mapId: string): Promise<DisplayClaim[]>
+  tryAcquireLease(mapId: string): Promise<MapLeaseAcquireResult>
+  heartbeatLease(mapId: string): Promise<MapLeaseInfo>
+  releaseLease(mapId: string): Promise<void>
+  leaseStatus(mapId: string): Promise<MapLeaseInfo | null>
 }
 
 export interface CatalogAPI {

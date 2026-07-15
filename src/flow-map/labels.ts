@@ -34,6 +34,16 @@ export function labelFormatFocusNode(node: MapNode): string {
   return NODE_KIND_LABEL[node.kind]
 }
 
+const AGENT_NODE_LABEL: Record<'route' | 'merge', string> = {
+  route: '路由',
+  merge: '去重',
+}
+
+/** 右上角 Agent 栏标题（route / merge）。 */
+export function labelFormatAgent(node: 'route' | 'merge'): string {
+  return AGENT_NODE_LABEL[node]
+}
+
 /** 拓扑节点主文案最大字符数（超出在末尾加省略号，框内仍按宽度换行）。 */
 export const MAP_NODE_LABEL_MAX = 80
 

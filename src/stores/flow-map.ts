@@ -13,6 +13,7 @@ import type {
 } from '../flow-map'
 import { MAP_DEFAULT_NEWS_ID, portReadApi, layoutFindNeighbor } from '../flow-map'
 import { errReadApp } from '../../electron/shared/errors'
+import type { MapLeaseAcquireResult, MapLeaseInfo } from '../../electron/api/types'
 
 export const useFlowMapStore = defineStore('flow-map', () => {
   const currentMapId = ref<string | null>(null)
@@ -21,6 +22,9 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   const catalog = shallowRef<CatalogSubAgent[]>([])
   const catalogParent = ref<string | null>(null)
   const errorMessage = ref<string | null>(null)
+  const leaseWritable = ref(true)
+  const leaseHint = ref<string | null>(null)
+  const leaseInfo = shallowRef<MapLeaseInfo | null>(null)
 
   const selectedNode = computed<MapNode | null>(() => {
     const s = snapshot.value
@@ -35,7 +39,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   const isInterrupted = computed(() => runPhase.value === 'interrupted')
 
   const storeReadError = computed(
-    () => snapshot.value?.error ?? errorMessage.value ?? null,
+    () => snapshot.value?.error ?? errorMessage.value ?? leaseHint.value ?? null,
   )
 
   function resetSession() {
@@ -45,11 +49,40 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     errorMessage.value = null
   }
 
+  function applyLeaseResult(result: MapLeaseAcquireResult) {
+    leaseWritable.value = result.ok
+    leaseInfo.value = result.lease
+    if (result.ok) {
+      leaseHint.value = null
+      return
+    }
+    const expires = result.lease?.expiresAt
+      ? new Date(result.lease.expiresAt).toLocaleTimeString()
+      : null
+    leaseHint.value = expires
+      ? `地图为只读：正被其他客户端占用，预计 ${expires} 后可接管`
+      : '地图为只读：无法获取写锁'
+  }
+
+  function clearLeaseState() {
+    leaseWritable.value = true
+    leaseHint.value = null
+    leaseInfo.value = null
+  }
+
+  function assertLeaseWritable() {
+    if (leaseWritable.value) return
+    const msg = leaseHint.value ?? '地图为只读（未持有写锁）'
+    errorMessage.value = msg
+    throw new Error(msg)
+  }
+
   function detachMap(options?: { unload?: boolean }) {
     const mapId = currentMapId.value
     if (mapId && options?.unload) portReadApi().unloadMap(mapId)
     currentMapId.value = null
     snapshot.value = null
+    clearLeaseState()
     resetSession()
   }
 
@@ -83,6 +116,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   }
 
   function runOrContinuePrimary() {
+    if (!leaseWritable.value) {
+      errorMessage.value = leaseHint.value ?? '地图为只读（未持有写锁）'
+      return
+    }
     if (runPhase.value === 'running') return
     if (runPhase.value === 'interrupted') {
       void continueStep()
@@ -117,6 +154,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().addSubAgent({ mapId, parentNodeId, params })
       errorMessage.value = null
     } catch (e) {
@@ -128,6 +166,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().updateNodeParams({ mapId, nodeId, params })
       errorMessage.value = null
     } catch (e) {
@@ -139,6 +178,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().removeNode({ mapId, nodeId })
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
       errorMessage.value = null
@@ -150,6 +190,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   async function runTimeline() {
     const mapId = currentMapId.value
     if (!mapId) return
+    try {
+      assertLeaseWritable()
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+      return
+    }
     if (snapshot.value) {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
@@ -171,6 +217,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().updateTimeline(mapId, patch)
       errorMessage.value = null
     } catch (e) {
@@ -181,6 +228,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   async function startRun() {
     const mapId = currentMapId.value
     if (!mapId) return
+    try {
+      assertLeaseWritable()
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+      return
+    }
     if (snapshot.value) {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
@@ -204,6 +257,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId || continueInFlight) return
     if (runPhase.value !== 'interrupted') return
+    try {
+      assertLeaseWritable()
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+      return
+    }
     continueInFlight = true
     if (snapshot.value) {
       snapshot.value = {
@@ -239,6 +298,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().setMode(mapId, next)
       errorMessage.value = null
     } catch (e) {
@@ -249,6 +309,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   async function startParse(sourceId?: string) {
     const mapId = currentMapId.value
     if (!mapId) return
+    try {
+      assertLeaseWritable()
+    } catch (e) {
+      errorMessage.value = errReadApp(e).msg
+      return
+    }
     if (snapshot.value) {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
@@ -267,6 +333,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().addSourceChain(mapId, {
         uri,
         kind: 'file',
@@ -283,6 +350,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().addRootNews(mapId)
       errorMessage.value = null
     } catch (e) {
@@ -295,6 +363,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
+      assertLeaseWritable()
       snapshot.value = await portReadApi().addRootClaim(mapId)
       errorMessage.value = null
     } catch (e) {
@@ -310,12 +379,17 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     catalog,
     catalogParent,
     errorMessage,
+    leaseWritable,
+    leaseHint,
+    leaseInfo,
     storeReadError,
     runPhase,
     mode,
     isRunning,
     isInterrupted,
     resetSession,
+    applyLeaseResult,
+    clearLeaseState,
     detachMap,
     attachMap,
     refresh,

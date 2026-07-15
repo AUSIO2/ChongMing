@@ -67,9 +67,15 @@ export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
 
   function onWheel(e: WheelEvent) {
     e.preventDefault()
-    const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_INTENSITY)
-    if (Math.abs(factor - 1) < 1e-4) return
-    zoomAt(factor, localPoint(e) ?? undefined)
+    // 捏合 / Ctrl·Cmd+滚轮 → 缩放；双指滑动 / 普通滚轮 → 平移
+    if (e.ctrlKey || e.metaKey) {
+      const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_INTENSITY)
+      if (Math.abs(factor - 1) < 1e-4) return
+      zoomAt(factor, localPoint(e) ?? undefined)
+      return
+    }
+    translateX.value -= e.deltaX
+    translateY.value -= e.deltaY
   }
 
   let panning = false

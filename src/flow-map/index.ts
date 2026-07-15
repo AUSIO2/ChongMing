@@ -18,6 +18,7 @@ export {
   DATA_PHASE_LABEL,
   labelFormatNodeKind,
   labelFormatFocusNode,
+  labelFormatAgent,
   labelTruncate,
   MAP_NODE_LABEL_MAX,
 } from './labels'

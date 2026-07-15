@@ -7,6 +7,7 @@ import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
 import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind, labelTruncate } from '../../flow-map'
 import { MAP_COLUMN, MAP_COLUMN_LABEL } from '../../flow-map/columns'
+import FlowMapAgentPanel from './FlowMapAgentPanel.vue'
 
 const props = defineProps<{ mapId: string | null }>()
 
@@ -87,6 +88,21 @@ function nodeBodyText(n: MapNode): string {
 function nodeDisplayText(n: MapNode): string {
   return labelTruncate(nodeBodyText(n))
 }
+
+function nodeStream(n: MapNode) {
+  return n.kind === 'subAgent' ? n.runtime?.stream : undefined
+}
+
+function nodeHasStream(n: MapNode): boolean {
+  const stream = nodeStream(n)
+  return !!(stream && (stream.thinking || stream.text))
+}
+
+const agentStream = computed(() => snapshot.value?.agentStream ?? null)
+const agentRunning = computed(() => {
+  if (snapshot.value?.runPhase !== 'running') return false
+  return !!snapshot.value?.agentStream
+})
 
 const NODE_BODY_TOP = 18
 
@@ -269,11 +285,18 @@ async function onFileSelected(ev: Event) {
     @pointerup="onPointerUp"
     @pointercancel="onPointerUp"
   >
-    <div class="zoom-controls" @click.stop @pointerdown.stop>
-      <button type="button" class="zoom-btn" title="放大" @click="zoomIn">+</button>
-      <button type="button" class="zoom-btn" title="缩小" @click="zoomOut">−</button>
-      <button type="button" class="zoom-btn zoom-btn-wide" title="适应画布" @click="fitToView">适应</button>
-      <button type="button" class="zoom-btn zoom-btn-wide" title="重置为 100%" @click="resetView">{{ scalePercent }}</button>
+    <div class="flow-map-chrome" @click.stop @pointerdown.stop>
+      <div class="zoom-controls">
+        <button type="button" class="zoom-btn" title="放大" @click="zoomIn">+</button>
+        <button type="button" class="zoom-btn" title="缩小" @click="zoomOut">−</button>
+        <button type="button" class="zoom-btn zoom-btn-wide" title="适应画布" @click="fitToView">适应</button>
+        <button type="button" class="zoom-btn zoom-btn-wide" title="重置为 100%" @click="resetView">{{ scalePercent }}</button>
+      </div>
+
+      <FlowMapAgentPanel
+        :agent-stream="agentStream"
+        :running="agentRunning"
+      />
     </div>
 
     <Teleport to="body">
@@ -380,6 +403,33 @@ async function onFileSelected(ev: Event) {
             pointer-events="none"
           >
             <div
+              v-if="nodeHasStream(ln.node)"
+              class="fm-stream"
+            >
+              <div class="fm-stream-title">
+                {{ nodeBodyText(ln.node) }}
+              </div>
+              <div class="fm-stream-viewport">
+                <div
+                  v-if="nodeStream(ln.node)?.thinking"
+                  class="fm-stream-thinking"
+                >
+                  {{ nodeStream(ln.node)!.thinking }}
+                </div>
+                <div
+                  v-if="nodeStream(ln.node)?.text"
+                  class="fm-stream-text"
+                >
+                  {{ nodeStream(ln.node)!.text }}
+                </div>
+                <span
+                  class="fm-stream-caret"
+                  aria-hidden="true"
+                />
+              </div>
+            </div>
+            <div
+              v-else
               class="fm-body"
               :title="nodeBodyText(ln.node)"
             >
@@ -438,11 +488,18 @@ async function onFileSelected(ev: Event) {
   flex: 1;
 }
 
-.zoom-controls {
+.flow-map-chrome {
   position: absolute;
   top: var(--space-md);
   right: var(--space-md);
   z-index: 2;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-sm);
+}
+
+.zoom-controls {
   display: flex;
   gap: 4px;
   background: var(--flow-node-bg, #fff);
@@ -615,5 +672,67 @@ async function onFileSelected(ev: Event) {
   height: 100%;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.fm-stream {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  font-family: var(--ui-font);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.fm-stream-title {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-dim, #64748b);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-stream-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 2px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fm-stream-thinking {
+  color: var(--text-dim, #94a3b8);
+  font-size: 9px;
+}
+
+.fm-stream-text {
+  color: var(--text, #0f172a);
+  font-weight: 500;
+}
+
+.fm-stream-caret {
+  display: inline-block;
+  color: #6366f1;
+  animation: fm-caret-blink 1s step-end infinite;
+}
+
+.fm-stream-caret::before {
+  content: '▋';
+}
+
+@keyframes fm-caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 </style>

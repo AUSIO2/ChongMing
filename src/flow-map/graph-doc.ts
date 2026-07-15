@@ -16,6 +16,7 @@ import {
 } from './ids'
 import type {
   ExecutionMode,
+  MapAgentStream,
   MapClaimNode,
   MapEdge,
   MapNode,
@@ -84,6 +85,8 @@ export interface MapGraphDoc {
   draft?: GraphSplitState | GraphVerifyState | GraphParseState
   error?: string
   timeline: MapTimeline
+  /** route / merge 流式缓冲（不落库）。 */
+  agentStream?: MapAgentStream
 }
 
 export function docReadSnapshot(doc: MapGraphDoc): MapSnapshot {
@@ -95,6 +98,9 @@ export function docReadSnapshot(doc: MapGraphDoc): MapSnapshot {
     mode: doc.mode,
     activeNodeId: doc.activeNodeId,
     pendingTool: doc.pendingTool,
+    agentStream: doc.agentStream
+      ? { ...doc.agentStream }
+      : undefined,
     error: doc.error,
     timeline: doc.timeline,
   }
@@ -270,6 +276,14 @@ export function docUpdateProgress(doc: MapGraphDoc, payload: GraphProgressPayloa
     docUpdateToolProgress(doc, payload)
     return
   }
+  if (payload.event === 'subagent_delta') {
+    docUpdateDeltaProgress(doc, payload)
+    return
+  }
+  if (payload.event === 'agent_delta') {
+    docUpdateAgentProgress(doc, payload)
+    return
+  }
 
   docUpdateGraphProgress(doc, payload)
 }
@@ -284,7 +298,10 @@ function docReadDraftRoute(
   return draft.routeInstructions?.find(r => mapIdCreateRoute(r, parentId) === nodeId)
 }
 
-type GraphRunProgressPayload = Exclude<GraphProgressPayload, { event: 'subagent_tool' }>
+type GraphRunProgressPayload = Exclude<
+  GraphProgressPayload,
+  { event: 'subagent_tool' } | { event: 'subagent_delta' } | { event: 'agent_delta' }
+>
 type GraphFanoutSpawnPayload = GraphRunProgressPayload & { event: 'fanout_spawn' }
 
 function docUpdateFanoutSubAgent(
@@ -349,6 +366,48 @@ function docUpdateToolProgress(
   docDeleteSkill(node)
 }
 
+function docUpdateDeltaProgress(
+  doc: MapGraphDoc,
+  payload: Extract<GraphProgressPayload, { event: 'subagent_delta' }>,
+): void {
+  if (doc.runPhase !== 'running') {
+    doc.runPhase = 'running'
+    doc.pendingTool = undefined
+  }
+
+  const node = doc.nodes.find(n => n.id === payload.nodeId)
+  if (!node || !payload.text) return
+
+  const stream = {
+    thinking: node.runtime?.stream?.thinking ?? '',
+    text: node.runtime?.stream?.text ?? '',
+  }
+  if (payload.channel === 'thinking') stream.thinking += payload.text
+  else stream.text += payload.text
+
+  node.runtime = { ...node.runtime, stream }
+}
+
+function docUpdateAgentProgress(
+  doc: MapGraphDoc,
+  payload: Extract<GraphProgressPayload, { event: 'agent_delta' }>,
+): void {
+  if (doc.runPhase !== 'running') {
+    doc.runPhase = 'running'
+    doc.pendingTool = undefined
+  }
+  if (!payload.text) return
+
+  const prev = doc.agentStream
+  const base: MapAgentStream = prev?.node === payload.node
+    ? prev
+    : { node: payload.node, thinking: '', text: '' }
+
+  doc.agentStream = payload.channel === 'thinking'
+    ? { ...base, thinking: base.thinking + payload.text }
+    : { ...base, text: base.text + payload.text }
+}
+
 function docUpdateGraphProgress(
   doc: MapGraphDoc,
   payload: GraphRunProgressPayload,
@@ -358,6 +417,13 @@ function docUpdateGraphProgress(
   doc.runPhase = 'running'
   doc.pendingTool = undefined
   docDeleteHitlRuntime(doc)
+
+  if (
+    payload.event === 'node_enter'
+    && (payload.node === 'route' || payload.node === 'merge')
+  ) {
+    doc.agentStream = { node: payload.node, thinking: '', text: '' }
+  }
 
   if (payload.event === 'fanout_spawn' && payload.nodeId) {
     if (doc.transitionKey === '0-1') {
@@ -369,6 +435,14 @@ function docUpdateGraphProgress(
 
   if (payload.event === 'node_exit' && payload.node === 'subAgent') {
     docDeleteSubAgentSkill(doc)
+    docDeleteStream(doc)
+  }
+
+  if (
+    payload.event === 'node_exit'
+    && (payload.node === 'route' || payload.node === 'merge')
+  ) {
+    docDeleteAgentStream(doc)
   }
 
   if (focusId && tool) {
@@ -698,6 +772,8 @@ export function docClearRunSession(doc: MapGraphDoc): void {
   doc.transitionKey = undefined
   doc.draft = undefined
   doc.error = undefined
+  docDeleteAgentStream(doc)
+  docDeleteStream(doc)
 }
 
 // —— internals ——
@@ -714,19 +790,40 @@ function docDeleteSkill(node: MapNode): void {
   node.runtime = Object.keys(rest).length > 0 ? rest : undefined
 }
 
+function docDeleteNodeStream(node: MapNode): void {
+  if (!node.runtime?.stream) return
+  const { stream: _drop, ...rest } = node.runtime
+  node.runtime = Object.keys(rest).length > 0 ? rest : undefined
+}
+
+function docDeleteStream(doc: MapGraphDoc): void {
+  for (const n of doc.nodes) {
+    if (n.kind !== 'subAgent') continue
+    docDeleteNodeStream(n)
+  }
+}
+
+function docDeleteAgentStream(doc: MapGraphDoc): void {
+  doc.agentStream = undefined
+}
+
 function docDeleteRuntime(doc: MapGraphDoc): void {
   for (const n of doc.nodes) {
     if (n.runtime) delete n.runtime
   }
+  docDeleteAgentStream(doc)
 }
 
-/** 清除 HITL runtime 标记，保留各节点 activeSkill（并行 SubAgent 调工具时）。 */
+/** 清除 HITL runtime 标记，保留 activeSkill / stream（并行 SubAgent）。 */
 function docDeleteHitlRuntime(doc: MapGraphDoc): void {
   for (const n of doc.nodes) {
     if (!n.runtime) continue
-    const { activeSkill } = n.runtime
-    if (activeSkill) {
-      n.runtime = { activeSkill }
+    const { activeSkill, stream } = n.runtime
+    if (activeSkill || stream) {
+      n.runtime = {
+        ...(activeSkill ? { activeSkill } : {}),
+        ...(stream ? { stream } : {}),
+      }
     } else {
       delete n.runtime
     }

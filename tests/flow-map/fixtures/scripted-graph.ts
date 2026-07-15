@@ -198,9 +198,12 @@ export function testBuildScriptedElectronAPI(options: ScriptedGraphOptions): Ele
 
       async setMode(runId, mode) {
         const run = runs.get(runId)
-        if (run) {
-          run.mode = mode
-          run.state = { ...run.state, mode } as GraphState
+        if (!run) return
+        run.mode = mode
+        run.state = { ...run.state, mode } as GraphState
+        // 对齐主进程：切到 auto 且仍在门闸等待时，自动跑完当前 transition
+        if (mode === 'auto' && run.gateIndex < HITL_GATES.length) {
+          testSchedule(() => testAdvanceAuto(run))
         }
       },
 

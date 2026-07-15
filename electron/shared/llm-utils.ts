@@ -212,6 +212,17 @@ export interface SkillActivityEvent {
 
 export type SkillActivityCallback = (event: SkillActivityEvent) => void
 
+export type DeltaActivityChannel = 'thinking' | 'text'
+
+export interface DeltaActivityEvent {
+  channel: DeltaActivityChannel
+  text: string
+}
+
+export type DeltaActivityCallback = (event: DeltaActivityEvent) => void
+
+const DELTA_THROTTLE_MS = 60
+
 function serializedToolName(tool: Serialized): string {
   if (typeof tool.name === 'string' && tool.name) return tool.name
   const id = tool.id
@@ -253,17 +264,100 @@ function createSkillActivityHandler(onSkillActivity?: SkillActivityCallback): Ba
   })
 }
 
-export interface InvokeWithOptionalToolsOptions {
-  onSkillActivity?: SkillActivityCallback
+/** 从 AIMessageChunk 拆 thinking / text。 */
+function llmReadDelta(chunk: unknown): { thinking: string; text: string } {
+  if (!chunk || typeof chunk !== 'object') return { thinking: '', text: '' }
+  const record = chunk as {
+    content?: unknown
+    additional_kwargs?: { reasoning_content?: unknown }
+  }
+  const text = llmReadMessage(record.content)
+  const raw = record.additional_kwargs?.reasoning_content
+  const thinking = typeof raw === 'string'
+    ? raw
+    : raw == null
+      ? ''
+      : String(raw)
+  return { thinking, text }
 }
 
-/** 有 tools 时走 ReAct，否则直接 invoke */
+function llmCreateDeltaThrottle(onDelta?: DeltaActivityCallback): {
+  push: (event: DeltaActivityEvent) => void
+  flush: () => void
+} {
+  if (!onDelta) return { push: () => {}, flush: () => {} }
+
+  let thinkingBuf = ''
+  let textBuf = ''
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const flush = () => {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    if (thinkingBuf) {
+      const text = thinkingBuf
+      thinkingBuf = ''
+      onDelta({ channel: 'thinking', text })
+    }
+    if (textBuf) {
+      const text = textBuf
+      textBuf = ''
+      onDelta({ channel: 'text', text })
+    }
+  }
+
+  return {
+    push(event) {
+      if (!event.text) return
+      if (event.channel === 'thinking') thinkingBuf += event.text
+      else textBuf += event.text
+      if (timer !== undefined) return
+      timer = setTimeout(flush, DELTA_THROTTLE_MS)
+    },
+    flush,
+  }
+}
+
+function llmPushDelta(
+  throttle: { push: (event: DeltaActivityEvent) => void },
+  chunk: unknown,
+): void {
+  const { thinking, text } = llmReadDelta(chunk)
+  if (thinking) throttle.push({ channel: 'thinking', text: thinking })
+  if (text) throttle.push({ channel: 'text', text })
+}
+
+export interface InvokeWithOptionalToolsOptions {
+  onSkillActivity?: SkillActivityCallback
+  onDeltaActivity?: DeltaActivityCallback
+}
+
+function llmReadChainMessages(output: unknown): string | undefined {
+  if (!output || typeof output !== 'object') return undefined
+  const record = output as Record<string, unknown>
+  if (Array.isArray(record.messages) && record.messages.length > 0) {
+    const last = record.messages[record.messages.length - 1] as { content?: unknown }
+    const text = llmReadMessage(last?.content)
+    if (text) return text
+  }
+  if ('content' in record) {
+    const text = llmReadMessage(record.content)
+    if (text) return text
+  }
+  return undefined
+}
+
+/** 有 tools 时走 ReAct streamEvents，否则 model.stream；支持思考/正文增量回调 */
 export async function llmRunInvoke(
   model: BaseChatModel,
   tools: StructuredToolInterface[],
   prompt: string,
   options?: InvokeWithOptionalToolsOptions,
 ): Promise<string> {
+  const throttle = llmCreateDeltaThrottle(options?.onDeltaActivity)
+
   if (tools.length > 0) {
     const agent = createReactAgent({
       llm: model,
@@ -278,16 +372,43 @@ export async function llmRunInvoke(
         ? [parentConfig.callbacks]
         : []
 
-    const result = await agent.invoke(
+    let result = ''
+    const stream = agent.streamEvents(
       { messages: [{ role: 'user', content: prompt }] },
       {
         ...parentConfig,
+        version: 'v2',
         callbacks: [...parentCallbacks, skillHandler],
       },
     )
-    return llmReadMessage(result.messages.at(-1)?.content)
+
+    for await (const event of stream) {
+      if (event.event === 'on_chat_model_stream') {
+        llmPushDelta(throttle, event.data?.chunk)
+        continue
+      }
+      if (event.event === 'on_chat_model_end') {
+        const fromEnd = llmReadChainMessages(event.data?.output)
+        if (fromEnd) result = fromEnd
+        continue
+      }
+      if (event.event === 'on_chain_end') {
+        const fromMessages = llmReadChainMessages(event.data?.output)
+        if (fromMessages) result = fromMessages
+      }
+    }
+
+    throttle.flush()
+    return result
   }
 
-  const response = await model.invoke(prompt)
-  return llmReadMessage(response.content)
+  let result = ''
+  const stream = await model.stream(prompt)
+  for await (const chunk of stream) {
+    llmPushDelta(throttle, chunk)
+    const { text } = llmReadDelta(chunk)
+    if (text) result += text
+  }
+  throttle.flush()
+  return result
 }

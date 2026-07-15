@@ -84,6 +84,11 @@ interface MapNodeBase {
       name: string
       argsSummary?: string
     }
+    /** SubAgent LLM 流式缓冲（ephemeral）。 */
+    stream?: {
+      thinking: string
+      text: string
+    }
   }
 }
 
@@ -143,6 +148,12 @@ export interface MapEdge {
 
 // ---------- 快照 ----------
 
+export interface MapAgentStream {
+  node: 'route' | 'merge'
+  thinking: string
+  text: string
+}
+
 export interface MapSnapshot {
   mapId: string
   nodes: MapNode[]
@@ -156,6 +167,8 @@ export interface MapSnapshot {
   activeNodeId?: string
   /** 焦点节点上等待确认的工具（无参）。 */
   pendingTool?: MapToolKind
+  /** route / merge 等非节点 Agent 的流式缓冲（ephemeral）。 */
+  agentStream?: MapAgentStream
   /** 最近一次运行/API 错误；runPhase 可为 error，拓扑仍保留。 */
   error?: string
   /** Map 级全局 Timeline（状态链起止与游标）。 */

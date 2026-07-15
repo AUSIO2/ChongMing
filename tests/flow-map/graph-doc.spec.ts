@@ -725,6 +725,173 @@ describe('graph-doc state', () => {
     expect(doc.runPhase).toBe('running')
   })
 
+  it('subagent_delta 追加到对应节点 runtime.stream', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'subagent_delta',
+      nodeId: 'sub:a#1',
+      channel: 'thinking',
+      text: '想',
+    })
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'subagent_delta',
+      nodeId: 'sub:a#1',
+      channel: 'thinking',
+      text: '法',
+    })
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'subagent_delta',
+      nodeId: 'sub:a#1',
+      channel: 'text',
+      text: '答',
+    })
+
+    const sub = doc.nodes.find(n => n.id === 'sub:a#1')
+    expect(sub?.runtime?.stream).toEqual({ thinking: '想法', text: '答' })
+  })
+
+  it('agent_delta 写入快照 agentStream；node 切换时重置缓冲区', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'agent_delta',
+      node: 'route',
+      channel: 'thinking',
+      text: '路由思',
+    })
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'agent_delta',
+      node: 'route',
+      channel: 'text',
+      text: '[]',
+    })
+    expect(doc.agentStream).toEqual({
+      node: 'route',
+      thinking: '路由思',
+      text: '[]',
+    })
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'agent_delta',
+      node: 'merge',
+      channel: 'text',
+      text: '去重',
+    })
+    expect(doc.agentStream).toEqual({
+      node: 'merge',
+      thinking: '',
+      text: '去重',
+    })
+  })
+
+  it('node_exit subAgent 清除 stream；node_exit route 清除 agentStream', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+    const sub = doc.nodes.find(n => n.id === 'sub:a#1')!
+    sub.runtime = {
+      activeSkill: { name: 'web_search' },
+      stream: { thinking: 't', text: 'x' },
+    }
+    doc.agentStream = { node: 'route', thinking: 'r', text: 'y' }
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'node_exit',
+      node: 'subAgent',
+    })
+    expect(sub.runtime).toBeUndefined()
+
+    doc.agentStream = { node: 'route', thinking: 'r', text: 'y' }
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'node_exit',
+      node: 'route',
+    })
+    expect(doc.agentStream).toBeUndefined()
+  })
+
+  it('并行 SubAgent 的 stream 互不覆盖', () => {
+    const doc = docCreate('n1')
+    doc.runId = 'run-1'
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
+      agentName: 'a',
+      priority: 'high',
+      instanceId: 'a#1',
+    })
+    docUpdateSubAgent(doc, MAP_DEFAULT_NEWS_ID, {
+      agentName: 'b',
+      priority: 'medium',
+      instanceId: 'b#1',
+    })
+
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'subagent_delta',
+      nodeId: 'sub:a#1',
+      channel: 'text',
+      text: 'A',
+    })
+    docUpdateProgress(doc, {
+      runId: 'run-1',
+      mapId: 'n1',
+      parentNodeId: MAP_DEFAULT_NEWS_ID,
+      transitionKey: '1-2',
+      event: 'subagent_delta',
+      nodeId: 'sub:b#1',
+      channel: 'text',
+      text: 'B',
+    })
+
+    expect(doc.nodes.find(n => n.id === 'sub:a#1')?.runtime?.stream?.text).toBe('A')
+    expect(doc.nodes.find(n => n.id === 'sub:b#1')?.runtime?.stream?.text).toBe('B')
+  })
+
   it('subagent_tool end 仅清除对应节点 activeSkill', () => {
     const doc = docCreate('n1')
     doc.runId = 'run-1'

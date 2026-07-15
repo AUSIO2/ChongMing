@@ -128,6 +128,46 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     docWriteTail.set(mapId, next.then(() => {}, () => {}))
   }
 
+  async function adapterFlushDoc(mapId: string): Promise<void> {
+    await (docWriteTail.get(mapId) ?? Promise.resolve())
+  }
+
+  /** auto 下从中断门闸 resume，返回该 run 的结局；无 active 则清 session 并返回 null。 */
+  async function adapterResumeAutoInterrupt(
+    doc: MapGraphDoc,
+    map: DisplayMap | null,
+    wait: (runId: string) => Promise<RunOutcome>,
+  ): Promise<RunOutcome | null> {
+    let active = doc.runId ? await api.graph.getActiveRun(doc.mapId) : null
+    if (!active && map?.mapRun) {
+      await adapterTryRestoreRun(doc, map)
+      active = await api.graph.getActiveRun(doc.mapId)
+    }
+    if (!doc.runId || !active) {
+      docClearRunSession(doc)
+      await persistDoc(doc)
+      return null
+    }
+
+    if (doc.pendingTool === 'validate') {
+      docDeleteClaims(doc)
+    }
+    docUpdateDraft(doc)
+    const modifications = docReadResume(doc)
+    doc.runPhase = 'running'
+    docDeleteFocus(doc)
+    await persistDoc(doc)
+    try {
+      await api.graph.resume(doc.runId, modifications ?? { mode: 'auto' })
+    } catch (e) {
+      // setMode(auto) 可能已先 resume；无 pending 时当作继续调度
+      const appErr = errReadApp(e)
+      if (appErr.code !== ErrorCode.GRAPH_NO_PENDING_INTERRUPT) throw e
+      return null
+    }
+    return wait(doc.runId)
+  }
+
   function adapterAcceptRun(mapId: string, runId: string | undefined): boolean {
     if (!runId) return true
     const batch = batchRunIds.get(mapId)
@@ -286,6 +326,10 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
     try {
       await api.graph.restore(input)
       adapterSyncInterrupt(doc, run, map.mapGraph?.draft)
+      if (doc.mode === 'auto') {
+        doc.runPhase = 'running'
+        docDeleteFocus(doc)
+      }
       return true
     } catch (e) {
       const appErr = errReadApp(e)
@@ -693,6 +737,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
         }
 
         let claims: DisplayClaim[] = await api.map.readAllClaims(mapId)
+        if (mode) doc.mode = mode
 
         if (doc.runPhase === 'interrupted') {
           const run = map.mapRun
@@ -714,7 +759,7 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
               }
             }
           }
-          if (doc.runPhase === 'interrupted' && doc.runId) {
+          if (doc.runPhase === 'interrupted' && doc.runId && doc.mode !== 'auto') {
             return {
               runId: doc.runId,
               snapshot: docReadSnapshot(doc),
@@ -722,17 +767,20 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
             }
           }
         }
-        if (mode) doc.mode = mode
 
         let timeline: MapTimeline = map.timeline
           ? { ...map.timeline }
           : doc.timeline
         doc.timeline = timeline
-
         const readSnap = () => docReadSnapshot(doc)
-        const derived = timelineDeriveStateIndex(readSnap(), claims, timeline)
 
-        if (derived >= timeline.endX) {
+        const finishInterrupted = (runId: string) => ({
+          runId,
+          snapshot: readSnap(),
+          status: 'interrupted' as const,
+        })
+
+        const finishDone = async () => {
           docUpdateRunEnd(doc)
           await persistDoc(doc)
           return {
@@ -742,76 +790,16 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
           }
         }
 
-        const key = scheduleReadTransitionKey(derived)
-        if (!key) {
-          docUpdateRunEnd(doc)
-          await persistDoc(doc)
-          return {
-            runId: doc.runId ?? '',
-            snapshot: readSnap(),
-            status: 'done' as const,
+        const applyCompleted = async (key: TransitionKey) => {
+          await adapterFlushDoc(mapId)
+          map = await api.map.get(mapId)
+          if (map) {
+            claims = await api.map.readAllClaims(mapId)
+            if (map.timeline) {
+              timeline = { ...map.timeline }
+              doc.timeline = timeline
+            }
           }
-        }
-
-        const pending = timelineReadPending(readSnap(), claims, key)
-        const pickLimit = doc.mode === 'auto' ? agentReadMaxSubAgent() : 1
-        const works = timelinePickWorks(
-          readSnap(),
-          claims,
-          key,
-          pending,
-          timeline,
-          pickLimit,
-          selectedNewsId,
-        )
-        if (works.length === 0) {
-          docUpdateRunEnd(doc)
-          await persistDoc(doc)
-          return {
-            runId: doc.runId ?? '',
-            snapshot: readSnap(),
-            status: 'done' as const,
-          }
-        }
-
-        const lead = works[0]!
-        const scopePatch = lead.scopeNodeId
-          ? { activeScope: lead.scopeNodeId }
-          : timelineReadScopePatch(key, lead.parentNodeId)
-        if (scopePatch?.activeScope && timeline.activeScope !== scopePatch.activeScope) {
-          timeline = { ...timeline, activeScope: scopePatch.activeScope }
-          doc.timeline = timeline
-          const scopeUpdated = await api.map.update(mapId, {
-            timeline: { activeScope: scopePatch.activeScope },
-          })
-          timeline = scopeUpdated.timeline
-          doc.timeline = timeline
-        }
-
-        const outcome = works.length === 1
-          ? await runOneTransition(
-            doc,
-            mapId,
-            key,
-            lead.parentNodeId,
-            listener.wait,
-          )
-          : await runParallelTransitions(doc, mapId, key, works, listener.wait)
-        if (outcome === 'interrupted') {
-          return {
-            runId: doc.runId!,
-            snapshot: readSnap(),
-            status: 'interrupted' as const,
-          }
-        }
-        if (outcome === 'error') {
-          throw new AppError(ErrorCode.MAP_SCOPE_NOT_FOUND, `transition ${key} failed`)
-        }
-
-        map = await api.map.get(mapId)
-        if (map) claims = await api.map.readAllClaims(mapId)
-
-        if (outcome === 'completed') {
           const freshCtx = timelineReadScheduleContext(readSnap(), claims)
           if (scheduleLinePendingEmpty(freshCtx, timeline, key)) {
             const nextIdx = timelineReadNextStateIndex(key)
@@ -821,21 +809,95 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
             timeline = updated.timeline
             doc.timeline = timeline
           }
-          docUpdateRunEnd(doc)
-          await persistDoc(doc)
-          return {
-            runId: doc.runId ?? '',
-            snapshot: readSnap(),
-            status: 'done' as const,
+        }
+
+        // auto：若仍停在 HITL 门闸，先 resume 完当前过渡再进入调度循环
+        if (doc.runPhase === 'interrupted' && doc.runId && doc.mode === 'auto') {
+          const finishedKey = doc.transitionKey
+          const resumeOutcome = await adapterResumeAutoInterrupt(
+            doc,
+            map,
+            listener.wait,
+          )
+          if (resumeOutcome === 'interrupted') {
+            return finishInterrupted(doc.runId!)
+          }
+          if (resumeOutcome === 'error') {
+            throw new AppError(
+              ErrorCode.MAP_SCOPE_NOT_FOUND,
+              `transition ${finishedKey ?? '?'} failed`,
+            )
+          }
+          if (resumeOutcome === 'completed' && finishedKey) {
+            await applyCompleted(finishedKey)
           }
         }
 
-        docUpdateRunEnd(doc)
-        await persistDoc(doc)
-        return {
-          runId: doc.runId ?? '',
-          snapshot: readSnap(),
-          status: 'done' as const,
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const derived = timelineDeriveStateIndex(readSnap(), claims, timeline)
+
+          if (derived >= timeline.endX) {
+            return finishDone()
+          }
+
+          const key = scheduleReadTransitionKey(derived)
+          if (!key) {
+            return finishDone()
+          }
+
+          const pending = timelineReadPending(readSnap(), claims, key)
+          const pickLimit = doc.mode === 'auto' ? agentReadMaxSubAgent() : 1
+          const works = timelinePickWorks(
+            readSnap(),
+            claims,
+            key,
+            pending,
+            timeline,
+            pickLimit,
+            selectedNewsId,
+          )
+          if (works.length === 0) {
+            return finishDone()
+          }
+
+          const lead = works[0]!
+          const scopePatch = lead.scopeNodeId
+            ? { activeScope: lead.scopeNodeId }
+            : timelineReadScopePatch(key, lead.parentNodeId)
+          if (scopePatch?.activeScope && timeline.activeScope !== scopePatch.activeScope) {
+            timeline = { ...timeline, activeScope: scopePatch.activeScope }
+            doc.timeline = timeline
+            const scopeUpdated = await api.map.update(mapId, {
+              timeline: { activeScope: scopePatch.activeScope },
+            })
+            timeline = scopeUpdated.timeline
+            doc.timeline = timeline
+          }
+
+          const outcome = works.length === 1
+            ? await runOneTransition(
+              doc,
+              mapId,
+              key,
+              lead.parentNodeId,
+              listener.wait,
+            )
+            : await runParallelTransitions(doc, mapId, key, works, listener.wait)
+
+          if (outcome === 'interrupted') {
+            return finishInterrupted(doc.runId!)
+          }
+          if (outcome === 'error') {
+            throw new AppError(ErrorCode.MAP_SCOPE_NOT_FOUND, `transition ${key} failed`)
+          }
+
+          await applyCompleted(key)
+
+          // HITL：单次 pause；auto：继续调度直到 endX / 无 pending
+          if (doc.mode !== 'auto') {
+            return finishDone()
+          }
         }
       } catch (e) {
         const doc = getDoc(mapId)
@@ -1014,6 +1076,10 @@ export function adapterBuildIpc(api: ElectronAPI): MapAPI {
         doc.mode = mode
         const active = doc.runId ? await api.graph.getActiveRun(mapId) : null
         if (active) await api.graph.setMode(doc.runId!, mode)
+        if (mode === 'auto' && active && doc.runPhase === 'interrupted') {
+          doc.runPhase = 'running'
+          docDeleteFocus(doc)
+        }
       })
       return docReadSnapshot(doc)
     },

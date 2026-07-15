@@ -9,6 +9,10 @@ import { MapModel } from '../shared/database'
 import { AppError, ErrorCode } from '../shared/errors'
 import { ctxReadAiContext, ctxFormat } from '../shared/context'
 import {
+  mapChainRequireScope,
+  mapChainWriteClaims,
+} from '../api/map-chain-writers'
+import {
   mapScopeReadContext,
   mapScopeRequire,
 } from '../shared/map-scope'
@@ -20,11 +24,12 @@ import { mergeReadShouldSave, mergeUpdateClaims } from '../shared/merge-flags'
 import {
   graphCreateRoute,
   graphCreateSkillEmitter,
+  graphCreateDeltaEmitter,
+  graphCreateAgentEmitter,
 } from '../shared/graph-utils'
 import { graphBuildHitl } from '../shared/graph-hitl'
 import {
   llmRunInvoke,
-  llmReadMessage,
   llmReadClaims,
 } from '../shared/llm-utils'
 import { mapIdCreateClaim, mapIdReadClaimSaveIndex } from '../shared/map-ids'
@@ -112,6 +117,11 @@ function createSubAgentNode(defaultModel: BaseChatModel) {
         threadId,
         state.parentNodeId,
       ),
+      onDeltaActivity: graphCreateDeltaEmitter(
+        instruction,
+        threadId,
+        state.parentNodeId,
+      ),
     })
 
     const claims = llmReadClaims<GraphClaim>(rawResponse)
@@ -159,9 +169,10 @@ function createMergeNode(model: BaseChatModel, mergePromptPath: string) {
       },
     )
 
-    const rawMergeResponse = llmReadMessage(
-      (await mergeModel.invoke(prompt)).content,
-    )
+    const threadId = getConfig()?.configurable?.thread_id as string | undefined
+    const rawMergeResponse = await llmRunInvoke(mergeModel, [], prompt, {
+      onDeltaActivity: graphCreateAgentEmitter('merge', threadId),
+    })
 
     const flags = mergeReadShouldSave(rawMergeResponse)
     const mergedClaims = mergeUpdateClaims(drafts, flags)
@@ -175,22 +186,10 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
   const raw = state.mergedClaims[index]
   if (!raw) return { saveIndex: index }
 
-  const doc = await MapModel.findById(state.mapId)
-  if (!doc) {
-    throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${state.mapId}`)
-  }
-
-  const chains = doc.get('chains') as Map<string, Record<string, unknown>>
-  const scope = chains.get(state.parentNodeId)
-  if (!scope) {
-    throw new AppError(
-      ErrorCode.MAP_SCOPE_NOT_FOUND,
-      `Map scope not found: ${state.parentNodeId}`,
-    )
-  }
+  const scope = await mapChainRequireScope(state.mapId, state.parentNodeId)
 
   const claimId = mapIdCreateClaim(index, state.parentNodeId)
-  const existing = (scope.claims as Array<{ claimId: string }> | undefined) ?? []
+  const existing = scope.claims ?? []
   if (!raw.sourceAgent) {
     throw new AppError(
       ErrorCode.GRAPH_EXECUTION_FAILED,
@@ -209,21 +208,19 @@ async function saveOneClaim(state: typeof SplitGraphState.State) {
     (a, b) =>
       (mapIdReadClaimSaveIndex(a.claimId) ?? 0) - (mapIdReadClaimSaveIndex(b.claimId) ?? 0),
   )
-  scope.claims = nextClaims
 
   const nextIndex = index + 1
-  if (nextIndex >= state.mergedClaims.length) {
-    scope.splitMeta = {
-      model: 'langgraph',
-      routeInstructions: state.routeInstructions,
-      subAgentResults: state.subAgentResults,
-      rawMergeResponse: state.rawMergeResponse,
-      splitAt: new Date(),
-    }
-  }
+  const splitMeta = nextIndex >= state.mergedClaims.length
+    ? {
+        model: 'langgraph',
+        routeInstructions: state.routeInstructions,
+        subAgentResults: state.subAgentResults,
+        rawMergeResponse: state.rawMergeResponse,
+        splitAt: new Date(),
+      }
+    : undefined
 
-  doc.markModified('chains')
-  await doc.save()
+  await mapChainWriteClaims(state.mapId, state.parentNodeId, nextClaims, splitMeta)
 
   return { saveIndex: nextIndex }
 }

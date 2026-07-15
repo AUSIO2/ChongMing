@@ -5,7 +5,7 @@ import type { ElectronAPI } from './api/types'
 const electronAPI: ElectronAPI = {
   map: {
     create: input => ipcRenderer.invoke(IPC_CHANNELS.MAP_CREATE, input),
-    list: () => ipcRenderer.invoke(IPC_CHANNELS.MAP_LIST),
+    list: workspaceId => ipcRenderer.invoke(IPC_CHANNELS.MAP_LIST, workspaceId),
     get: mapId => ipcRenderer.invoke(IPC_CHANNELS.MAP_GET, mapId),
     update: (mapId, patch) =>
       ipcRenderer.invoke(IPC_CHANNELS.MAP_UPDATE, mapId, patch),
@@ -14,6 +14,29 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.MAP_SAVE, mapId, data),
     readAllClaims: mapId =>
       ipcRenderer.invoke(IPC_CHANNELS.MAP_READ_ALL_CLAIMS, mapId),
+    tryAcquireLease: mapId =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_LEASE_TRY_ACQUIRE, mapId),
+    heartbeatLease: mapId =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_LEASE_HEARTBEAT, mapId),
+    releaseLease: mapId =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_LEASE_RELEASE, mapId),
+    leaseStatus: mapId =>
+      ipcRenderer.invoke(IPC_CHANNELS.MAP_LEASE_STATUS, mapId),
+  },
+  workspace: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LIST),
+    get: workspaceId => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GET, workspaceId),
+    create: input => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CREATE, input),
+    update: (workspaceId, patch) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE, workspaceId, patch),
+    delete: workspaceId =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_DELETE, workspaceId),
+    uploadLocalAgents: (workspaceId, mode) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.WORKSPACE_UPLOAD_LOCAL_AGENTS,
+        workspaceId,
+        mode,
+      ),
   },
   catalog: {
     list: module => ipcRenderer.invoke(IPC_CHANNELS.CATALOG_LIST, module),
@@ -30,6 +53,9 @@ const electronAPI: ElectronAPI = {
   },
   file: {
     exportMap: mapId => ipcRenderer.invoke(IPC_CHANNELS.FILE_EXPORT_MAP, mapId),
+    exportWorkspace: workspaceId =>
+      ipcRenderer.invoke(IPC_CHANNELS.FILE_EXPORT_WORKSPACE, workspaceId),
+    importWorkspace: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_IMPORT_WORKSPACE),
   },
   db: {
     getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.DB_GET_SETTINGS),

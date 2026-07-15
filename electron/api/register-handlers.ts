@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
 import * as mapService from './map-service'
+import * as mapLease from './map-lease'
 import * as workspaceService from './workspace-service'
 import * as graphService from './graph-service'
 import * as fileService from './file-service'
@@ -111,6 +112,26 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
   handle(
     IPC_CHANNELS.MAP_READ_ALL_CLAIMS,
     (mapId: string) => mapService.mapReadAllClaims(mapId),
+  )
+
+  handle(
+    IPC_CHANNELS.MAP_LEASE_TRY_ACQUIRE,
+    (mapId: string) => mapLease.mapLeaseTryAcquire(mapId),
+  )
+
+  handle(
+    IPC_CHANNELS.MAP_LEASE_HEARTBEAT,
+    (mapId: string) => mapLease.mapLeaseHeartbeat(mapId),
+  )
+
+  handle(
+    IPC_CHANNELS.MAP_LEASE_RELEASE,
+    (mapId: string) => mapLease.mapLeaseRelease(mapId),
+  )
+
+  handle(
+    IPC_CHANNELS.MAP_LEASE_STATUS,
+    (mapId: string) => mapLease.mapLeaseStatus(mapId),
   )
 
   handle(
