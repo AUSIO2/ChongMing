@@ -24,7 +24,6 @@ describe('map-lease', () => {
     await MapModel.create({
       _id: MAP_ID,
       workspaceId: 'default',
-      chains: {},
       timeline: { startX: 0, endX: 3, activeScope: '' },
     })
   })

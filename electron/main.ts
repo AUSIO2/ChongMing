@@ -7,8 +7,9 @@ import { dbCreate, dbDelete } from './shared/database'
 import { dbReadSettings } from './shared/db-settings'
 import { clientReadId } from './shared/client-identity'
 import { mapLeaseReleaseAllHeld } from './api/map-lease'
-import { ckptCreate } from './shared/checkpointer'
 import { promptUpdateConfigRoot } from './shared/prompt-loader'
+import { workspaceBootstrapAfterConnect } from './api/workspace-service'
+import { mapperService } from './mapper'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -69,16 +70,16 @@ app.on('activate', () => {
 handlerRegisterIpc(getWindow)
 
 app.on('before-quit', () => {
-  void mapLeaseReleaseAllHeld().finally(() => {
-    void dbDelete()
-  })
+  void mapperService.close()
+    .then(() => mapLeaseReleaseAllHeld())
+    .finally(() => {
+      void dbDelete()
+    })
 })
 
 app.whenReady().then(async () => {
   clientReadId()
   await dbCreate(dbReadSettings().uri)
-  const { workspaceBootstrapAfterConnect } = await import('./api/workspace-service')
   await workspaceBootstrapAfterConnect()
-  await ckptCreate()
   createWindow()
 })

@@ -75,7 +75,6 @@ async function onSwitch() {
   }
   busy.value = true
   try {
-    await tabsStore.flushAllMapTabs()
     const list = await api.switch(uri.value)
     await tabsStore.onDbSwitched(list)
     chromeShowToast('已切换数据库')

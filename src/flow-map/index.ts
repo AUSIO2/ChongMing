@@ -1,11 +1,4 @@
 export * from './types'
-export type {
-  MapAPI,
-  AddSubAgentInput,
-  UpdateNodeParamsInput,
-  UpdateNodeParamsPatch,
-  MapUpdateReason,
-} from './api'
 export {
   MAP_DEFAULT_NEWS_ID,
   MAP_DEFAULT_CHAIN_ID,
@@ -24,19 +17,12 @@ export {
 } from './labels'
 export { labelFormatHitl, labelFormatSkill, labelFormatSkillTitle } from './tool-labels'
 export {
-  docIsParamLock,
-  docCanAddSubAgent,
-  docCanEditNode,
-  docCanRemoveNode,
-  docReadLockReason,
-  docCollectSubtree,
-  docReadSnapshot,
-  docDedupClaims,
-  docBatchUpdateSubAgents,
-  type MapGraphDoc,
-  type DocDedupClaimsResult,
-  type DocBatchSubAgentPatch,
-} from './graph-doc'
+  canAddSubAgent,
+  canEditNode,
+  canRemoveNode,
+  isNodeParamLocked,
+  readNodeLockReason,
+} from './capabilities'
 export {
   layoutReadSnapshot,
   type MapLayoutNode,
@@ -53,9 +39,6 @@ export {
   STATE_CHAIN_LABEL,
   STATE_TRANSITION_LABEL,
   timelineCreateDefault,
-  timelineDeriveStateIndex,
-  timelineReadEffectiveIndex,
-  timelineReadScope,
   timelineValidate,
   type MapTimeline,
   type StateIndex,
@@ -85,9 +68,3 @@ export {
   timelineReadDataEnd,
   type TimelineLine,
 } from './timeline-project'
-export {
-  portRegisterApi,
-  portReadApi,
-  portIsInstalled,
-} from './port'
-export { adapterBuildIpc } from './adapters/electron-ipc'

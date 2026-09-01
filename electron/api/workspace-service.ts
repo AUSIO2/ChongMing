@@ -32,7 +32,6 @@ function workspaceToDisplay(doc: Record<string, unknown>): DisplayWorkspace {
     name: String(doc.name ?? ''),
     description: typeof doc.description === 'string' ? doc.description : undefined,
     agents,
-    mapIds: Array.isArray(doc.mapIds) ? doc.mapIds.map(String) : [],
     ui,
     createdAt: doc.createdAt instanceof Date
       ? doc.createdAt.toISOString()
@@ -43,26 +42,21 @@ function workspaceToDisplay(doc: Record<string, unknown>): DisplayWorkspace {
   }
 }
 
-function workspaceToSummary(doc: Record<string, unknown>): DisplayWorkspaceSummary {
+function workspaceToSummary(
+  doc: Record<string, unknown>,
+  mapCount: number,
+): DisplayWorkspaceSummary {
   const agents = doc.agents as unknown[] | undefined
-  const mapIds = doc.mapIds as unknown[] | undefined
   return {
     _id: String(doc._id),
     name: String(doc.name ?? ''),
     description: typeof doc.description === 'string' ? doc.description : undefined,
     agentCount: agents?.length ?? 0,
-    mapCount: mapIds?.length ?? 0,
+    mapCount,
     updatedAt: doc.updatedAt instanceof Date
       ? doc.updatedAt.toISOString()
       : new Date().toISOString(),
   }
-}
-
-async function workspaceSyncMapIds(workspaceId: string): Promise<string[]> {
-  const maps = await MapModel.find({ workspaceId }).select('_id').lean()
-  const mapIds = maps.map(m => String(m._id))
-  await WorkspaceModel.updateOne({ _id: workspaceId }, { $set: { mapIds } })
-  return mapIds
 }
 
 export async function workspaceEnsureDefault(): Promise<DisplayWorkspace> {
@@ -76,7 +70,6 @@ export async function workspaceEnsureDefault(): Promise<DisplayWorkspace> {
       _id: WORKSPACE_DEFAULT_ID,
       name: '默认工作区',
       agents,
-      mapIds: [],
     })
     console.log('[workspace] 已创建默认工作区')
   }
@@ -85,7 +78,7 @@ export async function workspaceEnsureDefault(): Promise<DisplayWorkspace> {
   )
 }
 
-/** 无 workspaceId 的 Map 归入默认工作区，并刷新 mapIds */
+/** 无 workspaceId 的 Map 归入默认工作区。 */
 export async function workspaceMigrateOrphanMaps(): Promise<number> {
   await workspaceEnsureDefault()
   const result = await MapModel.updateMany(
@@ -98,7 +91,6 @@ export async function workspaceMigrateOrphanMaps(): Promise<number> {
     },
     { $set: { workspaceId: WORKSPACE_DEFAULT_ID } },
   )
-  await workspaceSyncMapIds(WORKSPACE_DEFAULT_ID)
   if (result.modifiedCount > 0) {
     console.log(`[workspace] 已归属 ${result.modifiedCount} 条孤儿 Map → 默认工作区`)
   }
@@ -114,7 +106,14 @@ export async function workspaceBootstrapAfterConnect(): Promise<void> {
 
 export async function workspaceList(): Promise<DisplayWorkspaceSummary[]> {
   const docs = await WorkspaceModel.find().sort({ updatedAt: -1 }).lean()
-  return docs.map(d => workspaceToSummary(d as Record<string, unknown>))
+  const counts = await MapModel.aggregate<{ _id: string, count: number }>([
+    { $group: { _id: '$workspaceId', count: { $sum: 1 } } },
+  ])
+  const byWorkspace = new Map(counts.map(row => [String(row._id), row.count]))
+  return docs.map(d => workspaceToSummary(
+    d as Record<string, unknown>,
+    byWorkspace.get(String(d._id)) ?? 0,
+  ))
 }
 
 export async function workspaceGet(workspaceId: string): Promise<DisplayWorkspace | null> {
@@ -137,7 +136,6 @@ export async function workspaceCreate(
     name: input.name.trim() || '未命名工作区',
     description: input.description?.trim() || undefined,
     agents,
-    mapIds: [],
   })
   return workspaceToDisplay(doc.toObject() as Record<string, unknown>)
 }
@@ -242,26 +240,6 @@ export async function workspaceReadForMap(mapId: string): Promise<DisplayWorkspa
     )
   }
   return ws
-}
-
-export async function workspaceAttachMap(
-  workspaceId: string,
-  mapId: string,
-): Promise<void> {
-  await WorkspaceModel.updateOne(
-    { _id: workspaceId },
-    { $addToSet: { mapIds: mapId } },
-  )
-}
-
-export async function workspaceDetachMap(
-  workspaceId: string,
-  mapId: string,
-): Promise<void> {
-  await WorkspaceModel.updateOne(
-    { _id: workspaceId },
-    { $pull: { mapIds: mapId } },
-  )
 }
 
 export { WORKSPACE_DEFAULT_ID }

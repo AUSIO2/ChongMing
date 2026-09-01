@@ -2,12 +2,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { IPC_CHANNELS } from '../../electron/api/channels'
-import {
-  graphDeleteHandlers,
-  graphEmit,
-  graphOnCompleted,
-} from '../../electron/api/graph-events'
 import {
   pathsDeleteDataDirOverride,
   pathsReadDataDir,
@@ -33,27 +27,6 @@ describe('pathsReadDataDir', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
-})
-
-describe('graphEmit', () => {
-  afterEach(() => {
-    graphDeleteHandlers()
-  })
-
-  it('delivers completed to subscribers without a window', () => {
-    const seen: unknown[] = []
-    const off = graphOnCompleted(p => seen.push(p))
-    graphEmit(IPC_CHANNELS.GRAPH_COMPLETED, {
-      runId: 'r1',
-      mapId: 'm1',
-      transitionKey: '1-2',
-      parentNodeId: 'n',
-      state: {} as never,
-    })
-    off()
-    expect(seen).toHaveLength(1)
-    expect((seen[0] as { runId: string }).runId).toBe('r1')
   })
 })
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import type { DisplayMapSummary } from '../../electron/api/types'
+import type { MapperMapSummary } from '../../electron/mapper/types'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useWorkspaceTabsStore } from '../stores/workspace-tabs'
 import { useMapSidebar } from '../composables/useMapSidebar'
@@ -19,24 +19,24 @@ const contextMenu = ref({
   visible: false,
   x: 0,
   y: 0,
-  item: null as DisplayMapSummary | null,
+  item: null as MapperMapSummary | null,
 })
 
 onMounted(() => store.loadMapList())
 
-function mapReadTitle(item: DisplayMapSummary): string {
+function mapReadTitle(item: MapperMapSummary): string {
   return item.name?.trim() || 'Map'
 }
 
 async function onSelectMap(mapId: string) {
   if (editingId.value) return
   closeContextMenu()
-  const item = mapList.value.find(m => m._id === mapId)
+  const item = mapList.value.find(m => m.id === mapId)
   await tabsStore.openMapTab(mapId, item ? mapReadTitle(item) : undefined)
 }
 
-function startRename(item: DisplayMapSummary) {
-  editingId.value = item._id
+function startRename(item: MapperMapSummary) {
+  editingId.value = item.id
   editDraft.value = item.name?.trim() || 'Map'
 }
 
@@ -51,15 +51,15 @@ function cancelRename() {
   editDraft.value = ''
 }
 
-async function commitRename(item: DisplayMapSummary) {
-  if (editingId.value !== item._id) return
+async function commitRename(item: MapperMapSummary) {
+  if (editingId.value !== item.id) return
   const next = editDraft.value.trim() || 'Map'
   cancelRename()
   if (next === mapReadTitle(item)) return
-  await store.renameMap(item._id, next === 'Map' ? '' : next)
+  await store.renameMap(item.id, next === 'Map' ? '' : next)
 }
 
-function onContextMenu(ev: MouseEvent, item: DisplayMapSummary) {
+function onContextMenu(ev: MouseEvent, item: MapperMapSummary) {
   ev.preventDefault()
   contextMenu.value = {
     visible: true,
@@ -114,7 +114,7 @@ async function onMenuDelete() {
   if (!item) return
   const title = mapReadTitle(item)
   if (!confirm(`确定删除 Map「${title}」？此操作不可撤销。`)) return
-  await store.deleteMap(item._id)
+  await store.deleteMap(item.id)
 }
 </script>
 
@@ -123,13 +123,13 @@ async function onMenuDelete() {
     <ul v-if="mapList.length" class="map-list">
       <li
         v-for="item in mapList"
-        :key="item._id"
-        :class="{ active: item._id === activeMapId }"
-        @click="onSelectMap(item._id)"
+        :key="item.id"
+        :class="{ active: item.id === activeMapId }"
+        @click="onSelectMap(item.id)"
         @contextmenu="onContextMenu($event, item)"
       >
         <input
-          v-if="editingId === item._id"
+          v-if="editingId === item.id"
           :ref="(el) => focusRenameInput(el as HTMLInputElement | null)"
           v-model="editDraft"
           class="map-name-input"
@@ -141,7 +141,7 @@ async function onMenuDelete() {
         <p v-else class="map-name">
           {{ mapReadTitle(item) }}
         </p>
-        <span class="map-id">{{ item._id }}</span>
+        <span class="map-id">{{ item.id }}</span>
       </li>
     </ul>
     <p v-else class="empty">暂无 Map</p>

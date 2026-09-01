@@ -1,12 +1,8 @@
 import { createReactAgent } from '@langchain/langgraph/prebuilt'
-import { getConfig } from '@langchain/langgraph'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { Serialized } from '@langchain/core/load/serializable'
-import type { AgentRuntimeConfig, MapSubAgentParams, RouteInstructionDraft } from './types'
-
-const JSON_CODE_BLOCK_RE = /```(?:json)?\s*([\s\S]*?)```/i
 
 /** 将 LangChain message content 统一转为字符串 */
 export function llmReadMessage(content: unknown): string {
@@ -24,99 +20,6 @@ export function llmReadMessage(content: unknown): string {
   }
   if (content == null) return ''
   return String(content)
-}
-
-/** 从 LLM 输出中提取 JSON（支持 markdown 代码块包裹） */
-export function llmReadJsonText(raw: string): string {
-  const trimmed = raw.trim()
-  const fenced = trimmed.match(JSON_CODE_BLOCK_RE)
-  if (fenced?.[1]) return fenced[1].trim()
-
-  const firstBrace = trimmed.indexOf('{')
-  const firstBracket = trimmed.indexOf('[')
-  const start = firstBrace === -1
-    ? firstBracket
-    : firstBracket === -1
-      ? firstBrace
-      : Math.min(firstBrace, firstBracket)
-  if (start === -1) return trimmed
-
-  const opener = trimmed[start]
-  const closer = opener === '[' ? ']' : '}'
-  const end = trimmed.lastIndexOf(closer)
-  if (end <= start) return trimmed.slice(start)
-
-  return trimmed.slice(start, end + 1)
-}
-
-/** 解析 LLM 返回的 JSON，失败时返回 null */
-export function llmReadJson<T>(raw: string): T | null {
-  try {
-    return JSON.parse(llmReadJsonText(raw)) as T
-  } catch {
-    return null
-  }
-}
-
-const VALID_PRIORITIES = new Set(['high', 'medium', 'low'])
-
-/** 解析并校验 route 节点返回的路由指令 */
-export function llmReadRoute(
-  raw: string,
-  availableAgents: AgentRuntimeConfig[],
-): RouteInstructionDraft[] {
-  const parsed = llmReadJson<unknown>(raw)
-  if (!Array.isArray(parsed)) return []
-
-  const validNames = new Set(availableAgents.map(a => a.name))
-
-  return parsed.flatMap((item) => {
-    if (!item || typeof item !== 'object') return []
-    const record = item as Record<string, unknown>
-    const agentName = record.agentName
-    const priority = record.priority
-    if (
-      typeof agentName !== 'string'
-      || !validNames.has(agentName)
-      || typeof priority !== 'string'
-      || !VALID_PRIORITIES.has(priority)
-    ) {
-      return []
-    }
-    return [{
-      agentName,
-      priority: priority as MapSubAgentParams['priority'],
-      hint: typeof record.hint === 'string' ? record.hint : undefined,
-      instanceId: typeof record.instanceId === 'string' ? record.instanceId : undefined,
-    }]
-  })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-/** 解析 SubAgent 返回的 claim 数组（支持裸数组或 { claims: [] }） */
-export function llmReadClaims<T extends { content: string }>(raw: string): T[] {
-  const parsed = llmReadJson<unknown>(raw)
-  const candidates = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.claims)
-      ? parsed.claims
-      : []
-
-  return candidates.filter(
-    (item): item is T => isRecord(item) && typeof item.content === 'string',
-  )
-}
-
-/** 解析 SubAgent / merge 返回的 JSON 对象 */
-export function llmReadJsonObject<T extends Record<string, unknown>>(
-  raw: string,
-  fallback: T,
-): T {
-  const parsed = llmReadJson<unknown>(raw)
-  return isRecord(parsed) ? { ...fallback, ...parsed } as T : fallback
 }
 
 /** 从 tool schema 提取参数说明（JSON Schema；Zod 等无 properties 时跳过） */
@@ -330,6 +233,7 @@ function llmPushDelta(
 }
 
 export interface InvokeWithOptionalToolsOptions {
+  signal?: AbortSignal
   onSkillActivity?: SkillActivityCallback
   onDeltaActivity?: DeltaActivityCallback
 }
@@ -356,6 +260,7 @@ export async function llmRunInvoke(
   prompt: string,
   options?: InvokeWithOptionalToolsOptions,
 ): Promise<string> {
+  options?.signal?.throwIfAborted()
   const throttle = llmCreateDeltaThrottle(options?.onDeltaActivity)
 
   if (tools.length > 0) {
@@ -364,21 +269,15 @@ export async function llmRunInvoke(
       tools,
       prompt: llmFormatTools(tools),
     })
-    const parentConfig = getConfig()
     const skillHandler = createSkillActivityHandler(options?.onSkillActivity)
-    const parentCallbacks = Array.isArray(parentConfig?.callbacks)
-      ? parentConfig.callbacks
-      : parentConfig?.callbacks
-        ? [parentConfig.callbacks]
-        : []
 
     let result = ''
     const stream = agent.streamEvents(
       { messages: [{ role: 'user', content: prompt }] },
       {
-        ...parentConfig,
         version: 'v2',
-        callbacks: [...parentCallbacks, skillHandler],
+        signal: options?.signal,
+        callbacks: [skillHandler],
       },
     )
 
@@ -403,7 +302,7 @@ export async function llmRunInvoke(
   }
 
   let result = ''
-  const stream = await model.stream(prompt)
+  const stream = await model.stream(prompt, { signal: options?.signal })
   for await (const chunk of stream) {
     llmPushDelta(throttle, chunk)
     const { text } = llmReadDelta(chunk)

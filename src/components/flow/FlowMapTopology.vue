@@ -5,7 +5,7 @@ import { useCanvasPanZoom } from '../../composables/useCanvasPanZoom'
 import { useWorkspaceStore } from '../../stores/workspace'
 import type { MapLayoutNode } from '../../flow-map'
 import type { MapNode } from '../../flow-map'
-import { labelFormatHitl, docIsParamLock, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind, labelTruncate } from '../../flow-map'
+import { labelFormatHitl, isNodeParamLocked, labelFormatSkill, labelFormatSkillTitle, labelFormatNodeKind, labelTruncate } from '../../flow-map'
 import { MAP_COLUMN, MAP_COLUMN_LABEL } from '../../flow-map/columns'
 import FlowMapAgentPanel from './FlowMapAgentPanel.vue'
 
@@ -154,7 +154,7 @@ function nodeClasses(ln: MapLayoutNode) {
     active: isActive(n.id),
     selected: isSelected(n.id),
     'has-runtime': !!n.runtime,
-    'params-locked': snap ? docIsParamLock(snap, n) : false,
+    'params-locked': snap ? isNodeParamLocked(snap, n) : false,
   }
   if (n.kind === 'claim' || n.kind === 'opinion') {
     cls[`phase-${n.dataPhase}`] = true

@@ -1,9 +1,11 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import type {
-  DisplayMap,
-  DisplayMapSummary,
   DisplayWorkspaceSummary,
 } from '../../electron/api/types'
+import type {
+  MapperMapSummary,
+  MapperSnapshot,
+} from '../../electron/mapper/types'
 
 const WORKSPACE_STORAGE_KEY = 'chongming.currentWorkspaceId'
 
@@ -31,9 +33,9 @@ export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
     workspaceList: [] as DisplayWorkspaceSummary[],
     currentWorkspaceId: null as string | null,
-    mapList: [] as DisplayMapSummary[],
+    mapList: [] as MapperMapSummary[],
     currentMapId: null as string | null,
-    currentMap: null as DisplayMap | null,
+    currentMap: null as MapperSnapshot | null,
     loading: false,
   }),
 
@@ -95,7 +97,11 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (!api || !this.currentWorkspaceId) return
       this.loading = true
       try {
-        this.mapList = await api.map.list(this.currentWorkspaceId)
+        const result = await api.mapper.read({
+          type: 'map.list',
+          workspaceId: this.currentWorkspaceId,
+        })
+        if (result.type === 'map.list') this.mapList = result.maps
       } finally {
         this.loading = false
       }
@@ -105,14 +111,19 @@ export const useWorkspaceStore = defineStore('workspace', {
       const api = getApi()
       if (!api) return
       this.currentMapId = mapId
-      this.currentMap = await api.map.get(mapId)
+      const result = await api.mapper.read({ type: 'map.snapshot', mapId })
+      this.currentMap = result.type === 'map.snapshot' ? result.snapshot : null
     },
 
     async refreshCurrentMap() {
       if (!this.currentMapId) return
       const api = getApi()
       if (!api) return
-      this.currentMap = await api.map.get(this.currentMapId)
+      const result = await api.mapper.read({
+        type: 'map.snapshot',
+        mapId: this.currentMapId,
+      })
+      this.currentMap = result.type === 'map.snapshot' ? result.snapshot : null
     },
 
     async renameMap(mapId: string, name: string) {
@@ -122,21 +133,27 @@ export const useWorkspaceStore = defineStore('workspace', {
       const tabs = useWorkspaceTabsStore()
       const hadTab = tabs.hasMapTab(mapId)
       let acquiredHere = false
-      if (api.map.tryAcquireLease) {
-        const lease = await api.map.tryAcquireLease(mapId)
-        if (!lease.ok) {
+      {
+        const lease = await api.mapper.dispatch({ type: 'lease.acquire', mapId })
+        if (lease.type !== 'lease.updated' || !lease.ok) {
           throw new Error('地图正被其他客户端占用，无法重命名')
         }
         acquiredHere = !hadTab
       }
       try {
-        const map = await api.map.update(mapId, { name: name.trim() })
-        const idx = this.mapList.findIndex(m => m._id === mapId)
+        const result = await api.mapper.dispatch({
+          type: 'map.rename',
+          mapId,
+          name: name.trim(),
+        })
+        if (result.type !== 'map.updated') throw new Error('rename failed')
+        const map = result.snapshot
+        const idx = this.mapList.findIndex(m => m.id === mapId)
         if (idx >= 0) {
           this.mapList[idx] = {
             ...this.mapList[idx],
             name: map.name,
-            updatedAt: map.updatedAt,
+            updatedAt: new Date().toISOString(),
           }
         }
         if (this.currentMapId === mapId) {
@@ -144,18 +161,16 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
         tabs.updateMapTitle(mapId, map.name?.trim() || 'Map')
       } finally {
-        if (acquiredHere && api.map.releaseLease) {
-          await api.map.releaseLease(mapId)
+        if (acquiredHere) {
+          await api.mapper.dispatch({ type: 'lease.release', mapId })
         }
       }
     },
 
     async deleteMap(mapId: string) {
       const api = getApi()
-      if (!api?.map.delete) {
-        throw new Error('map.delete API 不可用，请重启 Electron 应用')
-      }
-      await api.map.delete(mapId)
+      if (!api) return
+      await api.mapper.dispatch({ type: 'map.delete', mapId })
       const { useWorkspaceTabsStore } = await import('./workspace-tabs')
       const { useFlowMapStore } = await import('./flow-map')
       const tabs = useWorkspaceTabsStore()
@@ -175,15 +190,16 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (!api || !this.currentWorkspaceId) return
       this.loading = true
       try {
-        const map = await api.map.create({
+        const result = await api.mapper.dispatch({
+          type: 'map.create',
           workspaceId: this.currentWorkspaceId,
-          content: '',
-          context: {},
         })
+        if (result.type !== 'map.updated') throw new Error('map create failed')
+        const map = result.snapshot
         await this.loadMapList()
         await this.loadWorkspaces()
         const { useWorkspaceTabsStore } = await import('./workspace-tabs')
-        await useWorkspaceTabsStore().openMapTab(map._id, map.name?.trim() || 'Map')
+        await useWorkspaceTabsStore().openMapTab(map.mapId, map.name?.trim() || 'Map')
       } finally {
         this.loading = false
       }

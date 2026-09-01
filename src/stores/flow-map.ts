@@ -3,17 +3,22 @@ import { computed, ref, shallowRef } from 'vue'
 import { layoutReadSnapshot } from '../flow-map'
 import type { LayoutNavDir } from '../flow-map/layout-nav'
 import type {
+  MapperNode as MapNode,
+  MapperSnapshot as MapSnapshot,
+  MapperTimeline as MapTimeline,
+  MapperDispatchResult,
+  MapperLeaseInfo,
+  MapperLeaseResult,
+  MapperNodePatch,
+} from '../../electron/mapper/types'
+import type {
   ExecutionMode,
-  MapNode,
-  MapSnapshot,
   MapSubAgentParams,
-  CatalogSubAgent,
-  UpdateNodeParamsPatch,
-  MapTimeline,
-} from '../flow-map'
-import { MAP_DEFAULT_NEWS_ID, portReadApi, layoutFindNeighbor } from '../flow-map'
+} from '../../electron/shared/types'
+import type { CatalogSubAgent } from '../../electron/api/types'
+import { MAP_DEFAULT_NEWS_ID } from '../../electron/shared/map-ids'
+import { layoutFindNeighbor } from '../flow-map'
 import { errReadApp } from '../../electron/shared/errors'
-import type { MapLeaseAcquireResult, MapLeaseInfo } from '../../electron/api/types'
 
 export const useFlowMapStore = defineStore('flow-map', () => {
   const currentMapId = ref<string | null>(null)
@@ -24,7 +29,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   const errorMessage = ref<string | null>(null)
   const leaseWritable = ref(true)
   const leaseHint = ref<string | null>(null)
-  const leaseInfo = shallowRef<MapLeaseInfo | null>(null)
+  const leaseInfo = shallowRef<MapperLeaseInfo | null>(null)
 
   const selectedNode = computed<MapNode | null>(() => {
     const s = snapshot.value
@@ -42,6 +47,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     () => snapshot.value?.error ?? errorMessage.value ?? leaseHint.value ?? null,
   )
 
+  function applyMapperResult(result: MapperDispatchResult) {
+    if (result.type === 'map.updated') snapshot.value = result.snapshot
+  }
+
   function resetSession() {
     selectedNodeId.value = null
     catalog.value = []
@@ -49,7 +58,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     errorMessage.value = null
   }
 
-  function applyLeaseResult(result: MapLeaseAcquireResult) {
+  function applyLeaseResult(result: MapperLeaseResult) {
     leaseWritable.value = result.ok
     leaseInfo.value = result.lease
     if (result.ok) {
@@ -77,9 +86,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     throw new Error(msg)
   }
 
-  function detachMap(options?: { unload?: boolean }) {
-    const mapId = currentMapId.value
-    if (mapId && options?.unload) portReadApi().unloadMap(mapId)
+  function detachMap(_options?: { unload?: boolean }) {
     currentMapId.value = null
     snapshot.value = null
     clearLeaseState()
@@ -96,7 +103,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
-      snapshot.value = await portReadApi().getSnapshot(mapId)
+      const result = await window.electronAPI.mapper.read({
+        type: 'map.snapshot',
+        mapId,
+      })
+      if (result.type === 'map.snapshot') snapshot.value = result.snapshot
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -136,7 +147,23 @@ export const useFlowMapStore = defineStore('flow-map', () => {
 
   async function loadCatalogFor(parentNodeId: string) {
     try {
-      catalog.value = await portReadApi().getSubAgentCatalog(parentNodeId)
+      const module = parentNodeId.startsWith('news:') ? 'split' : 'verify'
+      const { useWorkspaceStore } = await import('./workspace')
+      const workspaceId = useWorkspaceStore().currentWorkspaceId
+      const workspace = workspaceId
+        ? await window.electronAPI.workspace.get(workspaceId)
+        : null
+      catalog.value = workspace?.agents?.length
+        ? workspace.agents
+          .filter(agent => agent.agentType === module && agent.agentName)
+          .map(agent => ({
+            agentName: agent.agentName!,
+            module,
+            displayLabel: agent.displayLabel,
+            defaultPriority: agent.defaultPriority,
+            description: agent.description,
+          }))
+        : await window.electronAPI.catalog.list(module)
       catalogParent.value = parentNodeId
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -155,19 +182,44 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().addSubAgent({ mapId, parentNodeId, params })
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'node.create',
+        mapId,
+        node: { kind: 'route', parentId: parentNodeId, ...params },
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
     }
   }
 
-  async function updateNodeParams(nodeId: string, params: UpdateNodeParamsPatch) {
+  async function updateNodeParams(
+    nodeId: string,
+    params: Partial<{ content: string; category: string; priority: MapSubAgentParams['priority']; hint: string }>,
+  ) {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().updateNodeParams({ mapId, nodeId, params })
+      const node = snapshot.value?.nodes.find(item => item.id === nodeId)
+      if (!node || node.kind === 'parseAgent' || node.kind === 'opinion') return
+      const patch: MapperNodePatch = node.kind === 'news'
+        ? { kind: 'news', content: params.content }
+        : node.kind === 'claim'
+          ? {
+              kind: 'claim',
+              content: params.content,
+              category: params.category,
+            }
+          : node.kind === 'subAgent'
+            ? { kind: 'route', priority: params.priority, hint: params.hint }
+            : { kind: 'source' }
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'node.update',
+        mapId,
+        nodeId,
+        patch,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -179,7 +231,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().removeNode({ mapId, nodeId })
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'node.delete',
+        mapId,
+        nodeId,
+      }))
       if (selectedNodeId.value === nodeId) selectedNodeId.value = null
       errorMessage.value = null
     } catch (e) {
@@ -200,12 +256,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
     try {
-      const { snapshot: next } = await portReadApi().runTimeline(
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'run.start',
         mapId,
-        mode.value,
-        selectedNodeId.value,
-      )
-      snapshot.value = next
+        mode: mode.value,
+        selectedNodeId: selectedNodeId.value ?? undefined,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -218,7 +274,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().updateTimeline(mapId, patch)
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'timeline.update',
+        mapId,
+        patch,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -238,12 +298,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
     try {
-      const { snapshot: next } = await portReadApi().startRun(
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'run.start',
         mapId,
-        mode.value,
-        selectedNodeId.value,
-      )
-      snapshot.value = next
+        mode: mode.value,
+        selectedNodeId: selectedNodeId.value ?? undefined,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -273,7 +333,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       }
     }
     try {
-      snapshot.value = await portReadApi().continueStep(mapId)
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'run.continue',
+        mapId,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -287,7 +350,10 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     const mapId = currentMapId.value
     if (!mapId) return
     try {
-      snapshot.value = await portReadApi().cancel(mapId)
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'run.cancel',
+        mapId,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -299,7 +365,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (!mapId) return
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().setMode(mapId, next)
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'run.set-mode',
+        mapId,
+        mode: next,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -319,8 +389,12 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       snapshot.value = { ...snapshot.value, runPhase: 'running' }
     }
     try {
-      const { snapshot: next } = await portReadApi().startParse(mapId, sourceId)
-      snapshot.value = next
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'run.start',
+        mapId,
+        mode: mode.value,
+        selectedNodeId: sourceId,
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -334,11 +408,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().addSourceChain(mapId, {
-        uri,
-        kind: 'file',
-        label,
-      })
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'node.create',
+        mapId,
+        node: { kind: 'source', uri, sourceKind: 'file', label },
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -351,7 +425,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().addRootNews(mapId)
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'node.create',
+        mapId,
+        node: { kind: 'news', content: '' },
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg
@@ -364,7 +442,11 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     if (currentMapId.value !== mapId) await attachMap(mapId)
     try {
       assertLeaseWritable()
-      snapshot.value = await portReadApi().addRootClaim(mapId)
+      applyMapperResult(await window.electronAPI.mapper.dispatch({
+        type: 'node.create',
+        mapId,
+        node: { kind: 'claim', content: '' },
+      }))
       errorMessage.value = null
     } catch (e) {
       errorMessage.value = errReadApp(e).msg

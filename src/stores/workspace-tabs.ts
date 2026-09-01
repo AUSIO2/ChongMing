@@ -1,8 +1,6 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { computed, ref } from 'vue'
-import type { DisplayMapSummary } from '../../electron/api/types'
 import { errReadApp } from '../../electron/shared/errors'
-import { portReadApi } from '../flow-map'
 import { useFlowMapStore } from './flow-map'
 import { useRunCoordinatorStore } from './run-coordinator'
 import { useWorkspaceStore } from './workspace'
@@ -50,13 +48,15 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
   async function tabAcquireLease(mapId: string) {
     const api = typeof window !== 'undefined' ? window.electronAPI : undefined
     const flowMap = useFlowMapStore()
-    if (!api?.map?.tryAcquireLease) {
+    if (!api?.mapper) {
       flowMap.clearLeaseState()
       return
     }
     try {
-      const result = await api.map.tryAcquireLease(mapId)
-      flowMap.applyLeaseResult(result)
+      const result = await api.mapper.dispatch({ type: 'lease.acquire', mapId })
+      flowMap.applyLeaseResult(result.type === 'lease.updated'
+        ? { ok: result.ok, lease: result.lease }
+        : { ok: false, lease: null })
     } catch (e) {
       flowMap.applyLeaseResult({ ok: false, lease: null })
       flowMap.errorMessage = errReadApp(e).msg
@@ -65,9 +65,9 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
 
   async function tabReleaseLease(mapId: string) {
     const api = typeof window !== 'undefined' ? window.electronAPI : undefined
-    if (!api?.map?.releaseLease) return
+    if (!api?.mapper) return
     try {
-      await api.map.releaseLease(mapId)
+      await api.mapper.dispatch({ type: 'lease.release', mapId })
     } catch {
       /* ignore */
     }
@@ -135,7 +135,10 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
       const phase = coordinator.runReadPhase(tab.id)
       if (phase === 'running') {
         if (!options?.forceCancelRunning) return false
-        await portReadApi().cancel(tab.id)
+        await window.electronAPI.mapper.dispatch({
+          type: 'run.cancel',
+          mapId: tab.id,
+        })
       }
       coordinator.runUntrackMap(tab.id)
       await tabReleaseLease(tab.id)
@@ -165,30 +168,20 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
     const coordinator = useRunCoordinatorStore()
     for (const mapId of mapIds) {
       coordinator.runUntrackMap(mapId)
-      portReadApi().unloadMap(mapId)
       void tabReleaseLease(mapId)
     }
     useFlowMapStore().clearLeaseState()
     return mapIds
   }
 
-  async function onDbSwitched(mapList: DisplayMapSummary[]) {
+  async function onDbSwitched(_mapList: unknown[]) {
     closeAllMapTabs()
     const workspace = useWorkspaceStore()
     workspace.currentMapId = null
     workspace.currentMap = null
     useFlowMapStore().detachMap()
     await workspace.loadWorkspaces()
-    if (mapList.length > 0 && workspace.currentWorkspaceId) {
-      workspace.mapList = mapList.filter(
-        m => m.workspaceId === workspace.currentWorkspaceId,
-      )
-      if (workspace.mapList.length === 0) {
-        await workspace.loadMapList()
-      }
-    } else {
-      await workspace.loadMapList()
-    }
+    await workspace.loadMapList()
     if (tabs.value.some(t => t.id === TAB_ID_DATABASE)) {
       activeTabId.value = TAB_ID_DATABASE
       await activateTab(TAB_ID_DATABASE)
@@ -201,14 +194,6 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
   function updateMapTitle(mapId: string, title: string) {
     const tab = tabs.value.find(t => t.kind === 'map' && t.id === mapId)
     if (tab) tab.title = title.trim() || 'Map'
-  }
-
-  async function flushAllMapTabs(): Promise<void> {
-    const { portReadApi } = await import('../flow-map')
-    for (const tab of tabs.value) {
-      if (tab.kind !== 'map') continue
-      await portReadApi().flushMap(tab.id)
-    }
   }
 
   function hasRunningMapTab(): boolean {
@@ -232,7 +217,6 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
     onDbSwitched,
     updateMapTitle,
     tabSaveMapSelection,
-    flushAllMapTabs,
     hasRunningMapTab,
   }
 })

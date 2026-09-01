@@ -3,7 +3,6 @@ import type { ChromeMenuAction } from './types'
 import { useWorkspaceTabsStore } from '../stores/workspace-tabs'
 import { chromeShowToast } from './use-chrome-menu'
 import { toolOpenDialog } from './tool-dialogs'
-import { portReadApi } from '../flow-map'
 import { agentManagerRequestCreate } from '../stores/agent-manager-ui'
 
 export function chromeDispatchAction(action: ChromeMenuAction) {
@@ -39,7 +38,6 @@ export function chromeDispatchAction(action: ChromeMenuAction) {
       }
       void (async () => {
         try {
-          await portReadApi().flushMap(mapId)
           chromeShowToast('已保存')
         } catch (e) {
           chromeShowToast(e instanceof Error ? e.message : '保存失败')

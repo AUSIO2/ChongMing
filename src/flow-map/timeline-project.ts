@@ -1,5 +1,4 @@
 import { MAP_COLUMN_LABEL, layoutReadNodeColumn } from './columns'
-import { docCollectSubtree } from './graph-doc'
 import { layoutReadSnapshot } from './layout'
 import type { MapTimeline } from './timeline'
 import type { MapNode, MapSnapshot } from './types'
@@ -23,6 +22,21 @@ function timelineFormatRootLabel(node: MapNode, nodes: MapNode[], index: number)
   return `${typeLabel}${index}`
 }
 
+function collectSubtree(snapshot: MapSnapshot, rootId: string): Set<string> {
+  const ids = new Set([rootId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const node of snapshot.nodes) {
+      if (node.parentId && ids.has(node.parentId) && !ids.has(node.id)) {
+        ids.add(node.id)
+        changed = true
+      }
+    }
+  }
+  return ids
+}
+
 export function timelineProjectLines(snapshot: MapSnapshot): TimelineLine[] {
   const layout = layoutReadSnapshot(snapshot)
   const byId = new Map(layout.nodes.map(n => [n.node.id, n]))
@@ -36,7 +50,7 @@ export function timelineProjectLines(snapshot: MapSnapshot): TimelineLine[] {
   const typeCounters = new Map<number, number>()
 
   return rootIds.map(rootId => {
-    const subtree = docCollectSubtree(snapshot, rootId)
+    const subtree = collectSubtree(snapshot, rootId)
     const rootLayout = byId.get(rootId)!
     const rootNode = nodeById.get(rootId)!
     const rootCol = layoutReadNodeColumn(rootNode, snapshot.nodes)

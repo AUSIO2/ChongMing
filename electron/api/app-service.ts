@@ -1,5 +1,4 @@
 import { ChatOpenAI } from '@langchain/openai'
-import { lookup } from 'node:dns/promises'
 import { connect as tlsConnect } from 'node:tls'
 import { app } from 'electron'
 import { AppError, ErrorCode } from '../shared/errors'
@@ -110,7 +109,6 @@ export async function appPingEndpoint(): Promise<AppEndpointPing> {
 
   const timeoutMs = 5_000
   try {
-    await lookup(target.host, { timeout: timeoutMs })
     const latencyMs = await appTlsPing(target.host, target.port, timeoutMs)
     return {
       ok: true,

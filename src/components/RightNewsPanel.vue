@@ -2,50 +2,29 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import PanelRegion from './shell/PanelRegion.vue'
-import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
 
-const store = useWorkspaceStore()
 const flowMap = useFlowMapStore()
-const { currentMap } = storeToRefs(store)
 const { snapshot } = storeToRefs(flowMap)
 
 const contextRows = computed(() => {
-  if (!currentMap.value) return []
-  return Object.entries(currentMap.value.context).map(([key, field]) => ({
+  if (!snapshot.value?.activeNews) return []
+  return Object.entries(snapshot.value.activeNews.context).map(([key, field]) => ({
     key,
     value: field ? String(field.value) : '',
     visible: field?.visibleToAI ?? false,
   }))
 })
 
-/** Map 有 claim 时以 Map 为准（含 shouldSave=false）；DB 按 id 补 score。 */
 const displayClaims = computed(() => {
-  const persisted = currentMap.value?.claims ?? []
-  const byId = new Map(persisted.map(c => [c.claimId, c]))
   const mapClaims = (snapshot.value?.nodes ?? []).filter(n => n.kind === 'claim')
-
-  if (mapClaims.length > 0) {
-    return mapClaims.map(n => {
-      const db = byId.get(n.id)
-      return {
-        id: n.id,
-        content: n.params.content,
-        category: n.params.category,
-        score: db?.verifyResult?.score,
-        rejected: !n.shouldSave,
-        pending: n.shouldSave && n.dataPhase === 'workerOut',
-      }
-    })
-  }
-
-  return persisted.map(c => ({
-    id: c.claimId,
-    content: c.content,
-    category: c.category,
-    score: c.verifyResult?.score,
-    rejected: false,
-    pending: false,
+  return mapClaims.map(n => ({
+    id: n.id,
+    content: n.params.content,
+    category: n.params.category,
+    score: n.params.confidence,
+    rejected: !n.shouldSave,
+    pending: n.shouldSave && n.dataPhase === 'workerOut',
   }))
 })
 
@@ -58,7 +37,7 @@ function scoreClass(score?: number) {
 
 <template>
   <div class="right-news">
-    <template v-if="currentMap">
+    <template v-if="snapshot">
       <PanelRegion title="上下文" class="section">
         <table v-if="contextRows.length">
           <tbody>
@@ -73,7 +52,7 @@ function scoreClass(score?: number) {
       </PanelRegion>
 
       <PanelRegion title="正文" class="section content-section">
-        <article class="content">{{ currentMap.content }}</article>
+        <article class="content">{{ snapshot.activeNews?.content ?? '' }}</article>
       </PanelRegion>
 
       <PanelRegion :title="`事实 (${displayClaims.length})`" class="section claims-section">

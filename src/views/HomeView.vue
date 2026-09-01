@@ -15,7 +15,6 @@ import { useWorkspaceStore } from '../stores/workspace'
 import { useFlowMapStore } from '../stores/flow-map'
 import { useWorkspaceTabsStore } from '../stores/workspace-tabs'
 import { useRunCoordinatorStore } from '../stores/run-coordinator'
-import { portIsInstalled, portReadApi } from '../flow-map'
 import { useAppShortcuts } from '../shortcuts'
 import ToolDedupDialog from '../components/tools/ToolDedupDialog.vue'
 import ToolBatchSubAgentDialog from '../components/tools/ToolBatchSubAgentDialog.vue'
@@ -30,7 +29,7 @@ const { storeReadError } = storeToRefs(flowMapStore)
 const { activeTab, activeMapId } = storeToRefs(tabsStore)
 
 const hasElectron = typeof window !== 'undefined' && !!window.electronAPI
-const canRun = computed(() => hasElectron && portIsInstalled())
+const canRun = computed(() => hasElectron && !!window.electronAPI.mapper)
 
 const isMapTab = computed(() => activeTab.value?.kind === 'map')
 
@@ -44,14 +43,15 @@ watch(
     mapUnsub?.()
     mapUnsub = null
     if (!mapId || !canRun.value) return
-    mapUnsub = portReadApi().onUpdated(async (id, reason) => {
-      if (!tabsStore.hasMapTab(id)) return
-      const phase = await coordinator.runSyncPhase(id)
-      if (tabsStore.activeMapId === id) void flowMapStore.refresh()
-      if (reason === 'completed' && tabsStore.activeMapId === id) {
+    mapUnsub = window.electronAPI.mapper.watch((event) => {
+      if (!tabsStore.hasMapTab(event.mapId)) return
+      coordinator.runSetPhase(event.mapId, event.snapshot.runPhase)
+      if (tabsStore.activeMapId === event.mapId) {
+        flowMapStore.snapshot = event.snapshot
+      }
+      if (event.snapshot.runPhase === 'idle' && tabsStore.activeMapId === event.mapId) {
         void workspace.refreshCurrentMap()
       }
-      void phase
     })
   },
   { immediate: true },

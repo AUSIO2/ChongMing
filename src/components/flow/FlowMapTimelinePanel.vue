@@ -2,11 +2,8 @@
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { useWorkspaceStore } from '../../stores/workspace'
 import {
   timelineCreateDefault,
-  timelineReadEffectiveIndex,
-  timelineReadScope,
   labelFormatFocusNode,
   labelFormatHitl,
   type ExecutionMode,
@@ -29,10 +26,8 @@ import FlowMapTimelineCanvas from './FlowMapTimelineCanvas.vue'
 import { shortcutFormatRunContinueHint } from '../../shortcuts'
 
 const store = useFlowMapStore()
-const workspace = useWorkspaceStore()
 const {
   snapshot,
-  selectedNodeId,
   isRunning,
   runPhase,
   mode,
@@ -40,23 +35,12 @@ const {
   leaseWritable,
   leaseHint,
 } = storeToRefs(store)
-const { currentMap } = storeToRefs(workspace)
 
 const timeline = computed(() => snapshot.value?.timeline ?? timelineCreateDefault())
 
-const scope = computed(() => {
-  if (!snapshot.value) return ''
-  return timelineReadScope(snapshot.value, timeline.value, selectedNodeId.value)
-})
-
 const effectiveX = computed(() => {
   if (!snapshot.value) return 0
-  return timelineReadEffectiveIndex(
-    timeline.value,
-    snapshot.value,
-    currentMap.value?.claims ?? [],
-    scope.value,
-  )
+  return timeline.value.stateIndex ?? timeline.value.startX
 })
 
 const lines = computed(() =>

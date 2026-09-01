@@ -1,7 +1,8 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref } from 'vue'
-import type { MapRunPhase } from '../flow-map'
-import { portReadApi } from '../flow-map'
+import type { MapperSnapshot } from '../../electron/mapper/types'
+
+type MapRunPhase = MapperSnapshot['runPhase']
 
 export const useRunCoordinatorStore = defineStore('run-coordinator', () => {
   const phaseByMapId = ref<Record<string, MapRunPhase>>({})
@@ -22,9 +23,15 @@ export const useRunCoordinatorStore = defineStore('run-coordinator', () => {
   }
 
   async function runSyncPhase(mapId: string) {
-    const snap = await portReadApi().getSnapshot(mapId)
-    runSetPhase(mapId, snap.runPhase)
-    return snap.runPhase
+    const result = await window.electronAPI.mapper.read({
+      type: 'map.snapshot',
+      mapId,
+    })
+    const phase = result.type === 'map.snapshot'
+      ? result.snapshot?.runPhase ?? 'idle'
+      : 'idle'
+    runSetPhase(mapId, phase)
+    return phase
   }
 
   return {

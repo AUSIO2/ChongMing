@@ -1,10 +1,7 @@
 import { ipcMain } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
-import * as mapService from './map-service'
-import * as mapLease from './map-lease'
 import * as workspaceService from './workspace-service'
-import * as graphService from './graph-service'
 import * as fileService from './file-service'
 import * as dbService from './db-service'
 import * as catalogService from './catalog-service'
@@ -13,21 +10,15 @@ import * as promptConfigService from './prompt-config-service'
 import * as registryService from './agent-registry-service'
 import { skillList } from '../skills/registry'
 import { catalogReadEntries } from './sub-agent-catalog'
+import { mapperService } from '../mapper'
 import { errUpdateNormalize, errReadSerialize } from '../shared/errors'
-import type { ExecutionMode } from '../shared/types'
 import type {
-  CreateMapInput,
   CreateWorkspaceInput,
-  GraphStatePatch,
-  MapGraphPersist,
-  MapRunPersist,
-  RestoreRunInput,
-  StartTransitionInput,
-  UpdateMapInput,
   UpdateWorkspaceInput,
   UploadLocalAgentsMode,
 } from './types'
 import type { CatalogWriteInput } from './catalog-service'
+import type { MapperCommand, MapperQuery } from '../mapper/types'
 
 type WindowGetter = () => BrowserWindow | null
 
@@ -44,14 +35,18 @@ function handle(channel: string, fn: (...args: any[]) => unknown): void {
 
 export function handlerRegisterIpc(getWindow: WindowGetter): void {
   handle(
-    IPC_CHANNELS.MAP_CREATE,
-    (input: CreateMapInput) => mapService.mapCreate(input),
+    IPC_CHANNELS.MAPPER_READ,
+    (query: MapperQuery) => mapperService.read(query),
   )
 
   handle(
-    IPC_CHANNELS.MAP_LIST,
-    (workspaceId: string) => mapService.mapReadIndex(workspaceId),
+    IPC_CHANNELS.MAPPER_DISPATCH,
+    (command: MapperCommand) => mapperService.dispatch(command),
   )
+
+  mapperService.watch(event => {
+    getWindow()?.webContents.send(IPC_CHANNELS.MAPPER_UPDATED, event)
+  })
 
   handle(IPC_CHANNELS.WORKSPACE_LIST, () => workspaceService.workspaceList())
 
@@ -80,58 +75,6 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
     IPC_CHANNELS.WORKSPACE_UPLOAD_LOCAL_AGENTS,
     (workspaceId: string, mode?: UploadLocalAgentsMode) =>
       workspaceService.workspaceUploadLocalAgents(workspaceId, mode),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_GET,
-    (mapId: string) => mapService.mapRead(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_UPDATE,
-    (mapId: string, patch: UpdateMapInput) =>
-      mapService.mapUpdate(mapId, patch),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_DELETE,
-    (mapId: string) => mapService.mapDelete(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_SAVE,
-    (
-      mapId: string,
-      data: {
-        mapRun?: MapRunPersist | null
-        mapGraph?: MapGraphPersist | null
-      },
-    ) => mapService.mapUpdatePersistMap(mapId, data),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_READ_ALL_CLAIMS,
-    (mapId: string) => mapService.mapReadAllClaims(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_LEASE_TRY_ACQUIRE,
-    (mapId: string) => mapLease.mapLeaseTryAcquire(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_LEASE_HEARTBEAT,
-    (mapId: string) => mapLease.mapLeaseHeartbeat(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_LEASE_RELEASE,
-    (mapId: string) => mapLease.mapLeaseRelease(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.MAP_LEASE_STATUS,
-    (mapId: string) => mapLease.mapLeaseStatus(mapId),
   )
 
   handle(
@@ -276,39 +219,4 @@ export function handlerRegisterIpc(getWindow: WindowGetter): void {
       registryService.registryPreviewOutput(kind, params),
   )
 
-  handle(
-    IPC_CHANNELS.GRAPH_RUN_TRANSITION,
-    (input: StartTransitionInput) => graphService.runTransition(input, getWindow),
-  )
-
-  handle(
-    IPC_CHANNELS.GRAPH_RESUME,
-    (runId: string, modifications: GraphStatePatch) => {
-      graphService.runUpdateResume(runId, modifications)
-    },
-  )
-
-  handle(
-    IPC_CHANNELS.GRAPH_SET_MODE,
-    async (runId: string, mode: ExecutionMode) => {
-      await graphService.runUpdateMode(runId, mode)
-    },
-  )
-
-  handle(
-    IPC_CHANNELS.GRAPH_CANCEL,
-    (runId: string) => {
-      graphService.runDeleteSession(runId)
-    },
-  )
-
-  handle(
-    IPC_CHANNELS.GRAPH_GET_ACTIVE_RUN,
-    (mapId: string) => graphService.runReadSession(mapId),
-  )
-
-  handle(
-    IPC_CHANNELS.GRAPH_RESTORE,
-    (input: RestoreRunInput) => graphService.runRestoreSession(input, getWindow),
-  )
 }

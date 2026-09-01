@@ -1,8 +1,9 @@
 {
   "name": "chongming",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "重明 — 事实核查智能体",
+  "author": "AUSIO2 <ian666xiong@gmail.com>",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE vite",
     "build": "vite build && electron-builder",
@@ -15,7 +16,6 @@
   "dependencies": {
     "@langchain/core": "^1.2.1",
     "@langchain/langgraph": "^1.4.7",
-    "@langchain/langgraph-checkpoint-mongodb": "^1.4.0",
     "@langchain/openai": "^1.5.3",
     "langsmith": "^0.7.14",
     "mongoose": "^9.7.3",

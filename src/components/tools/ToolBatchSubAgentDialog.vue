@@ -4,7 +4,6 @@ import { storeToRefs } from 'pinia'
 import type { Priority } from '../../flow-map'
 import { useFlowMapStore } from '../../stores/flow-map'
 import { useWorkspaceTabsStore } from '../../stores/workspace-tabs'
-import { portReadApi } from '../../flow-map'
 import { toolCloseDialog, toolDialogOpen } from '../../chrome/tool-dialogs'
 import { chromeShowToast } from '../../chrome/use-chrome-menu'
 
@@ -35,8 +34,12 @@ async function onConfirm() {
     if (agentName.value.trim()) {
       patch.agentName = agentName.value.trim()
     }
-    const snap = await portReadApi().toolBatchUpdateSubAgents(mapId, patch)
-    flowMap.snapshot = snap
+    const result = await window.electronAPI.mapper.dispatch({
+      type: 'routes.batch-update',
+      mapId,
+      patch,
+    })
+    if (result.type === 'map.updated') flowMap.snapshot = result.snapshot
     toolCloseDialog()
     chromeShowToast('批量更新完成')
   } catch (e) {

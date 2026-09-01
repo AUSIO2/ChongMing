@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
-import { docCanAddSubAgent, docCanEditNode, docCanRemoveNode, docReadLockReason, labelFormatNodeKind, labelFormatHitl, DATA_PHASE_LABEL } from '../../flow-map'
+import { canAddSubAgent, canEditNode, canRemoveNode, readNodeLockReason, labelFormatNodeKind, labelFormatHitl, DATA_PHASE_LABEL } from '../../flow-map'
 import SubAgentCatalogPicker from './SubAgentCatalogPicker.vue'
 import type {
   MapNode,
@@ -42,35 +42,35 @@ const isNewsRouteAddable = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return docCanAddSubAgent(s, id)
+  return canAddSubAgent(s, id)
 })
 
 const lockReason = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return undefined
-  return docReadLockReason(s, id)
+  return readNodeLockReason(s, id)
 })
 
 const isSelectedClaimAddable = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return docCanAddSubAgent(s, id)
+  return canAddSubAgent(s, id)
 })
 
 const canEditSelected = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return docCanEditNode(s, id)
+  return canEditNode(s, id)
 })
 
 const canRemoveSelected = computed(() => {
   const s = snapshot.value
   const id = selectedNodeId.value
   if (!s || !id) return false
-  return docCanRemoveNode(s, id)
+  return canRemoveNode(s, id)
 })
 
 function beginAddFor(parentNodeId: string) {

@@ -2,8 +2,9 @@ import mongoose from 'mongoose'
 import { dbCreate, dbDelete } from '../shared/database'
 import { dbReadDefaultUri, dbReadSettings, dbWriteSettings } from '../shared/db-settings'
 import { errReadMessage } from '../shared/errors'
-import * as mapService from './map-service'
-import type { DisplayMapSummary } from './types'
+import { mapDocumentList } from '../mapper/document'
+import type { MapperMapSummary } from '../mapper/types'
+import { workspaceBootstrapAfterConnect, WORKSPACE_DEFAULT_ID } from './workspace-service'
 
 export interface DbStatus {
   uri: string
@@ -49,22 +50,19 @@ export async function dbTestConnection(uri: string): Promise<{ ok: boolean, erro
   }
 }
 
-async function dbReconnectUri(uri: string): Promise<DisplayMapSummary[]> {
+async function dbReconnectUri(uri: string): Promise<MapperMapSummary[]> {
   await dbDelete()
   await dbCreate(uri)
-  const { workspaceBootstrapAfterConnect, WORKSPACE_DEFAULT_ID } = await import(
-    './workspace-service'
-  )
   await workspaceBootstrapAfterConnect()
-  return mapService.mapReadIndex(WORKSPACE_DEFAULT_ID)
+  return mapDocumentList(WORKSPACE_DEFAULT_ID)
 }
 
-export async function dbReconnect(): Promise<DisplayMapSummary[]> {
+export async function dbReconnect(): Promise<MapperMapSummary[]> {
   const { uri } = dbReadSettings()
   return dbReconnectUri(uri)
 }
 
-export async function dbSwitch(uri: string): Promise<DisplayMapSummary[]> {
+export async function dbSwitch(uri: string): Promise<MapperMapSummary[]> {
   const next = uri.trim()
   dbWriteSettings({ uri: next })
   return dbReconnectUri(next)

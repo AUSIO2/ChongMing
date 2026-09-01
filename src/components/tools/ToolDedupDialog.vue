@@ -3,7 +3,6 @@ import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useFlowMapStore } from '../../stores/flow-map'
 import { useWorkspaceTabsStore } from '../../stores/workspace-tabs'
-import { portReadApi } from '../../flow-map'
 import { toolCloseDialog } from '../../chrome/tool-dialogs'
 import { chromeShowToast } from '../../chrome/use-chrome-menu'
 
@@ -18,8 +17,11 @@ async function onConfirm() {
   if (!mapId || busy.value) return
   busy.value = true
   try {
-    const snap = await portReadApi().toolDedupClaims(mapId)
-    flowMap.snapshot = snap
+    const result = await window.electronAPI.mapper.dispatch({
+      type: 'claims.dedup',
+      mapId,
+    })
+    if (result.type === 'map.updated') flowMap.snapshot = result.snapshot
     toolCloseDialog()
     chromeShowToast('Claim 去重完成')
   } catch (e) {

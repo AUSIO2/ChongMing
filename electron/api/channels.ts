@@ -1,16 +1,8 @@
 /** IPC channel 常量 — main / preload 共用 */
 export const IPC_CHANNELS = {
-  MAP_CREATE: 'map:create',
-  MAP_LIST: 'map:list',
-  MAP_GET: 'map:get',
-  MAP_UPDATE: 'map:update',
-  MAP_DELETE: 'map:delete',
-  MAP_SAVE: 'map:save',
-  MAP_READ_ALL_CLAIMS: 'map:read-all-claims',
-  MAP_LEASE_TRY_ACQUIRE: 'map:lease-try-acquire',
-  MAP_LEASE_HEARTBEAT: 'map:lease-heartbeat',
-  MAP_LEASE_RELEASE: 'map:lease-release',
-  MAP_LEASE_STATUS: 'map:lease-status',
+  MAPPER_READ: 'mapper:read',
+  MAPPER_DISPATCH: 'mapper:dispatch',
+  MAPPER_UPDATED: 'mapper:updated',
 
   WORKSPACE_LIST: 'workspace:list',
   WORKSPACE_GET: 'workspace:get',
@@ -60,18 +52,6 @@ export const IPC_CHANNELS = {
   AGENT_REGISTRY_RELOAD: 'agent-registry:reload',
   AGENT_REGISTRY_PREVIEW_OUTPUT: 'agent-registry:preview-output',
 
-  GRAPH_RUN_TRANSITION: 'graph:run-transition',
-  GRAPH_RESUME: 'graph:resume',
-  GRAPH_SET_MODE: 'graph:set-mode',
-  GRAPH_CANCEL: 'graph:cancel',
-  GRAPH_GET_ACTIVE_RUN: 'graph:get-active-run',
-  GRAPH_RESTORE: 'graph:restore',
-
-  GRAPH_INTERRUPTED: 'graph:interrupted',
-  GRAPH_COMPLETED: 'graph:completed',
-  GRAPH_ERROR: 'graph:error',
-  GRAPH_PROGRESS: 'graph:progress',
-  GRAPH_STATE: 'graph:state',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

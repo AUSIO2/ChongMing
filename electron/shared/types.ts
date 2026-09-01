@@ -2,9 +2,6 @@
 // 共享类型 — 拆分 & 核查模块通用
 // ==========================================
 
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-
 // ==========================================
 // 基础数据类型
 // ==========================================
@@ -68,29 +65,6 @@ export interface AgentDoc {
 }
 
 export const WORKSPACE_DEFAULT_ID = 'workspace:default'
-
-// ==========================================
-// Agent 配置类型
-// ==========================================
-
-/** Agent 运行时配置（per-agent model/tools/并发） */
-export interface AgentRuntimeConfig {
-  name: string
-  promptPath: string
-  model?: BaseChatModel
-  tools?: StructuredToolInterface[]
-  maxConcurrency?: number
-}
-
-/** 拆分 / 核查图共用构建配置（mode 仅 split 使用）。 */
-export interface GraphConfig {
-  defaultModel: BaseChatModel
-  availableAgents: AgentRuntimeConfig[]
-  routePromptPath: string
-  mergePromptPath: string
-  maxConcurrency?: number
-  mode?: ExecutionMode
-}
 
 /**
  * Map SubAgent 槽位参数 — 前后端唯一来源。
