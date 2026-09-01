@@ -74,26 +74,19 @@
 
 | 前缀 | 模块 |
 |------|------|
-| `doc` | `src/flow-map/graph-doc.ts` |
-| `proj` | `src/flow-map/projection/` |
+| `mapDocument` | `electron/mapper/document.ts` |
+| `project` | `electron/mapper/project.ts` |
+| `read` | `electron/mapper/output.ts` 的模型输出解析 |
+| `parse` / `split` / `verify` | `electron/mapper/stages/` |
+| `mapLease` | `electron/api/map-lease.ts` |
 | `mapId` | `electron/shared/map-ids.ts` |
 | `layout` | `src/flow-map/layout.ts` |
 | `timeline` | `src/flow-map/timeline.ts` |
 | `label` | `src/flow-map/tool-labels.ts` |
-| `port` | `src/flow-map/port.ts` |
-| `adapter` | `src/flow-map/adapters/electron-ipc.ts` |
-| `run` | `electron/api/graph-service.ts` |
-| `graph` | `electron/shared/graph-utils.ts` |
-| `split` / `verify` / `parse` | `extractor.ts` / `verifier.ts` / `parser.ts` |
 | `llm` | `electron/shared/llm-utils.ts` |
 | `err` | `electron/shared/errors.ts` |
 | `ctx` | `electron/shared/context.ts` |
-| `prompt` | `electron/shared/prompt-loader.ts` |
-| `map` | `electron/api/map-service.ts` |
-| `serial` | `electron/api/serialize.ts` |
-| `catalog` | `electron/api/sub-agent-catalog.ts` |
-| `agent` | `electron/api/agent-config.ts` |
-| `ckpt` | `electron/shared/checkpointer.ts` |
+| `prompt` | `electron/shared/prompt-vars.ts` |
 | `db` | `electron/shared/database.ts` |
 | `handler` | `electron/api/register-handlers.ts` |
 | `tool` | `electron/tools/index.ts` |
@@ -114,7 +107,7 @@
 
 ### 豁免（不改名）
 
-- `MapAPI` / `GraphAPI` 接口方法（`getSnapshot`、`startSplit` 等）
+- `MapperAPI` 接口方法（`read`、`dispatch`、`watch`）
 - Vue `use*` composable、Pinia store 内部方法
 - IPC channel 字符串（`channels.ts`）
 - 类型/接口名、Vue 组件名

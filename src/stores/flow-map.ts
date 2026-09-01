@@ -138,7 +138,6 @@ export const useFlowMapStore = defineStore('flow-map', () => {
     }
     if (
       runPhase.value === 'idle'
-      || runPhase.value === 'error'
       || runPhase.value === 'completed'
     ) {
       void runTimeline()
