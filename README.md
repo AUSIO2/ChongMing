@@ -1,18 +1,30 @@
-# Vue 3 + TypeScript + Vite
+# 重明 ChongMing
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+面向新闻事实拆分与核查的桌面 Agent 应用。
 
-## Recommended IDE Setup
+## 架构
 
-- [VS Code](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur) + [TypeScript Vue Plugin (Volar)](https://marketplace.visualstudio.com/items?itemName=Vue.vscode-typescript-vue-plugin).
+代码按三层组织：
 
-## Type Support For `.vue` Imports in TS
+1. Renderer：Vue UI，只通过 `mapper.read / dispatch / watch` 使用业务能力。
+2. Mapper：唯一业务状态机，负责文档、运行步骤、人工确认和断点续跑。
+3. AgentLoop：单次 Agent 调用适配器；当前实现基于 LangGraph，可独立替换。
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [TypeScript Vue Plugin (Volar)](https://marketplace.visualstudio.com/items?itemName=Vue.vscode-typescript-vue-plugin) to make the TypeScript language service aware of `.vue` types.
+持久化以 `MapperDocument` 为唯一事实源。运行中的每次 Agent 调用会先登记、再执行、完成后立即落库；应用重启后由 Mapper 跳过已完成调用并继续未完成部分。
 
-If the standalone TypeScript plugin doesn't feel fast enough to you, Volar has also implemented a [Take Over Mode](https://github.com/johnsoncodehk/volar/discussions/471#discussioncomment-1361669) that is more performant. You can enable it by the following steps:
+## 开发
 
-1. Disable the built-in TypeScript Extension
-   1. Run `Extensions: Show Built-in Extensions` from VSCode's command palette
-   2. Find `TypeScript and JavaScript Language Features`, right click and select `Disable (Workspace)`
-2. Reload the VSCode window by running `Developer: Reload Window` from the command palette.
+```bash
+npm install
+npm run dev
+npm test
+npm run build:check
+```
+
+无头运行：
+
+```bash
+npm run headless -- --help
+```
+
+项目不维护旧数据结构兼容层。结构变更时直接清理开发数据库，再使用当前 schema。

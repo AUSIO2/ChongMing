@@ -40,6 +40,13 @@ function cliWriteOk(payload: unknown): void {
   console.log(JSON.stringify(payload))
 }
 
+async function cliAcquireMap(mapId: string): Promise<void> {
+  const result = await mapperService.dispatch({ type: 'lease.acquire', mapId })
+  if (result.type !== 'lease.updated' || !result.ok) {
+    throw new AppError(ErrorCode.MAP_LEASE_HELD, `Map is locked: ${mapId}`)
+  }
+}
+
 function cliReadNewNodeId(
   before: MapperSnapshot,
   after: MapperSnapshot,
@@ -82,6 +89,8 @@ export async function cmdCreate(input: {
     })
     if (created.type !== 'map.updated') throw new Error('map create failed')
     mapId = created.snapshot.mapId
+  } else {
+    await cliAcquireMap(mapId)
   }
 
   const read = await mapperService.read({ type: 'map.snapshot', mapId })
@@ -135,6 +144,7 @@ export async function cmdRun(input: {
 }): Promise<void> {
   const mapId = input.mapId.trim()
   if (!mapId) cliThrowUsage('run requires <mapId>')
+  await cliAcquireMap(mapId)
 
   const patch: { startX?: StateIndex, endX?: StateIndex, activeScope?: string } = {}
   if (input.from !== undefined) patch.startX = cliParseStateIndex(input.from)

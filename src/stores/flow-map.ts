@@ -132,7 +132,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
       return
     }
     if (runPhase.value === 'running') return
-    if (runPhase.value === 'interrupted') {
+    if (runPhase.value === 'interrupted' || runPhase.value === 'error') {
       void continueStep()
       return
     }
@@ -316,7 +316,7 @@ export const useFlowMapStore = defineStore('flow-map', () => {
   async function continueStep() {
     const mapId = currentMapId.value
     if (!mapId || continueInFlight) return
-    if (runPhase.value !== 'interrupted') return
+    if (runPhase.value !== 'interrupted' && runPhase.value !== 'error') return
     try {
       assertLeaseWritable()
     } catch (e) {

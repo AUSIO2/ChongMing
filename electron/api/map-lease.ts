@@ -1,6 +1,7 @@
 import { MapModel } from '../shared/database'
 import { clientReadId } from '../shared/client-identity'
 import { AppError, ErrorCode } from '../shared/errors'
+import { randomUUID } from 'node:crypto'
 
 export const MAP_LEASE_TTL_MS = 30_000
 export const MAP_LEASE_HEARTBEAT_MS = 10_000
@@ -20,12 +21,18 @@ export interface MapLeaseAcquireResult {
 
 type LeaseRaw = {
   holderId?: string
+  leaseId?: string
   acquiredAt?: Date
   heartbeatAt?: Date
 }
 
 const heldMapIds = new Set<string>()
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+let processLeaseId: string = randomUUID()
+
+export function mapLeaseSetIdForTest(value: string | null): void {
+  processLeaseId = value ?? randomUUID()
+}
 
 function leaseIsExpired(heartbeatAt: Date | undefined, now = Date.now()): boolean {
   if (!heartbeatAt) return true
@@ -33,7 +40,7 @@ function leaseIsExpired(heartbeatAt: Date | undefined, now = Date.now()): boolea
 }
 
 function leaseReadInfo(raw: LeaseRaw | null | undefined, now = Date.now()): MapLeaseInfo | null {
-  if (!raw?.holderId || !raw.heartbeatAt) return null
+  if (!raw?.holderId || !raw.leaseId || !raw.heartbeatAt) return null
   if (leaseIsExpired(raw.heartbeatAt, now)) return null
   const me = clientReadId()
   const heartbeatAt = new Date(raw.heartbeatAt)
@@ -43,7 +50,7 @@ function leaseReadInfo(raw: LeaseRaw | null | undefined, now = Date.now()): MapL
     acquiredAt: acquiredAt.toISOString(),
     heartbeatAt: heartbeatAt.toISOString(),
     expiresAt: new Date(heartbeatAt.getTime() + MAP_LEASE_TTL_MS).toISOString(),
-    isMine: raw.holderId === me,
+    isMine: raw.holderId === me && raw.leaseId === processLeaseId,
   }
 }
 
@@ -87,6 +94,7 @@ export async function mapLeaseStatus(mapId: string): Promise<MapLeaseInfo | null
 
 export async function mapLeaseTryAcquire(mapId: string): Promise<MapLeaseAcquireResult> {
   const me = clientReadId()
+  const leaseId = processLeaseId
   const now = new Date()
   const expiredBefore = new Date(now.getTime() - MAP_LEASE_TTL_MS)
 
@@ -96,7 +104,7 @@ export async function mapLeaseTryAcquire(mapId: string): Promise<MapLeaseAcquire
       $or: [
         { writeLease: { $exists: false } },
         { writeLease: null },
-        { 'writeLease.holderId': me },
+        { 'writeLease.leaseId': leaseId },
         { 'writeLease.heartbeatAt': { $lt: expiredBefore } },
       ],
     },
@@ -104,6 +112,7 @@ export async function mapLeaseTryAcquire(mapId: string): Promise<MapLeaseAcquire
       $set: {
         writeLease: {
           holderId: me,
+          leaseId,
           acquiredAt: now,
           heartbeatAt: now,
         },
@@ -132,6 +141,7 @@ export async function mapLeaseHeartbeat(mapId: string): Promise<MapLeaseInfo> {
     {
       _id: mapId,
       'writeLease.holderId': me,
+      'writeLease.leaseId': processLeaseId,
       'writeLease.heartbeatAt': { $gte: new Date(now.getTime() - MAP_LEASE_TTL_MS) },
     },
     { $set: { 'writeLease.heartbeatAt': now } },
@@ -154,7 +164,11 @@ export async function mapLeaseHeartbeat(mapId: string): Promise<MapLeaseInfo> {
 export async function mapLeaseRelease(mapId: string): Promise<void> {
   const me = clientReadId()
   await MapModel.updateOne(
-    { _id: mapId, 'writeLease.holderId': me },
+    {
+      _id: mapId,
+      'writeLease.holderId': me,
+      'writeLease.leaseId': processLeaseId,
+    },
     { $unset: { writeLease: 1 } },
   )
   leaseUntrack(mapId)
@@ -174,7 +188,7 @@ export async function mapAssertWritable(mapId: string): Promise<void> {
     throw new AppError(ErrorCode.MAP_NOT_FOUND, `Map not found: ${mapId}`)
   }
   const lease = leaseReadInfo(doc.writeLease as LeaseRaw | undefined)
-  if (!lease || lease.holderId !== me) {
+  if (!lease || !lease.isMine || lease.holderId !== me) {
     throw new AppError(
       ErrorCode.MAP_LEASE_HELD,
       lease

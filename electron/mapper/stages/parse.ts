@@ -3,14 +3,12 @@ import { mapIdCreateNews, mapIdReadChain } from '../../shared/map-ids'
 import { AppError, ErrorCode } from '../../shared/errors'
 import { promptRender } from '../../shared/prompt-vars'
 import { workspaceReadForMap } from '../../api/workspace-service'
-import type { AgentEvent, AgentLoop, MapperDocument } from '../types'
+import type { MapperStageContext } from '../types'
 
 export async function parseStep(
-  document: MapperDocument,
-  agentLoop: AgentLoop,
-  signal: AbortSignal,
-  onEvent: (event: AgentEvent) => void,
+  context: MapperStageContext,
 ): Promise<void> {
+  const { document } = context
   const run = document.run
   if (!run || run.stage !== 'parse') return
 
@@ -53,24 +51,23 @@ export async function parseStep(
       'parseExtract',
       { rawContent },
     )
-    const result = await agentLoop.run({
-      callId: `${run.runId}:parse`,
-      prompt,
-      agent: {
-        name: agent.agentName ?? 'parse',
-        model: agent.model,
-        baseUrl: agent.baseUrl,
-        tools: agent.tools ?? [],
+    const [record] = await context.executeCalls([{
+      call: {
+        callId: `${run.runId}:parse`,
+        prompt,
+        agent: {
+          name: agent.agentName ?? 'parse',
+          model: agent.model,
+          baseUrl: agent.baseUrl,
+          tools: agent.tools ?? [],
+        },
       },
-    }, { signal, onEvent })
-    run.draft.calls = [{
-      callId: `${run.runId}:parse`,
+      role: 'parse',
       agentName: agent.agentName ?? 'parse',
-      text: result.text,
-      sessionId: result.sessionId,
-    }]
-    run.draft.output = result.text.trim() || rawContent.trim()
-    run.step = 'validate'
+    }])
+    const resumedRun = context.document.run!
+    resumedRun.draft.output = record.result!.text.trim() || rawContent.trim()
+    resumedRun.step = 'validate'
     return
   }
 

@@ -70,10 +70,10 @@ const playheadFrame = computed<FrameIndex>(() => {
 
 const primaryAction = computed<'run' | 'continue' | null>(() => {
   if (!snapshot.value) return null
-  if (runPhase.value === 'idle' || runPhase.value === 'error' || runPhase.value === 'completed') {
+  if (runPhase.value === 'idle' || runPhase.value === 'completed') {
     return 'run'
   }
-  if (runPhase.value === 'interrupted') return 'continue'
+  if (runPhase.value === 'interrupted' || runPhase.value === 'error') return 'continue'
   return null
 })
 
@@ -95,7 +95,7 @@ const primaryHint = computed(() => {
   else if (runPhase.value === 'interrupted') {
     base = focusText.value || '已暂停，点继续推进'
   } else if (runPhase.value === 'completed') base = '本阶段已完成'
-  else if (runPhase.value === 'error') base = '上次出错，可重新运行'
+  else if (runPhase.value === 'error') base = '上次出错，可从断点重试'
   else base = '按结束帧自动调度过渡'
 
   if (primaryAction.value) {

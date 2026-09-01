@@ -26,6 +26,8 @@ import type {
   AgentLoop,
   MapperAPI,
   MapperCommand,
+  MapperCallPlan,
+  MapperCallRecord,
   MapperDispatchResult,
   MapperDocument,
   MapperNodeCreate,
@@ -220,6 +222,89 @@ export function createMapper(agentLoop: AgentLoop): MapperAPI & { close(): Promi
     skipGate = false,
   ): Promise<MapperDocument> {
     let document = initial
+    let checkpointTail = Promise.resolve()
+
+    async function checkpoint(
+      callId: string,
+      update: (record: MapperCallRecord) => void,
+    ): Promise<void> {
+      checkpointTail = checkpointTail.then(async () => {
+        const record = document.run?.draft.calls.find(item => item.call.callId === callId)
+        if (!record) {
+          throw new AppError(ErrorCode.MAPPER_EXECUTION_FAILED, `Call not found: ${callId}`)
+        }
+        update(record)
+        Object.assign(document, await commit(document))
+      })
+      await checkpointTail
+    }
+
+    async function executeCalls(plans: MapperCallPlan[]): Promise<MapperCallRecord[]> {
+      const run = document.run!
+      const now = new Date().toISOString()
+      let planned = false
+      for (const plan of plans) {
+        if (run.draft.calls.some(record => record.call.callId === plan.call.callId)) continue
+        run.draft.calls.push({
+          ...plan,
+          status: 'pending',
+          attempt: 0,
+          plannedAt: now,
+        })
+        planned = true
+      }
+      if (planned) Object.assign(document, await commit(document))
+
+      const ids = plans.map(plan => plan.call.callId)
+      const pending = document.run!.draft.calls.filter(record =>
+        ids.includes(record.call.callId) && record.status === 'pending')
+      if (pending.length > 0) {
+        const startedAt = new Date().toISOString()
+        for (const record of pending) {
+          record.status = 'running'
+          record.attempt += 1
+          record.startedAt = startedAt
+          record.error = undefined
+        }
+        Object.assign(document, await commit(document))
+      }
+
+      const runningIds = document.run!.draft.calls
+        .filter(record => ids.includes(record.call.callId) && record.status === 'running')
+        .map(record => record.call.callId)
+      const settled = await Promise.allSettled(runningIds.map(async (callId) => {
+        const record = document.run!.draft.calls.find(item => item.call.callId === callId)!
+        try {
+          const result = await agentLoop.run(record.call, {
+            signal: controller.signal,
+            onEvent: () => {},
+          })
+          await checkpoint(callId, current => {
+            current.status = 'completed'
+            current.result = result
+            current.completedAt = new Date().toISOString()
+          })
+        } catch (error) {
+          await checkpoint(callId, current => {
+            current.status = controller.signal.aborted ? 'cancelled' : 'failed'
+            current.error = error instanceof Error ? error.message : String(error)
+            current.completedAt = new Date().toISOString()
+          })
+          throw error
+        }
+      }))
+      const failed = settled.find(result => result.status === 'rejected')
+      if (failed?.status === 'rejected') throw failed.reason
+
+      return ids.map(callId => {
+        const record = document.run!.draft.calls.find(item => item.call.callId === callId)!
+        if (record.status !== 'completed') {
+          throw new AppError(ErrorCode.MAPPER_EXECUTION_FAILED, `Call incomplete: ${callId}`)
+        }
+        return record
+      })
+    }
+
     try {
       while (document.run) {
         const run = document.run
@@ -228,23 +313,27 @@ export function createMapper(agentLoop: AgentLoop): MapperAPI & { close(): Promi
           || run.step === 'save'
         if (atGate && run.mode === 'human-in-loop' && !skipGate) {
           run.status = 'interrupted'
+          run.pauseReason = 'human'
           run.updatedAt = new Date().toISOString()
           return commit(document)
         }
         skipGate = false
         run.status = 'running'
+        run.pauseReason = undefined
         const step = run.stage === 'parse'
           ? parseStep
           : run.stage === 'split' ? splitStep : verifyStep
-        await step(document, agentLoop, controller.signal, () => {})
-        run.updatedAt = new Date().toISOString()
-        if (run.step === 'done') document.run = undefined
+        await step({ document, signal: controller.signal, executeCalls })
+        const currentRun = document.run!
+        currentRun.updatedAt = new Date().toISOString()
+        if (currentRun.step === 'done') document.run = undefined
         document = await commit(document)
       }
       return document
     } catch (error) {
       if (document.run) {
         document.run.status = controller.signal.aborted ? 'cancelled' : 'error'
+        document.run.pauseReason = controller.signal.aborted ? undefined : 'call-failed'
         document.run.error = error instanceof Error ? error.message : String(error)
         document.run.updatedAt = new Date().toISOString()
         document = await commit(document)
@@ -297,6 +386,18 @@ export function createMapper(agentLoop: AgentLoop): MapperAPI & { close(): Promi
     }
     if (command.type === 'lease.acquire') {
       const result = await mapLeaseTryAcquire(command.mapId)
+      if (result.ok && !activeRuns.has(command.mapId)) {
+        const document = await requireDocument(command.mapId)
+        if (document.run?.status === 'running') {
+          document.run.status = 'interrupted'
+          document.run.pauseReason = 'restart'
+          document.run.error = undefined
+          for (const call of document.run.draft.calls) {
+            if (call.status === 'running') call.status = 'pending'
+          }
+          await commit(document)
+        }
+      }
       return { type: 'lease.updated', mapId: command.mapId, ...result }
     }
     if (command.type === 'lease.release') {
@@ -351,9 +452,10 @@ export function createMapper(agentLoop: AgentLoop): MapperAPI & { close(): Promi
       return { type: 'map.updated', snapshot: projectSnapshot(document) }
     }
     if (command.type === 'run.continue') {
-      if (!document.run || document.run.status !== 'interrupted') {
-        throw new AppError(ErrorCode.MAPPER_RUN_NOT_FOUND, 'Map run is not interrupted')
+      if (!document.run || !['interrupted', 'error'].includes(document.run.status)) {
+        throw new AppError(ErrorCode.MAPPER_RUN_NOT_FOUND, 'Map run cannot continue')
       }
+      const skipGate = document.run.pauseReason === 'human'
       if (command.decision?.output !== undefined) {
         document.run.draft.output = command.decision.output
       }
@@ -373,11 +475,16 @@ export function createMapper(agentLoop: AgentLoop): MapperAPI & { close(): Promi
         document.run.mode = command.decision.mode
       }
       document.run.status = 'running'
+      document.run.pauseReason = undefined
+      document.run.error = undefined
+      for (const call of document.run.draft.calls) {
+        if (call.status === 'failed') call.status = 'pending'
+      }
       document = await commit(document)
       const controller = new AbortController()
       activeRuns.set(command.mapId, controller)
       try {
-        document = await runUntilPause(document, controller, true)
+        document = await runUntilPause(document, controller, skipGate)
       } finally {
         activeRuns.delete(command.mapId)
       }

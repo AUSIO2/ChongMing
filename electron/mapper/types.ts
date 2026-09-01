@@ -93,10 +93,27 @@ export interface ClaimRecord {
   }
 }
 
-export interface MapperDraftCall extends AgentResult {
-  callId: string
+export interface MapperCallPlan {
+  call: AgentCall
+  role: 'parse' | 'route' | 'worker' | 'merge'
   agentName: string
   instanceId?: string
+}
+
+export interface MapperCallRecord extends MapperCallPlan {
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  attempt: number
+  result?: AgentResult
+  error?: string
+  plannedAt: string
+  startedAt?: string
+  completedAt?: string
+}
+
+export interface MapperStageContext {
+  document: MapperDocument
+  signal: AbortSignal
+  executeCalls(plans: MapperCallPlan[]): Promise<MapperCallRecord[]>
 }
 
 export interface MapperRun {
@@ -104,12 +121,13 @@ export interface MapperRun {
   stage: MapperStage
   step: MapperStep
   status: 'running' | 'interrupted' | 'cancelled' | 'error'
+  pauseReason?: 'human' | 'restart' | 'call-failed'
   mode: ExecutionMode
   targetId: string
   error?: string
   draft: {
     routes: RouteRecord[]
-    calls: MapperDraftCall[]
+    calls: MapperCallRecord[]
     output?: string
     claims?: ClaimRecord[]
     opinions?: OpinionRecord[]

@@ -25,7 +25,19 @@ function toIso(value: unknown): string {
 function readRun(value: unknown): MapperRun | undefined {
   if (!value || typeof value !== 'object') return undefined
   const run = value as MapperRun & { updatedAt: unknown }
-  return { ...run, updatedAt: toIso(run.updatedAt) }
+  return {
+    ...run,
+    draft: {
+      ...run.draft,
+      calls: run.draft.calls.map(call => ({
+        ...call,
+        plannedAt: toIso(call.plannedAt),
+        startedAt: call.startedAt ? toIso(call.startedAt) : undefined,
+        completedAt: call.completedAt ? toIso(call.completedAt) : undefined,
+      })),
+    },
+    updatedAt: toIso(run.updatedAt),
+  }
 }
 
 function readDocument(raw: Record<string, unknown>): MapperDocument {

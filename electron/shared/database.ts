@@ -56,12 +56,37 @@ const mapperClaimSchema = new Schema({
   verify: { type: mapperVerifySchema, default: undefined },
 }, { _id: false })
 
-const mapperDraftCallSchema = new Schema({
+const mapperAgentCallSchema = new Schema({
   callId: { type: String, required: true },
+  sessionId: String,
+  prompt: { type: String, required: true },
+  agent: {
+    name: { type: String, required: true },
+    model: String,
+    baseUrl: String,
+    tools: { type: [String], default: [] },
+  },
+}, { _id: false })
+
+const mapperCallSchema = new Schema({
+  call: { type: mapperAgentCallSchema, required: true },
+  role: { type: String, enum: ['parse', 'route', 'worker', 'merge'], required: true },
   agentName: { type: String, required: true },
   instanceId: String,
-  text: { type: String, required: true },
-  sessionId: String,
+  status: {
+    type: String,
+    enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
+    required: true,
+  },
+  attempt: { type: Number, required: true },
+  result: {
+    text: { type: String, required: true },
+    sessionId: String,
+  },
+  error: String,
+  plannedAt: { type: Date, required: true },
+  startedAt: Date,
+  completedAt: Date,
 }, { _id: false })
 
 const mapperRunSchema = new Schema({
@@ -77,12 +102,13 @@ const mapperRunSchema = new Schema({
     enum: ['running', 'interrupted', 'cancelled', 'error'],
     required: true,
   },
+  pauseReason: { type: String, enum: ['human', 'restart', 'call-failed'] },
   mode: { type: String, enum: ['auto', 'human-in-loop'], required: true },
   targetId: { type: String, required: true },
   error: String,
   draft: {
     routes: { type: [mapperRouteSchema], default: [] },
-    calls: { type: [mapperDraftCallSchema], default: [] },
+    calls: { type: [mapperCallSchema], default: [] },
     output: String,
     claims: { type: [mapperClaimSchema], default: undefined },
     opinions: { type: [mapperOpinionSchema], default: undefined },
@@ -112,6 +138,7 @@ const mapDocumentSchema = new Schema({
   timeline: mapTimelineSchema,
   writeLease: {
     holderId: String,
+    leaseId: String,
     acquiredAt: Date,
     heartbeatAt: Date,
   },

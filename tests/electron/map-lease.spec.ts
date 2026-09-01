@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import {
   MAP_LEASE_TTL_MS,
   mapAssertWritable,
+  mapLeaseSetIdForTest,
   mapLeaseRelease,
   mapLeaseStatus,
   mapLeaseTryAcquire,
@@ -20,6 +21,7 @@ describe('map-lease', () => {
 
   beforeEach(async () => {
     clientSetIdForTest('client-a')
+    mapLeaseSetIdForTest('process-a')
     await MapModel.deleteOne({ _id: MAP_ID })
     await MapModel.create({
       _id: MAP_ID,
@@ -30,6 +32,7 @@ describe('map-lease', () => {
 
   afterAll(async () => {
     clientSetIdForTest(null)
+    mapLeaseSetIdForTest(null)
     await MapModel.deleteOne({ _id: MAP_ID })
     await dbDelete()
     if (mongoose.connection.readyState !== 0) {
@@ -42,6 +45,7 @@ describe('map-lease', () => {
     expect(a.ok).toBe(true)
 
     clientSetIdForTest('client-b')
+    mapLeaseSetIdForTest('process-b')
     const b = await mapLeaseTryAcquire(MAP_ID)
     expect(b.ok).toBe(false)
     expect(b.lease?.holderId).toBe('client-a')
@@ -57,6 +61,7 @@ describe('map-lease', () => {
     expect(await mapLeaseStatus(MAP_ID)).toBeNull()
 
     clientSetIdForTest('client-b')
+    mapLeaseSetIdForTest('process-b')
     const b = await mapLeaseTryAcquire(MAP_ID)
     expect(b.ok).toBe(true)
     expect(b.lease?.holderId).toBe('client-b')
@@ -76,6 +81,7 @@ describe('map-lease', () => {
     )
 
     clientSetIdForTest('client-b')
+    mapLeaseSetIdForTest('process-b')
     const b = await mapLeaseTryAcquire(MAP_ID)
     expect(b.ok).toBe(true)
     expect(b.lease?.holderId).toBe('client-b')
@@ -86,6 +92,7 @@ describe('map-lease', () => {
     await expect(mapAssertWritable(MAP_ID)).resolves.toBeUndefined()
 
     clientSetIdForTest('client-b')
+    mapLeaseSetIdForTest('process-b')
     try {
       await mapAssertWritable(MAP_ID)
       expect.fail('should throw')

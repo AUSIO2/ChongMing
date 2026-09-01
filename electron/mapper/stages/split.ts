@@ -10,19 +10,15 @@ import {
   readRouteOutput,
 } from '../output'
 import type {
-  AgentEvent,
-  AgentLoop,
   ClaimRecord,
-  MapperDocument,
-  MapperDraftCall,
+  MapperCallPlan,
+  MapperStageContext,
 } from '../types'
 
 export async function splitStep(
-  document: MapperDocument,
-  agentLoop: AgentLoop,
-  signal: AbortSignal,
-  onEvent: (event: AgentEvent) => void,
+  context: MapperStageContext,
 ): Promise<void> {
+  const { document } = context
   const run = document.run
   if (!run || run.stage !== 'split') return
   const news = document.news.find(item => item.id === run.targetId)
@@ -56,18 +52,19 @@ export async function splitStep(
         content: news.content,
       },
     )
-    const result = await agentLoop.run({
-      callId: `${run.runId}:route`,
-      prompt,
-      agent: {
-        name: 'route',
-        model: coordinator.model,
-        baseUrl: coordinator.baseUrl,
-        tools: coordinator.tools ?? [],
+    const [record] = await context.executeCalls([{
+      call: {
+        callId: `${run.runId}:route`, prompt,
+        agent: {
+          name: 'route', model: coordinator.model,
+          baseUrl: coordinator.baseUrl, tools: coordinator.tools ?? [],
+        },
       },
-    }, { signal, onEvent })
+      role: 'route', agentName: 'route',
+    }])
+    const resumedRun = context.document.run!
     let routes = readRouteOutput(
-      result.text,
+      record.result!.text,
       new Set(agents.map(agent => agent.agentName!)),
     )
     if (routes.length === 0) {
@@ -76,11 +73,11 @@ export async function splitStep(
         priority: (['high', 'medium', 'low'] as const)[Math.min(index, 2)],
       }))
     }
-    run.draft.routes = mapIdUpdateInstance(routes).map(route => ({
+    resumedRun.draft.routes = mapIdUpdateInstance(routes).map(route => ({
       ...route,
       parentId: news.id,
     }))
-    run.step = 'confirm-route'
+    resumedRun.step = 'confirm-route'
     return
   }
 
@@ -95,7 +92,7 @@ export async function splitStep(
       .slice()
       .sort((a, b) => order[a.priority] - order[b.priority])
       .slice(0, agentReadMaxSubAgent())
-    const calls = await Promise.all(routes.map(async route => {
+    const plans = routes.map(route => {
       const agent = agents.find(item => item.agentName === route.agentName)
       if (!agent) {
         throw new AppError(
@@ -114,33 +111,28 @@ export async function splitStep(
         },
         promptReadOutputParams(agent, 'splitSubAgent'),
       )
-      const result = await agentLoop.run({
-        callId: `${run.runId}:${route.instanceId}`,
-        prompt,
-        agent: {
-          name: route.agentName,
-          model: agent.model,
-          baseUrl: agent.baseUrl,
-          tools: agent.tools ?? [],
-        },
-      }, { signal, onEvent })
       return {
-        callId: `${run.runId}:${route.instanceId}`,
+        call: {
+          callId: `${run.runId}:${route.instanceId}`, prompt,
+          agent: {
+            name: route.agentName, model: agent.model,
+            baseUrl: agent.baseUrl, tools: agent.tools ?? [],
+          },
+        },
+        role: 'worker' as const,
         agentName: route.agentName,
         instanceId: route.instanceId,
-        text: result.text,
-        sessionId: result.sessionId,
-      } satisfies MapperDraftCall
-    }))
-    run.draft.calls = calls
-    run.step = 'merge'
+      } satisfies MapperCallPlan
+    })
+    await context.executeCalls(plans)
+    context.document.run!.step = 'merge'
     return
   }
 
   if (run.step === 'merge') {
     const drafts: ClaimRecord[] = []
-    for (const call of run.draft.calls) {
-      for (const claim of readClaimsOutput(call.text)) {
+    for (const call of run.draft.calls.filter(call => call.role === 'worker')) {
+      for (const claim of readClaimsOutput(call.result!.text)) {
         drafts.push({
           id: '',
           newsId: news.id,
@@ -168,25 +160,26 @@ export async function splitStep(
           .join('\n'),
       },
     )
-    const result = await agentLoop.run({
-      callId: `${run.runId}:merge`,
-      prompt,
-      agent: {
-        name: 'merge',
-        model: coordinator.model,
-        baseUrl: coordinator.baseUrl,
-        tools: coordinator.tools ?? [],
+    const [record] = await context.executeCalls([{
+      call: {
+        callId: `${run.runId}:merge`, prompt,
+        agent: {
+          name: 'merge', model: coordinator.model,
+          baseUrl: coordinator.baseUrl, tools: coordinator.tools ?? [],
+        },
       },
-    }, { signal, onEvent })
-    const flags = readMergeFlags(result.text)
-    run.draft.claims = drafts
+      role: 'merge', agentName: 'merge',
+    }])
+    const resumedRun = context.document.run!
+    const flags = readMergeFlags(record.result!.text)
+    resumedRun.draft.claims = drafts
       .filter((_claim, index) => flags.get(index) !== false)
       .map((claim, index) => ({
         ...claim,
         id: mapIdCreateClaim(index, news.id),
       }))
-    run.draft.output = result.text
-    run.step = 'validate'
+    resumedRun.draft.output = record.result!.text
+    resumedRun.step = 'validate'
     return
   }
 

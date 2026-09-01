@@ -76,9 +76,9 @@ export const useWorkspaceTabsStore = defineStore('workspace-tabs', () => {
   async function tabActivateMap(mapId: string, selectedNodeId?: string | null) {
     const workspace = useWorkspaceStore()
     const flowMap = useFlowMapStore()
+    await tabAcquireLease(mapId)
     await workspace.selectMap(mapId)
     await flowMap.attachMap(mapId)
-    await tabAcquireLease(mapId)
     if (selectedNodeId) await flowMap.selectNode(selectedNodeId)
   }
 

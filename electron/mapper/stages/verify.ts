@@ -6,19 +6,15 @@ import { promptRender } from '../../shared/prompt-vars'
 import { workspaceReadForMap } from '../../api/workspace-service'
 import { readRouteOutput, readVerifyOutput } from '../output'
 import type {
-  AgentEvent,
-  AgentLoop,
-  MapperDocument,
-  MapperDraftCall,
+  MapperCallPlan,
+  MapperStageContext,
   OpinionRecord,
 } from '../types'
 
 export async function verifyStep(
-  document: MapperDocument,
-  agentLoop: AgentLoop,
-  signal: AbortSignal,
-  onEvent: (event: AgentEvent) => void,
+  context: MapperStageContext,
 ): Promise<void> {
+  const { document } = context
   const run = document.run
   if (!run || run.stage !== 'verify') return
   const claim = document.claims.find(item => item.id === run.targetId)
@@ -54,18 +50,19 @@ export async function verifyStep(
         context: ctxFormat(ctxReadAiContext(news?.context ?? {})),
       },
     )
-    const result = await agentLoop.run({
-      callId: `${run.runId}:route`,
-      prompt,
-      agent: {
-        name: 'route',
-        model: coordinator.model,
-        baseUrl: coordinator.baseUrl,
-        tools: coordinator.tools ?? [],
+    const [record] = await context.executeCalls([{
+      call: {
+        callId: `${run.runId}:route`, prompt,
+        agent: {
+          name: 'route', model: coordinator.model,
+          baseUrl: coordinator.baseUrl, tools: coordinator.tools ?? [],
+        },
       },
-    }, { signal, onEvent })
+      role: 'route', agentName: 'route',
+    }])
+    const resumedRun = context.document.run!
     let routes = readRouteOutput(
-      result.text,
+      record.result!.text,
       new Set(agents.map(agent => agent.agentName!)),
     )
     if (routes.length === 0) {
@@ -74,11 +71,11 @@ export async function verifyStep(
         priority: (['high', 'medium', 'low'] as const)[Math.min(index, 2)],
       }))
     }
-    run.draft.routes = mapIdUpdateInstance(routes).map(route => ({
+    resumedRun.draft.routes = mapIdUpdateInstance(routes).map(route => ({
       ...route,
       parentId: claim.id,
     }))
-    run.step = 'confirm-route'
+    resumedRun.step = 'confirm-route'
     return
   }
 
@@ -93,7 +90,7 @@ export async function verifyStep(
       .slice()
       .sort((a, b) => order[a.priority] - order[b.priority])
       .slice(0, agentReadMaxSubAgent())
-    const rows = await Promise.all(routes.map(async route => {
+    const plans = routes.map(route => {
       const agent = agents.find(item => item.agentName === route.agentName)
       if (!agent) {
         throw new AppError(
@@ -112,36 +109,32 @@ export async function verifyStep(
           hint: route.hint ?? '',
         },
       )
-      const result = await agentLoop.run({
-        callId: `${run.runId}:${route.instanceId}`,
-        prompt,
-        agent: {
-          name: route.agentName,
-          model: agent.model,
-          baseUrl: agent.baseUrl,
-          tools: agent.tools ?? [],
+      return {
+        call: {
+          callId: `${run.runId}:${route.instanceId}`, prompt,
+          agent: {
+            name: route.agentName, model: agent.model,
+            baseUrl: agent.baseUrl, tools: agent.tools ?? [],
+          },
         },
-      }, { signal, onEvent })
-      const parsed = readVerifyOutput(result.text)
-      const opinion: OpinionRecord = {
+        role: 'worker' as const,
         agentName: route.agentName,
         instanceId: route.instanceId,
-        priority: route.priority,
+      } satisfies MapperCallPlan
+    })
+    const records = await context.executeCalls(plans)
+    const resumedRun = context.document.run!
+    resumedRun.draft.opinions = records.map((record, index) => {
+      const parsed = readVerifyOutput(record.result!.text)
+      return {
+        agentName: record.agentName,
+        instanceId: record.instanceId!,
+        priority: routes[index].priority,
         score: parsed.score,
         reason: parsed.reason,
-      }
-      const call = {
-          callId: `${run.runId}:${route.instanceId}`,
-          agentName: route.agentName,
-          instanceId: route.instanceId,
-          text: result.text,
-          sessionId: result.sessionId,
-        } satisfies MapperDraftCall
-      return { call, opinion }
-    }))
-    run.draft.calls = rows.map(row => row.call)
-    run.draft.opinions = rows.map(row => row.opinion)
-    run.step = 'merge'
+      } satisfies OpinionRecord
+    })
+    resumedRun.step = 'merge'
     return
   }
 
@@ -166,20 +159,21 @@ export async function verifyStep(
         ).join('\n\n'),
       },
     )
-    const result = await agentLoop.run({
-      callId: `${run.runId}:merge`,
-      prompt,
-      agent: {
-        name: 'merge',
-        model: coordinator.model,
-        baseUrl: coordinator.baseUrl,
-        tools: coordinator.tools ?? [],
+    const [record] = await context.executeCalls([{
+      call: {
+        callId: `${run.runId}:merge`, prompt,
+        agent: {
+          name: 'merge', model: coordinator.model,
+          baseUrl: coordinator.baseUrl, tools: coordinator.tools ?? [],
+        },
       },
-    }, { signal, onEvent })
-    const merged = readVerifyOutput(result.text)
-    run.draft.verify = { ...merged, opinions }
-    run.draft.output = result.text
-    run.step = 'validate'
+      role: 'merge', agentName: 'merge',
+    }])
+    const resumedRun = context.document.run!
+    const merged = readVerifyOutput(record.result!.text)
+    resumedRun.draft.verify = { ...merged, opinions }
+    resumedRun.draft.output = record.result!.text
+    resumedRun.step = 'validate'
     return
   }
 
