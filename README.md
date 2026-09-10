@@ -27,4 +27,13 @@ npm run build:check
 npm run headless -- --help
 ```
 
+独立 DSH 运行时（第一阶段）：
+
+```bash
+CHONGMING_DSH_HOME=/absolute/path/to/dsh-home npm run dsh:serve
+curl http://127.0.0.1:4318/health
+```
+
+`POST /runtime/dsh/run` 接受 `{ "prompt": "...", "sessionId": "可选" }`，以 NDJSON 依次返回 DSH 通知和最终结果。运行模型需要 DSH profile 对应的凭证。当前官方 SDK 线协议没有单 Session 中途取消或冷 Session 查询；关闭服务会结束整个 SDK 子进程。
+
 项目不维护旧数据结构兼容层。结构变更时直接清理开发数据库，再使用当前 schema。
