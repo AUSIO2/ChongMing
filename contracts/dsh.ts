@@ -12,6 +12,7 @@ export interface DshRuntimeConfig {
   cwd: string
   processCwd: string
   profile?: string
+  patches?: string[]
   provider: string
   model: string
   maxTokens?: number

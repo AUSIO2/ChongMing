@@ -43,6 +43,6 @@ CHONGMING_MONGO_URI=mongodb://127.0.0.1:27017/chongming_graph npm run graph:serv
 curl http://127.0.0.1:4320/health
 ```
 
-数据图通过 `POST /api/v1/query` 读取，通过 `POST /api/v1/command` 执行 `map.create`、`map.delete` 和 `graph.apply`。当前仅绑定本机开发入口，使用固定开发工作区；尚未连接 DSH 或旧前端。
+数据图通过 `POST /api/v1/query` 读取，通过 `POST /api/v1/command` 执行图命令及 `run.start`、`run.cancel`、`review.answer`。DSH 默认加载 `data_read/data_propose` 本地插件，通过图服务的内部接口读取 Claim 和提交报告。当前仅绑定本机开发入口，使用固定开发工作区；`run.start` 尚不会自动领取执行，也未连接旧前端。
 
 项目不维护旧数据结构兼容层。结构变更时直接清理开发数据库，再使用当前 schema。

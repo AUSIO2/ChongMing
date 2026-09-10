@@ -8,6 +8,7 @@ export interface ContextField {
 export type GraphNodeData =
   | { kind: 'news'; content: string; context: Record<string, ContextField> }
   | { kind: 'claim'; content: string; category: string | null }
+  | { kind: 'verification'; score: 0 | 0.5 | 1; reason: string; reportIds: string[] }
 
 export interface GraphNode {
   id: string
@@ -17,7 +18,7 @@ export interface GraphNode {
   updatedAt: string
 }
 
-export type GraphEdgeKind = 'mentions' | 'related-to'
+export type GraphEdgeKind = 'mentions' | 'verifies' | 'related-to'
 
 export interface GraphEdgeInput {
   id: string
@@ -51,6 +52,43 @@ export interface GraphSnapshot {
   name: string
   nodes: GraphNode[]
   edges: GraphEdge[]
+  run: GraphRun | null
+  updatedAt: string
+}
+
+export interface GraphReport {
+  id: string
+  slotId: string
+  score: 0 | 0.5 | 1
+  reason: string
+  createdAt: string
+}
+
+export interface GraphReview {
+  id: string
+  revision: number
+  state: 'pending' | 'answered'
+  decision: 'approve' | 'reject' | null
+  createdAt: string
+  answeredAt: string | null
+}
+
+export interface GraphOperation {
+  id: string
+  kind: 'verify'
+  targetId: string
+  status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
+  reports: GraphReport[]
+  review: GraphReview | null
+  resultNodeId: string | null
+}
+
+export interface GraphRun {
+  id: string
+  mode: 'auto' | 'human-in-loop'
+  status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
+  operation: GraphOperation
+  createdAt: string
   updatedAt: string
 }
 
@@ -90,6 +128,49 @@ export type GraphCommand =
       method: 'graph.apply'
       params: { mapId: string; expectedRevision: number; changes: GraphChanges }
     }
+  | {
+      requestId: string
+      method: 'run.start'
+      params: {
+        mapId: string
+        expectedRevision: number
+        id: string
+        targetId: string
+        mode: 'auto' | 'human-in-loop'
+      }
+    }
+  | {
+      requestId: string
+      method: 'run.cancel'
+      params: { mapId: string; expectedRevision: number; runId: string }
+    }
+  | {
+      requestId: string
+      method: 'review.answer'
+      params: {
+        mapId: string
+        expectedRevision: number
+        runId: string
+        reviewId: string
+        expectedReviewRevision: number
+        decision: 'approve' | 'reject'
+      }
+    }
+
+export interface GraphDataRead {
+  mapId: string
+  runId: string
+  operationId: string
+  claim: GraphNode & { data: Extract<GraphNodeData, { kind: 'claim' }> }
+  reports: GraphReport[]
+  review: GraphReview | null
+}
+
+export interface GraphReportProposal {
+  mapId: string
+  operationId: string
+  report: { id: string; slotId: string; score: 0 | 0.5 | 1; reason: string }
+}
 
 export interface GraphSuccess<T> {
   ok: true

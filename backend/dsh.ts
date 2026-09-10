@@ -36,6 +36,7 @@ export function dshCreateRuntime(config: DshRuntimeConfig): DshRuntimeAPI {
     cwd: config.cwd,
     processCwd: config.processCwd,
     profile: config.profile ?? 'sdk',
+    patches: config.patches,
     provider: config.provider,
     model: config.model,
     maxTokens: config.maxTokens,

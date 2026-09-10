@@ -7,6 +7,7 @@ import type {
   GraphFailure,
   GraphNodeData,
   GraphQuery,
+  GraphReportProposal,
   GraphSuccess,
 } from '../contracts/graph'
 import { DEVELOPMENT_WORKSPACE_ID } from '../contracts/graph'
@@ -78,7 +79,28 @@ function apiReadArray(value: unknown, label: string): unknown[] {
 }
 
 function apiReadNodeData(value: unknown, label: string): GraphNodeData {
-  const base = apiReadObject(value, ['kind', 'content', 'context', 'category'], label)
+  const base = apiReadObject(
+    value,
+    ['kind', 'content', 'context', 'category', 'score', 'reason', 'reportIds'],
+    label,
+  )
+  if (base.kind === 'verification') {
+    if (base.content !== undefined || base.context !== undefined || base.category !== undefined) {
+      throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for verification`)
+    }
+    if (base.score !== 0 && base.score !== 0.5 && base.score !== 1) {
+      throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.score is invalid`)
+    }
+    return {
+      kind: 'verification',
+      score: base.score,
+      reason: apiReadString(base.reason, `${label}.reason`),
+      reportIds: apiReadStrings(base.reportIds, `${label}.reportIds`),
+    }
+  }
+  if (base.score !== undefined || base.reason !== undefined || base.reportIds !== undefined) {
+    throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for ${String(base.kind)}`)
+  }
   const content = apiReadString(base.content, `${label}.content`)
   if (base.kind === 'claim') {
     if (base.context !== undefined) throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.context is not allowed`)
@@ -124,7 +146,7 @@ function apiReadChanges(value: unknown): GraphChanges {
       put: edges.put === undefined ? undefined : apiReadArray(edges.put, 'params.changes.edges.put').map((value, index) => {
         const item = apiReadObject(value, ['id', 'kind', 'from', 'to'], `params.changes.edges.put[${index}]`)
         const kind = item.kind
-        if (kind !== 'mentions' && kind !== 'related-to') {
+        if (kind !== 'mentions' && kind !== 'verifies' && kind !== 'related-to') {
           throw new GraphError(400, 'INVALID_ARGUMENT', 'edge.kind is invalid')
         }
         return {
@@ -201,7 +223,91 @@ function apiReadCommand(value: unknown): GraphCommand {
       },
     }
   }
+  if (envelope.method === 'run.start') {
+    const params = apiReadObject(
+      envelope.params,
+      ['mapId', 'expectedRevision', 'id', 'targetId', 'mode'],
+      'params',
+    )
+    if (params.mode !== 'auto' && params.mode !== 'human-in-loop') {
+      throw new GraphError(400, 'INVALID_ARGUMENT', 'params.mode is invalid')
+    }
+    return {
+      requestId,
+      method: envelope.method,
+      params: {
+        mapId: apiReadId(params.mapId, 'params.mapId'),
+        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
+        id: apiReadId(params.id, 'params.id'),
+        targetId: apiReadId(params.targetId, 'params.targetId'),
+        mode: params.mode,
+      },
+    }
+  }
+  if (envelope.method === 'run.cancel') {
+    const params = apiReadObject(envelope.params, ['mapId', 'expectedRevision', 'runId'], 'params')
+    return {
+      requestId,
+      method: envelope.method,
+      params: {
+        mapId: apiReadId(params.mapId, 'params.mapId'),
+        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
+        runId: apiReadId(params.runId, 'params.runId'),
+      },
+    }
+  }
+  if (envelope.method === 'review.answer') {
+    const params = apiReadObject(
+      envelope.params,
+      ['mapId', 'expectedRevision', 'runId', 'reviewId', 'expectedReviewRevision', 'decision'],
+      'params',
+    )
+    if (params.decision !== 'approve' && params.decision !== 'reject') {
+      throw new GraphError(400, 'INVALID_ARGUMENT', 'params.decision is invalid')
+    }
+    return {
+      requestId,
+      method: envelope.method,
+      params: {
+        mapId: apiReadId(params.mapId, 'params.mapId'),
+        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
+        runId: apiReadId(params.runId, 'params.runId'),
+        reviewId: apiReadId(params.reviewId, 'params.reviewId'),
+        expectedReviewRevision: apiReadRevision(
+          params.expectedReviewRevision,
+          'params.expectedReviewRevision',
+        ),
+        decision: params.decision,
+      },
+    }
+  }
   throw new GraphError(400, 'UNKNOWN_METHOD', `Unknown command method: ${String(envelope.method)}`)
+}
+
+function apiReadDataQuery(value: unknown): { mapId: string; operationId: string } {
+  const input = apiReadObject(value, ['mapId', 'operationId'], 'data.read')
+  return {
+    mapId: apiReadId(input.mapId, 'mapId'),
+    operationId: apiReadString(input.operationId, 'operationId'),
+  }
+}
+
+function apiReadReportProposal(value: unknown): GraphReportProposal {
+  const input = apiReadObject(value, ['mapId', 'operationId', 'report'], 'data.propose')
+  const report = apiReadObject(input.report, ['id', 'slotId', 'score', 'reason'], 'report')
+  if (report.score !== 0 && report.score !== 0.5 && report.score !== 1) {
+    throw new GraphError(400, 'INVALID_ARGUMENT', 'report.score is invalid')
+  }
+  return {
+    mapId: apiReadId(input.mapId, 'mapId'),
+    operationId: apiReadString(input.operationId, 'operationId'),
+    report: {
+      id: apiReadId(report.id, 'report.id'),
+      slotId: apiReadString(report.slotId, 'report.slotId'),
+      score: report.score,
+      reason: apiReadString(report.reason, 'report.reason'),
+    },
+  }
 }
 
 function apiWriteError(response: ServerResponse, requestId: string, error: unknown): void {
@@ -227,6 +333,16 @@ export function apiCreateServer(service: GraphService): Server {
     try {
       if (request.method === 'GET' && request.url === '/health') {
         apiWriteJson(response, 200, { ok: true })
+        return
+      }
+      if (request.method === 'POST' && request.url === '/internal/v1/data/read') {
+        const input = apiReadDataQuery(await apiReadBody(request))
+        apiWriteJson(response, 200, { ok: true, data: await service.readData(input.mapId, input.operationId) })
+        return
+      }
+      if (request.method === 'POST' && request.url === '/internal/v1/data/propose') {
+        const input = apiReadReportProposal(await apiReadBody(request))
+        apiWriteJson(response, 200, { ok: true, data: await service.proposeReport(input) })
         return
       }
       if (request.method !== 'POST' || !['/api/v1/query', '/api/v1/command'].includes(request.url ?? '')) {

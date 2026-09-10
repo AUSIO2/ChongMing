@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     cwd: projectRoot,
     processCwd: dshHome,
     profile: process.env.CHONGMING_DSH_PROFILE ?? 'sdk',
+    patches: [path.join(projectRoot, 'backend/dsh-business.patch.yml')],
     provider: process.env.CHONGMING_DSH_PROVIDER ?? 'deepseek-official',
     model: process.env.CHONGMING_DSH_MODEL ?? 'deepseek-v4-flash',
   })

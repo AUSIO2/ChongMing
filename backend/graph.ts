@@ -1,14 +1,23 @@
 import type {
   GraphChanges,
   GraphCommand,
+  GraphDataRead,
   GraphEdge,
   GraphMapSummary,
   GraphNode,
   GraphQuery,
+  GraphReportProposal,
   GraphSnapshot,
   GraphWriteResult,
 } from '../contracts/graph'
 import { GraphError } from './graph-error'
+import {
+  runAnswerReview,
+  runCancelRun,
+  runCreateRun,
+  runReadData,
+  runUpdateReport,
+} from './run'
 import type { GraphDocument, GraphReceipt, GraphStore } from './store'
 import { storeCreateInputHash } from './store'
 
@@ -20,6 +29,7 @@ function graphReadSnapshot(document: GraphDocument): GraphSnapshot {
     name: document.name,
     nodes: document.nodes,
     edges: document.edges,
+    run: document.run,
     updatedAt: document.updatedAt,
   }
 }
@@ -44,6 +54,17 @@ function graphCreateWriteResult(document: GraphDocument, receipt: GraphReceipt):
     createdNodeIds: receipt.createdNodeIds,
     createdEdgeIds: receipt.createdEdgeIds,
   }
+}
+
+function graphCreateReceipt(
+  requestId: string,
+  method: string,
+  inputHash: string,
+  now: string,
+  createdNodeIds: string[] = [],
+  createdEdgeIds: string[] = [],
+): GraphReceipt {
+  return { requestId, method, inputHash, createdNodeIds, createdEdgeIds, createdAt: now }
 }
 
 function graphAssertRevision(document: GraphDocument, expectedRevision: number): void {
@@ -135,6 +156,9 @@ function graphUpdateChanges(document: GraphDocument, changes: GraphChanges): {
     if (input.kind === 'mentions' && (from.data.kind !== 'news' || to.data.kind !== 'claim')) {
       throw new GraphError(422, 'INVALID_RELATION', 'mentions must point from news to claim')
     }
+    if (input.kind === 'verifies' && (from.data.kind !== 'verification' || to.data.kind !== 'claim')) {
+      throw new GraphError(422, 'INVALID_RELATION', 'verifies must point from verification to claim')
+    }
     const existing = edges.get(input.id)
     const edge: GraphEdge = {
       ...input,
@@ -219,6 +243,7 @@ export function graphCreateService(store: GraphStore) {
           name: command.params.name.trim(),
           nodes: [],
           edges: [],
+          run: null,
           receipts: [receipt],
           createdAt: now,
           updatedAt: now,
@@ -250,6 +275,9 @@ export function graphCreateService(store: GraphStore) {
       graphAssertRevision(document, command.params.expectedRevision)
 
       if (command.method === 'map.delete') {
+        if (document.run && ['running', 'waiting'].includes(document.run.status)) {
+          throw new GraphError(409, 'RUN_ACTIVE', 'Active run must be cancelled before deleting Map')
+        }
         const receipt: GraphReceipt = {
           requestId: command.requestId,
           method: command.method,
@@ -260,6 +288,38 @@ export function graphCreateService(store: GraphStore) {
         }
         const result = await graphCommit(document, { ...document, deletedAt: now, updatedAt: now }, receipt)
         return { data: { mapId: result.document.id, deleted: true }, replayed: result.replayed }
+      }
+
+      if (command.method === 'run.start') {
+        const updated = runCreateRun(structuredClone(document), command.params, now)
+        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
+        const result = await graphCommit(document, updated, receipt)
+        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
+      }
+
+      if (command.method === 'run.cancel') {
+        const updated = runCancelRun(structuredClone(document), command.params.runId, now)
+        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
+        const result = await graphCommit(document, updated, receipt)
+        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
+      }
+
+      if (command.method === 'review.answer') {
+        const update = runAnswerReview(structuredClone(document), command.params, now)
+        const receipt = graphCreateReceipt(
+          command.requestId,
+          command.method,
+          inputHash,
+          now,
+          update.nodeId ? [update.nodeId] : [],
+          update.edgeId ? [update.edgeId] : [],
+        )
+        const result = await graphCommit(document, update.document, receipt)
+        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
+      }
+
+      if (document.run && ['running', 'waiting'].includes(document.run.status)) {
+        throw new GraphError(409, 'RUN_ACTIVE', 'Graph cannot be edited while a run is active')
       }
 
       const change = graphUpdateChanges(document, command.params.changes)
@@ -278,6 +338,29 @@ export function graphCreateService(store: GraphStore) {
         data: graphCreateWriteResult(result.document, acceptedReceipt),
         replayed: result.replayed,
       }
+    },
+
+    async readData(mapId: string, operationId: string): Promise<GraphDataRead> {
+      return runReadData(await graphReadMap(mapId), operationId)
+    },
+
+    async proposeReport(proposal: GraphReportProposal): Promise<GraphSnapshot> {
+      const inputHash = storeCreateInputHash(proposal)
+      const document = await graphReadMap(proposal.mapId)
+      const priorReceipt = graphReadReceipt(document, proposal.report.id, 'report.submit', inputHash)
+      if (priorReceipt) return graphReadSnapshot(document)
+      const now = new Date().toISOString()
+      const update = runUpdateReport(structuredClone(document), proposal, now)
+      const receipt = graphCreateReceipt(
+        proposal.report.id,
+        'report.submit',
+        inputHash,
+        now,
+        update.nodeId ? [update.nodeId] : [],
+        update.edgeId ? [update.edgeId] : [],
+      )
+      const result = await graphCommit(document, update.document, receipt)
+      return graphReadSnapshot(result.document)
     },
   }
 }

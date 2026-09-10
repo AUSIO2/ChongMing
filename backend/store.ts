@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import mongoose, { Schema } from 'mongoose'
 import type { Connection } from 'mongoose'
-import type { GraphEdge, GraphMapSummary, GraphNode } from '../contracts/graph'
+import type { GraphEdge, GraphMapSummary, GraphNode, GraphRun } from '../contracts/graph'
 
 export interface GraphReceipt {
   requestId: string
@@ -19,6 +19,7 @@ export interface GraphDocument {
   name: string
   nodes: GraphNode[]
   edges: GraphEdge[]
+  run: GraphRun | null
   receipts: GraphReceipt[]
   createdAt: string
   updatedAt: string
@@ -36,7 +37,7 @@ const nodeSchema = new Schema({
 const edgeSchema = new Schema({
   id: { type: String, required: true },
   revision: { type: Number, required: true },
-  kind: { type: String, enum: ['mentions', 'related-to'], required: true },
+  kind: { type: String, enum: ['mentions', 'verifies', 'related-to'], required: true },
   from: { type: String, required: true },
   to: { type: String, required: true },
   createdAt: { type: Date, required: true },
@@ -59,6 +60,7 @@ const graphSchema = new Schema({
   name: { type: String, required: true },
   nodes: { type: [nodeSchema], default: [] },
   edges: { type: [edgeSchema], default: [] },
+  run: { type: Schema.Types.Mixed, default: null },
   receipts: { type: [receiptSchema], default: [] },
   createdAt: { type: Date, required: true },
   updatedAt: { type: Date, required: true },
@@ -96,6 +98,7 @@ function storeReadDocument(raw: Record<string, unknown>): GraphDocument {
       createdAt: storeReadIso(edge.createdAt),
       updatedAt: storeReadIso(edge.updatedAt),
     })),
+    run: (raw.run as GraphRun | null) ?? null,
     receipts: (raw.receipts as Array<Record<string, unknown>>).map(receipt => ({
       requestId: String(receipt.requestId),
       method: String(receipt.method),
@@ -180,6 +183,7 @@ export function storeCreateGraphStore(connection: Connection) {
             name: document.name,
             nodes: document.nodes,
             edges: document.edges,
+            run: document.run,
             updatedAt: new Date(document.updatedAt),
             ...(document.deletedAt ? { deletedAt: new Date(document.deletedAt) } : {}),
           },

@@ -12,6 +12,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:dsh": "vitest run --config vitest.config.ts tests/backend/dsh.spec.ts",
     "test:graph": "vitest run --config vitest.config.ts tests/backend/graph.spec.ts",
+    "test:run": "vitest run --config vitest.config.ts tests/backend/run.spec.ts tests/backend/dsh-business.spec.ts",
     "test:map": "vitest run --config vitest.config.ts tests/flow-map",
     "dsh:serve": "node --import tsx backend/main.ts",
     "graph:serve": "node --import tsx backend/graph-main.ts",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-sdk-client": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1",
     "@langchain/core": "^1.2.1",
     "@langchain/langgraph": "^1.4.7",
     "@langchain/openai": "^1.5.3",
