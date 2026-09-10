@@ -1,6 +1,6 @@
 # 052 — 代码复核与实现架构实施原稿
 
-对应 [架构/函数总表](./052-代码复核与实现架构.md)、[完整接口文档](./052-完整接口文档.md) 和 [类型契约](./052-接口契约.ts)。第一阶段基础实现已落地：官方SDK封装、NDJSON本机接口、启动/关闭及专项测试；真实模型、续会话、子Agent与compaction的凭证环境验收仍未完成。后续阶段尚未实施。
+对应 [架构/函数总表](./052-代码复核与实现架构.md)、[完整接口文档](./052-完整接口文档.md) 和 [类型契约](./052-接口契约.ts)。第一阶段基础实现已落地：官方SDK封装、NDJSON本机接口、启动/关闭及专项测试。凭证环境已验证真实模型、同进程命名Session延续和两个原生子Agent；profile配置包含token-meter/compaction/pruner，但尚未用小窗口实际触发压缩。跨进程恢复已有Session经实测不受当前SDK线协议支持。后续阶段尚未实施。
 
 **用户最新决定：从零重写，先将DSH封装成可独立调用的接口。** 第一期只固定智能体执行边界，再建设数据图与业务运行，最后接多Host。旧源码仅用作功能检查依据；新后端不import旧Mapper、旧AgentLoop或旧后端服务。
 
@@ -55,13 +55,14 @@ tests/backend/dsh.spec.ts 原生测试provider与真实模型smoke
 2. run发送文本并收到真实模型输出及通知；HTTP在执行中输出NDJSON事件，最终result不冒充单prompt因果结果。
 3. 使用相同sessionId的后续run延续历史；省略sessionId得到新会话。
 4. profile启用子Agent时，通知能识别根与后代；根idle不被业务层误当作整图完成。
-5. 关闭/重启后以相同sessionId继续已持久历史的行为实测；强制退出只恢复成功持久的前缀。
-6. 至少一个真实模型smoke通过；无凭证环境只验证SDK初始化、HTTP、类型和事件转换。
-7. profile实际装配compaction后，用小上下文预算触发摘要/工具裁剪并验证恢复；未装配时不声称托管成功。
+5. 跨进程使用同一sessionId实测应记录SDK能力结果：当前版本返回session already exists，故一期明确不支持；不自建消息副本绕过。
+6. 真实模型smoke已通过：单轮返回PONG，同进程第二轮仍返回PONG；无凭证CI继续只验证初始化、HTTP、类型和事件转换。
+7. 子Agent smoke已通过：观察到2个started、2个finished并汇总AB。
+8. profile配置已确认装配token-meter/compaction/pruner；仍需用小上下文预算实际触发摘要/裁剪后才能标记运行验收完成。
 
 官方高层run等待receipt-to-idle区间并返回最后一个root assistant响应；它没有每prompt因果结果、调用方messageId或单会话cancel。普通工具临时value不作为通用structuredResult；业务结构化报告、幂等业务身份和人工Review在第三阶段引入。
 
-第一阶段不引入社区长期记忆插件，只装配DSH官方会话持久化、上下文计量与压缩相关能力，并锁定版本、执行上述真实恢复/取消/压缩测试。官方来源也不代替集成验证。长期跨会话记忆尚未选型，不能把Session持久化或compaction写成默认已经实现；后续还需明确user/workspace隔离、共享存储与更新冲突。
+第一阶段不引入社区长期记忆插件。官方SDK持久化了会话日志，但当前SDK协议无法跨进程恢复已有Session，不能把磁盘存在写成可用恢复能力；多Host接管依赖后续共享业务报告，未落库推理允许重做。上下文计量/压缩按实际触发测试验收。长期跨会话记忆尚未选型，后续还需明确user/workspace隔离、共享存储与更新冲突。
 
 ### 第二阶段：可运行的数据图服务
 
