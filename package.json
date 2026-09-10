@@ -11,8 +11,10 @@
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
     "test:dsh": "vitest run --config vitest.config.ts tests/backend/dsh.spec.ts",
+    "test:graph": "vitest run --config vitest.config.ts tests/backend/graph.spec.ts",
     "test:map": "vitest run --config vitest.config.ts tests/flow-map",
     "dsh:serve": "node --import tsx backend/main.ts",
+    "graph:serve": "node --import tsx backend/graph-main.ts",
     "headless": "node --import tsx server/cli.ts"
   },
   "dependencies": {
