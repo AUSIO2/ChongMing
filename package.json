@@ -12,9 +12,10 @@
     "test": "vitest run --config vitest.config.ts",
     "test:dsh": "vitest run --config vitest.config.ts tests/backend/dsh.spec.ts",
     "test:graph": "vitest run --config vitest.config.ts tests/backend/graph.spec.ts",
-    "test:run": "vitest run --config vitest.config.ts tests/backend/run.spec.ts tests/backend/dsh-business.spec.ts",
+    "test:run": "vitest run --config vitest.config.ts tests/backend/run.spec.ts tests/backend/dsh-business.spec.ts tests/backend/dsh-verify.spec.ts",
     "test:map": "vitest run --config vitest.config.ts tests/flow-map",
     "dsh:serve": "node --import tsx backend/main.ts",
+    "dsh:verify": "node --import tsx backend/dsh-verify-cli.ts",
     "graph:serve": "node --import tsx backend/graph-main.ts",
     "headless": "node --import tsx server/cli.ts"
   },

@@ -40,6 +40,7 @@ export function dshCreateRuntime(config: DshRuntimeConfig): DshRuntimeAPI {
     provider: config.provider,
     model: config.model,
     maxTokens: config.maxTokens,
+    env: { ...process.env, ...config.env },
   })
   let closed = false
 

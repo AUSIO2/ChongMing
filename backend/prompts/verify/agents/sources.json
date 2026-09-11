@@ -1,0 +1,12 @@
+{
+  "id": "sources",
+  "name": "来源核对",
+  "description": "适合需要查找原始报道、机构数据与独立来源的陈述",
+  "content": "使用data_read读取本slot的任务。按批准的angle/hint检索和核对来源，明确证据与不确定性，用data_propose提交本slot报告。只使用本slot允许的工具。",
+  "tools": [
+    "web_search",
+    "web_fetch"
+  ],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

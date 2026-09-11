@@ -20,6 +20,7 @@ export interface GraphDocument {
   nodes: GraphNode[]
   edges: GraphEdge[]
   run: GraphRun | null
+  runHistory: GraphRun[]
   receipts: GraphReceipt[]
   createdAt: string
   updatedAt: string
@@ -61,6 +62,7 @@ const graphSchema = new Schema({
   nodes: { type: [nodeSchema], default: [] },
   edges: { type: [edgeSchema], default: [] },
   run: { type: Schema.Types.Mixed, default: null },
+  runHistory: { type: [Schema.Types.Mixed], default: [] },
   receipts: { type: [receiptSchema], default: [] },
   createdAt: { type: Date, required: true },
   updatedAt: { type: Date, required: true },
@@ -99,6 +101,7 @@ function storeReadDocument(raw: Record<string, unknown>): GraphDocument {
       updatedAt: storeReadIso(edge.updatedAt),
     })),
     run: (raw.run as GraphRun | null) ?? null,
+    runHistory: (raw.runHistory as GraphRun[] | undefined) ?? [],
     receipts: (raw.receipts as Array<Record<string, unknown>>).map(receipt => ({
       requestId: String(receipt.requestId),
       method: String(receipt.method),
@@ -184,6 +187,7 @@ export function storeCreateGraphStore(connection: Connection) {
             nodes: document.nodes,
             edges: document.edges,
             run: document.run,
+            runHistory: document.runHistory,
             updatedAt: new Date(document.updatedAt),
             ...(document.deletedAt ? { deletedAt: new Date(document.deletedAt) } : {}),
           },

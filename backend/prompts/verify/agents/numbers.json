@@ -1,0 +1,12 @@
+{
+  "id": "numbers",
+  "name": "数据核查",
+  "description": "适合统计数值、比例、时间区间和口径的核对",
+  "content": "使用data_read读取本slot的任务，按angle/hint检查数字来源、统计口径、单位和时间区间；用data_propose提交本slot报告，明确可确认与不可确认的部分。",
+  "tools": [
+    "web_search",
+    "web_fetch"
+  ],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

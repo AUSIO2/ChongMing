@@ -1,12 +1,13 @@
 import type {
   GraphChanges,
   GraphCommand,
+  GraphDataActor,
+  GraphDataProposal,
   GraphDataRead,
   GraphEdge,
   GraphMapSummary,
   GraphNode,
   GraphQuery,
-  GraphReportProposal,
   GraphSnapshot,
   GraphWriteResult,
 } from '../contracts/graph'
@@ -16,8 +17,10 @@ import {
   runCancelRun,
   runCreateRun,
   runReadData,
-  runUpdateReport,
+  runUpdateProposal,
+  runUpdateReview,
 } from './run'
+import { configurationRead, DEFAULT_VERIFY_CONFIGURATION } from './configuration'
 import type { GraphDocument, GraphReceipt, GraphStore } from './store'
 import { storeCreateInputHash } from './store'
 
@@ -244,6 +247,7 @@ export function graphCreateService(store: GraphStore) {
           nodes: [],
           edges: [],
           run: null,
+          runHistory: [],
           receipts: [receipt],
           createdAt: now,
           updatedAt: now,
@@ -291,7 +295,8 @@ export function graphCreateService(store: GraphStore) {
       }
 
       if (command.method === 'run.start') {
-        const updated = runCreateRun(structuredClone(document), command.params, now)
+        const configuration = configurationRead(command.params.configuration ?? DEFAULT_VERIFY_CONFIGURATION)
+        const updated = runCreateRun(structuredClone(document), command.params, configuration, now)
         const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
         const result = await graphCommit(document, updated, receipt)
         return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
@@ -315,6 +320,14 @@ export function graphCreateService(store: GraphStore) {
           update.edgeId ? [update.edgeId] : [],
         )
         const result = await graphCommit(document, update.document, receipt)
+        const acceptedReceipt = result.document.receipts.find(item => item.requestId === command.requestId)!
+        return { data: graphCreateWriteResult(result.document, acceptedReceipt), replayed: result.replayed }
+      }
+
+      if (command.method === 'review.update') {
+        const updated = runUpdateReview(structuredClone(document), command.params, now)
+        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
+        const result = await graphCommit(document, updated, receipt)
         return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
       }
 
@@ -340,27 +353,34 @@ export function graphCreateService(store: GraphStore) {
       }
     },
 
-    async readData(mapId: string, operationId: string): Promise<GraphDataRead> {
-      return runReadData(await graphReadMap(mapId), operationId)
+    async readData(mapId: string, operationId: string, actor: GraphDataActor): Promise<GraphDataRead> {
+      return runReadData(await graphReadMap(mapId), operationId, actor)
     },
 
-    async proposeReport(proposal: GraphReportProposal): Promise<GraphSnapshot> {
-      const inputHash = storeCreateInputHash(proposal)
-      const document = await graphReadMap(proposal.mapId)
-      const priorReceipt = graphReadReceipt(document, proposal.report.id, 'report.submit', inputHash)
-      if (priorReceipt) return graphReadSnapshot(document)
-      const now = new Date().toISOString()
-      const update = runUpdateReport(structuredClone(document), proposal, now)
-      const receipt = graphCreateReceipt(
-        proposal.report.id,
-        'report.submit',
-        inputHash,
-        now,
-        update.nodeId ? [update.nodeId] : [],
-        update.edgeId ? [update.edgeId] : [],
-      )
-      const result = await graphCommit(document, update.document, receipt)
-      return graphReadSnapshot(result.document)
+    async propose(proposal: GraphDataProposal, actor: GraphDataActor): Promise<GraphSnapshot> {
+      if ((proposal.kind === 'route' && actor.role !== 'router')
+        || (proposal.kind === 'merge' && actor.role !== 'merge')
+        || (proposal.kind === 'report' && (actor.role !== 'worker' || actor.slotId !== proposal.slotId))) {
+        throw new GraphError(403, 'ROLE_NOT_ALLOWED', 'Proposal does not belong to the bound actor')
+      }
+      const inputHash = storeCreateInputHash({ proposal, actor })
+      const method = `proposal.${proposal.kind}`
+      // Independent slot reports may race; retry only the validated database write, never the model.
+      for (let attempt = 0; attempt < 64; attempt++) {
+        const document = await graphReadMap(proposal.mapId)
+        const priorReceipt = graphReadReceipt(document, proposal.id, method, inputHash)
+        if (priorReceipt) return graphReadSnapshot(document)
+        const view = runReadData(document, proposal.operationId, actor)
+        if (view.proposalId !== proposal.id) throw new GraphError(409, 'PROPOSAL_CONFLICT', 'Stale proposal identity')
+        const now = new Date().toISOString()
+        const update = runUpdateProposal(structuredClone(document), proposal, actor, now)
+        const receipt = graphCreateReceipt(proposal.id, method, inputHash, now,
+          update.nodeId ? [update.nodeId] : [], update.edgeId ? [update.edgeId] : [])
+        if (await store.commit(update.document, document.revision, receipt)) {
+          return graphReadSnapshot(await graphReadMap(document.id))
+        }
+      }
+      throw new GraphError(503, 'WRITE_CONTENTION', 'Retry the same proposal after concurrent updates settle')
     },
   }
 }

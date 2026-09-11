@@ -80,7 +80,7 @@ const result = spawnSync(process.execPath, [
   path.join(directory, '052-接口示例.ts'),
 ], { cwd: project, encoding: 'utf8' })
 assert.equal(result.status, 0, `${result.stdout}${result.stderr}${result.error ?? ''}`)
-assert.equal(read(path.join(directory, 'counter.txt')).trim(), '52', 'Unexpected document counter')
+assert.ok(Number(read(path.join(directory, 'counter.txt')).trim()) >= 52, 'Document counter precedes this contract')
 console.log(JSON.stringify({
   currentMethods: oldMethods.length, currentMapperCommands: oldCommands.length, ...targetCounts,
   markdownDocuments: documents.length, localLinks: linkCount, typecheck: 'passed',

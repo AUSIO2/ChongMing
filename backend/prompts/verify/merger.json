@@ -1,0 +1,9 @@
+{
+  "id": "verify-merger",
+  "name": "核查汇总",
+  "description": "结合所有核查角度的报告给出有依据的最终结论",
+  "content": "使用data_read读取Claim、批准路由和全部报告。综合证据质量、理由和相互冲突判断score（0、0.5或1）及reason；不得按报告数量机械投票。用data_propose提交merge，reportIds精确覆盖全部批准slot的报告。不要生成或改写worker报告。",
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

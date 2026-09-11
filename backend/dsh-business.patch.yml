@@ -1,3 +1,4 @@
 - insert:
     - id: chongming-data-tools
       name: ./dsh-business-plugin.mjs
+      config: {}

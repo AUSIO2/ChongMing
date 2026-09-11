@@ -24,7 +24,6 @@ describe('DSH runtime facade', () => {
       cwd: directory,
       processCwd: directory,
       profile: 'sdk',
-      patches: [path.resolve('backend/dsh-business.patch.yml')],
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
     })

@@ -8,7 +8,52 @@ export interface ContextField {
 export type GraphNodeData =
   | { kind: 'news'; content: string; context: Record<string, ContextField> }
   | { kind: 'claim'; content: string; category: string | null }
-  | { kind: 'verification'; score: 0 | 0.5 | 1; reason: string; reportIds: string[] }
+  | { kind: 'verification'; score: 0 | 0.5 | 1; reason: string; reportIds: string[]; opinions: GraphReport[] }
+
+export interface GraphAgentProfile {
+  id: string
+  name: string
+  description: string
+  content: string
+  tools: string[]
+  provider: string
+  model: string
+}
+
+export interface GraphRunConfiguration {
+  router: GraphAgentProfile
+  merger: GraphAgentProfile
+  agents: GraphAgentProfile[]
+  tools: Array<{ name: string; description: string }>
+  maxSlots: number
+}
+
+export interface GraphRouteSlot {
+  id: string
+  agentId: string
+  angle: string
+  priority: 'high' | 'medium' | 'low'
+  hint: string
+  tools: string[]
+}
+
+export interface GraphRoute {
+  revision: number
+  reason: string
+  slots: GraphRouteSlot[]
+  approved: boolean
+}
+
+export interface GraphMergeDraft {
+  id: string
+  routeRevision: number
+  reportIds: string[]
+  score: 0 | 0.5 | 1
+  reason: string
+}
+
+/** Trusted bridge identity, supplied in authenticated headers, never model arguments. */
+export type GraphDataActor = { role: 'router' | 'merge' } | { role: 'worker'; slotId: string }
 
 export interface GraphNode {
   id: string
@@ -59,6 +104,11 @@ export interface GraphSnapshot {
 export interface GraphReport {
   id: string
   slotId: string
+  agentId: string
+  agentName: string
+  angle: string
+  tools: string[]
+  routeRevision: number
   score: 0 | 0.5 | 1
   reason: string
   createdAt: string
@@ -66,6 +116,7 @@ export interface GraphReport {
 
 export interface GraphReview {
   id: string
+  kind: 'route' | 'result'
   revision: number
   state: 'pending' | 'answered'
   decision: 'approve' | 'reject' | null
@@ -78,6 +129,9 @@ export interface GraphOperation {
   kind: 'verify'
   targetId: string
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
+  inputRefs: Array<{ id: string; revision: number }>
+  route: GraphRoute | null
+  draft: GraphMergeDraft | null
   reports: GraphReport[]
   review: GraphReview | null
   resultNodeId: string | null
@@ -87,6 +141,7 @@ export interface GraphRun {
   id: string
   mode: 'auto' | 'human-in-loop'
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
+  configuration: GraphRunConfiguration
   operation: GraphOperation
   createdAt: string
   updatedAt: string
@@ -137,12 +192,22 @@ export type GraphCommand =
         id: string
         targetId: string
         mode: 'auto' | 'human-in-loop'
+        configuration?: GraphRunConfiguration
       }
     }
   | {
       requestId: string
       method: 'run.cancel'
       params: { mapId: string; expectedRevision: number; runId: string }
+    }
+  | {
+      requestId: string
+      method: 'review.update'
+      params: {
+        mapId: string; expectedRevision: number; runId: string
+        reviewId: string; expectedReviewRevision: number
+        reason: string; slots: GraphRouteSlot[]
+      }
     }
   | {
       requestId: string
@@ -162,15 +227,21 @@ export interface GraphDataRead {
   runId: string
   operationId: string
   claim: GraphNode & { data: Extract<GraphNodeData, { kind: 'claim' }> }
+  context: Array<{ id: string; content: string; context: Record<string, ContextField> }>
+  configuration: GraphRunConfiguration
+  route: GraphRoute | null
   reports: GraphReport[]
+  draft: GraphMergeDraft | null
   review: GraphReview | null
+  phase: 'route' | 'workers' | 'merge' | 'waiting' | 'done'
+  proposalId: string
 }
 
-export interface GraphReportProposal {
-  mapId: string
-  operationId: string
-  report: { id: string; slotId: string; score: 0 | 0.5 | 1; reason: string }
-}
+export type GraphDataProposal = { mapId: string; operationId: string; id: string } & (
+  | { kind: 'route'; reason: string; slots: GraphRouteSlot[] }
+  | { kind: 'report'; routeRevision: number; slotId: string; score: 0 | 0.5 | 1; reason: string }
+  | { kind: 'merge'; routeRevision: number; reportIds: string[]; score: 0 | 0.5 | 1; reason: string }
+)
 
 export interface GraphSuccess<T> {
   ok: true

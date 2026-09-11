@@ -1,0 +1,9 @@
+{
+  "id": "logic",
+  "name": "逻辑核查",
+  "description": "适合因果、概念、推理和上下文一致性分析",
+  "content": "使用data_read读取本slot的任务，根据angle/hint检查陈述的推理、概念与语境。区分逻辑可成立和事实已证实，用data_propose提交本slot报告。",
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

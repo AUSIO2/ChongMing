@@ -16,6 +16,7 @@ export interface DshRuntimeConfig {
   provider: string
   model: string
   maxTokens?: number
+  env?: Record<string, string | undefined>
 }
 
 export interface DshRunInput {

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type {
@@ -7,15 +7,22 @@ import type {
   GraphFailure,
   GraphNodeData,
   GraphQuery,
-  GraphReportProposal,
+  GraphReport,
+  GraphDataActor,
+  GraphDataProposal,
   GraphSuccess,
 } from '../contracts/graph'
 import { DEVELOPMENT_WORKSPACE_ID } from '../contracts/graph'
 import { GraphError } from './graph-error'
 import type { GraphService } from './graph'
+import { configurationRead, configurationReadSlots } from './configuration'
+import {
+  inputReadObject as apiReadObject, inputReadString as apiReadString, inputReadId as apiReadId,
+  inputReadRevision as apiReadRevision, inputReadArray as apiReadArray,
+  inputReadNames as apiReadNames, inputReadScore as apiReadScore, inputReadIds as apiReadIds,
+} from './input'
 
 const MAX_BODY_BYTES = 1_048_576
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function apiWriteJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
@@ -38,67 +45,39 @@ async function apiReadBody(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function apiReadObject(value: unknown, keys: string[], label: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', `${label} must be an object`)
+function apiReadReport(value: unknown): GraphReport {
+  const item = apiReadObject(value,
+    ['id', 'slotId', 'agentId', 'agentName', 'angle', 'tools', 'routeRevision', 'score', 'reason', 'createdAt'], 'opinion')
+  const createdAt = apiReadString(item.createdAt, 'opinion.createdAt')
+  if (Number.isNaN(Date.parse(createdAt))) throw new GraphError(400, 'INVALID_ARGUMENT', 'opinion.createdAt is invalid')
+  return {
+    id: apiReadString(item.id, 'opinion.id'), slotId: apiReadString(item.slotId, 'opinion.slotId'),
+    agentId: apiReadString(item.agentId, 'opinion.agentId'), agentName: apiReadString(item.agentName, 'opinion.agentName'),
+    angle: apiReadString(item.angle, 'opinion.angle'), tools: apiReadNames(item.tools, 'opinion.tools'),
+    routeRevision: apiReadRevision(item.routeRevision, 'opinion.routeRevision'), score: apiReadScore(item.score),
+    reason: apiReadString(item.reason, 'opinion.reason'), createdAt,
   }
-  const object = value as Record<string, unknown>
-  const unknown = Object.keys(object).find(key => !keys.includes(key))
-  if (unknown) throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.${unknown} is not allowed`)
-  return object
-}
-
-function apiReadString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', `${label} must be a non-empty string`)
-  }
-  return value
-}
-
-function apiReadId(value: unknown, label: string): string {
-  const id = apiReadString(value, label)
-  if (!UUID.test(id)) throw new GraphError(400, 'INVALID_ARGUMENT', `${label} must be a UUID`)
-  return id
-}
-
-function apiReadRevision(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', `${label} must be a non-negative integer`)
-  }
-  return value as number
-}
-
-function apiReadStrings(value: unknown, label: string): string[] {
-  if (!Array.isArray(value)) throw new GraphError(400, 'INVALID_ARGUMENT', `${label} must be an array`)
-  return value.map((item, index) => apiReadId(item, `${label}[${index}]`))
-}
-
-function apiReadArray(value: unknown, label: string): unknown[] {
-  if (!Array.isArray(value)) throw new GraphError(400, 'INVALID_ARGUMENT', `${label} must be an array`)
-  return value
 }
 
 function apiReadNodeData(value: unknown, label: string): GraphNodeData {
   const base = apiReadObject(
     value,
-    ['kind', 'content', 'context', 'category', 'score', 'reason', 'reportIds'],
+    ['kind', 'content', 'context', 'category', 'score', 'reason', 'reportIds', 'opinions'],
     label,
   )
   if (base.kind === 'verification') {
     if (base.content !== undefined || base.context !== undefined || base.category !== undefined) {
       throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for verification`)
     }
-    if (base.score !== 0 && base.score !== 0.5 && base.score !== 1) {
-      throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.score is invalid`)
-    }
     return {
       kind: 'verification',
-      score: base.score,
+      score: apiReadScore(base.score),
       reason: apiReadString(base.reason, `${label}.reason`),
-      reportIds: apiReadStrings(base.reportIds, `${label}.reportIds`),
+      reportIds: apiReadNames(base.reportIds, `${label}.reportIds`),
+      opinions: apiReadArray(base.opinions, `${label}.opinions`).map(apiReadReport),
     }
   }
-  if (base.score !== undefined || base.reason !== undefined || base.reportIds !== undefined) {
+  if (base.score !== undefined || base.reason !== undefined || base.reportIds !== undefined || base.opinions !== undefined) {
     throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for ${String(base.kind)}`)
   }
   const content = apiReadString(base.content, `${label}.content`)
@@ -140,7 +119,7 @@ function apiReadChanges(value: unknown): GraphChanges {
         const item = apiReadObject(value, ['id', 'data'], `params.changes.nodes.put[${index}]`)
         return { id: apiReadId(item.id, 'node.id'), data: apiReadNodeData(item.data, 'node.data') }
       }),
-      remove: nodes.remove === undefined ? undefined : apiReadStrings(nodes.remove, 'params.changes.nodes.remove'),
+      remove: nodes.remove === undefined ? undefined : apiReadIds(nodes.remove, 'params.changes.nodes.remove'),
     },
     edges: edges && {
       put: edges.put === undefined ? undefined : apiReadArray(edges.put, 'params.changes.edges.put').map((value, index) => {
@@ -156,7 +135,7 @@ function apiReadChanges(value: unknown): GraphChanges {
           to: apiReadId(item.to, 'edge.to'),
         }
       }),
-      remove: edges.remove === undefined ? undefined : apiReadStrings(edges.remove, 'params.changes.edges.remove'),
+      remove: edges.remove === undefined ? undefined : apiReadIds(edges.remove, 'params.changes.edges.remove'),
     },
   }
 }
@@ -226,7 +205,7 @@ function apiReadCommand(value: unknown): GraphCommand {
   if (envelope.method === 'run.start') {
     const params = apiReadObject(
       envelope.params,
-      ['mapId', 'expectedRevision', 'id', 'targetId', 'mode'],
+      ['mapId', 'expectedRevision', 'id', 'targetId', 'mode', 'configuration'],
       'params',
     )
     if (params.mode !== 'auto' && params.mode !== 'human-in-loop') {
@@ -241,6 +220,7 @@ function apiReadCommand(value: unknown): GraphCommand {
         id: apiReadId(params.id, 'params.id'),
         targetId: apiReadId(params.targetId, 'params.targetId'),
         mode: params.mode,
+        ...(params.configuration === undefined ? {} : { configuration: configurationRead(params.configuration) }),
       },
     }
   }
@@ -253,6 +233,23 @@ function apiReadCommand(value: unknown): GraphCommand {
         mapId: apiReadId(params.mapId, 'params.mapId'),
         expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
         runId: apiReadId(params.runId, 'params.runId'),
+      },
+    }
+  }
+  if (envelope.method === 'review.update') {
+    const params = apiReadObject(envelope.params,
+      ['mapId', 'expectedRevision', 'runId', 'reviewId', 'expectedReviewRevision', 'reason', 'slots'], 'params')
+    return {
+      requestId,
+      method: envelope.method,
+      params: {
+        mapId: apiReadId(params.mapId, 'params.mapId'),
+        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
+        runId: apiReadId(params.runId, 'params.runId'),
+        reviewId: apiReadId(params.reviewId, 'params.reviewId'),
+        expectedReviewRevision: apiReadRevision(params.expectedReviewRevision, 'params.expectedReviewRevision'),
+        reason: apiReadString(params.reason, 'params.reason'),
+        slots: configurationReadSlots(params.slots),
       },
     }
   }
@@ -292,22 +289,43 @@ function apiReadDataQuery(value: unknown): { mapId: string; operationId: string 
   }
 }
 
-function apiReadReportProposal(value: unknown): GraphReportProposal {
-  const input = apiReadObject(value, ['mapId', 'operationId', 'report'], 'data.propose')
-  const report = apiReadObject(input.report, ['id', 'slotId', 'score', 'reason'], 'report')
-  if (report.score !== 0 && report.score !== 0.5 && report.score !== 1) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', 'report.score is invalid')
-  }
-  return {
+function apiReadDataProposal(value: unknown): GraphDataProposal {
+  const input = apiReadObject(value,
+    ['mapId', 'operationId', 'id', 'kind', 'reason', 'slots', 'routeRevision', 'slotId', 'score', 'reportIds'], 'data.propose')
+  const base = {
     mapId: apiReadId(input.mapId, 'mapId'),
     operationId: apiReadString(input.operationId, 'operationId'),
-    report: {
-      id: apiReadId(report.id, 'report.id'),
-      slotId: apiReadString(report.slotId, 'report.slotId'),
-      score: report.score,
-      reason: apiReadString(report.reason, 'report.reason'),
-    },
+    id: apiReadString(input.id, 'id'),
+    reason: apiReadString(input.reason, 'reason'),
   }
+  if (input.kind === 'route') {
+    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'slots'], 'route')
+    return { ...base, kind: 'route', slots: configurationReadSlots(input.slots) }
+  }
+  const routeRevision = apiReadRevision(input.routeRevision, 'routeRevision')
+  const score = apiReadScore(input.score)
+  if (input.kind === 'report') {
+    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'slotId', 'score'], 'report')
+    return { ...base, kind: 'report', routeRevision, score, slotId: apiReadString(input.slotId, 'slotId') }
+  }
+  if (input.kind === 'merge') {
+    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'reportIds', 'score'], 'merge')
+    return { ...base, kind: 'merge', routeRevision, score, reportIds: apiReadNames(input.reportIds, 'reportIds') }
+  }
+  throw new GraphError(400, 'INVALID_ARGUMENT', 'proposal.kind is invalid')
+}
+
+function apiReadActor(request: IncomingMessage, token: string | undefined): GraphDataActor {
+  const supplied = request.headers.authorization
+  const expected = token ? `Bearer ${token}` : ''
+  if (!expected || typeof supplied !== 'string' || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
+      || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
+    throw new GraphError(401, 'UNAUTHORIZED', 'Internal API requires a configured Host token')
+  }
+  const role = request.headers['x-dsh-role']
+  if (role === 'router' || role === 'merge') return { role }
+  if (role === 'worker') return { role, slotId: apiReadString(request.headers['x-dsh-slot'], 'x-dsh-slot') }
+  throw new GraphError(403, 'FORBIDDEN', 'Internal API requires a bound DSH role')
 }
 
 function apiWriteError(response: ServerResponse, requestId: string, error: unknown): void {
@@ -327,7 +345,11 @@ function apiWriteError(response: ServerResponse, requestId: string, error: unkno
   apiWriteJson(response, graphError.status, body)
 }
 
-export function apiCreateServer(service: GraphService): Server {
+export function apiCreateServer(
+  service: GraphService,
+  options: { internalToken?: string } = {},
+): Server {
+  const internalToken = options.internalToken ?? process.env.CHONGMING_DATA_TOKEN
   return createServer(async (request, response) => {
     let requestId: string = randomUUID()
     try {
@@ -336,13 +358,15 @@ export function apiCreateServer(service: GraphService): Server {
         return
       }
       if (request.method === 'POST' && request.url === '/internal/v1/data/read') {
+        const actor = apiReadActor(request, internalToken)
         const input = apiReadDataQuery(await apiReadBody(request))
-        apiWriteJson(response, 200, { ok: true, data: await service.readData(input.mapId, input.operationId) })
+        apiWriteJson(response, 200, { ok: true, data: await service.readData(input.mapId, input.operationId, actor) })
         return
       }
       if (request.method === 'POST' && request.url === '/internal/v1/data/propose') {
-        const input = apiReadReportProposal(await apiReadBody(request))
-        apiWriteJson(response, 200, { ok: true, data: await service.proposeReport(input) })
+        const actor = apiReadActor(request, internalToken)
+        const input = apiReadDataProposal(await apiReadBody(request))
+        apiWriteJson(response, 200, { ok: true, data: await service.propose(input, actor) })
         return
       }
       if (request.method !== 'POST' || !['/api/v1/query', '/api/v1/command'].includes(request.url ?? '')) {
