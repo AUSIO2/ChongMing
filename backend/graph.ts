@@ -1,7 +1,6 @@
 import type {
   GraphChanges,
   GraphCommand,
-  GraphDataActor,
   GraphDataProposal,
   GraphDataRead,
   GraphEdge,
@@ -10,6 +9,8 @@ import type {
   GraphQuery,
   GraphSnapshot,
   GraphWriteResult,
+  GraphWorkCommand,
+  GraphWorkProof,
 } from '../contracts/graph'
 import { GraphError } from './graph-error'
 import {
@@ -23,6 +24,7 @@ import {
 import { configurationRead, DEFAULT_VERIFY_CONFIGURATION } from './configuration'
 import type { GraphDocument, GraphReceipt, GraphStore } from './store'
 import { storeCreateInputHash } from './store'
+import { workReadGrant, workReadItems } from './work'
 
 function graphReadSnapshot(document: GraphDocument): GraphSnapshot {
   return {
@@ -186,7 +188,9 @@ function graphUpdateChanges(document: GraphDocument, changes: GraphChanges): {
   }
 }
 
-export function graphCreateService(store: GraphStore) {
+export function graphCreateService(store: GraphStore, options: { leaseMs?: number } = {}) {
+  const leaseMs = options.leaseMs ?? 15_000
+  if (!Number.isSafeInteger(leaseMs) || leaseMs < 100 || leaseMs > 300_000) throw new Error('leaseMs must be between 100 and 300000')
   async function graphReadMap(mapId: string): Promise<GraphDocument> {
     const document = await store.read(mapId)
     if (!document || document.deletedAt) {
@@ -248,6 +252,7 @@ export function graphCreateService(store: GraphStore) {
           edges: [],
           run: null,
           runHistory: [],
+          leases: {},
           receipts: [receipt],
           createdAt: now,
           updatedAt: now,
@@ -353,30 +358,101 @@ export function graphCreateService(store: GraphStore) {
       }
     },
 
-    async readData(mapId: string, operationId: string, actor: GraphDataActor): Promise<GraphDataRead> {
-      return runReadData(await graphReadMap(mapId), operationId, actor)
+    async dispatchWork(command: GraphWorkCommand) {
+      if (command.method === 'claim') {
+        const input = command.params
+        for await (const document of store.discover(input.mapId)) {
+          const prior = Object.values(document.leases).find(grant => grant.holderId === input.holderId && grant.hostId === input.hostId)
+          if (prior) {
+            const current = await store.readLease(document.id, prior)
+            if (current) return current.leases[prior.workId]
+          }
+          for (const work of workReadItems(document)) {
+            const grant = await store.claim(document, work, input.hostId, input.holderId, leaseMs)
+            if (grant) return grant
+          }
+        }
+        return null
+      }
+      if (command.method === 'renew') {
+        const grant = await store.renew(command.params.mapId, command.params)
+        if (!grant) throw new GraphError(409, 'LEASE_LOST', 'Work lease expired, was cancelled or was superseded')
+        return grant
+      }
+      if (command.method === 'read') {
+        const input = command.params
+        const document = await graphReadMap(input.mapId)
+        if (document.leases[input.workId] && document.receipts.some(receipt => receipt.requestId === input.workId)) {
+          return { workId: input.workId, status: 'accepted' as const }
+        }
+        workReadGrant(document, input)
+        if (!await store.readLease(input.mapId, input)) throw new GraphError(409, 'LEASE_LOST', 'Work lease is not valid')
+        return { workId: input.workId, status: 'ready' as const }
+      }
+      if (command.method === 'release') return { released: await store.release(command.params.mapId, command.params) }
+      const failure = command.params
+      const failureId = `${failure.workId}:failure:${failure.fence}`
+      const failureHash = storeCreateInputHash({ workId: failure.workId, message: failure.message })
+      for (let attempt = 0; attempt < 64; attempt++) {
+        const document = await graphReadMap(failure.mapId)
+        const grant = workReadGrant(document, failure)
+        if (graphReadReceipt(document, failureId, 'work.fail', failureHash)) return { failed: true }
+        if (document.receipts.some(receipt => receipt.requestId === failure.workId)) return { failed: false }
+        if (!await store.readLease(document.id, failure)) throw new GraphError(409, 'LEASE_LOST', 'Cannot fail work without its lease')
+        if (!workReadItems(document).some(work => work.workId === failure.workId)) return { failed: false }
+        const updated = structuredClone(document)
+        updated.run!.status = 'failed'
+        updated.run!.operation.status = 'failed'
+        updated.run!.error = { code: 'EXECUTION_FAILED', message: failure.message, workId: failure.workId }
+        updated.updatedAt = updated.run!.updatedAt = new Date().toISOString()
+        const receipt = graphCreateReceipt(failureId, 'work.fail', failureHash, updated.updatedAt)
+        if (await store.commit(updated, document.revision, receipt, grant)) return { failed: true }
+      }
+      throw new GraphError(503, 'WRITE_CONTENTION', 'Retry work failure after concurrent updates settle')
     },
 
-    async propose(proposal: GraphDataProposal, actor: GraphDataActor): Promise<GraphSnapshot> {
-      if ((proposal.kind === 'route' && actor.role !== 'router')
-        || (proposal.kind === 'merge' && actor.role !== 'merge')
-        || (proposal.kind === 'report' && (actor.role !== 'worker' || actor.slotId !== proposal.slotId))) {
-        throw new GraphError(403, 'ROLE_NOT_ALLOWED', 'Proposal does not belong to the bound actor')
+    async readData(mapId: string, operationId: string, proof: GraphWorkProof): Promise<GraphDataRead> {
+      let document = await graphReadMap(mapId)
+      const grant = workReadGrant(document, proof)
+      if (grant.operationId !== operationId) throw new GraphError(403, 'WORK_SCOPE_MISMATCH', 'Grant belongs to another operation')
+      const accepted = document.receipts.some(receipt => receipt.requestId === proof.workId)
+      if (!accepted) {
+        const leased = await store.readLease(mapId, proof)
+        if (!leased) throw new GraphError(409, 'LEASE_LOST', 'Work lease is not valid')
+        document = leased
       }
-      const inputHash = storeCreateInputHash({ proposal, actor })
+      return { ...runReadData(document, operationId, grant.actor),
+        work: { id: grant.workId, actor: grant.actor, routeRevision: grant.routeRevision,
+          status: document.receipts.some(receipt => receipt.requestId === proof.workId) ? 'accepted' : 'ready' },
+      }
+    },
+
+    async propose(proposal: GraphDataProposal, proof: GraphWorkProof): Promise<GraphSnapshot> {
       const method = `proposal.${proposal.kind}`
       // Independent slot reports may race; retry only the validated database write, never the model.
       for (let attempt = 0; attempt < 64; attempt++) {
         const document = await graphReadMap(proposal.mapId)
+        const grant = document.leases[proof.workId]
+        if (!grant) throw new GraphError(409, 'LEASE_LOST', 'Work grant does not exist')
+        const actor = grant.actor
+        if (proposal.id !== grant.workId || proposal.operationId !== grant.operationId
+          || (proposal.kind === 'route' && actor.role !== 'router')
+          || (proposal.kind === 'merge' && actor.role !== 'merge')
+          || (proposal.kind === 'report' && (actor.role !== 'worker' || actor.slotId !== proposal.slotId))) {
+          throw new GraphError(403, 'WORK_SCOPE_MISMATCH', 'Proposal does not belong to this work grant')
+        }
+        const inputHash = storeCreateInputHash({ proposal, actor })
         const priorReceipt = graphReadReceipt(document, proposal.id, method, inputHash)
         if (priorReceipt) return graphReadSnapshot(document)
+        workReadGrant(document, proof)
+        if (!await store.readLease(proposal.mapId, proof)) throw new GraphError(409, 'LEASE_LOST', 'Work lease is not valid')
         const view = runReadData(document, proposal.operationId, actor)
         if (view.proposalId !== proposal.id) throw new GraphError(409, 'PROPOSAL_CONFLICT', 'Stale proposal identity')
         const now = new Date().toISOString()
         const update = runUpdateProposal(structuredClone(document), proposal, actor, now)
         const receipt = graphCreateReceipt(proposal.id, method, inputHash, now,
           update.nodeId ? [update.nodeId] : [], update.edgeId ? [update.edgeId] : [])
-        if (await store.commit(update.document, document.revision, receipt)) {
+        if (await store.commit(update.document, document.revision, receipt, grant)) {
           return graphReadSnapshot(await graphReadMap(document.id))
         }
       }

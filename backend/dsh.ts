@@ -42,13 +42,16 @@ export function dshCreateRuntime(config: DshRuntimeConfig): DshRuntimeAPI {
     maxTokens: config.maxTokens,
     env: { ...process.env, ...config.env },
   })
-  let closed = false
+  let closePromise: Promise<void> | undefined
 
   return {
-    start: () => harness.start(),
+    start() {
+      if (closePromise) return Promise.reject(new Error('DSH runtime is closed'))
+      return harness.start()
+    },
 
     async run(input: DshRunInput, onEvent): Promise<DshRunResult> {
-      if (closed) throw new Error('DSH runtime is closed')
+      if (closePromise) throw new Error('DSH runtime is closed')
       const prompt = input.prompt.trim()
       if (!prompt) throw new Error('DSH prompt must not be empty')
 
@@ -68,10 +71,8 @@ export function dshCreateRuntime(config: DshRuntimeConfig): DshRuntimeAPI {
       }
     },
 
-    async close(): Promise<void> {
-      if (closed) return
-      closed = true
-      await harness.close()
+    close(): Promise<void> {
+      return closePromise ??= harness.close()
     },
   }
 }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import mongoose, { Schema } from 'mongoose'
 import type { Connection } from 'mongoose'
-import type { GraphEdge, GraphMapSummary, GraphNode, GraphRun } from '../contracts/graph'
+import type { GraphEdge, GraphMapSummary, GraphNode, GraphRun, GraphWork, GraphWorkGrant, GraphWorkProof } from '../contracts/graph'
 
 export interface GraphReceipt {
   requestId: string
@@ -21,6 +21,7 @@ export interface GraphDocument {
   edges: GraphEdge[]
   run: GraphRun | null
   runHistory: GraphRun[]
+  leases: Record<string, GraphWorkGrant>
   receipts: GraphReceipt[]
   createdAt: string
   updatedAt: string
@@ -63,6 +64,7 @@ const graphSchema = new Schema({
   edges: { type: [edgeSchema], default: [] },
   run: { type: Schema.Types.Mixed, default: null },
   runHistory: { type: [Schema.Types.Mixed], default: [] },
+  leases: { type: Schema.Types.Mixed, default: {} },
   receipts: { type: [receiptSchema], default: [] },
   createdAt: { type: Date, required: true },
   updatedAt: { type: Date, required: true },
@@ -102,6 +104,8 @@ function storeReadDocument(raw: Record<string, unknown>): GraphDocument {
     })),
     run: (raw.run as GraphRun | null) ?? null,
     runHistory: (raw.runHistory as GraphRun[] | undefined) ?? [],
+    leases: Object.fromEntries(Object.entries((raw.leases as Record<string, GraphWorkGrant>) ?? {})
+      .map(([key, lease]) => [key, { ...lease, expiresAt: storeReadIso(lease.expiresAt) }])),
     receipts: (raw.receipts as Array<Record<string, unknown>>).map(receipt => ({
       requestId: String(receipt.requestId),
       method: String(receipt.method),
@@ -131,6 +135,18 @@ export function storeCreateInputHash(value: unknown): string {
 
 export function storeCreateGraphStore(connection: Connection) {
   const model = connection.model('GraphV3', graphSchema)
+  function storeReadLeaseFilter(mapId: string, proof: GraphWorkProof) {
+    const field = `leases.${proof.workId}`
+    return {
+      _id: mapId,
+      [`${field}.holderId`]: proof.holderId,
+      [`${field}.fence`]: proof.fence,
+      $expr: { $and: [
+        { $gt: [`$${field}.expiresAt`, '$$NOW'] },
+        { $eq: ['$run.id', `$${field}.runId`] },
+      ] },
+    }
+  }
   return {
     async create(document: GraphDocument): Promise<boolean> {
       try {
@@ -155,6 +171,50 @@ export function storeCreateGraphStore(connection: Connection) {
       return raw ? storeReadDocument(raw) : null
     },
 
+    async *discover(mapId?: string): AsyncGenerator<GraphDocument> {
+      // ponytail: scan runnable Maps; add a ready-work index if graph volume requires it.
+      const cursor = model.find({ ...(mapId ? { _id: mapId } : {}), 'run.status': 'running', deletedAt: { $exists: false } })
+        .sort({ updatedAt: 1, _id: 1 }).lean<Record<string, unknown>[]>().cursor()
+      try { for await (const raw of cursor) yield storeReadDocument(raw) }
+      finally { await cursor.close() }
+    },
+
+    async claim(document: GraphDocument, work: GraphWork, hostId: string, holderId: string, leaseMs: number): Promise<GraphWorkGrant | null> {
+      const field = `leases.${work.workId}`
+      const raw = await model.findOneAndUpdate({
+        _id: document.id, revision: document.revision, 'run.id': work.runId, 'run.status': 'running',
+        $expr: { $lte: [{ $ifNull: [`$${field}.expiresAt`, new Date(0)] }, '$$NOW'] },
+      }, [{ $set: { [field]: { $mergeObjects: [
+        { $literal: { ...work, hostId, holderId, leaseMs } },
+        { fence: { $add: [{ $ifNull: [`$${field}.fence`, 0] }, 1] }, expiresAt: { $add: ['$$NOW', leaseMs] } },
+      ] } } }], { returnDocument: 'after', updatePipeline: true }).lean<Record<string, unknown>>()
+      return raw ? storeReadDocument(raw).leases[work.workId] : null
+    },
+
+    async readLease(mapId: string, proof: GraphWorkProof): Promise<GraphDocument | null> {
+      const raw = await model.findOne({ ...storeReadLeaseFilter(mapId, proof),
+        'run.status': { $in: ['running', 'waiting', 'completed'] }, deletedAt: { $exists: false },
+      }).lean<Record<string, unknown>>()
+      return raw ? storeReadDocument(raw) : null
+    },
+
+    async renew(mapId: string, proof: GraphWorkProof): Promise<GraphWorkGrant | null> {
+      const field = `leases.${proof.workId}`
+      const raw = await model.findOneAndUpdate({ ...storeReadLeaseFilter(mapId, proof),
+        'run.status': { $in: ['running', 'waiting', 'completed'] }, deletedAt: { $exists: false },
+      }, [{ $set: { [`${field}.expiresAt`]: { $add: ['$$NOW', `$${field}.leaseMs`] } } }],
+      { returnDocument: 'after', updatePipeline: true }).lean<Record<string, unknown>>()
+      return raw ? storeReadDocument(raw).leases[proof.workId] : null
+    },
+
+    async release(mapId: string, proof: GraphWorkProof): Promise<boolean> {
+      const field = `leases.${proof.workId}`
+      const result = await model.updateOne({ _id: mapId,
+        [`${field}.holderId`]: proof.holderId, [`${field}.fence`]: proof.fence,
+      }, { $set: { [`${field}.expiresAt`]: new Date(0) } })
+      return result.matchedCount === 1
+    },
+
     async list(workspaceId: string): Promise<GraphMapSummary[]> {
       const rows = await model.find({ workspaceId, deletedAt: { $exists: false } })
         .sort({ updatedAt: -1, _id: 1 })
@@ -177,10 +237,13 @@ export function storeCreateGraphStore(connection: Connection) {
       document: GraphDocument,
       expectedRevision: number,
       receipt: GraphReceipt,
+      grant?: GraphWorkGrant,
     ): Promise<boolean> {
       // ponytail: one Map document keeps the first implementation atomic; split collections near 8 MiB.
       const result = await model.updateOne(
-        { _id: document.id, revision: expectedRevision },
+        { _id: document.id, revision: expectedRevision,
+          ...(grant ? { ...storeReadLeaseFilter(document.id, grant), 'run.id': grant.runId, 'run.status': 'running' } : {}),
+        },
         {
           $set: {
             name: document.name,
@@ -203,7 +266,11 @@ export function storeCreateGraphStore(connection: Connection) {
 export type GraphStore = ReturnType<typeof storeCreateGraphStore>
 
 export async function storeCreateConnection(uri: string): Promise<Connection> {
-  const connection = mongoose.createConnection(uri, { serverSelectionTimeoutMS: 5_000 })
+  const connection = mongoose.createConnection(uri, {
+    serverSelectionTimeoutMS: 5_000,
+    readPreference: 'primary',
+    writeConcern: { w: 'majority', wtimeoutMS: 5_000 },
+  })
   await connection.asPromise()
   return connection
 }

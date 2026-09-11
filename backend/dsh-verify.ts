@@ -3,18 +3,17 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { DshEvent, DshRuntimeAPI } from '../contracts/dsh'
-import type { GraphDataRead } from '../contracts/graph'
+import type { GraphAgentProfile, GraphDataRead, GraphWorkGrant } from '../contracts/graph'
 import { dshCreateRuntime } from './dsh'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-export interface DshVerifyInput {
-  mapId: string
-  operationId: string
-  rootSessionId?: string
+export interface DshWorkInput {
+  grant: GraphWorkGrant
   dataApiUrl: string
   token: string
   dshHome: string
+  signal?: AbortSignal
   dshBin?: string
   cwd?: string
   processCwd?: string
@@ -22,58 +21,133 @@ export interface DshVerifyInput {
   patches?: string[]
   env?: Record<string, string | undefined>
   maxTokens?: number
-  /** Bounded follow-up turns when the root stops before the operation reaches a business boundary. */
+  /** Bounded follow-up turns if the Agent stops before submitting this work's result. */
   maxRounds?: number
   onEvent?: (event: DshEvent) => void
 }
 
-export interface DshVerifyResult {
+export interface DshWorkResult {
+  workId: string
   mapId: string
   runId: string
   operationId: string
   sessionId: string | null
-  phase: 'waiting' | 'done'
+  status: 'accepted'
   finalResponse: string
 }
 
-async function dshReadVerification(input: DshVerifyInput): Promise<GraphDataRead> {
-  const response = await fetch(new URL('/internal/v1/data/read', input.dataApiUrl), {
+/** Temporary loss of the data/lease authority, not a model or configuration failure. */
+export class WorkAccessError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WorkAccessError'
+  }
+}
+
+async function dshReadWorkReply<T>(
+  input: DshWorkInput,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  input.signal?.throwIfAborted()
+  const url = new URL(path, input.dataApiUrl)
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Data API must use HTTP(S)')
+  const request = new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + input.token, 'x-dsh-role': 'router' },
-    body: JSON.stringify({ mapId: input.mapId, operationId: input.operationId }),
+    headers: { ...headers, 'content-type': 'application/json', authorization: 'Bearer ' + input.token },
+    body: JSON.stringify(body),
+    signal: input.signal,
   })
-  const result = await response.json()
-  if (!response.ok || result.ok !== true) throw new Error(result.error?.message ?? 'Data API returned ' + response.status)
-  const data = result.data as GraphDataRead
-  if (data.mapId !== input.mapId || data.operationId !== input.operationId) throw new Error('Data API returned another operation')
+  let response: Response
+  try { response = await fetch(request) }
+  catch {
+    input.signal?.throwIfAborted()
+    throw new WorkAccessError('Work API connection could not be confirmed')
+  }
+  const unavailable = response.status >= 500 || response.status === 429
+  let result
+  try { result = await response.json() }
+  catch (error) {
+    input.signal?.throwIfAborted()
+    if (unavailable || !(error instanceof SyntaxError)) throw new WorkAccessError('Work API response could not be received')
+    throw new Error('Work API returned invalid JSON')
+  }
+  if (!response.ok || result?.ok !== true) {
+    const message = result?.error?.code ? result.error.code + ': ' + result.error.message : 'Work API returned ' + response.status
+    if (unavailable || result?.error?.code === 'LEASE_LOST') throw new WorkAccessError(message)
+    throw new Error(message)
+  }
+  return result.data as T
+}
+
+async function dshReadWorkStatus(input: DshWorkInput): Promise<'ready' | 'accepted'> {
+  const grant = input.grant
+  const data = await dshReadWorkReply<{ workId: string; status: 'ready' | 'accepted' }>(input, '/internal/v1/work', {
+    method: 'read',
+    params: { mapId: grant.mapId, workId: grant.workId, holderId: grant.holderId, fence: grant.fence },
+  })
+  if (data?.workId !== grant.workId || !['ready', 'accepted'].includes(data.status)) throw new Error('Work API returned another or invalid work status')
+  return data.status
+}
+
+async function dshReadWork(input: DshWorkInput): Promise<GraphDataRead> {
+  const grant = input.grant
+  const data = await dshReadWorkReply<GraphDataRead>(input, '/internal/v1/data/read', {
+    mapId: grant.mapId, operationId: grant.operationId,
+  }, {
+    'x-work-id': grant.workId, 'x-work-holder': grant.holderId, 'x-work-fence': String(grant.fence),
+  })
+  if (data.mapId !== grant.mapId || data.runId !== grant.runId || data.operationId !== grant.operationId
+    || data.work?.id !== grant.workId || data.work.routeRevision !== grant.routeRevision
+    || JSON.stringify(data.work.actor) !== JSON.stringify(grant.actor)) throw new Error('Data API returned another work grant')
   return data
 }
 
-/** Execute one already-registered operation. No Graph creation, claim loop or global scheduler. */
-export async function dshRunVerification(input: DshVerifyInput): Promise<DshVerifyResult> {
+function dshReadWorkProfile(data: GraphDataRead, grant: GraphWorkGrant): GraphAgentProfile {
+  if (grant.actor.role === 'router') return data.configuration.router
+  if (!data.route?.approved || data.route.revision !== grant.routeRevision) throw new Error('Work has no matching approved route')
+  if (grant.actor.role !== 'worker') return data.configuration.merger
+  const slotId = grant.actor.slotId
+  const slot = data.route.slots.find(slot => slot.id === slotId)
+  const profile = data.configuration.agents.find(agent => agent.id === slot?.agentId)
+  if (!slot || !profile || slot.tools.some(tool => !profile.tools.includes(tool))) throw new Error('Worker has no valid configured slot')
+  return profile
+}
+
+/** One accepted work grant owns one DSH process. The caller owns claim, renew and release. */
+export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> {
+  const input = { ...options, grant: structuredClone(options.grant) }
+  const grant = input.grant
+  input.signal?.throwIfAborted()
   if (!input.token.trim()) throw new Error('CHONGMING_DATA_TOKEN must be configured')
-  if (!input.mapId || !input.operationId) throw new Error('mapId and operationId are required')
+  if (!grant?.workId || !grant.holderId || !Number.isSafeInteger(grant.fence) || grant.fence < 1) throw new Error('A claimed work grant is required')
   const maxRounds = input.maxRounds ?? 3
   if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 10) throw new Error('maxRounds must be an integer from 1 to 10')
-  let data = await dshReadVerification(input)
-  if (data.phase === 'waiting' || data.phase === 'done') {
-    return { mapId: input.mapId, runId: data.runId, operationId: input.operationId, sessionId: null, phase: data.phase, finalResponse: '' }
-  }
-  const rootSessionId = input.rootSessionId ?? randomUUID()
+  const resultBase = { workId: grant.workId, mapId: grant.mapId, runId: grant.runId, operationId: grant.operationId, status: 'accepted' as const }
+  if (await dshReadWorkStatus(input) === 'accepted') return { ...resultBase, sessionId: null, finalResponse: '' }
+  const data = await dshReadWork(input)
+  const profile = dshReadWorkProfile(data, grant)
+  const rootSessionId = randomUUID()
   const dshHome = path.resolve(input.dshHome)
   await mkdir(dshHome, { recursive: true })
-  const patchDir = await mkdtemp(path.join(dshHome, 'verification-'))
-  const patchPath = path.join(patchDir, 'operation.patch.yml')
+  const patchDir = await mkdtemp(path.join(dshHome, 'work-'))
   let runtime: DshRuntimeAPI | undefined
+  let closePromise: Promise<void> | undefined
+  function dshCloseWork(): Promise<void> {
+    if (!runtime) return Promise.resolve()
+    return closePromise ??= runtime.close()
+  }
+  const abort = () => { void dshCloseWork().catch(() => {}) }
   try {
-    // JSON is valid YAML. Only non-secret configuration is written to the per-invocation patch.
+    input.signal?.throwIfAborted()
+    const patchPath = path.join(patchDir, 'work.patch.yml')
+    // The token remains in the environment; the immutable grant never enters model arguments.
     await writeFile(patchPath, JSON.stringify([
-      {
-        id: 'chongming-data-tools',
-        config: { mapId: input.mapId, operationId: input.operationId, rootSessionId, configuration: data.configuration },
-      },
+      { id: 'chongming-data-tools', config: { grant, rootSessionId, configuration: data.configuration, route: data.route } },
       { id: 'sdk-jsonrpc-server', config: { maxTokensAsSuccess: false } },
     ], null, 2), { mode: 0o600 })
+    input.signal?.throwIfAborted()
     runtime = dshCreateRuntime({
       dshBin: input.dshBin ?? path.join(projectRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js'),
       dshHome,
@@ -81,26 +155,23 @@ export async function dshRunVerification(input: DshVerifyInput): Promise<DshVeri
       processCwd: path.resolve(input.processCwd ?? dshHome),
       profile: 'sdk',
       patches: [path.join(projectRoot, 'backend/dsh-business.patch.yml'), ...(input.patches ?? []), patchPath],
-      provider: data.configuration.router.provider,
-      model: data.configuration.router.model,
-      maxTokens: input.maxTokens,
-      env: {
-        ...input.env,
-        CHONGMING_DATA_API: input.dataApiUrl,
-        CHONGMING_DATA_TOKEN: input.token,
-      },
+      provider: profile.provider, model: profile.model, maxTokens: input.maxTokens,
+      env: { ...input.env, CHONGMING_DATA_API: input.dataApiUrl, CHONGMING_DATA_TOKEN: input.token },
     })
+    input.signal?.addEventListener('abort', abort, { once: true })
+    input.signal?.throwIfAborted()
     await runtime.start()
     for (let round = 0; round < maxRounds; round++) {
-      // The role prompt remains supplied by the frozen Run configuration.
-      const result = await runtime.run({ sessionId: rootSessionId, prompt: data.configuration.router.content }, input.onEvent)
-      data = await dshReadVerification(input)
-      if (data.phase === 'waiting' || data.phase === 'done') {
-        return { mapId: input.mapId, runId: data.runId, operationId: input.operationId, sessionId: result.sessionId, phase: data.phase, finalResponse: result.finalResponse }
-      }
+      input.signal?.throwIfAborted()
+      const result = await runtime.run({ sessionId: rootSessionId, prompt: profile.content }, input.onEvent)
+      if (await dshReadWorkStatus(input) === 'accepted') return { ...resultBase, sessionId: result.sessionId, finalResponse: result.finalResponse }
     }
-    throw new Error('DSH stopped before a business boundary after ' + maxRounds + ' root turns; operation remains resumable')
+    throw new Error('DSH stopped without submitting this work after ' + maxRounds + ' turns')
+  } catch (error) {
+    if (input.signal?.aborted) throw input.signal.reason ?? error
+    throw error
   } finally {
-    try { await runtime?.close() } finally { await rm(patchDir, { recursive: true, force: true }) }
+    input.signal?.removeEventListener('abort', abort)
+    try { await dshCloseWork() } finally { await rm(patchDir, { recursive: true, force: true }) }
   }
 }

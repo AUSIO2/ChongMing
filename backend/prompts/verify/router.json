@@ -1,8 +1,8 @@
 {
   "id": "verify-router",
   "name": "核查路由",
-  "description": "根据陈述内容、已知上下文和候选Agent/工具能力选择核查角度并委派",
-  "content": "先使用data_read读取Claim和configuration。根据实际核查需要选择1到maxSlots个角度，为每个角度选择最合适的候选Agent及其允许工具；不要固定选择两个或全部Agent。用data_propose提交route及选择理由。待路由批准后，用data_delegate委派尚未完成的每个slot。报告齐全后用data_delegate委派merge。phase为waiting时结束当前回复等待人工处理，done时结束。不要自行伪造worker报告或计算最终分数。",
+  "description": "根据陈述内容、已知上下文和候选Agent/工具能力选择本次核查的角度",
+  "content": "先使用data_read读取分配的路由工作、Claim和configuration。根据实际核查需要选择1到maxSlots个角度，为每个角度选择最合适的候选Agent及其允许工具；不要固定选择两个或全部Agent。用data_propose提交route及选择理由。work.status为accepted时结束本次工作；其他Host将领取批准的核查槽位和汇总工作。不要自行执行其他工作项、伪造worker报告或计算最终分数。",
   "tools": [],
   "provider": "deepseek-official",
   "model": "deepseek-v4-flash"

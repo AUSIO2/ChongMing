@@ -8,7 +8,8 @@ import type {
   GraphNodeData,
   GraphQuery,
   GraphReport,
-  GraphDataActor,
+  GraphWorkCommand,
+  GraphWorkProof,
   GraphDataProposal,
   GraphSuccess,
 } from '../contracts/graph'
@@ -315,17 +316,51 @@ function apiReadDataProposal(value: unknown): GraphDataProposal {
   throw new GraphError(400, 'INVALID_ARGUMENT', 'proposal.kind is invalid')
 }
 
-function apiReadActor(request: IncomingMessage, token: string | undefined): GraphDataActor {
+function apiValidateToken(request: IncomingMessage, token: string | undefined): void {
   const supplied = request.headers.authorization
   const expected = token ? `Bearer ${token}` : ''
   if (!expected || typeof supplied !== 'string' || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
       || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
     throw new GraphError(401, 'UNAUTHORIZED', 'Internal API requires a configured Host token')
   }
-  const role = request.headers['x-dsh-role']
-  if (role === 'router' || role === 'merge') return { role }
-  if (role === 'worker') return { role, slotId: apiReadString(request.headers['x-dsh-slot'], 'x-dsh-slot') }
-  throw new GraphError(403, 'FORBIDDEN', 'Internal API requires a bound DSH role')
+}
+
+function apiReadProof(input: Record<string, unknown>): GraphWorkProof {
+  const workId = apiReadString(input.workId, 'workId')
+  if (!/^[a-zA-Z0-9_:-]{1,256}$/.test(workId)) throw new GraphError(400, 'INVALID_ARGUMENT', 'workId is invalid')
+  const fence = apiReadRevision(input.fence, 'fence')
+  if (fence < 1) throw new GraphError(400, 'INVALID_ARGUMENT', 'fence must be positive')
+  return { workId, holderId: apiReadId(input.holderId, 'holderId'), fence }
+}
+
+function apiReadWorkProof(request: IncomingMessage): GraphWorkProof {
+  const fence = request.headers['x-work-fence']
+  if (typeof fence !== 'string' || !/^[1-9][0-9]*$/.test(fence)) throw new GraphError(400, 'INVALID_ARGUMENT', 'x-work-fence is required')
+  return apiReadProof({ workId: request.headers['x-work-id'], holderId: request.headers['x-work-holder'], fence: Number(fence) })
+}
+
+function apiReadWorkCommand(value: unknown): GraphWorkCommand {
+  const input = apiReadObject(value, ['method', 'params'], 'work')
+  if (input.method === 'claim') {
+    const params = apiReadObject(input.params, ['hostId', 'holderId', 'mapId'], 'params')
+    const hostId = apiReadString(params.hostId, 'hostId')
+    if (hostId.length > 128) throw new GraphError(400, 'INVALID_ARGUMENT', 'hostId exceeds 128 characters')
+    return { method: 'claim', params: { hostId, holderId: apiReadId(params.holderId, 'holderId'),
+      ...(params.mapId === undefined ? {} : { mapId: apiReadId(params.mapId, 'mapId') }),
+    } }
+  }
+  if (input.method !== 'read' && input.method !== 'renew' && input.method !== 'release' && input.method !== 'fail') {
+    throw new GraphError(400, 'UNKNOWN_METHOD', 'Unknown work method')
+  }
+  const params = apiReadObject(input.params,
+    ['mapId', 'workId', 'holderId', 'fence', ...(input.method === 'fail' ? ['message'] : [])], 'params')
+  const proof = { mapId: apiReadId(params.mapId, 'mapId'), ...apiReadProof(params) }
+  if (input.method === 'fail') {
+    const message = apiReadString(params.message, 'message')
+    if (message.length > 1000) throw new GraphError(400, 'INVALID_ARGUMENT', 'message exceeds 1000 characters')
+    return { method: 'fail', params: { ...proof, message } }
+  }
+  return { method: input.method, params: proof }
 }
 
 function apiWriteError(response: ServerResponse, requestId: string, error: unknown): void {
@@ -358,15 +393,23 @@ export function apiCreateServer(
         return
       }
       if (request.method === 'POST' && request.url === '/internal/v1/data/read') {
-        const actor = apiReadActor(request, internalToken)
+        apiValidateToken(request, internalToken)
+        const proof = apiReadWorkProof(request)
         const input = apiReadDataQuery(await apiReadBody(request))
-        apiWriteJson(response, 200, { ok: true, data: await service.readData(input.mapId, input.operationId, actor) })
+        apiWriteJson(response, 200, { ok: true, data: await service.readData(input.mapId, input.operationId, proof) })
         return
       }
       if (request.method === 'POST' && request.url === '/internal/v1/data/propose') {
-        const actor = apiReadActor(request, internalToken)
+        apiValidateToken(request, internalToken)
+        const proof = apiReadWorkProof(request)
         const input = apiReadDataProposal(await apiReadBody(request))
-        apiWriteJson(response, 200, { ok: true, data: await service.propose(input, actor) })
+        apiWriteJson(response, 200, { ok: true, data: await service.propose(input, proof) })
+        return
+      }
+      if (request.method === 'POST' && request.url === '/internal/v1/work') {
+        apiValidateToken(request, internalToken)
+        const command = apiReadWorkCommand(await apiReadBody(request))
+        apiWriteJson(response, 200, { ok: true, data: await service.dispatchWork(command) })
         return
       }
       if (request.method !== 'POST' || !['/api/v1/query', '/api/v1/command'].includes(request.url ?? '')) {

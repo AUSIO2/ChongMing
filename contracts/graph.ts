@@ -55,6 +55,34 @@ export interface GraphMergeDraft {
 /** Trusted bridge identity, supplied in authenticated headers, never model arguments. */
 export type GraphDataActor = { role: 'router' | 'merge' } | { role: 'worker'; slotId: string }
 
+export interface GraphWorkProof {
+  workId: string
+  holderId: string
+  fence: number
+}
+
+export interface GraphWork {
+  workId: string
+  mapId: string
+  runId: string
+  operationId: string
+  actor: GraphDataActor
+  routeRevision: number
+}
+
+export interface GraphWorkGrant extends GraphWork, GraphWorkProof {
+  hostId: string
+  expiresAt: string
+  leaseMs: number
+}
+
+export type GraphWorkCommand =
+  | { method: 'claim'; params: { hostId: string; holderId: string; mapId?: string } }
+  | { method: 'read'; params: GraphWorkProof & { mapId: string } }
+  | { method: 'renew'; params: GraphWorkProof & { mapId: string } }
+  | { method: 'release'; params: GraphWorkProof & { mapId: string } }
+  | { method: 'fail'; params: GraphWorkProof & { mapId: string; message: string } }
+
 export interface GraphNode {
   id: string
   revision: number
@@ -142,6 +170,7 @@ export interface GraphRun {
   mode: 'auto' | 'human-in-loop'
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
   configuration: GraphRunConfiguration
+  error?: { code: string; message: string; workId: string }
   operation: GraphOperation
   createdAt: string
   updatedAt: string
@@ -235,6 +264,7 @@ export interface GraphDataRead {
   review: GraphReview | null
   phase: 'route' | 'workers' | 'merge' | 'waiting' | 'done'
   proposalId: string
+  work: { id: string; actor: GraphDataActor; routeRevision: number; status: 'ready' | 'accepted' }
 }
 
 export type GraphDataProposal = { mapId: string; operationId: string; id: string } & (

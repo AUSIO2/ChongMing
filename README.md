@@ -43,18 +43,20 @@ CHONGMING_MONGO_URI=mongodb://127.0.0.1:27017/chongming_graph npm run graph:serv
 curl http://127.0.0.1:4320/health
 ```
 
-数据图通过 `POST /api/v1/query` 读取，通过 `POST /api/v1/command` 执行图命令、Run 和 Review。新后端核查流程为：Claim → 路由 Agent 动态选择角度及自定义 Agent/tool → DSH 委派 → 收集各角度报告 → 汇总 Agent → 结论入图。人工模式分别审核路由和结论；一次 Run 保存完整配置快照，报告数量由批准的路由决定。
+数据图通过 `POST /api/v1/query` 读取，通过 `POST /api/v1/command` 执行图命令、Run 和 Review。新后端核查流程为：Claim → 路由 Agent 动态选择角度及自定义 Agent/tool → Host 领取各角度 → DSH 执行 → 汇总 Agent → 结论入图。人工模式分别审核路由和结论；一次 Run 保存完整配置快照，报告数量由批准的路由决定。
 
-默认提示词分文件保存在 `backend/prompts/verify/`，也可在 `run.start.configuration` 提交自定义配置。工具实现由可信 Host 的 DSH 插件注册。内部数据接口要求 `CHONGMING_DATA_TOKEN`。当前仍使用本机开发入口和固定开发工作区；`run.start` 尚不会自动领取执行，也未连接旧前端。
+默认提示词分文件保存在 `backend/prompts/verify/`，也可在 `run.start.configuration` 提交自定义配置。工具实现由可信 Host 的 DSH 插件注册。图服务与 Host 使用相同的 `CHONGMING_DATA_TOKEN`；多个图服务共用 `CHONGMING_MONGO_URI`。当前仍使用本机开发入口和固定开发工作区，旧前端尚未连接。
 
-新后端的当前可用接口见 [053 接口文档](./develop-docs/053-接口文档.md)，动态核查设计见 [053 技术设计](./develop-docs/053-动态核查路由.md)。上面的 Renderer/Mapper/AgentLoop 是旧桌面运行路径，新代码位于 `backend/` 与 `contracts/`。
+新后端的完整接口见 [054 接口文档](./develop-docs/054-接口文档.md)，自动执行设计见 [054 技术设计](./develop-docs/054-自动执行与多Host租约.md)。上面的 Renderer/Mapper/AgentLoop 是旧桌面运行路径，新代码位于 `backend/` 与 `contracts/`。
 
-创建 Run 后，使用同一个本机 `CHONGMING_DATA_TOKEN` 驱动其 operation：
+保持图服务运行，启动常驻 Host：
 
 ```bash
-npm run dsh:verify -- --map-id MAP_UUID --operation-id OPERATION_ID
+npm run host:serve -- --host-id host-a --dsh-home /absolute/path/to/host-a
+# 另一终端或机器使用独立目录，共享数据库即可并行核查同一 Claim 的其他角度。
+npm run host:serve -- --host-id host-b --dsh-home /absolute/path/to/host-b
 ```
 
-执行器运行到 `waiting` 或 `done` 返回；人工批准路由后再次执行相同命令，读取已持久化进度继续。可信自定义工具或 provider 使用 `--patch /absolute/path/to/tools.patch.yml` 注册。模型凭证由 DSH Host 配置提供。
+此后 `run.start` 和路由审核批准都会自动推进。Host 失租会停止本地执行，其他 Host 可在到期后接管未完成项；已有报告不会重跑。可信自定义工具或 provider 使用 `--patch /absolute/path/to/tools.patch.yml` 注册，各 Host 部署所需插件及模型凭证。旧无租约 `dsh:verify` 命令已移除。
 
 项目不维护旧数据结构兼容层。结构变更时直接清理开发数据库，再使用当前 schema。

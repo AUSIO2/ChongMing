@@ -178,7 +178,7 @@ export function runAnswerReview(document: GraphDocument, input: {
   return { document, ...runCreateVerification(document, run, now) }
 }
 
-export function runReadData(document: GraphDocument, operationId: string, actor: GraphDataActor): GraphDataRead {
+export function runReadData(document: GraphDocument, operationId: string, actor: GraphDataActor): Omit<GraphDataRead, 'work'> {
   const run = runReadRun(document)
   if (run.operation.id !== operationId) throw new GraphError(404, 'OPERATION_NOT_FOUND', 'Unknown operation')
   if (!run.configuration) throw new GraphError(409, 'RUN_SCHEMA_UNSUPPORTED', 'Create a new configured Run')
