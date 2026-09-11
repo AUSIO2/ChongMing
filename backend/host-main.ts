@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { hostCreateWorker } from './host'
+import { localReadConfiguration } from './local-settings'
 
 async function hostRunMain(): Promise<void> {
+  const local = await localReadConfiguration()
   const { values } = parseArgs({
     options: {
       'data-api': { type: 'string' }, 'host-id': { type: 'string' }, 'map-id': { type: 'string' },
@@ -16,12 +18,13 @@ async function hostRunMain(): Promise<void> {
   })
   const hostId = values['host-id'] ?? process.env.CHONGMING_HOST_ID ?? randomUUID()
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(hostId)) throw new Error('host-id must contain only letters, numbers, underscores or hyphens')
-  const dataApiUrl = values['data-api'] ?? process.env.CHONGMING_DATA_API ?? 'http://127.0.0.1:4320'
-  const dshHome = path.resolve(values['dsh-home'] ?? process.env.CHONGMING_DSH_HOME ?? path.join('.dsh-runtime', 'hosts', hostId))
+  const dataApiUrl = values['data-api'] ?? process.env.CHONGMING_DATA_API ?? local.settings.dataApiUrl ?? 'http://127.0.0.1:4320'
+  const dshHome = path.resolve(values['dsh-home'] ?? process.env.CHONGMING_DSH_HOME ?? local.settings.dshHome ?? path.join('.dsh-runtime', 'hosts', hostId))
   const maxTokens = values['max-tokens'] ?? process.env.CHONGMING_DSH_MAX_TOKENS
   const maxRounds = values['max-rounds'] ?? process.env.CHONGMING_DSH_MAX_ROUNDS
   const worker = hostCreateWorker({
-    hostId, dataApiUrl, dshHome, token: process.env.CHONGMING_DATA_TOKEN ?? '',
+    hostId, dataApiUrl, dshHome, token: process.env.CHONGMING_DATA_TOKEN ?? local.secrets.CHONGMING_DATA_TOKEN ?? '',
+    env: Object.fromEntries(Object.entries(local.secrets).filter(([name]) => process.env[name] === undefined)),
     mapId: values['map-id'] ?? process.env.CHONGMING_MAP_ID,
     pollMs: Number(values['poll-ms'] ?? process.env.CHONGMING_HOST_POLL_MS ?? 1000),
     requestTimeoutMs: Number(values['request-timeout-ms'] ?? process.env.CHONGMING_HOST_REQUEST_TIMEOUT_MS ?? 5000),

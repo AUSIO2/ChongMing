@@ -25,14 +25,20 @@ function configurationValidateIds(ids: string[], label: string): void {
 }
 
 function configurationReadProfile(value: unknown): GraphAgentProfile {
-  const item = inputReadObject(value, ['id', 'name', 'description', 'content', 'tools', 'provider', 'model'], 'profile')
+  const item = inputReadObject(value, ['id', 'name', 'description', 'content', 'tools', 'provider', 'model', 'promptVars', 'defaultPriority', 'claimCategory'], 'profile')
   const tools = inputReadNames(item.tools, 'profile.tools')
   configurationValidateIds(tools, 'profile tool')
+  const promptVars = item.promptVars === undefined ? undefined : inputReadNames(item.promptVars, 'profile.promptVars')
+  if (item.defaultPriority !== undefined && !['high', 'medium', 'low'].includes(String(item.defaultPriority))) throw new GraphError(400, 'INVALID_CONFIGURATION', 'Invalid defaultPriority')
+  if (item.claimCategory !== undefined && item.claimCategory !== null && !['data', 'quote', 'causal'].includes(String(item.claimCategory))) throw new GraphError(400, 'INVALID_CONFIGURATION', 'Invalid claimCategory')
   return {
     id: configurationReadName(item.id), name: inputReadString(item.name, 'profile.name'),
     description: inputReadString(item.description, 'profile.description'),
     content: inputReadString(item.content, 'profile.content'), tools,
     provider: inputReadString(item.provider, 'profile.provider'), model: inputReadString(item.model, 'profile.model'),
+    ...(promptVars === undefined ? {} : { promptVars }),
+    ...(item.defaultPriority === undefined ? {} : { defaultPriority: item.defaultPriority as GraphAgentProfile['defaultPriority'] }),
+    ...(item.claimCategory === undefined ? {} : { claimCategory: item.claimCategory as GraphAgentProfile['claimCategory'] }),
   }
 }
 

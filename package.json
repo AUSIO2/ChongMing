@@ -16,6 +16,7 @@
     "test:map": "vitest run --config vitest.config.ts tests/flow-map",
     "dsh:serve": "node --import tsx backend/main.ts",
     "host:serve": "node --import tsx backend/host-main.ts",
+    "admin": "node --import tsx backend/admin-main.ts",
     "graph:serve": "node --import tsx backend/graph-main.ts",
     "headless": "node --import tsx server/cli.ts"
   },

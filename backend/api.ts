@@ -1,22 +1,23 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
+import { pipeline } from 'node:stream/promises'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type {
   GraphChanges,
   GraphCommand,
   GraphFailure,
-  GraphNodeData,
   GraphQuery,
-  GraphReport,
   GraphWorkCommand,
   GraphWorkProof,
   GraphDataProposal,
   GraphSuccess,
 } from '../contracts/graph'
-import { DEVELOPMENT_WORKSPACE_ID } from '../contracts/graph'
+import type { ControlCommand, ControlQuery } from '../contracts/control'
 import { GraphError } from './graph-error'
-import type { GraphService } from './graph'
-import { configurationRead, configurationReadSlots } from './configuration'
+import { graphInputReadNodeData } from './graph-input'
+import type { ApplicationService } from './application'
+import { controlReadCommand, controlReadQuery } from './control'
+import { configurationReadSlots } from './configuration'
 import {
   inputReadObject as apiReadObject, inputReadString as apiReadString, inputReadId as apiReadId,
   inputReadRevision as apiReadRevision, inputReadArray as apiReadArray,
@@ -46,65 +47,6 @@ async function apiReadBody(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function apiReadReport(value: unknown): GraphReport {
-  const item = apiReadObject(value,
-    ['id', 'slotId', 'agentId', 'agentName', 'angle', 'tools', 'routeRevision', 'score', 'reason', 'createdAt'], 'opinion')
-  const createdAt = apiReadString(item.createdAt, 'opinion.createdAt')
-  if (Number.isNaN(Date.parse(createdAt))) throw new GraphError(400, 'INVALID_ARGUMENT', 'opinion.createdAt is invalid')
-  return {
-    id: apiReadString(item.id, 'opinion.id'), slotId: apiReadString(item.slotId, 'opinion.slotId'),
-    agentId: apiReadString(item.agentId, 'opinion.agentId'), agentName: apiReadString(item.agentName, 'opinion.agentName'),
-    angle: apiReadString(item.angle, 'opinion.angle'), tools: apiReadNames(item.tools, 'opinion.tools'),
-    routeRevision: apiReadRevision(item.routeRevision, 'opinion.routeRevision'), score: apiReadScore(item.score),
-    reason: apiReadString(item.reason, 'opinion.reason'), createdAt,
-  }
-}
-
-function apiReadNodeData(value: unknown, label: string): GraphNodeData {
-  const base = apiReadObject(
-    value,
-    ['kind', 'content', 'context', 'category', 'score', 'reason', 'reportIds', 'opinions'],
-    label,
-  )
-  if (base.kind === 'verification') {
-    if (base.content !== undefined || base.context !== undefined || base.category !== undefined) {
-      throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for verification`)
-    }
-    return {
-      kind: 'verification',
-      score: apiReadScore(base.score),
-      reason: apiReadString(base.reason, `${label}.reason`),
-      reportIds: apiReadNames(base.reportIds, `${label}.reportIds`),
-      opinions: apiReadArray(base.opinions, `${label}.opinions`).map(apiReadReport),
-    }
-  }
-  if (base.score !== undefined || base.reason !== undefined || base.reportIds !== undefined || base.opinions !== undefined) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for ${String(base.kind)}`)
-  }
-  const content = apiReadString(base.content, `${label}.content`)
-  if (base.kind === 'claim') {
-    if (base.context !== undefined) throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.context is not allowed`)
-    if (base.category !== null && base.category !== undefined && typeof base.category !== 'string') {
-      throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.category must be a string or null`)
-    }
-    return { kind: 'claim' as const, content, category: (base.category as string | null) ?? null }
-  }
-  if (base.kind !== 'news') throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.kind is invalid`)
-  if (base.category !== undefined) throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.category is not allowed`)
-  if (!base.context || typeof base.context !== 'object' || Array.isArray(base.context)) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.context must be an object`)
-  }
-  const rawContext = base.context as Record<string, unknown>
-  const context = Object.fromEntries(Object.entries(rawContext).map(([key, item]) => {
-    const field = apiReadObject(item, ['value', 'visibleToAI'], `${label}.context.${key}`)
-    if (typeof field.value !== 'string' || typeof field.visibleToAI !== 'boolean') {
-      throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.context.${key} is invalid`)
-    }
-    return [key, { value: field.value, visibleToAI: field.visibleToAI }]
-  }))
-  return { kind: 'news' as const, content, context }
-}
-
 function apiReadChanges(value: unknown): GraphChanges {
   const changes = apiReadObject(value, ['name', 'nodes', 'edges'], 'params.changes')
   const nodes = changes.nodes === undefined
@@ -118,7 +60,7 @@ function apiReadChanges(value: unknown): GraphChanges {
     nodes: nodes && {
       put: nodes.put === undefined ? undefined : apiReadArray(nodes.put, 'params.changes.nodes.put').map((value, index) => {
         const item = apiReadObject(value, ['id', 'data'], `params.changes.nodes.put[${index}]`)
-        return { id: apiReadId(item.id, 'node.id'), data: apiReadNodeData(item.data, 'node.data') }
+        return { id: apiReadId(item.id, 'node.id'), data: graphInputReadNodeData(item.data, 'node.data') }
       }),
       remove: nodes.remove === undefined ? undefined : apiReadIds(nodes.remove, 'params.changes.nodes.remove'),
     },
@@ -141,40 +83,41 @@ function apiReadChanges(value: unknown): GraphChanges {
   }
 }
 
-function apiReadQuery(value: unknown): GraphQuery {
+function apiReadQuery(value: unknown): GraphQuery | ControlQuery {
   const envelope = apiReadObject(value, ['method', 'params'], 'query')
   if (envelope.method === 'map.list') {
     const params = apiReadObject(envelope.params, ['workspaceId'], 'params')
-    const workspaceId = apiReadString(params.workspaceId, 'params.workspaceId')
-    if (workspaceId !== DEVELOPMENT_WORKSPACE_ID) {
-      throw new GraphError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`)
-    }
+    const workspaceId = apiReadId(params.workspaceId, 'params.workspaceId')
     return { method: envelope.method, params: { workspaceId } }
   }
   if (envelope.method === 'map.get') {
     const params = apiReadObject(envelope.params, ['mapId'], 'params')
     return { method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId') } }
   }
-  throw new GraphError(400, 'UNKNOWN_METHOD', `Unknown query method: ${String(envelope.method)}`)
+  if (envelope.method === 'run.get') {
+    const params = apiReadObject(envelope.params, ['mapId', 'runId'], 'params')
+    return { method: 'run.get', params: { mapId: apiReadId(params.mapId, 'mapId'), runId: apiReadId(params.runId, 'runId') } }
+  }
+  if (envelope.method === 'asset.get') {
+    const params = apiReadObject(envelope.params, ['assetId'], 'params')
+    return { method: 'asset.get', params: { assetId: apiReadId(params.assetId, 'assetId') } }
+  }
+  return controlReadQuery(value)
 }
 
-function apiReadCommand(value: unknown): GraphCommand {
+function apiReadCommand(value: unknown): GraphCommand | ControlCommand {
   const envelope = apiReadObject(value, ['requestId', 'method', 'params'], 'command')
   const requestId = apiReadId(envelope.requestId, 'requestId')
   if (envelope.method === 'map.create') {
     const params = apiReadObject(envelope.params, ['workspaceId', 'expectedRevision', 'id', 'name'], 'params')
-    const workspaceId = apiReadString(params.workspaceId, 'params.workspaceId')
-    if (workspaceId !== DEVELOPMENT_WORKSPACE_ID) {
-      throw new GraphError(404, 'WORKSPACE_NOT_FOUND', `Workspace not found: ${workspaceId}`)
-    }
+    const workspaceId = apiReadId(params.workspaceId, 'params.workspaceId')
     const revision = apiReadRevision(params.expectedRevision, 'params.expectedRevision')
-    if (revision !== 0) throw new GraphError(409, 'REVISION_CONFLICT', 'Development Workspace revision is 0', 0)
     return {
       requestId,
       method: envelope.method,
       params: {
         workspaceId,
-        expectedRevision: 0,
+        expectedRevision: revision,
         id: apiReadId(params.id, 'params.id'),
         name: apiReadString(params.name, 'params.name'),
       },
@@ -206,7 +149,7 @@ function apiReadCommand(value: unknown): GraphCommand {
   if (envelope.method === 'run.start') {
     const params = apiReadObject(
       envelope.params,
-      ['mapId', 'expectedRevision', 'id', 'targetId', 'mode', 'configuration'],
+      ['mapId', 'expectedRevision', 'id', 'targetId', 'mode'],
       'params',
     )
     if (params.mode !== 'auto' && params.mode !== 'human-in-loop') {
@@ -221,7 +164,6 @@ function apiReadCommand(value: unknown): GraphCommand {
         id: apiReadId(params.id, 'params.id'),
         targetId: apiReadId(params.targetId, 'params.targetId'),
         mode: params.mode,
-        ...(params.configuration === undefined ? {} : { configuration: configurationRead(params.configuration) }),
       },
     }
   }
@@ -279,7 +221,21 @@ function apiReadCommand(value: unknown): GraphCommand {
       },
     }
   }
-  throw new GraphError(400, 'UNKNOWN_METHOD', `Unknown command method: ${String(envelope.method)}`)
+  if (envelope.method === 'asset.delete') {
+    const params = apiReadObject(envelope.params, ['assetId', 'expectedSha256'], 'params')
+    return { requestId, method: 'asset.delete', params: {
+      assetId: apiReadId(params.assetId, 'assetId'), expectedSha256: apiReadString(params.expectedSha256, 'expectedSha256'),
+    } }
+  }
+  if (envelope.method === 'workspace.import') {
+    const params = apiReadObject(envelope.params, ['id', 'bundleAssetId', 'stagingWorkspaceId', 'name'], 'params')
+    if (params.name !== null && typeof params.name !== 'string') throw new GraphError(400, 'INVALID_ARGUMENT', 'name must be string or null')
+    return { requestId, method: 'workspace.import', params: {
+      id: apiReadId(params.id, 'id'), bundleAssetId: apiReadId(params.bundleAssetId, 'bundleAssetId'),
+      stagingWorkspaceId: apiReadId(params.stagingWorkspaceId, 'stagingWorkspaceId'), name: params.name,
+    } }
+  }
+  return controlReadCommand(value)
 }
 
 function apiReadDataQuery(value: unknown): { mapId: string; operationId: string } {
@@ -323,6 +279,12 @@ function apiValidateToken(request: IncomingMessage, token: string | undefined): 
       || !timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) {
     throw new GraphError(401, 'UNAUTHORIZED', 'Internal API requires a configured Host token')
   }
+}
+
+function apiReadUserToken(request: IncomingMessage): string {
+  const header = request.headers.authorization
+  if (!header?.startsWith('Bearer ') || header.length <= 7) throw new GraphError(401, 'UNAUTHORIZED', 'A user token is required')
+  return header.slice(7)
 }
 
 function apiReadProof(input: Record<string, unknown>): GraphWorkProof {
@@ -381,10 +343,11 @@ function apiWriteError(response: ServerResponse, requestId: string, error: unkno
 }
 
 export function apiCreateServer(
-  service: GraphService,
+  application: ApplicationService,
   options: { internalToken?: string } = {},
 ): Server {
   const internalToken = options.internalToken ?? process.env.CHONGMING_DATA_TOKEN
+  const service = application.graph
   return createServer(async (request, response) => {
     let requestId: string = randomUUID()
     try {
@@ -412,28 +375,71 @@ export function apiCreateServer(
         apiWriteJson(response, 200, { ok: true, data: await service.dispatchWork(command) })
         return
       }
+      const url = new URL(request.url ?? '/', 'http://localhost')
+      if (request.method === 'POST' && url.pathname === '/api/v1/assets') {
+        const token = apiReadUserToken(request)
+        if ([...url.searchParams.keys()].some(key => !['workspaceId', 'filename'].includes(key))) throw new GraphError(400, 'INVALID_ARGUMENT', 'Unknown upload parameter')
+        const length = request.headers['content-length']
+        if (typeof length !== 'string' || !/^[0-9]+$/.test(length)) throw new GraphError(400, 'INVALID_ARGUMENT', 'Content-Length is required')
+        const size = Number(length)
+        if (!Number.isSafeInteger(size)) throw new GraphError(413, 'PAYLOAD_TOO_LARGE', 'Asset is too large')
+        requestId = apiReadId(request.headers['idempotency-key'], 'Idempotency-Key')
+        const result = await application.assets.upload(token, {
+          workspaceId: apiReadId(url.searchParams.get('workspaceId'), 'workspaceId'),
+          filename: apiReadString(url.searchParams.get('filename'), 'filename'),
+          mediaType: apiReadString(request.headers['content-type'], 'Content-Type'),
+          sha256: apiReadString(request.headers['x-content-sha256'], 'X-Content-SHA256'), size, requestId,
+        }, request)
+        apiWriteJson(response, result.replayed ? 200 : 201, { ok: true, requestId, ...result })
+        return
+      }
+      const download = /^\/api\/v1\/assets\/([^/]+)\/content$/.exec(url.pathname)
+      if (request.method === 'GET' && download) {
+        const ctx = await application.auth.read(apiReadUserToken(request))
+        const { asset, stream } = await application.assets.content(ctx, apiReadId(download[1], 'assetId'))
+        response.writeHead(200, {
+          'content-type': asset.mediaType, 'content-length': asset.size, etag: `"${asset.sha256}"`,
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(asset.filename)}`,
+        })
+        await pipeline(stream, response)
+        return
+      }
+      const exported = /^\/api\/v1\/(maps|workspaces)\/([^/]+)\/export$/.exec(url.pathname)
+      if (request.method === 'GET' && exported) {
+        const ctx = await application.auth.read(apiReadUserToken(request))
+        const id = apiReadId(exported[2], 'id')
+        const bundle = exported[1] === 'maps' ? await application.assets.exportMap(ctx, id) : await application.assets.exportWorkspace(ctx, id)
+        const body = Buffer.from(JSON.stringify(bundle))
+        response.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': body.length,
+          'content-disposition': `attachment; filename="${exported[1]}-${id}.json"`,
+        })
+        response.end(body)
+        return
+      }
       if (request.method !== 'POST' || !['/api/v1/query', '/api/v1/command'].includes(request.url ?? '')) {
         throw new GraphError(404, 'NOT_FOUND', 'Not found')
       }
+      const token = apiReadUserToken(request)
       const body = await apiReadBody(request)
       if (request.url === '/api/v1/query') {
-        const data = await service.read(apiReadQuery(body))
+        const data = await application.read(token, apiReadQuery(body))
         const result: GraphSuccess<typeof data> = { ok: true, requestId, replayed: false, data }
         apiWriteJson(response, 200, result)
         return
       }
       const command = apiReadCommand(body)
       requestId = command.requestId
-      const result = await service.dispatch(command)
+      const result = await application.dispatch(token, command)
       const bodyResult: GraphSuccess<typeof result.data> = {
         ok: true,
         requestId,
         replayed: result.replayed,
         data: result.data,
       }
-      apiWriteJson(response, command.method === 'map.create' && !result.replayed ? 201 : 200, bodyResult)
+      apiWriteJson(response, ['map.create', 'workspace.create', 'workspace.import', 'agent.create'].includes(command.method) && !result.replayed ? 201 : 200, bodyResult)
     } catch (error) {
-      apiWriteError(response, requestId, error)
+      if (response.headersSent) response.destroy(error instanceof Error ? error : undefined)
+      else apiWriteError(response, requestId, error)
     }
   })
 }

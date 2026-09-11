@@ -7,7 +7,7 @@ interface Agent {
   id: string
   ctx: {
     tools: { restrict(input: { allow: string[] }): void }
-    systemPrompt: { section: ReturnType<typeof vi.fn>; getSectionOrder(name: string): number }
+    systemPrompt: { section: ReturnType<typeof vi.fn>; variable: ReturnType<typeof vi.fn>; getSectionOrder(name: string): number }
   }
 }
 interface Execution { agent?: Agent; name?: string; signal: AbortSignal; concludeTurn(): void }
@@ -85,13 +85,14 @@ async function fixture(actor: GraphDataActor = { role: 'router' }, missingTool =
   }
   const modulePath = '../../backend/dsh-business-plugin.mjs'
   const plugin = await import(modulePath) as { apply(ctx: unknown, config?: unknown): void }
-  const config = { grant, rootSessionId: 'work-session', configuration, route: view.route }
+  const profile = actor.role === 'router' ? configuration.router : actor.role === 'merge' ? configuration.merger : configuration.agents[0]
+  const config = { grant, rootSessionId: 'work-session', configuration, route: view.route, persona: profile.content }
   plugin.apply(ctx, config)
   const agent: Agent = {
     id: 'work-session',
     ctx: {
       tools: { restrict: input => { allowed.set('work-session', input.allow) } },
-      systemPrompt: { section: vi.fn(), getSectionOrder: () => 0 },
+      systemPrompt: { section: vi.fn(), variable: vi.fn(), getSectionOrder: () => 0 },
     },
   }
   agents.set(agent.id, agent)
@@ -119,7 +120,8 @@ describe('DSH work bridge', () => {
     const f = await fixture({ role: 'worker', slotId: 'angle-1' })
     f.publish()
     expect(f.allowed.get(f.agent.id)).toEqual(['data_read', 'data_propose', 'archive_lookup'])
-    expect(f.agent.ctx.systemPrompt.section).toHaveBeenCalledWith(expect.objectContaining({ text: f.configuration.agents[0].content }))
+    expect(f.agent.ctx.systemPrompt.section).toHaveBeenCalledWith(expect.objectContaining({ text: '{{chongming_persona}}' }))
+    expect(f.agent.ctx.systemPrompt.variable.mock.calls[0][1]()).toBe(f.configuration.agents[0].content)
     await expect(f.execute('archive_lookup', f.agent, {})).resolves.toBe('fixture')
     await expect(f.execute('ledger_query', f.agent, {})).rejects.toThrow('capability')
     // A later renewal/reassignment must never rewrite an already-created bridge's authority.
@@ -160,7 +162,8 @@ describe('DSH work bridge', () => {
       f.publish()
       expect(f.allowed.get(f.agent.id)).toEqual(['data_read', 'data_propose'])
       const profile = actor.role === 'router' ? f.configuration.router : f.configuration.merger
-      expect(f.agent.ctx.systemPrompt.section).toHaveBeenCalledWith(expect.objectContaining({ text: profile.content }))
+      expect(f.agent.ctx.systemPrompt.section).toHaveBeenCalledWith(expect.objectContaining({ text: '{{chongming_persona}}' }))
+      expect(f.agent.ctx.systemPrompt.variable.mock.calls[0][1]()).toBe(profile.content)
       const proposal = actor.role === 'router'
         ? { kind: 'route', reason: 'dynamic angle', slots: verificationSlots(2) }
         : { kind: 'merge', score: 0.5, reason: 'inconclusive', reportIds: ['report-a', 'report-b'] }

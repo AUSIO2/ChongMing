@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import type { DshEvent, DshRuntimeAPI } from '../contracts/dsh'
 import type { GraphAgentProfile, GraphDataRead, GraphWorkGrant } from '../contracts/graph'
 import { dshCreateRuntime } from './dsh'
+import { promptReadWork } from './prompt'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -128,6 +129,7 @@ export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> 
   if (await dshReadWorkStatus(input) === 'accepted') return { ...resultBase, sessionId: null, finalResponse: '' }
   const data = await dshReadWork(input)
   const profile = dshReadWorkProfile(data, grant)
+  const prompt = promptReadWork(profile, data, grant)
   const rootSessionId = randomUUID()
   const dshHome = path.resolve(input.dshHome)
   await mkdir(dshHome, { recursive: true })
@@ -144,7 +146,7 @@ export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> 
     const patchPath = path.join(patchDir, 'work.patch.yml')
     // The token remains in the environment; the immutable grant never enters model arguments.
     await writeFile(patchPath, JSON.stringify([
-      { id: 'chongming-data-tools', config: { grant, rootSessionId, configuration: data.configuration, route: data.route } },
+      { id: 'chongming-data-tools', config: { grant, rootSessionId, configuration: data.configuration, route: data.route, persona: prompt } },
       { id: 'sdk-jsonrpc-server', config: { maxTokensAsSuccess: false } },
     ], null, 2), { mode: 0o600 })
     input.signal?.throwIfAborted()
@@ -163,7 +165,7 @@ export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> 
     await runtime.start()
     for (let round = 0; round < maxRounds; round++) {
       input.signal?.throwIfAborted()
-      const result = await runtime.run({ sessionId: rootSessionId, prompt: profile.content }, input.onEvent)
+      const result = await runtime.run({ sessionId: rootSessionId, prompt }, input.onEvent)
       if (await dshReadWorkStatus(input) === 'accepted') return { ...resultBase, sessionId: result.sessionId, finalResponse: result.finalResponse }
     }
     throw new Error('DSH stopped without submitting this work after ' + maxRounds + ' turns')

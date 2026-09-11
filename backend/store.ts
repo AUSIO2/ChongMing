@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import mongoose, { Schema } from 'mongoose'
-import type { Connection } from 'mongoose'
+import type { ClientSession, Connection } from 'mongoose'
 import type { GraphEdge, GraphMapSummary, GraphNode, GraphRun, GraphWork, GraphWorkGrant, GraphWorkProof } from '../contracts/graph'
+import { GraphError } from './graph-error'
 
 export interface GraphReceipt {
   requestId: string
@@ -28,12 +29,16 @@ export interface GraphDocument {
   deletedAt?: string
 }
 
+export const GRAPH_COLLECTION = 'graphv3'
+
 const nodeSchema = new Schema({
   id: { type: String, required: true },
   revision: { type: Number, required: true },
   data: { type: Schema.Types.Mixed, required: true },
   createdAt: { type: Date, required: true },
   updatedAt: { type: Date, required: true },
+  importedFrom: Schema.Types.Mixed,
+  validity: { type: String, enum: ['current', 'stale'] },
 }, { _id: false })
 
 const edgeSchema = new Schema({
@@ -133,8 +138,17 @@ export function storeCreateInputHash(value: unknown): string {
   return createHash('sha256').update(storeFormatCanonical(value)).digest('hex')
 }
 
-export function storeCreateGraphStore(connection: Connection) {
-  const model = connection.model('GraphV3', graphSchema)
+function storeValidateDocument(document: GraphDocument, receipt?: GraphReceipt): void {
+  // Reserve Mongo's remaining headroom for cancellation/deletion when the graph reaches its soft limit.
+  if (receipt && ['run.cancel', 'map.delete', 'work.fail'].includes(receipt.method)) return
+  const value = receipt ? { ...document, receipts: [...document.receipts, receipt] } : document
+  if (mongoose.mongo.BSON.calculateObjectSize(value) > 8 * 1024 * 1024) {
+    throw new GraphError(413, 'GRAPH_LIMIT', 'Graph exceeds the 8 MiB document limit')
+  }
+}
+
+export function storeCreateGraphStore(connection: Connection, session: ClientSession | null = null) {
+  const model = connection.model('GraphV3', graphSchema, GRAPH_COLLECTION)
   function storeReadLeaseFilter(mapId: string, proof: GraphWorkProof) {
     const field = `leases.${proof.workId}`
     return {
@@ -148,14 +162,16 @@ export function storeCreateGraphStore(connection: Connection) {
     }
   }
   return {
+    async initialize(): Promise<void> { await model.init() },
     async create(document: GraphDocument): Promise<boolean> {
+      storeValidateDocument(document)
       try {
-        await model.create({
+        await model.create([{
           ...document,
           _id: document.id,
           createdAt: new Date(document.createdAt),
           updatedAt: new Date(document.updatedAt),
-        })
+        }], { session })
         return true
       } catch (error) {
         if (error instanceof mongoose.Error.ValidationError) throw error
@@ -167,14 +183,14 @@ export function storeCreateGraphStore(connection: Connection) {
     },
 
     async read(mapId: string): Promise<GraphDocument | null> {
-      const raw = await model.findById(mapId).lean<Record<string, unknown>>()
+      const raw = await model.findById(mapId).session(session).lean<Record<string, unknown>>()
       return raw ? storeReadDocument(raw) : null
     },
 
     async *discover(mapId?: string): AsyncGenerator<GraphDocument> {
       // ponytail: scan runnable Maps; add a ready-work index if graph volume requires it.
       const cursor = model.find({ ...(mapId ? { _id: mapId } : {}), 'run.status': 'running', deletedAt: { $exists: false } })
-        .sort({ updatedAt: 1, _id: 1 }).lean<Record<string, unknown>[]>().cursor()
+        .sort({ updatedAt: 1, _id: 1 }).session(session).lean<Record<string, unknown>[]>().cursor()
       try { for await (const raw of cursor) yield storeReadDocument(raw) }
       finally { await cursor.close() }
     },
@@ -187,14 +203,14 @@ export function storeCreateGraphStore(connection: Connection) {
       }, [{ $set: { [field]: { $mergeObjects: [
         { $literal: { ...work, hostId, holderId, leaseMs } },
         { fence: { $add: [{ $ifNull: [`$${field}.fence`, 0] }, 1] }, expiresAt: { $add: ['$$NOW', leaseMs] } },
-      ] } } }], { returnDocument: 'after', updatePipeline: true }).lean<Record<string, unknown>>()
+      ] } } }], { returnDocument: 'after', updatePipeline: true, session }).lean<Record<string, unknown>>()
       return raw ? storeReadDocument(raw).leases[work.workId] : null
     },
 
     async readLease(mapId: string, proof: GraphWorkProof): Promise<GraphDocument | null> {
       const raw = await model.findOne({ ...storeReadLeaseFilter(mapId, proof),
         'run.status': { $in: ['running', 'waiting', 'completed'] }, deletedAt: { $exists: false },
-      }).lean<Record<string, unknown>>()
+      }).session(session).lean<Record<string, unknown>>()
       return raw ? storeReadDocument(raw) : null
     },
 
@@ -203,7 +219,7 @@ export function storeCreateGraphStore(connection: Connection) {
       const raw = await model.findOneAndUpdate({ ...storeReadLeaseFilter(mapId, proof),
         'run.status': { $in: ['running', 'waiting', 'completed'] }, deletedAt: { $exists: false },
       }, [{ $set: { [`${field}.expiresAt`]: { $add: ['$$NOW', `$${field}.leaseMs`] } } }],
-      { returnDocument: 'after', updatePipeline: true }).lean<Record<string, unknown>>()
+      { returnDocument: 'after', updatePipeline: true, session }).lean<Record<string, unknown>>()
       return raw ? storeReadDocument(raw).leases[proof.workId] : null
     },
 
@@ -211,13 +227,14 @@ export function storeCreateGraphStore(connection: Connection) {
       const field = `leases.${proof.workId}`
       const result = await model.updateOne({ _id: mapId,
         [`${field}.holderId`]: proof.holderId, [`${field}.fence`]: proof.fence,
-      }, { $set: { [`${field}.expiresAt`]: new Date(0) } })
+      }, { $set: { [`${field}.expiresAt`]: new Date(0) } }, { session: session ?? undefined })
       return result.matchedCount === 1
     },
 
     async list(workspaceId: string): Promise<GraphMapSummary[]> {
       const rows = await model.find({ workspaceId, deletedAt: { $exists: false } })
         .sort({ updatedAt: -1, _id: 1 })
+        .session(session)
         .lean<Record<string, unknown>[]>()
       return rows.map(raw => {
         const document = storeReadDocument(raw)
@@ -239,6 +256,7 @@ export function storeCreateGraphStore(connection: Connection) {
       receipt: GraphReceipt,
       grant?: GraphWorkGrant,
     ): Promise<boolean> {
+      storeValidateDocument(document, receipt)
       // ponytail: one Map document keeps the first implementation atomic; split collections near 8 MiB.
       const result = await model.updateOne(
         { _id: document.id, revision: expectedRevision,
@@ -257,6 +275,7 @@ export function storeCreateGraphStore(connection: Connection) {
           $inc: { revision: 1 },
           $push: { receipts: receipt },
         },
+        { session: session ?? undefined },
       )
       return result.matchedCount === 1
     },

@@ -9,6 +9,8 @@ import type {
   GraphQuery,
   GraphSnapshot,
   GraphWriteResult,
+  GraphRunConfiguration,
+  GraphRun,
   GraphWorkCommand,
   GraphWorkProof,
 } from '../contracts/graph'
@@ -21,7 +23,7 @@ import {
   runUpdateProposal,
   runUpdateReview,
 } from './run'
-import { configurationRead, DEFAULT_VERIFY_CONFIGURATION } from './configuration'
+import { configurationRead } from './configuration'
 import type { GraphDocument, GraphReceipt, GraphStore } from './store'
 import { storeCreateInputHash } from './store'
 import { workReadGrant, workReadItems } from './work'
@@ -135,6 +137,7 @@ function graphUpdateChanges(document: GraphDocument, changes: GraphChanges): {
       throw new GraphError(422, 'NODE_KIND_CHANGED', `Node kind cannot change: ${input.id}`)
     }
     const node: GraphNode = {
+      ...existing,
       id: input.id,
       revision: existing ? existing.revision + 1 : 0,
       data: input.data,
@@ -222,12 +225,18 @@ export function graphCreateService(store: GraphStore, options: { leaseMs?: numbe
   }
 
   return {
-    async read(query: GraphQuery): Promise<GraphSnapshot | GraphMapSummary[]> {
+    async read(query: GraphQuery): Promise<GraphSnapshot | GraphMapSummary[] | GraphRun> {
       if (query.method === 'map.list') return store.list(query.params.workspaceId)
-      return graphReadSnapshot(await graphReadMap(query.params.mapId))
+      const document = await graphReadMap(query.params.mapId)
+      if (query.method === 'run.get') {
+        const run = document.run?.id === query.params.runId ? document.run : document.runHistory.find(run => run.id === query.params.runId)
+        if (!run) throw new GraphError(404, 'RUN_NOT_FOUND', 'Run not found')
+        return run
+      }
+      return graphReadSnapshot(document)
     },
 
-    async dispatch(command: GraphCommand): Promise<{
+    async dispatch(command: GraphCommand, configuration?: GraphRunConfiguration): Promise<{
       data: GraphWriteResult | { mapId: string; deleted: true }
       replayed: boolean
     }> {
@@ -300,8 +309,8 @@ export function graphCreateService(store: GraphStore, options: { leaseMs?: numbe
       }
 
       if (command.method === 'run.start') {
-        const configuration = configurationRead(command.params.configuration ?? DEFAULT_VERIFY_CONFIGURATION)
-        const updated = runCreateRun(structuredClone(document), command.params, configuration, now)
+        if (!configuration) throw new GraphError(422, 'CONFIGURATION_REQUIRED', 'Run requires a resolved Workspace configuration')
+        const updated = runCreateRun(structuredClone(document), command.params, configurationRead(configuration), now)
         const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
         const result = await graphCommit(document, updated, receipt)
         return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { apiCreateServer } from '../../../backend/api'
-import { graphCreateService } from '../../../backend/graph'
-import { storeCreateConnection, storeCreateGraphStore, storeDeleteConnection } from '../../../backend/store'
-import { DEVELOPMENT_WORKSPACE_ID, type GraphWorkGrant } from '../../../contracts/graph'
-import { MongoMemoryServer } from 'mongodb-memory-server'
+import { applicationCreateService } from '../../../backend/application'
+import { storeCreateConnection, storeDeleteConnection } from '../../../backend/store'
+import type { ContextField, GraphNodeData, GraphRunConfiguration, GraphWorkGrant } from '../../../contracts/graph'
+import type { AgentInput, PromptKind } from '../../../contracts/control'
+import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { expect } from 'vitest'
 import { verificationConfiguration } from './verification'
 
@@ -11,22 +12,31 @@ export function grantHeaders(grant: GraphWorkGrant) {
   return { 'x-work-id': grant.workId, 'x-work-holder': grant.holderId, 'x-work-fence': String(grant.fence) }
 }
 
-export async function createGraphApi(leaseMs = 60_000) {
+export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verificationConfiguration()) {
   const token = 'test-work-token'
-  const mongo = await MongoMemoryServer.create()
-  const connection = await storeCreateConnection(mongo.getUri('chongming_work_test'))
-  const store = storeCreateGraphStore(connection)
-  const server = apiCreateServer(graphCreateService(store, { leaseMs }), { internalToken: token })
+  const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
+  const uri = mongo.getUri('chongming_work_test')
+  const connection = await storeCreateConnection(uri)
+  const application = applicationCreateService(connection, { leaseMs })
+  await application.initialize()
+  const { store, auth, control } = application
+  await control.seed(seedConfiguration)
+  const owner = await auth.createUser({ id: randomUUID(), displayName: 'Fixture Owner', hostAdmin: true })
+  const { token: userToken } = await auth.createToken(owner.userId)
+  const server = apiCreateServer(application, { internalToken: token })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Test Graph API did not bind')
   const url = `http://127.0.0.1:${address.port}`
 
-  async function post(path: string, body: unknown, headers: Record<string, string> = {}) {
+  async function rawPost(path: string, body: unknown, headers: Record<string, string> = {}) {
     const response = await fetch(`${url}${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
     })
     return { status: response.status, body: await response.json() as Record<string, any> }
+  }
+  function post(path: string, body: unknown, headers: Record<string, string> = {}) {
+    return rawPost(path, body, { ...(path.startsWith('/api/v1/') ? { authorization: `Bearer ${userToken}` } : {}), ...headers })
   }
   function command(method: string, params: unknown, requestId = randomUUID()) {
     return post('/api/v1/command', { requestId, method, params })
@@ -63,17 +73,42 @@ export async function createGraphApi(leaseMs = 60_000) {
       ...input,
     }
   }
-  async function createRun(mode: 'auto' | 'human-in-loop' = 'auto', configuration = verificationConfiguration()) {
+  async function createWorkspace(configuration: GraphRunConfiguration = verificationConfiguration()) {
+    const profile = (input: GraphRunConfiguration['router'], kind: PromptKind, promptPath: string): AgentInput => ({
+      ...input, id: randomUUID(), kind, promptPath, promptVars: input.promptVars ?? [],
+      defaultPriority: input.defaultPriority ?? 'medium', claimCategory: input.claimCategory ?? null,
+    })
+    const agents = [profile(configuration.router, 'verifyRoute', 'fact-verifier/main-agent-route'),
+      profile(configuration.merger, 'verifyMerge', 'fact-verifier/main-agent-merge'),
+      ...configuration.agents.map(agent => profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`))]
+    return auth.transact(userToken, async ctx => {
+      const bootstrap = await control.read(ctx, { method: 'app.bootstrap', params: {} }) as { settings: { revision: number } }
+      await control.dispatch(ctx, { requestId: randomUUID(), method: 'settings.update', params: {
+        expectedRevision: bootstrap.settings.revision,
+        llm: { provider: configuration.router.provider, model: configuration.router.model },
+        tools: configuration.tools, limits: { maxAgentSlots: configuration.maxSlots },
+      } })
+      return control.createWorkspace(ctx, { id: randomUUID(), name: 'Fixture workspace', description: '', agentSource: 'empty' }, agents)
+    })
+  }
+  async function createRun(mode: 'auto' | 'human-in-loop' = 'auto', configuration = verificationConfiguration(),
+    news?: { content: string; context: Record<string, ContextField> }) {
     const mapId = randomUUID(), claimId = randomUUID(), runId = randomUUID()
+    const workspace = await createWorkspace(configuration)
     expect(await command('map.create', {
-      workspaceId: DEVELOPMENT_WORKSPACE_ID, expectedRevision: 0, id: mapId, name: 'Dynamic verification',
+      workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Dynamic verification',
     })).toMatchObject({ status: 201 })
+    const nodes: Array<{ id: string; data: GraphNodeData }> = [{ id: claimId, data: { kind: 'claim', content: 'Fixture claim', category: 'data' } }]
+    const newsId = randomUUID()
+    if (news) nodes.push({ id: newsId, data: { kind: 'news', ...news } })
     expect(await command('graph.apply', { mapId, expectedRevision: 0,
-      changes: { nodes: { put: [{ id: claimId, data: { kind: 'claim', content: 'Fixture claim', category: 'data' } }] } },
+      changes: { nodes: { put: nodes }, ...(news ? { edges: { put: [{ id: randomUUID(), kind: 'mentions', from: newsId, to: claimId }] } } : {}) },
     })).toMatchObject({ status: 200 })
-    const result = await command('run.start', { mapId, expectedRevision: 1, id: runId, targetId: claimId, mode, configuration })
+    const result = await command('run.start', { mapId, expectedRevision: 1, id: runId, targetId: claimId, mode })
     expect(result).toMatchObject({ status: 200, body: { data: { snapshot: { run: { id: runId, status: 'running' } } } } })
-    return { mapId, claimId, runId, operationId: result.body.data.snapshot.run.operation.id as string }
+    return { mapId, claimId, runId, workspaceId: workspace.id,
+      operationId: result.body.data.snapshot.run.operation.id as string,
+      configuration: result.body.data.snapshot.run.configuration as GraphRunConfiguration }
   }
   async function answer(mapId: string, decision: 'approve' | 'reject' = 'approve') {
     const current = await snapshot(mapId)
@@ -87,7 +122,8 @@ export async function createGraphApi(leaseMs = 60_000) {
     return { body, snapshot: result.body.data.snapshot }
   }
   return {
-    url, token, server, store, connection, mongo, post, command, snapshot, work, claim, read, propose, proposal, createRun, answer,
+    url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri,
+    post, rawPost, command, snapshot, work, claim, read, propose, proposal, createWorkspace, createRun, answer,
     async close() {
       server.closeAllConnections()
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))

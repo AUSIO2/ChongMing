@@ -1,4 +1,5 @@
 import { appendFile, readFile } from 'node:fs/promises'
+import { appendFileSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
@@ -6,7 +7,11 @@ export const name = 'verification-evidence-fixture'
 export const inject = ['tools']
 
 export async function apply(ctx) {
-  await appendFile(process.env.CHONGMING_E2E_RUNTIME_LOG, JSON.stringify({ pid: process.pid, hostId: process.env.CHONGMING_HOST_ID }) + '\n')
+  await appendFile(process.env.CHONGMING_E2E_RUNTIME_LOG, JSON.stringify({ event: 'runtime-start', pid: process.pid, hostId: process.env.CHONGMING_HOST_ID }) + '\n')
+  ctx.on('agent/error', ({ agent, error }) => {
+    appendFileSync(process.env.CHONGMING_E2E_RUNTIME_LOG, JSON.stringify({ event: 'agent-error', pid: process.pid,
+      hostId: process.env.CHONGMING_HOST_ID, sessionId: agent.id, error: error instanceof Error ? error.stack : String(error) }) + '\n')
+  })
   ctx.tools.register(defineTool({
     name: 'archive_lookup',
     description: 'Read deterministic primary evidence from the local verification fixture.',

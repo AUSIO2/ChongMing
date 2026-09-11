@@ -19,7 +19,8 @@ const bypassTools = new Set(['data_read', 'data_propose', 'data_delegate', 'suba
 export function apply(ctx, config = {}) {
   const grant = structuredClone(config.grant)
   if (!grant?.workId || !grant.mapId || !grant.operationId || !grant.runId || !grant.holderId
-    || !Number.isSafeInteger(grant.fence) || grant.fence < 1 || !config.rootSessionId || !config.configuration) {
+    || !Number.isSafeInteger(grant.fence) || grant.fence < 1 || !config.rootSessionId || !config.configuration
+    || typeof config.persona !== 'string' || !config.persona.trim()) {
     throw new Error('Business tools require a complete work grant')
   }
   const token = process.env.CHONGMING_DATA_TOKEN
@@ -27,6 +28,7 @@ export function apply(ctx, config = {}) {
   const apiUrl = new URL(process.env.CHONGMING_DATA_API ?? 'http://127.0.0.1:4320')
   if (!['http:', 'https:'].includes(apiUrl.protocol)) throw new Error('Data API must use HTTP(S)')
   const configuration = structuredClone(config.configuration)
+  const persona = config.persona
   const actor = grant.actor
   let profile
   let selectedTools
@@ -85,8 +87,10 @@ export function apply(ctx, config = {}) {
     if (agent.id !== config.rootSessionId) return
     for (const tool of allow) if (!ctx.tools.get(tool, agent)) throw new Error('Configured tool is not registered: ' + tool)
     agent.ctx.tools.restrict({ allow })
+    // DSH substitutes a variable value once: application/user {{...}} text stays literal afterwards.
+    agent.ctx.systemPrompt.variable('chongming_persona', () => persona)
     agent.ctx.systemPrompt.section({
-      name: 'deployment:persona-prefix', order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), text: profile.content,
+      name: 'deployment:persona-prefix', order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), text: '{{chongming_persona}}',
     })
   })
   ctx.tools.guard(exec => {

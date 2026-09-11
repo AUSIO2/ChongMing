@@ -7,12 +7,12 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { describe, expect, it } from 'vitest'
 import type { GraphDataRead, GraphWorkGrant } from '../../contracts/graph'
 import { createGraphApi, expectRejected, type TestGraphApi } from './fixtures/graph-api'
-import { verificationConfiguration, verificationSlots } from './fixtures/verification'
+import { configuredSlots, verificationConfiguration, verificationSlots } from './fixtures/verification'
 
 interface WireCall { id: string; function: { name: string; arguments: string } }
 interface WireMessage { role: string; content?: string; tool_call_id?: string; tool_calls?: WireCall[] }
 interface ProviderRequest { messages: WireMessage[]; tools?: Array<{ function: { name: string } }> }
-interface Trace { role?: string; sessionId?: string; tools?: string[]; error?: string; last?: unknown }
+interface Trace { role?: string; sessionId?: string; tools?: string[]; prompt?: string; error?: string; last?: unknown }
 
 function toolResults(messages: WireMessage[]) {
   const calls = new Map(messages.flatMap(message => message.tool_calls ?? []).map(call => [call.id, call]))
@@ -57,6 +57,7 @@ function startHost(hostId: string, api: TestGraphApi, directory: string, patchPa
     DSH_TELEMETRY_DISABLED: '1', CHONGMING_E2E_TOOL_LOG: path.join(directory, 'tool-calls.jsonl'),
     CHONGMING_E2E_RUNTIME_LOG: path.join(directory, 'runtime-processes.jsonl'), CHONGMING_E2E_OVERLAP: '1',
     CHONGMING_E2E_TOOL_DELAY_MS: String(toolDelayMs),
+    CHONGMING_CONFIG_DIR: path.join(directory, 'local-config'),
   } })
   let stdout = '', stderr = '', readyResolved = false
   let readyResolve!: () => void, readyReject!: (error: Error) => void
@@ -111,7 +112,7 @@ describe('Multiple real Host processes and official DSH', () => {
     const orphanPids = new Set<number>()
     let crashedGrant: GraphWorkGrant | undefined, crashedHostId: string | undefined, crashAt: number | undefined
     let api: TestGraphApi | undefined, provider: Server | undefined
-    const slots = verificationSlots(3).map(slot => ({ ...slot, tools: ['archive_lookup'] }))
+    let slots = verificationSlots(3).map(slot => ({ ...slot, tools: ['archive_lookup'] }))
     try {
       // Only model responses are scripted. Production Host loops, DSH processes, tools and Mongo are real.
       provider = createServer(async (request, response) => {
@@ -123,10 +124,12 @@ describe('Multiple real Host processes and official DSH', () => {
           const persona = body.messages.filter(message => message.role === 'system' || message.role === 'user').map(message => message.content).join('\n')
           const role = persona.match(/E2E_ROLE=(router|worker|merge)/)?.[1]
           if (!role) throw new Error('Frozen role persona was not installed')
+          if (JSON.stringify(body).includes('PRIVATE_CONTEXT_NEVER_TO_MODEL')) throw new Error('A private context field reached the model')
           const results = toolResults(body.messages)
           const last = results[results.length - 1]
           trace.push({ role, sessionId: String(request.headers['x-deepseek-harness-session-id']),
-            tools: body.tools?.map(tool => tool.function.name), last })
+            tools: body.tools?.map(tool => tool.function.name),
+            prompt: body.messages.find(message => message.role === 'user')?.content, last })
           if (!last) return stream(response, 'data_read', {})
           if (last.name === 'archive_lookup') return stream(response, 'data_propose', { proposal: {
             kind: 'report', score: last.data.score, reason: `${last.data.marker}: ${last.data.source}`,
@@ -156,16 +159,25 @@ describe('Multiple real Host processes and official DSH', () => {
         '- insert:', '    - id: verification-evidence-fixture',
         `      name: ${JSON.stringify(path.resolve('tests/backend/fixtures/evidence-tool.mjs'))}`, '',
       ].join('\n'))
-      api = await createGraphApi(crash ? 1800 : 3000)
       const configuration = verificationConfiguration(5)
       configuration.tools = [{ name: 'archive_lookup', description: 'Read local fixture evidence' }]
-      configuration.router.content = 'E2E_ROLE=router'
-      configuration.merger.content = 'E2E_ROLE=merge'
+      configuration.router.content = 'E2E_ROLE=router\nClaim={{claimContent}}'
+      configuration.router.promptVars = ['context', 'claimContent', 'availableAgents']
+      configuration.merger.content = 'E2E_ROLE=merge\nClaim={{claimContent}}'
+      configuration.merger.promptVars = ['opinions', 'claimContent', 'originalContent']
       for (const profile of [configuration.router, configuration.merger, ...configuration.agents]) {
         profile.provider = 'deepseek-official'; profile.model = 'deepseek-v4-flash'
       }
-      for (const profile of configuration.agents) { profile.content = 'E2E_ROLE=worker'; profile.tools = ['archive_lookup'] }
-      const context = await api.createRun(mode, configuration)
+      for (const profile of configuration.agents) {
+        profile.content = 'E2E_ROLE=worker\nClaim={{claimContent}}'; profile.tools = ['archive_lookup']
+        profile.promptVars = ['hint', 'claimContent', 'context', 'originalContent']; profile.defaultPriority = 'high'
+      }
+      api = await createGraphApi(crash ? 1800 : 3000, configuration)
+      const context = await api.createRun(mode, configuration, { content: 'Fixture original source', context: {
+        public: { value: 'PUBLIC_CONTEXT_TO_MODEL', visibleToAI: true },
+        private: { value: 'PRIVATE_CONTEXT_NEVER_TO_MODEL', visibleToAI: false },
+      } })
+      slots = configuredSlots(context.configuration, 3).map(slot => ({ ...slot, tools: ['archive_lookup'] }))
       hosts.push(startHost('host-a', api, directory, patchPath, context.mapId, crash ? 2200 : 150),
         startHost('host-b', api, directory, patchPath, context.mapId, crash ? 2200 : 150))
       await Promise.all(hosts.map(host => host.ready))
@@ -217,7 +229,7 @@ describe('Multiple real Host processes and official DSH', () => {
         await expect(readFile(path.join(directory, 'tool-calls.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
         await api.answer(context.mapId)
         const merged = await waitFor(snapshot => snapshot.run.status === 'waiting' && snapshot.run.operation.review.kind === 'result')
-        expect(merged.nodes).toHaveLength(1)
+        expect(merged.nodes).toHaveLength(2)
         expect(merged.run.operation.reports).toHaveLength(3)
         await api.answer(context.mapId)
       }
@@ -246,12 +258,27 @@ describe('Multiple real Host processes and official DSH', () => {
         ?? (start.hostId === crashedHostId ? crashAt : undefined)
       expect(starts.some(a => starts.some(b => a.hostId !== b.hostId
         && Math.max(a.at, b.at) < Math.min(endedAt(a), endedAt(b))))).toBe(true)
-      const runtimes = (await readFile(path.join(directory, 'runtime-processes.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+      const runtimes = (await readFile(path.join(directory, 'runtime-processes.jsonl'), 'utf8')).trim().split('\n')
+        .map(line => JSON.parse(line)).filter(record => record.event === 'runtime-start')
       if (crash) expect(new Set(runtimes.map(runtime => runtime.pid)).size).toBeGreaterThanOrEqual(6)
       else expect(new Set(runtimes.map(runtime => runtime.pid)).size).toBe(5)
       expect(new Set(runtimes.map(runtime => runtime.hostId))).toEqual(new Set(['host-a', 'host-b']))
       for (const entry of trace) expect([...(entry.tools ?? [])].sort()).toEqual(entry.role === 'worker'
         ? ['archive_lookup', 'data_propose', 'data_read'] : ['data_propose', 'data_read'])
+      for (const entry of trace) {
+        const prompt = entry.prompt ?? ''
+        expect(prompt).toContain('Claim=Fixture claim')
+        const names = entry.role === 'router' ? configuration.router.promptVars!
+          : entry.role === 'worker' ? configuration.agents[0].promptVars! : configuration.merger.promptVars!
+        let previous = -1
+        for (const name of names) {
+          const position = prompt.indexOf(`\n\n${name}:\n`)
+          expect(position).toBeGreaterThan(previous)
+          previous = position
+        }
+        if (entry.role === 'router' || entry.role === 'worker') expect(prompt).toContain('PUBLIC_CONTEXT_TO_MODEL')
+        if (entry.role !== 'router') expect(prompt).toContain('Fixture original source')
+      }
       expect(new Set(trace.map(entry => entry.role))).toEqual(new Set(['router', 'worker', 'merge']))
       if (crashedGrant) {
         const replacement = (await api.store.read(context.mapId))!.leases[crashedGrant.workId]
@@ -264,7 +291,8 @@ describe('Multiple real Host processes and official DSH', () => {
         expect(await api.snapshot(context.mapId)).toEqual(completed)
       }
     } catch (error) {
-      throw new Error(`${error instanceof Error ? error.stack : String(error)}\nHosts:\n${hosts.map(host => host.output()).join('\n')}\nProvider trace:\n${JSON.stringify(trace, null, 2)}`)
+      const runtimeErrors = await readFile(path.join(directory, 'runtime-processes.jsonl'), 'utf8').catch(() => '')
+      throw new Error(`${error instanceof Error ? error.stack : String(error)}\nHosts:\n${hosts.map(host => host.output()).join('\n')}\nProvider trace:\n${JSON.stringify(trace, null, 2)}\nRuntime events:\n${runtimeErrors}`)
     } finally {
       await Promise.all(hosts.map(async host => {
         if (host.child.exitCode === null && host.child.signalCode === null) await stopHost(host)

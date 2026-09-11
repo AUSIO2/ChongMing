@@ -15,6 +15,8 @@ release
 .data
 *.local
 .env
+.chongming-host/
+.dsh-runtime/
 *.tsbuildinfo
 
 # Editor directories and files

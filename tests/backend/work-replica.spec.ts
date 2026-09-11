@@ -4,8 +4,10 @@ import { mongo, type Connection } from 'mongoose'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { describe, expect, it } from 'vitest'
 import { graphCreateService, type GraphService } from '../../backend/graph'
+import { authCreateService } from '../../backend/auth'
+import { controlCreateService } from '../../backend/control'
 import { storeCreateConnection, storeCreateGraphStore, storeDeleteConnection } from '../../backend/store'
-import { DEVELOPMENT_WORKSPACE_ID, type GraphDataProposal, type GraphWorkGrant } from '../../contracts/graph'
+import type { GraphDataProposal, GraphWorkGrant } from '../../contracts/graph'
 import { verificationConfiguration, verificationSlots } from './fixtures/verification'
 
 function replicaReadProof(grant: GraphWorkGrant) {
@@ -56,18 +58,29 @@ describe('Work leases across a Mongo primary election', () => {
       const connection = await storeCreateConnection(uri)
       connections.push(connection)
       const store = storeCreateGraphStore(connection)
+      await store.initialize()
+      const auth = authCreateService(connection)
+      const control = controlCreateService(connection)
+      await auth.initialize()
+      await control.initialize()
+      await control.seed(verificationConfiguration())
+      const user = await auth.createUser({ id: randomUUID(), displayName: 'Replica Owner', hostAdmin: true })
+      const { token } = await auth.createToken(user.userId)
+      const workspace = await auth.transact(token, ctx => control.createWorkspace(ctx, {
+        id: randomUUID(), name: 'Replica workspace', description: '', agentSource: 'library',
+      }))
       const service = graphCreateService(store, { leaseMs: 4000 })
       const mapId = randomUUID(), claimId = randomUUID(), runId = randomUUID()
       await service.dispatch({ requestId: randomUUID(), method: 'map.create', params: {
-        workspaceId: DEVELOPMENT_WORKSPACE_ID, expectedRevision: 0, id: mapId, name: 'Replica election proof',
+        workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Replica election proof',
       } })
       await service.dispatch({ requestId: randomUUID(), method: 'graph.apply', params: {
         mapId, expectedRevision: 0,
         changes: { nodes: { put: [{ id: claimId, data: { kind: 'claim', content: 'Durable claim', category: 'data' } }] } },
       } })
       await service.dispatch({ requestId: randomUUID(), method: 'run.start', params: {
-        mapId, expectedRevision: 1, id: runId, targetId: claimId, mode: 'auto', configuration: verificationConfiguration(),
-      } })
+        mapId, expectedRevision: 1, id: runId, targetId: claimId, mode: 'auto',
+      } }, verificationConfiguration())
       const router = await replicaReadGrant(service, mapId, 'router-host')
       expect(router.actor.role).toBe('router')
       const routeData = await service.readData(mapId, router.operationId, replicaReadProof(router))

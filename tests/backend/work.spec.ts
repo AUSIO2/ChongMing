@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { GraphWorkGrant } from '../../contracts/graph'
 import { createGraphApi, expectRejected, proof, type TestGraphApi } from './fixtures/graph-api'
-import { verificationSlots } from './fixtures/verification'
+import { configuredSlots } from './fixtures/verification'
 
 let api: TestGraphApi
 beforeAll(async () => { api = await createGraphApi(1500) }, 30_000)
@@ -12,7 +12,7 @@ afterAll(async () => { await api?.close() })
 async function readyWorkers(count: number) {
   const context = await api.createRun()
   const router = (await api.claim(context.mapId, 'router-host'))!
-  const proposal = await api.proposal(router, { kind: 'route', reason: 'Parallel evidence', slots: verificationSlots(count) })
+  const proposal = await api.proposal(router, { kind: 'route', reason: 'Parallel evidence', slots: configuredSlots(context.configuration, count) })
   expect((await api.propose(router, proposal)).status).toBe(200)
   return context
 }

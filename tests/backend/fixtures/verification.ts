@@ -32,3 +32,11 @@ export function verificationSlots(count: number): GraphRouteSlot[] {
     hint: `Follow evidence chain ${index + 1}`, tools: [...tools[index % tools.length]],
   }))
 }
+
+export function configuredSlots(configuration: GraphRunConfiguration, count: number): GraphRouteSlot[] {
+  return verificationSlots(count).map(slot => {
+    const agent = configuration.agents.find(agent => agent.name === `Custom ${slot.agentId}`)
+    if (!agent) throw new Error(`Fixture Agent is missing: ${slot.agentId}`)
+    return { ...slot, agentId: agent.id }
+  })
+}

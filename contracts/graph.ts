@@ -1,14 +1,16 @@
-export const DEVELOPMENT_WORKSPACE_ID = 'workspace:development'
-
 export interface ContextField {
   value: string
   visibleToAI: boolean
 }
 
 export type GraphNodeData =
+  | { kind: 'source'; locator: GraphLocator; label: string | null }
+  | { kind: 'evidence'; content: string; locator: GraphLocator; capturedAt: string }
   | { kind: 'news'; content: string; context: Record<string, ContextField> }
   | { kind: 'claim'; content: string; category: string | null }
   | { kind: 'verification'; score: 0 | 0.5 | 1; reason: string; reportIds: string[]; opinions: GraphReport[] }
+
+export type GraphLocator = { kind: 'asset'; assetId: string; mediaType: string } | { kind: 'url'; url: string }
 
 export interface GraphAgentProfile {
   id: string
@@ -18,6 +20,9 @@ export interface GraphAgentProfile {
   tools: string[]
   provider: string
   model: string
+  promptVars?: string[]
+  defaultPriority?: 'high' | 'medium' | 'low'
+  claimCategory?: 'data' | 'quote' | 'causal' | null
 }
 
 export interface GraphRunConfiguration {
@@ -89,6 +94,8 @@ export interface GraphNode {
   data: GraphNodeData
   createdAt: string
   updatedAt: string
+  importedFrom?: { bundleId: string; nodeId: string; revision: number }
+  validity?: 'current' | 'stale'
 }
 
 export type GraphEdgeKind = 'mentions' | 'verifies' | 'related-to'
@@ -195,12 +202,13 @@ export interface GraphWriteResult {
 export type GraphQuery =
   | { method: 'map.list'; params: { workspaceId: string } }
   | { method: 'map.get'; params: { mapId: string } }
+  | { method: 'run.get'; params: { mapId: string; runId: string } }
 
 export type GraphCommand =
   | {
       requestId: string
       method: 'map.create'
-      params: { workspaceId: string; expectedRevision: 0; id: string; name: string }
+      params: { workspaceId: string; expectedRevision: number; id: string; name: string }
     }
   | {
       requestId: string
@@ -221,7 +229,6 @@ export type GraphCommand =
         id: string
         targetId: string
         mode: 'auto' | 'human-in-loop'
-        configuration?: GraphRunConfiguration
       }
     }
   | {

@@ -1,48 +1,60 @@
-import { randomUUID } from 'node:crypto'
-import type { Server } from 'node:http'
-import { MongoMemoryServer } from 'mongodb-memory-server'
-import type { Connection } from 'mongoose'
+import { createHash, randomUUID } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { apiCreateServer } from '../../backend/api'
 import { graphCreateService } from '../../backend/graph'
 import {
   storeCreateConnection,
   storeCreateGraphStore,
   storeDeleteConnection,
 } from '../../backend/store'
-import { DEVELOPMENT_WORKSPACE_ID } from '../../contracts/graph'
+import { createGraphApi, type TestGraphApi } from './fixtures/graph-api'
 
-let mongo: MongoMemoryServer
-let connection: Connection
-let server: Server
-let baseUrl: string
+let api: TestGraphApi
+let workspaceId: string
 
 async function request(path: 'query' | 'command', body: unknown) {
-  const response = await fetch(`${baseUrl}/api/v1/${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return { status: response.status, body: await response.json() as Record<string, any> }
+  return api.post(`/api/v1/${path}`, body)
 }
 
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create()
-  connection = await storeCreateConnection(mongo.getUri('chongming_graph_test'))
-  server = apiCreateServer(graphCreateService(storeCreateGraphStore(connection)))
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('Graph server did not bind')
-  baseUrl = `http://127.0.0.1:${address.port}`
+  api = await createGraphApi()
+  workspaceId = (await api.createWorkspace()).id
 }, 30_000)
 
 afterAll(async () => {
-  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-  await storeDeleteConnection(connection)
-  await mongo.stop()
+  await api?.close()
 })
 
 describe('Graph HTTP API', () => {
+  it('confirms an accepted source edit after the source and its asset have been deleted', async () => {
+    const content = Buffer.from('source evidence')
+    const sha256 = createHash('sha256').update(content).digest('hex')
+    const asset = await api.application.assets.upload(api.userToken,
+      { workspaceId, requestId: randomUUID(), filename: 'source.txt', mediaType: 'text/plain', size: content.length, sha256 }, Readable.from([content]))
+    const mapId = randomUUID(), nodeId = randomUUID()
+    expect((await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Asset replay' })).status).toBe(201)
+    const saved = { requestId: randomUUID(), method: 'graph.apply', params: { mapId, expectedRevision: 0,
+      changes: { nodes: { put: [{ id: nodeId, data: { kind: 'source', label: null, locator: { kind: 'asset', assetId: asset.data.id, mediaType: 'text/plain' } } }] } },
+    } }
+    expect((await request('command', saved)).status).toBe(200)
+    expect((await api.command('graph.apply', { mapId, expectedRevision: 1, changes: { nodes: { remove: [nodeId] } } })).status).toBe(200)
+    expect((await api.command('asset.delete', { assetId: asset.data.id, expectedSha256: sha256 })).status).toBe(200)
+    expect(await request('command', saved)).toMatchObject({ status: 200, body: { replayed: true, data: { snapshot: { revision: 2, nodes: [] } } } })
+    const different = structuredClone(saved)
+    different.params.changes.nodes.put[0].data.locator.assetId = randomUUID()
+    expect(await request('command', different)).toMatchObject({ status: 409, body: { error: { code: 'IDEMPOTENCY_CONFLICT' } } })
+    expect((await api.command('map.delete', { mapId, expectedRevision: 2 })).status).toBe(200)
+  })
+
+  it('rejects an oversized document before publishing it', async () => {
+    const id = randomUUID(), now = new Date().toISOString()
+    await expect(api.store.create({ id, workspaceId, revision: 0, name: 'Too large', nodes: [{
+      id: randomUUID(), revision: 0, data: { kind: 'news', content: 'x'.repeat(8 * 1024 * 1024), context: {} }, createdAt: now, updatedAt: now,
+    }], edges: [], run: null, runHistory: [], leases: {}, receipts: [], createdAt: now, updatedAt: now }))
+      .rejects.toMatchObject({ status: 413, code: 'GRAPH_LIMIT' })
+    expect(await api.store.read(id)).toBeNull()
+  })
+
   it('persists a shared graph with CAS and idempotent writes', async () => {
     const mapId = randomUUID()
     const newsA = randomUUID()
@@ -54,7 +66,7 @@ describe('Graph HTTP API', () => {
     const created = await request('command', {
       requestId: createRequest,
       method: 'map.create',
-      params: { workspaceId: DEVELOPMENT_WORKSPACE_ID, expectedRevision: 0, id: mapId, name: 'Shared graph' },
+      params: { workspaceId, expectedRevision: 0, id: mapId, name: 'Shared graph' },
     })
     expect(created).toMatchObject({ status: 201, body: { ok: true, replayed: false } })
 
@@ -140,21 +152,13 @@ describe('Graph HTTP API', () => {
       expect.objectContaining({ id: edgeB, from: newsB, to: claim }),
     ])
 
-    await storeDeleteConnection(connection)
-    connection = await storeCreateConnection(mongo.getUri('chongming_graph_test'))
-    server.closeAllConnections()
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-    server = apiCreateServer(graphCreateService(storeCreateGraphStore(connection)))
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-    const address = server.address()
-    if (!address || typeof address === 'string') throw new Error('Graph server did not restart')
-    baseUrl = `http://127.0.0.1:${address.port}`
-    expect(await request('query', { method: 'map.get', params: { mapId } })).toMatchObject({
-      status: 200,
-      body: { data: { nodes: [{ id: newsB }, { id: claim }] } },
-    })
+    const reopened = await storeCreateConnection(api.uri)
+    try {
+      const fresh = graphCreateService(storeCreateGraphStore(reopened))
+      expect(await fresh.read({ method: 'map.get', params: { mapId } })).toMatchObject({ nodes: [{ id: newsB }, { id: claim }] })
+    } finally { await storeDeleteConnection(reopened) }
     expect(await request('query', {
-      method: 'map.list', params: { workspaceId: DEVELOPMENT_WORKSPACE_ID },
+      method: 'map.list', params: { workspaceId },
     })).toMatchObject({
       status: 200,
       body: { data: [{ id: mapId, nodeCount: 2, claimCount: 1 }] },
@@ -175,7 +179,7 @@ describe('Graph HTTP API', () => {
       status: 404, body: { error: { code: 'MAP_NOT_FOUND' } },
     })
     expect(await request('query', {
-      method: 'map.list', params: { workspaceId: DEVELOPMENT_WORKSPACE_ID },
+      method: 'map.list', params: { workspaceId },
     })).toMatchObject({ status: 200, body: { data: [] } })
   }, 30_000)
 })
