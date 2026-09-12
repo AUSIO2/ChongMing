@@ -1,0 +1,28 @@
+%% Diagram: UC-06
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: v3 包导出与导入
+%% Trace: traces/UC-06.md
+%% Code: AssetsService.exportMap/exportWorkspace/importWorkspace; bundlesReadWorkspace; bundlesCreateImport
+%% Reconstruction: review/diagram-code-reconstruction.md#uc-06
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+sequenceDiagram
+  actor U as 迁移客户端
+  participant A as 图服务入口
+  participant S as 资产服务
+  participant B as 包解析组件
+  participant M as MongoDB
+  participant F as GridFS
+  U->>A: 导出 Map 或 Workspace
+  A->>S: 在快照事务中读取图、Agent 和资产
+  S->>F: 读取并复核被引用的资产字节
+  S-->>U: 返回完整 v3 JSON 包
+  U->>A: 上传包并提交导入命令
+  A->>S: 读取 staging Asset
+  S->>B: 校验格式、大小、摘要和引用闭包
+  B->>B: 为 Workspace、Map、节点、关系和 Agent 重映射标识
+  S->>F: 准备导入资产 blob
+  S->>M: 单事务发布 Workspace、全部图、元数据与回执
+  alt 确定回滚
+    S->>F: 清理本次临时 blob
+  end
+  M-->>U: 返回新 Workspace、Map 和 Asset 标识

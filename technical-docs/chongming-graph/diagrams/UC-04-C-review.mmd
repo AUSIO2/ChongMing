@@ -1,0 +1,29 @@
+%% Diagram: UC-04-C
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: 人工 route/result 审核
+%% Trace: traces/UC-04.md
+%% Code: runCreateReview; runUpdateReview; runAnswerReview; runCreateVerification
+%% Reconstruction: review/diagram-code-reconstruction.md#uc-04-c
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+sequenceDiagram
+  actor E as 审核客户端
+  participant A as 图服务入口
+  participant R as Run 状态组件
+  participant S as 图存储组件
+  S-->>E: 返回等待审核的 Run 快照
+  opt 修改路由角度、Agent 或工具子集
+    E->>A: 提交 Map 与 Review 期望版本
+    A->>R: 校验冻结配置内的 Agent 与工具
+    R->>S: 增加 route 和 review 版本
+    S-->>E: 返回已保存路由
+  end
+  E->>A: 批准或拒绝当前 Review
+  A->>R: 校验输入版本与 Review 身份
+  alt 拒绝
+    R->>S: 将 Run 写为失败
+  else 批准路由
+    R->>S: 将 Run 恢复为运行中，允许派发 worker
+  else 批准汇总结论
+    R->>S: 创建 Verification 节点和 verifies 关系并完成 Run
+  end
+  S-->>E: 返回新图快照

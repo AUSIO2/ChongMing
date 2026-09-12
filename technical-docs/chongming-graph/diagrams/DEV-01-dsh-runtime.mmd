@@ -1,0 +1,23 @@
+%% Diagram: DEV-01
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: 独立 DSH SDK 调试端点
+%% Trace: traces/DEV-01.md
+%% Code: dshHttpCreateServer; DshRuntime.run; DeepSeekHarness.run
+%% Reconstruction: review/diagram-code-reconstruction.md#dev-01
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+sequenceDiagram
+  actor U as 本机开发者
+  participant H as DSH HTTP 服务
+  participant R as SDK 适配器
+  participant D as DSH 进程
+  U->>H: 提交 prompt 和可选会话标识
+  H->>R: 启动一次运行
+  R->>D: 通过官方 SDK 发送请求
+  loop 每条 JSON-RPC 通知
+    D-->>R: 返回通知
+    R-->>H: 复制为 JSON 安全事件
+    H-->>U: 输出一行 NDJSON event
+  end
+  D-->>R: 返回最终响应与会话标识
+  R-->>H: 汇总运行结果
+  H-->>U: 输出一行 NDJSON result

@@ -1,0 +1,27 @@
+%% Diagram: D-01
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: 应用持久化 Entity 关系
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+erDiagram
+  USER["用户（UserDocument）"]
+  TOKEN["访问令牌（TokenDocument）"]
+  WORKSPACE["工作区（WorkspaceDocument）"]
+  PREFERENCES["个人偏好（PreferencesDocument）"]
+  GRAPH["图文档（GraphDocument）"]
+  ASSET["资产元数据（AssetDocument）"]
+  AGENT_LIBRARY["Agent 库（LibraryDocument）"]
+  SETTINGS["集群设置（SettingsDocument）"]
+  ASSET_RECEIPT["资产回执（AssetReceipt）"]
+  ADMIN_FENCE["管理围栏"]
+  GRIDFS_BLOB["GridFS 字节对象"]
+  USER ||--o{ TOKEN : 签发
+  USER }o--o{ WORKSPACE : 成员关系
+  USER ||--o{ PREFERENCES : 保存
+  WORKSPACE ||--o{ GRAPH : 拥有
+  WORKSPACE ||--o{ ASSET : 拥有
+  WORKSPACE ||--o| PREFERENCES : 限定
+  WORKSPACE }o--|| AGENT_LIBRARY : 复制配置
+  SETTINGS ||--o{ WORKSPACE : 提供默认运行设置
+  ASSET ||--|| GRIDFS_BLOB : 指向
+  ASSET_RECEIPT }o--|| WORKSPACE : 限定幂等范围
+  ADMIN_FENCE ||--o{ USER : 串行管理变更

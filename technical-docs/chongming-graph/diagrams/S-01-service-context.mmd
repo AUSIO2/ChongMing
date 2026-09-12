@@ -1,0 +1,19 @@
+%% Diagram: S-01
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: 重明图服务运行边界
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+flowchart LR
+  U[用户客户端] -->|用户 HTTP| API[重明图服务]
+  A[本机管理员] -->|CLI| API
+  H1[Host A] -->|内部 HTTP| API
+  H2[Host B] -->|内部 HTTP| API
+  H1 --> D1[DSH 进程 A]
+  H2 --> D2[DSH 进程 B]
+  API --> M[(MongoDB 副本集)]
+  API --> G[(GridFS)]
+  D1 --> X[模型与自定义工具]
+  D2 --> X
+  classDef component fill:#e8fbfb,stroke:#159a9c,color:#263238,stroke-width:1.5px;
+  classDef store fill:#f2ffff,stroke:#159a9c,color:#263238,stroke-dasharray:5 4;
+  class U,A,H1,H2,D1,D2,API,X component;
+  class M,G store;

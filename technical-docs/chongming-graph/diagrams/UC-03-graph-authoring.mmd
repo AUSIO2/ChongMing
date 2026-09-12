@@ -1,0 +1,25 @@
+%% Diagram: UC-03
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: Graph 创建、编辑与删除
+%% Trace: traces/UC-03.md
+%% Code: ApplicationService.dispatch; GraphService.dispatch; graphUpdateChanges; GraphStore.commit
+%% Reconstruction: review/diagram-code-reconstruction.md#uc-03
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+sequenceDiagram
+  actor E as 编辑客户端
+  participant A as 应用编排服务
+  participant G as 图服务
+  participant S as 图存储组件
+  E->>A: 提交图命令、期望版本和稳定请求标识
+  A->>A: 校验 Editor 权限与资产引用
+  A->>G: 派发已授权命令
+  G->>S: 读取当前图与回执
+  alt 请求已经提交
+    S-->>E: 返回当前图及重放标识
+  else 版本不匹配或活动 Run 阻止编辑
+    G-->>E: 返回冲突及当前版本
+  else 首次有效变更
+    G->>G: 校验节点、关系和变更闭包
+    G->>S: 按旧版本原子提交新快照与回执
+    S-->>E: 返回新版本和创建的节点/关系标识
+  end

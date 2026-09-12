@@ -1,0 +1,17 @@
+%% Diagram: ST-01
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: GraphRun 与 GraphReview 状态
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+stateDiagram-v2
+  [*] --> 运行中: 启动核查并冻结配置
+  运行中 --> 等待审核: 人工模式收到路由或汇总草稿
+  等待审核 --> 运行中: 批准路由
+  等待审核 --> 已完成: 批准汇总结论
+  等待审核 --> 已失败: 拒绝待审内容
+  运行中 --> 已完成: 自动模式完成汇总
+  运行中 --> 已失败: Host 上报不可恢复错误
+  运行中 --> 已取消: 用户取消
+  等待审核 --> 已取消: 用户取消
+  已完成 --> [*]
+  已失败 --> [*]
+  已取消 --> [*]

@@ -1,0 +1,27 @@
+%% Diagram: OPS-01
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: 本机初始化、诊断和维护
+%% Trace: traces/OPS-01.md
+%% Code: adminRunCommand; localReadConfiguration; AuthService; ControlService; repairUpdateNewsContext
+%% Reconstruction: review/diagram-code-reconstruction.md#ops-01
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+sequenceDiagram
+  actor O as 本机管理员
+  participant C as 管理 CLI
+  participant L as 本机配置文件
+  participant A as 认证与控制服务
+  participant M as MongoDB
+  O->>C: 提交动作与受限 JSON 输入
+  C->>L: 读取设置和加密外部的本机密钥文件
+  alt 初始化或管理用户/Agent
+    C->>A: 执行事务管理动作
+    A->>M: 更新管理集合与围栏
+  else 测试或切换数据库
+    C->>M: 独立连接并验证事务能力
+    C->>L: 测试成功后保存下次启动 URI
+  else 修复缺失的 News 上下文
+    C->>M: 默认统计；显式 apply 才更新受影响 Map 版本
+  else 更新本机设置或密钥
+    C->>L: 互斥锁内原子替换 0600 文件
+  end
+  C-->>O: 返回脱敏结果或明确错误

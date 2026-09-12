@@ -75,6 +75,7 @@ node --import tsx tests/client/ui-fixture.ts
 
 055 及之前的新图若有 News 空 `context` 被存储省略，可用本机 `data.repair-news-context` 显式修复；默认只统计，`apply:true` 才写入。命令与操作范围见 [056 接口文档](./develop-docs/056-接口文档.md)。应用启动不会自动迁移用户数据，旧 Mapper 集合也不在修复范围。
 
+- [重明图服务技术说明书生产包](./technical-docs/chongming-graph/README.md)
 - [056 客户端架构](./develop-docs/056-客户端核查闭环.md)
 - [056 客户端接口与连接协议](./develop-docs/056-接口文档.md)
 - [056 实施及验收记录](./develop-docs/056-implement-客户端核查闭环.md)

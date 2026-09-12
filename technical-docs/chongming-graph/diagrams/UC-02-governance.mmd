@@ -1,0 +1,28 @@
+%% Diagram: UC-02
+%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Scope: Workspace、成员、Agent 与设置治理
+%% Trace: traces/UC-02.md
+%% Code: ApplicationService.dispatch; AuthService.transact; ControlService.dispatch
+%% Reconstruction: review/diagram-code-reconstruction.md#uc-02
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+sequenceDiagram
+  actor O as 管理客户端
+  participant A as 图服务入口
+  participant H as 认证服务
+  participant C as 控制服务
+  participant M as MongoDB
+  O->>A: 提交带版本和请求标识的管理命令
+  A->>H: 开始认证事务
+  H->>M: 锁定有效令牌与用户授权
+  H->>C: 传入事务身份
+  C->>M: 校验角色、作用域版本和请求回执
+  alt 同请求同输入已提交
+    M-->>C: 返回原资源
+    C-->>O: 返回重放结果
+  else 首次提交
+    C->>M: 更新 Workspace、Agent 库或共享设置
+    M-->>C: 提交新版本和回执
+    C-->>O: 返回更新后的作用域视图
+  else 版本、权限或输入冲突
+    C-->>O: 回滚事务并返回明确错误
+  end
