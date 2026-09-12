@@ -18,9 +18,9 @@
 | C-06..09 | HTTP command | `agent.create/update/delete/copy` | 用户客户端 | library HostAdmin；workspace Owner | `ControlService.dispatch` | UC-02 |
 | C-10 | HTTP command | `settings.update` | 管理员客户端 | HostAdmin | `ControlService.dispatch` | UC-02 |
 | C-11..13 | HTTP command | `map.create/delete`、`graph.apply` | 用户客户端 | Workspace Editor；无活动 Run 的编辑受状态门控 | `GraphService.dispatch` | UC-03 |
-| C-14..17 | HTTP command | `run.start/cancel`、`review.update/answer` | 用户客户端 | Workspace Editor、版本匹配 | `GraphService.dispatch → Run functions` | UC-04 |
-| C-18 | HTTP command | `asset.delete` | 用户客户端 | Asset 所属 Workspace Owner | `AssetsService.delete` | UC-05 |
-| C-19 | HTTP command | `workspace.import` | 用户客户端 | staging Workspace Owner | `AssetsService.importWorkspace` | UC-06 |
+| C-14..19 | HTTP command | `run.start/pause/resume/cancel`、`review.update/answer` | 用户客户端 | Workspace Editor、Map/Operation/Review 版本匹配 | `GraphService.dispatch → Run functions` | UC-04 |
+| C-20 | HTTP command | `asset.delete` | 用户客户端 | Asset 所属 Workspace Owner | `AssetsService.delete` | UC-05 |
+| C-21 | HTTP command | `workspace.import` | 用户客户端 | staging Workspace Owner | `AssetsService.importWorkspace` | UC-06 |
 | H-01 | HTTP binary | `POST /api/v1/assets` | 用户客户端 | Workspace Editor、长度/摘要/幂等键齐全 | `AssetsService.upload` | UC-05 |
 | H-02 | HTTP binary | `GET /api/v1/assets/{id}/content` | 用户客户端 | Workspace Viewer、Asset ready | `AssetsService.content` | UC-05 |
 | H-03..04 | HTTP export | `GET /api/v1/maps/{id}/export`、`/workspaces/{id}/export` | 用户客户端 | Map 导出需 Viewer；Workspace 导出需 Owner | `AssetsService.exportMap/exportWorkspace` | UC-06 |
@@ -30,13 +30,13 @@
 | O-01 | HTTP | `GET /health` | 探针 | 图服务进程可达 | 直接返回 | OPS-01 |
 | O-02 | 进程 | `backend/graph-main.ts` | 运维 | Mongo 副本集与配置可读 | 初始化 Auth/Control/Assets/Graph | OPS-01 |
 | O-03 | 进程 | `backend/host-main.ts` | 运维 | 内部 token、图服务和 DSH 可用 | `HostWorker.start` | UC-04 |
-| O-04 | CLI | `backend/admin-main.ts` 14 个动作 | 本机管理员 | 本机配置/数据库条件按动作满足 | Auth/Control/repair/local settings | OPS-01 |
+| O-04 | CLI | `backend/admin-main.ts` 管理动作 | 本机管理员 | 本机配置/数据库条件按动作满足 | Auth/Control/repair/local settings | OPS-01 |
 | D-01 | HTTP | `GET /health`（4318） | 开发者 | 独立 DSH 运行时已启动 | 直接返回 | DEV-01 |
 | D-02 | HTTP NDJSON | `POST /runtime/dsh/run` | 开发者 | 合法 prompt | `DshRuntime.run` | DEV-01 |
 
 ## 覆盖结果
 
-- 逻辑运行入口：8 query、19 command、4 用户专用 HTTP、7 内部动作、4 运行/管理入口、2 独立开发入口。
+- 逻辑运行入口：8 query、21 command、4 用户专用 HTTP、7 内部动作、4 运行/管理入口、2 独立开发入口。
 - 已归属入口数等于总入口数，主归属冲突为 0。
 - 仓库中没有 MQ consumer、scheduler 或业务事件监听入口。Host 轮询属于 UC-04 的异步续接。
 

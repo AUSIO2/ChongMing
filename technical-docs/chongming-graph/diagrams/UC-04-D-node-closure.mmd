@@ -1,0 +1,19 @@
+%% Diagram: UC-04-D
+%% Base commit: 1ae38fa93d616fb2b32bfa567808b2d7c61d347e
+%% Snapshot: cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d
+%% Scope: deterministic scope closure and until boundaries
+%% Trace: traces/UC-04.md
+%% Code: runUpdateProgress; runCanReuse; runCreateOutputs
+%% Reconstruction: review/diagram-code-reconstruction.md#uc-04-d
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64"}}}%%
+flowchart LR
+  S[Source 起点] -->|parse Operation| N[News]
+  N -->|split Operation| C[Claim]
+  C -->|verify Operation| V[Verification]
+  S -. until news .-> SN[在 News 闭包完成]
+  N -. until claims .-> CN[在 Claim 闭包完成]
+  C -. until verified .-> VN[在 Verification 闭包完成]
+  H[历史已完成 Operation] -->|输入 配置 输出版本与关系都有效| R[复用结果]
+  Z[合法零结果] -->|空 outputRefs 仍是完成事实| D[不重复派发]
+  classDef c fill:#e8fbfb,stroke:#159a9c,color:#263238;
+  class S,N,C,V,SN,CN,VN,H,R,Z,D c;

@@ -10,7 +10,11 @@ Host 周期性向 `/internal/v1/work` 发 claim；持有 grant 后并行续租�
 
 ## DSH 业务插件与图服务
 
-每个工作生成临时 DSH patch，注入不可变 grant、冻结配置、批准 route 和 persona。插件只暴露 `data_read`、`data_propose` 及当前 slot 允许的自定义工具。data 接口还需要 work-id、holder 和 fence headers；模型参数中不包含这些授权字段。
+每个工作生成临时 DSH patch，注入不可变 grant、Operation kind、冻结配置、批准 route 和 persona。插件按 parse、split 或 verify 生成不同 proposal schema，只暴露 `data_read`、`data_propose` 及当前 slot 允许的自定义工具。data 接口还需要 work-id、holder 和 fence headers；模型参数中不包含这些授权字段。
+
+## Source 正文读取
+
+parse Operation 首次执行时，图服务读取共享 Asset 或公开 HTTP(S) URL，并把正文保存到 Operation。URL 读取拒绝凭证、重定向、私网/本机地址和 DNS 重绑定，固定校验后的连接地址；只接受 UTF-8 文本、Markdown、HTML、JSON，最多 1 MiB、总时限 10 秒。
 
 ## DSH SDK
 

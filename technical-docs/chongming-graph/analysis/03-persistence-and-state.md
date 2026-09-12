@@ -19,19 +19,17 @@ GridFS `asset_blobs.files/chunks` 由驱动管理，当前代码只持有 blob O
 
 ## 状态机
 
-### Run/Operation
+### Run 与多个 Operation
 
-- 初始 `running`：`runCreateRun`。
-- `running → waiting`：人工模式收到 route 或 merge 时 `runCreateReview`。
-- `waiting → running`：route review 批准。
-- `waiting → failed`：任一 review 拒绝。
-- `running → completed`：自动 merge 或 result review 批准，且生成 Verification。
-- `running|waiting → cancelled`：`runCancelRun`。
-- `running → failed`：Host 的不可恢复执行错误经 `dispatchWork(fail)` 写入。
+- Run 初始保存 `scope.nodeIds`、`until`、`regenerate`、冻结配置和空 `operations[]`；`runUpdateProgress` 从同一图快照派生 parse/split/verify Operation。
+- 每个 Operation 独立处于 running/waiting/completed/failed/cancelled；一个 Operation 待审不阻止其他 Operation 执行。
+- Run 从全部 Operation 聚合：存在 failed 为 failed；否则存在 running 为 running；否则存在 waiting 为 waiting；闭包内全部完成为 completed。
+- `paused` 与业务状态正交；pause 保留 Operation/Review/报告，同时在提交中定向过期当前 Run 的 lease。
+- cancel 把 Run 及仍活动的 Operation 写为 cancelled；Host 不可恢复错误把 Run 写为 failed。
 
 ### Review
 
-`pending → answered` 仅由 `runAnswerReview`；回答记录 decision、answeredAt 并增加 revision。route 草稿更新保持 pending，同时 route/review revision 各加一。
+Review 属于 Operation。`pending → answered` 仅由 `runAnswerReview`；回答记录 decision、answeredAt 并增加 revision。parse/split/verify 的 result 均可待审，split/verify 另有 route Review。暂停中可以回答，批准不会清除 paused。
 
 ### Asset
 
@@ -43,4 +41,4 @@ GridFS `asset_blobs.files/chunks` 由驱动管理，当前代码只持有 blob O
 
 ### Lease
 
-lease 嵌入 Graph，以 holderId + 单调 fence + expiresAt 确认所有权。claim 只覆盖到期租约；renew 延长；release 把到期时间置为 epoch；最终 proposal commit 同时匹配 lease、fence、到期和 Run。
+lease 嵌入 Graph，以 holderId + 单调 fence + expiresAt 确认所有权。claim 只为未暂停 Run 领取工作；renew 延长；release 把到期时间置为 epoch；最终 proposal commit 同时匹配 lease、fence、到期和 `run.paused=false`。pause 在授权事务中原子过期该 Run 的 lease。

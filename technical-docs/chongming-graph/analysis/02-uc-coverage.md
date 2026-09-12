@@ -5,7 +5,7 @@
 | UC-01 | 登录并恢复本人工作上下文 | 用户 | Q-01..05、C-05 | 用户 token 有效 | 返回身份、工作区、图和本人偏好 | 4.1 |
 | UC-02 | 治理 Workspace、成员、Agent 和共享设置 | Owner / HostAdmin | Q-07、C-01..10 | 对目标作用域有管理权限 | 配置按 CAS 更新并可供新 Run 冻结 | 4.2 |
 | UC-03 | 建立和维护事实数据图 | Editor | C-11..13 | Workspace 可写且版本匹配 | 节点/边/图名原子写入新 revision | 4.3 |
-| UC-04 | 对 Claim 完成动态多角度核查 | Editor、Host、DSH、审核者 | Q-06、C-14..17、I-01..07、O-03 | Claim 与配置可用，无活动 Run | Run 终态；批准时 Verification 节点入图 | 4.4 |
+| UC-04 | 从选定节点推进到 News、Claim 或 Verification | Editor、Host、DSH、审核者 | Q-06、C-14..19、I-01..07、O-03 | Source/News/Claim 与所需配置可用 | 范围闭包达到 until，或明确失败/取消 | 4.4 |
 | UC-05 | 管理可追溯资产 | Editor / Owner / Viewer | Q-08、C-18、H-01..02 | Workspace 权限与摘要正确 | ready 资产可读，删除后不可读 | 4.5 |
 | UC-06 | 导出并导入可移植工作区 | Viewer / Owner / staging Owner | C-19、H-03..04 | 包引用闭包与大小合法 | 新 Workspace、Map、资产一次发布 | 4.6 |
 | OPS-01 | 初始化、诊断和维护图服务 | 本机管理员、探针 | O-01..02、O-04 | 本机执行权限 | 服务可运行或明确返回诊断/维护结果 | 6 |

@@ -1,38 +1,44 @@
 %% Diagram: UC-04-B
-%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
-%% Scope: Host、DSH 与 proposal 提交
+%% Base commit: 1ae38fa93d616fb2b32bfa567808b2d7c61d347e
+%% Snapshot: cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d
+%% Scope: Source input, Host, DSH and atomic node proposal
 %% Trace: traces/UC-04.md
-%% Code: HostWorker.hostRunWork; dshRunWork; DshRuntime; business plugin; GraphService.readData/propose
+%% Code: sourceReadUrl; AssetsService.content; HostWorker.hostRunWork; dshRunWork; business plugin; GraphService.propose
 %% Reconstruction: review/diagram-code-reconstruction.md#uc-04-b
-%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238"}}}%%
 sequenceDiagram
   participant H as Host
   participant A as 图服务入口
   participant G as 图服务
+  participant S as Source 读取组件
   participant W as DSH 工作适配器
   participant D as DSH 进程
   participant P as 业务插件
   participant M as MongoDB
-  H->>A: 确认工作仍未完成
-  H->>W: 交付不可变租约并设置截止时间
+  H->>A: 确认工作未完成且 Run 未暂停
+  H->>W: 交付 Operation 租约并设置截止时间
+  opt parse 首次执行
+    W->>A: 读取 Source 正文
+    A->>S: 读取共享 Asset 或受限公共 URL
+    S-->>G: 保存原始正文到 Operation
+  end
   par 续租
     H->>A: 周期续租 holder 与 fence
-    A->>M: 仅匹配当前未到期租约
+    A->>M: 仅匹配未暂停且未到期租约
   and 执行
-    W->>A: 读取授权 Claim、上下文和冻结配置
-    A->>G: 校验工作作用域和租约
-    G-->>W: 返回当前角色可见数据
-    W->>D: 启动带临时业务 patch 的会话
-    D->>P: 创建绑定根 Agent
-    P->>P: 限制为业务工具与 slot 白名单
-    P->>A: data_read 后提交 route、report 或 merge
-    A->>G: 校验角色、版本、报告闭包和租约
-    G->>M: CAS 提交 proposal 与回执
+    W->>A: 读取 Operation 授权投影和冻结配置
+    A->>G: 校验输入版本、工作作用域和租约
+    G-->>W: 返回 parse split 或 verify 数据
+    W->>D: 启动绑定 Operation 的临时 patch 会话
+    D->>P: 创建受限根 Agent
+    P->>P: 限制 proposal schema 与工具白名单
+    P->>A: 提交 News、Claim 候选或核查意见
+    A->>G: 校验角色、候选引用、版本和租约
+    G->>M: 同一 CAS 保存节点、边、空结果、后继与回执
     M-->>P: 确认已接受
-    P-->>D: 结束当前回合
   end
   H->>D: 关闭本项 DSH 运行时
   H->>A: 释放本人租约
-  alt 续租失败或超过保守截止时间
+  alt 暂停、续租失败或超过截止时间
     H->>D: 中止并等待进程关闭
   end

@@ -1,23 +1,28 @@
 %% Diagram: UC-04-A
-%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
-%% Scope: 启动核查与派生路由工作
+%% Base commit: 1ae38fa93d616fb2b32bfa567808b2d7c61d347e
+%% Snapshot: cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d
+%% Scope: start scoped node Run and derive Operations
 %% Trace: traces/UC-04.md
-%% Code: ApplicationService.dispatch; ControlService.configuration; runCreateRun; workReadItems; GraphStore.claim
+%% Code: ApplicationService.dispatch; ControlService.configuration; runCreateRun; runUpdateProgress; workReadItems
 %% Reconstruction: review/diagram-code-reconstruction.md#uc-04-a
-%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238"}}}%%
 sequenceDiagram
-  actor E as 审核客户端
+  actor U as 处理客户端
   participant A as 应用编排服务
   participant C as 控制服务
   participant R as Run 状态组件
   participant S as 图存储组件
   participant H as Host
-  E->>A: 启动指定 Claim 的核查
-  A->>C: 解析 Workspace 当前核查配置
-  C-->>A: 返回路由、工作 Agent、汇总器和工具目录
-  A->>R: 创建 Run 并冻结配置与输入版本
-  R->>S: 按 Map 版本提交运行中状态
-  H->>S: 请求领取可执行工作
-  S->>R: 从已接受状态派生下一项工作
-  R-->>S: 返回路由 Agent 工作
-  S-->>H: 写入租约并返回 holder、fence 和截止时间
+  U->>A: 提交起点集合、完成边界和处理方式
+  A->>C: 解析 parse split verify 当前配置
+  C-->>A: 返回完整冻结配置
+  A->>R: 创建 Run 并冻结范围、配置和重新生成选项
+  R->>R: 在同一图版本遍历范围闭包
+  R->>R: 为 Source News Claim 派生所需 Operation
+  R->>S: 按 Map 版本提交 Run 与 Operations
+  par 多 Host 领取
+    H->>S: 请求可执行工作
+    S->>R: 从全部运行中 Operation 派生下一项
+    R-->>S: 返回 parse route worker 或 merge 工作
+    S-->>H: 写租约并返回 holder fence 截止时间
+  end

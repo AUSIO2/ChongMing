@@ -1,5 +1,6 @@
 %% Diagram: OPS-01
-%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
+%% Base commit: 1ae38fa93d616fb2b32bfa567808b2d7c61d347e
+%% Snapshot: cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d
 %% Scope: 本机初始化、诊断和维护
 %% Trace: traces/OPS-01.md
 %% Code: adminRunCommand; localReadConfiguration; AuthService; ControlService; repairUpdateNewsContext
@@ -19,8 +20,8 @@ sequenceDiagram
   else 测试或切换数据库
     C->>M: 独立连接并验证事务能力
     C->>L: 测试成功后保存下次启动 URI
-  else 修复缺失的 News 上下文
-    C->>M: 默认统计；显式 apply 才更新受影响 Map 版本
+  else 修复或迁移存量数据
+    C->>M: 默认统计；显式 apply 才修复 News 或迁移旧 Run
   else 更新本机设置或密钥
     C->>L: 互斥锁内原子替换 0600 文件
   end

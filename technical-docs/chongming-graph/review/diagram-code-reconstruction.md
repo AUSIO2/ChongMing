@@ -1,6 +1,6 @@
 # 图→代码反向还原记录
 
-审查基线：`b5b6df5af5367b1147f0311c6fe96f1cf0fbf903`。本记录先按图描述可推导行为，再列源码比对；组织上的独立审查仍需另一位未参与文档编写的审查者完成。
+审查基线：基础 Commit `1ae38fa93d616fb2b32bfa567808b2d7c61d347e`，工作树快照 `cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d`。本记录先按图描述可推导行为，再列源码比对；组织上的独立审查仍需另一位未参与文档编写的审查者完成。
 
 ## UC-01
 
@@ -22,21 +22,27 @@
 
 ## UC-04-A
 
-- 由图还原：用户启动后，控制服务解析配置，Run 组件冻结配置/输入，Host 从图状态派生 route 工作并取得租约。
-- 源码比对：`control.configuration → runCreateRun → workReadItems → GraphStore.claim` 一致。
+- 由图还原：用户提交起点与 until，控制服务解析三阶段配置，Run 组件冻结范围并派生多个 Operation，Host 可从任一运行项领取工作。
+- 源码比对：`control.configuration → runCreateRun → runUpdateProgress → workReadItems → GraphStore.claim` 一致。
 - 差异：图未画命令回执重放，属于横切机制，在主文说明。
 
 ## UC-04-B
 
-- 由图还原：Host 先确认工作，执行与续租并行；适配器读取授权数据并启动 DSH；插件限制工具、提交 proposal；服务做作用域/lease/CAS 检查；结束后关闭运行时和释放。
-- 源码比对：`hostRunWork` 的 deadline/renew/race、`dshRunWork` 的 patch/round/close、插件的 guard、`GraphService.propose` 的 64 次 CAS 均有对应消息或 alt。
+- 由图还原：parse 首次读取 Source 正文；Host 执行与续租并行；适配器按 Operation 启动 DSH；插件限制 schema/tool；服务在同一 CAS 保存数据节点、关系、空结果、后继与回执。
+- 源码比对：`sourceReadUrl`、`hostRunWork`、`dshRunWork`、插件 guard/schema、`GraphService.propose` 和 `runCreateOutputs` 均有对应消息或 alt。
 - 差异：图未展开“Agent 未在最大轮次内提交则继续同 session”的循环；不改变跨组件顺序，trace 记录。
 
 ## UC-04-C
 
-- 由图还原：route 可选编辑；所有回答都校验 Map/Review/输入版本；三种结果为失败、恢复运行、生成结论并完成。
-- 源码比对：`runUpdateReview`、`runAnswerReview`、`runCreateVerification` 一致。
+- 由图还原：pause 过期租约但保留业务状态；Review 按 Operation 处理 parse/split/verify；暂停中批准仍暂停；resume 重新派生工作。
+- 源码比对：`runUpdatePause`、GraphStore pause commit、`runUpdateReview`、`runAnswerReview`、`runUpdateProgress` 一致。
 - 差异：无。
+
+## UC-04-D
+
+- 由图还原：Source 经 parse 到 News，News 经 split 到 Claim，Claim 经 verify 到 Verification；until 在对应层停止；有效历史 Operation 可复用，合法空结果不会重复派发。
+- 源码比对：`runUpdateProgress`、`runCanReuse`、`runCreateOutputs` 一致。
+- 差异：图未展开共享 Claim 不反向扩 scope 的过滤条件，trace 已记录。
 
 ## UC-05
 

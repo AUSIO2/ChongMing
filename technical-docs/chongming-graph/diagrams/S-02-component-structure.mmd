@@ -1,18 +1,21 @@
 %% Diagram: S-02
-%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
-%% Scope: backend concrete components
-%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
+%% Base commit: 1ae38fa93d616fb2b32bfa567808b2d7c61d347e
+%% Snapshot: cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d
+%% Scope: current concrete components
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64"}}}%%
 flowchart TB
-  HTTP[HTTP 入口] --> APP[应用编排服务]
+  UI[节点处理客户端] --> HTTP[HTTP 入口]
+  HTTP --> APP[应用编排服务]
   APP --> AUTH[认证服务]
   APP --> CTRL[Workspace 控制服务]
   APP --> GRAPH[图与工作服务]
   APP --> ASSET[资产服务]
-  GRAPH --> RUN[Run 状态组件]
+  GRAPH --> RUN[Run 与 Operation 状态组件]
   GRAPH --> STORE[图存储组件]
+  GRAPH --> SOURCE[Source 正文读取组件]
   ASSET --> BUNDLE[包解析组件]
   HOST[Host 工作循环] --> HTTP
   HOST --> ADAPTER[DSH 工作适配器]
   ADAPTER --> RUNTIME[DSH SDK 运行时]
   classDef c fill:#e8fbfb,stroke:#159a9c,color:#263238;
-  class HTTP,APP,AUTH,CTRL,GRAPH,ASSET,RUN,STORE,BUNDLE,HOST,ADAPTER,RUNTIME c;
+  class UI,HTTP,APP,AUTH,CTRL,GRAPH,ASSET,RUN,STORE,SOURCE,BUNDLE,HOST,ADAPTER,RUNTIME c;

@@ -1,17 +1,25 @@
 %% Diagram: ST-01
-%% Commit: b5b6df5af5367b1147f0311c6fe96f1cf0fbf903
-%% Scope: GraphRun 与 GraphReview 状态
-%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64", "actorBkg": "#e8fbfb", "actorBorder": "#159a9c", "actorTextColor": "#263238", "signalColor": "#455a64", "signalTextColor": "#263238", "labelBoxBkgColor": "#f2ffff", "labelBoxBorderColor": "#159a9c", "labelTextColor": "#263238", "noteBkgColor": "#f2ffff", "noteBorderColor": "#159a9c", "noteTextColor": "#263238"}}}%%
-stateDiagram-v2
-  [*] --> 运行中: 启动核查并冻结配置
-  运行中 --> 等待审核: 人工模式收到路由或汇总草稿
-  等待审核 --> 运行中: 批准路由
-  等待审核 --> 已完成: 批准汇总结论
-  等待审核 --> 已失败: 拒绝待审内容
-  运行中 --> 已完成: 自动模式完成汇总
-  运行中 --> 已失败: Host 上报不可恢复错误
-  运行中 --> 已取消: 用户取消
-  等待审核 --> 已取消: 用户取消
-  已完成 --> [*]
-  已失败 --> [*]
-  已取消 --> [*]
+%% Base commit: 1ae38fa93d616fb2b32bfa567808b2d7c61d347e
+%% Snapshot: cbc2b902e029abb2fca2c960f2e18245ba5a201cd58f2b531366074fbab6a02d
+%% Scope: Run aggregate state, Operation state and orthogonal pause
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e8fbfb", "primaryBorderColor": "#159a9c", "primaryTextColor": "#263238", "lineColor": "#455a64"}}}%%
+flowchart TB
+  S[启动并冻结范围与配置] --> D[派生多个 Operation]
+  D --> OR[Operation 运行中]
+  OR --> OW[Operation 等待审核]
+  OW -->|批准路由| OR
+  OW -->|批准结果| OC[Operation 已完成]
+  OW -->|拒绝| OF[Operation 已失败]
+  OR -->|自动接受产物或空结果| OC
+  OC --> D
+  D -->|存在运行项| RR[Run 运行中]
+  D -->|仅剩待审项| RW[Run 等待审核]
+  D -->|闭包全部完成| RC[Run 已完成]
+  OF --> RF[Run 已失败]
+  RR --> X[显式取消]
+  RW --> X
+  RR -.暂停保留状态与成果.-> P[paused=true]
+  RW -.暂停保留审核.-> P
+  P -.继续重新派生未完成工作.-> D
+  classDef c fill:#e8fbfb,stroke:#159a9c,color:#263238;
+  class S,D,OR,OW,OC,OF,RR,RW,RC,RF,X,P c;
