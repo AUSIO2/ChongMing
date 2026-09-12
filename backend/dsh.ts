@@ -2,30 +2,16 @@ import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client'
 import type { HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
 import type {
   DshEvent,
-  DshJson,
   DshRunInput,
   DshRunResult,
   DshRuntimeAPI,
   DshRuntimeConfig,
 } from '../contracts/dsh'
 
-function dshReadJson(value: unknown): DshJson {
-  if (value === null || ['boolean', 'number', 'string'].includes(typeof value)) {
-    return value as null | boolean | number | string
-  }
-  if (Array.isArray(value)) return value.map(dshReadJson)
-  if (typeof value !== 'object') return String(value)
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .map(([key, item]) => [key, dshReadJson(item)]),
-  )
-}
-
 export function dshReadEvent(notification: HarnessNotification): DshEvent {
   return {
     method: notification.method,
-    params: dshReadJson(notification.params) as Record<string, DshJson>,
+    params: JSON.parse(JSON.stringify(notification.params)),
   }
 }
 

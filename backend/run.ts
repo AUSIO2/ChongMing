@@ -4,7 +4,6 @@ import type {
   GraphRouteSlot, GraphRun, GraphRunConfiguration,
 } from '../contracts/graph'
 import { GraphError } from './graph-error'
-import { configurationRead, configurationReadSlots } from './configuration'
 import type { GraphDocument } from './store'
 
 function runReadRun(document: GraphDocument): GraphRun {
@@ -26,8 +25,7 @@ function runValidateInputs(document: GraphDocument, run: GraphRun): void {
   }
 }
 
-function runValidateSlots(configuration: GraphRunConfiguration, input: GraphRouteSlot[]): GraphRouteSlot[] {
-  const slots = configurationReadSlots(input)
+function runValidateSlots(configuration: GraphRunConfiguration, slots: GraphRouteSlot[]): GraphRouteSlot[] {
   if (!slots.length || slots.length > configuration.maxSlots || new Set(slots.map(slot => slot.id)).size !== slots.length) {
     throw new GraphError(422, 'INVALID_ROUTE', 'Route must contain unique slots within maxSlots')
   }
@@ -38,7 +36,7 @@ function runValidateSlots(configuration: GraphRunConfiguration, input: GraphRout
       throw new GraphError(422, 'TOOL_NOT_ALLOWED', `Tools exceed the allowed capabilities of ${agent.id}`)
     }
   }
-  return slots
+  return structuredClone(slots)
 }
 
 function runCreateReview(run: GraphRun, kind: 'route' | 'result', now: string): void {
@@ -105,7 +103,7 @@ export function runCreateRun(
   const contextIds = new Set(document.edges.filter(edge => edge.kind === 'mentions' && edge.to === target.id).map(edge => edge.from))
   if (document.run) document.runHistory.push(document.run)
   document.run = {
-    id: input.id, mode: input.mode, status: 'running', configuration: configurationRead(configuration),
+    id: input.id, mode: input.mode, status: 'running', configuration: structuredClone(configuration),
     operation: {
       id: `${input.id}:verify:${input.targetId}`, kind: 'verify', targetId: input.targetId, status: 'running',
       inputRefs: document.nodes.filter(node => node.id === target.id || contextIds.has(node.id))

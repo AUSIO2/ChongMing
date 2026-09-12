@@ -87,13 +87,18 @@ describe('DSH runtime facade', () => {
   }, 20_000)
 
   it('copies SDK notifications into JSON-safe events', () => {
-    expect(dshReadEvent({
+    const params = { sessionId: 'session-1', status: 'idle', nested: { items: [1, true, null] }, ignored: undefined }
+    const event = dshReadEvent({
       method: 'session.status',
-      params: { sessionId: 'session-1', status: 'idle', ignored: undefined },
-    })).toEqual({
-      method: 'session.status',
-      params: { sessionId: 'session-1', status: 'idle' },
+      params,
     })
+    expect(event).toEqual({
+      method: 'session.status',
+      params: { sessionId: 'session-1', status: 'idle', nested: { items: [1, true, null] } },
+    })
+    params.nested.items.push(2)
+    expect(event.params.nested).toEqual({ items: [1, true, null] })
+    expect(() => dshReadEvent({ method: 'invalid', params: { value: BigInt(1) } })).toThrow(TypeError)
   })
 
   it('streams events and a final result over NDJSON', async () => {

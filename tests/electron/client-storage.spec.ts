@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,6 +13,16 @@ async function fixture(platform: NodeJS.Platform = 'darwin', available = true, b
   return { directory, secure, store: clientCreateStorage({ directory, secure, platform }) }
 }
 describe('OS-backed desktop login storage', () => {
+  it('allows login after damaged JSON but surfaces unexpected filesystem failures', async () => {
+    const f = await fixture()
+    const filename = path.join(f.directory, 'client-connection.json')
+    await writeFile(filename, '{broken')
+    expect(await f.store.load()).toBeNull()
+    await rm(filename)
+    await mkdir(filename)
+    await expect(f.store.load()).rejects.toMatchObject({ code: 'EISDIR' })
+  })
+
   it('stores only OS-encrypted credentials and a non-secret origin, then clears them on logout', async () => {
     const f = await fixture()
     expect(await f.store.save({ baseUrl: 'https://example.test', token: 'secret-token', remember: true })).toBe(true)

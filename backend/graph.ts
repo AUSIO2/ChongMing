@@ -23,7 +23,6 @@ import {
   runUpdateProposal,
   runUpdateReview,
 } from './run'
-import { configurationRead } from './configuration'
 import type { GraphDocument, GraphReceipt, GraphStore } from './store'
 import { storeCreateInputHash } from './store'
 import { workReadGrant, workReadItems } from './work'
@@ -310,7 +309,7 @@ export function graphCreateService(store: GraphStore, options: { leaseMs?: numbe
 
       if (command.method === 'run.start') {
         if (!configuration) throw new GraphError(422, 'CONFIGURATION_REQUIRED', 'Run requires a resolved Workspace configuration')
-        const updated = runCreateRun(structuredClone(document), command.params, configurationRead(configuration), now)
+        const updated = runCreateRun(structuredClone(document), command.params, configuration, now)
         const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
         const result = await graphCommit(document, updated, receipt)
         return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }

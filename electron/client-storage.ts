@@ -29,7 +29,10 @@ export function clientCreateStorage(input: { directory: string; secure: ClientSa
           const token = input.secure.decryptString(Buffer.from(value.encryptedToken, 'base64'))
           return { baseUrl, token, remembered: !!token }
         } catch { return { baseUrl, token: null, remembered: false } }
-      } catch { return null }
+      } catch (error) {
+        if (error instanceof SyntaxError || (error instanceof Error && 'code' in error && error.code === 'ENOENT')) return null
+        throw error
+      }
     },
     async save(value: ClientConnectInput): Promise<boolean> {
       const remembered = value.remember && clientReadStoragePermission()

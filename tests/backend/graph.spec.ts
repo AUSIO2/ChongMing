@@ -28,6 +28,26 @@ afterAll(async () => {
 })
 
 describe('Graph HTTP API', () => {
+  it('rejects mixed-kind and missing required node fields at the HTTP boundary', async () => {
+    const mapId = randomUUID()
+    await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Boundary validation' })
+    const before = await api.snapshot(mapId)
+    for (const data of [
+      { kind: 'news', content: 'News without context' },
+      { kind: 'news', content: 'News', context: {}, category: 'data' },
+      { kind: 'claim', content: 'Claim', category: null, context: {} },
+      { kind: 'claim', content: 'Claim', category: null, score: 1 },
+      { kind: 'verification', score: 1, reason: 'Reason', reportIds: [], opinions: [], content: 'Not allowed' },
+    ]) {
+      const result = await api.command('graph.apply', { mapId, expectedRevision: 0,
+        changes: { nodes: { put: [{ id: randomUUID(), data }] } } })
+      expect(result.status).toBe(400)
+      expect(result.body.error.code).toBe('INVALID_ARGUMENT')
+      expect(await api.snapshot(mapId)).toEqual(before)
+    }
+    await api.command('map.delete', { mapId, expectedRevision: 0 })
+  })
+
   it('preserves an explicitly empty News context through storage and later graph writes', async () => {
     const mapId = randomUUID(), newsId = randomUUID()
     expect((await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Empty context' })).status).toBe(201)

@@ -152,7 +152,8 @@ describe('Dynamic verification with leased work', () => {
     const valid = await api.proposal(grant, { kind: 'route', reason: 'Evidence angles', slots: configuredSlots(context.configuration, 1) })
     const baseline = await api.snapshot(context.mapId)
     const slot = configuredSlots(context.configuration, 1)[0]
-    for (const slots of [[{ ...slot, agentId: 'unknown-agent' }], [{ ...slot, tools: ['unknown_tool'] }],
+    for (const slots of [[{ ...slot, hint: null }], [{ ...slot, priority: 'urgent' }], [{ ...slot, tools: 'ledger_query' }],
+      [{ ...slot, extra: true }], [{ ...slot, agentId: 'unknown-agent' }], [{ ...slot, tools: ['unknown_tool'] }],
       [{ ...slot, tools: ['ledger_query'] }], [slot, slot], configuredSlots(context.configuration, 4), []]) {
       expectRejected(await api.propose(grant, { ...valid, slots }))
       expect(await api.snapshot(context.mapId)).toEqual(baseline)

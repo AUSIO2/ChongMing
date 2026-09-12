@@ -47,9 +47,6 @@ export function graphInputReadNodeData(value: unknown, label: string): GraphNode
   }
   if (base.kind === 'verification') {
     inputReadObject(value, ['kind', 'score', 'reason', 'reportIds', 'opinions'], label)
-    if (base.content !== undefined || base.context !== undefined || base.category !== undefined) {
-      throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for verification`)
-    }
     return {
       kind: 'verification',
       score: inputReadScore(base.score),
@@ -58,13 +55,9 @@ export function graphInputReadNodeData(value: unknown, label: string): GraphNode
       opinions: inputReadArray(base.opinions, `${label}.opinions`).map(graphInputReadReport),
     }
   }
-  if (base.score !== undefined || base.reason !== undefined || base.reportIds !== undefined || base.opinions !== undefined) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', `${label} contains fields invalid for ${String(base.kind)}`)
-  }
   const content = inputReadString(base.content, `${label}.content`)
   if (base.kind === 'claim') {
     inputReadObject(value, ['kind', 'content', 'category'], label)
-    if (base.context !== undefined) throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.context is not allowed`)
     if (base.category !== null && base.category !== undefined && typeof base.category !== 'string') {
       throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.category must be a string or null`)
     }
@@ -72,7 +65,6 @@ export function graphInputReadNodeData(value: unknown, label: string): GraphNode
   }
   if (base.kind !== 'news') throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.kind is invalid`)
   inputReadObject(value, ['kind', 'content', 'context'], label)
-  if (base.category !== undefined) throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.category is not allowed`)
   if (!base.context || typeof base.context !== 'object' || Array.isArray(base.context)) {
     throw new GraphError(400, 'INVALID_ARGUMENT', `${label}.context must be an object`)
   }
