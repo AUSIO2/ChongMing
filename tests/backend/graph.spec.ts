@@ -2,10 +2,12 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { graphCreateService } from '../../backend/graph'
+import { repairUpdateNewsContext } from '../../backend/repair'
 import {
   storeCreateConnection,
   storeCreateGraphStore,
   storeDeleteConnection,
+  GRAPH_COLLECTION,
 } from '../../backend/store'
 import { createGraphApi, type TestGraphApi } from './fixtures/graph-api'
 
@@ -26,6 +28,29 @@ afterAll(async () => {
 })
 
 describe('Graph HTTP API', () => {
+  it('preserves an explicitly empty News context through storage and later graph writes', async () => {
+    const mapId = randomUUID(), newsId = randomUUID()
+    expect((await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Empty context' })).status).toBe(201)
+    const created = await api.command('graph.apply', { mapId, expectedRevision: 0, changes: { nodes: { put: [
+      { id: newsId, data: { kind: 'news', content: 'A news item without optional context fields', context: {} } },
+    ] } } })
+    expect(created.body.data.snapshot.nodes[0].data).toHaveProperty('context', {})
+    expect((await api.snapshot(mapId)).nodes[0].data).toHaveProperty('context', {})
+    await api.command('graph.apply', { mapId, expectedRevision: 1, changes: { name: 'Renamed' } })
+    expect((await api.snapshot(mapId)).nodes[0].data).toHaveProperty('context', {})
+    const graphs = api.connection.collection(GRAPH_COLLECTION)
+    await graphs.updateOne({ _id: mapId } as never, { $unset: { 'nodes.0.data.context': '' } })
+    expect(await repairUpdateNewsContext(api.connection)).toEqual({ matchedMaps: 1, modifiedMaps: 0 })
+    expect((await api.snapshot(mapId)).nodes[0].data).not.toHaveProperty('context')
+    expect(await repairUpdateNewsContext(api.connection, true)).toEqual({ matchedMaps: 1, modifiedMaps: 1 })
+    const repaired = await api.snapshot(mapId)
+    expect(repaired.revision).toBe(3)
+    expect(repaired.nodes[0].revision).toBe(0)
+    expect(repaired.nodes[0].data).toHaveProperty('context', {})
+    expect(await repairUpdateNewsContext(api.connection, true)).toEqual({ matchedMaps: 0, modifiedMaps: 0 })
+    await api.command('map.delete', { mapId, expectedRevision: 3 })
+  })
+
   it('confirms an accepted source edit after the source and its asset have been deleted', async () => {
     const content = Buffer.from('source evidence')
     const sha256 = createHash('sha256').update(content).digest('hex')

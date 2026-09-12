@@ -1,0 +1,4 @@
+{
+  "description": "本机客户端验收的 router 角色标记与输入；仅供确定性模型 fixture 使用。",
+  "content": "UI_FIXTURE_ROLE=router\n请完成当前核查工作。待核查内容：{{claimContent}}"
+}

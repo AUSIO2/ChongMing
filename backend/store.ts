@@ -39,7 +39,7 @@ const nodeSchema = new Schema({
   updatedAt: { type: Date, required: true },
   importedFrom: Schema.Types.Mixed,
   validity: { type: String, enum: ['current', 'stale'] },
-}, { _id: false })
+}, { _id: false, minimize: false })
 
 const edgeSchema = new Schema({
   id: { type: String, required: true },
@@ -74,7 +74,7 @@ const graphSchema = new Schema({
   createdAt: { type: Date, required: true },
   updatedAt: { type: Date, required: true },
   deletedAt: Date,
-})
+}, { minimize: false })
 
 function storeReadIso(value: unknown): string {
   if (!(value instanceof Date) && typeof value !== 'string') {

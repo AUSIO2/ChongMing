@@ -6,6 +6,7 @@
   "author": "AUSIO2 <ian666xiong@gmail.com>",
   "scripts": {
     "dev": "env -u ELECTRON_RUN_AS_NODE vite",
+    "dev:web": "CHONGMING_WEB=1 vite --host 127.0.0.1",
     "build": "vite build && electron-builder",
     "build:check": "vue-tsc && vite build && electron-builder",
     "preview": "vite preview",

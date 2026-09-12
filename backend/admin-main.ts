@@ -7,6 +7,7 @@ import { inputReadId, inputReadObject, inputReadString } from './input'
 import { localReadConfiguration, localReadUri, localUpdateSecret, localUpdateSettings } from './local-settings'
 import { storeCreateConnection, storeDeleteConnection } from './store'
 import endpointPrompt from './prompts/admin/endpoint.json'
+import { repairUpdateNewsContext } from './repair'
 
 async function adminReadInput(file?: string): Promise<unknown> {
   if (file) return JSON.parse(await readFile(file, 'utf8'))
@@ -23,7 +24,7 @@ async function adminReadInput(file?: string): Promise<unknown> {
 async function adminRunCommand(): Promise<unknown> {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: { input: { type: 'string' } } })
   const command = positionals[0]
-  const supported = ['init', 'user.create', 'token.create', 'token.revoke', 'user.disable', 'user.enable', 'agents.seed', 'assets.cleanup', 'settings.read', 'secret.set', 'database.test', 'database.stage', 'endpoint.test']
+  const supported = ['init', 'user.create', 'token.create', 'token.revoke', 'user.disable', 'user.enable', 'agents.seed', 'assets.cleanup', 'data.repair-news-context', 'settings.read', 'secret.set', 'database.test', 'database.stage', 'endpoint.test']
   if (positionals.length !== 1 || !supported.includes(command)) throw new Error(`Usage: npm run admin -- <${supported.join('|')}> [--input JSON_FILE]; otherwise read JSON from stdin`)
   const input = await adminReadInput(values.input)
   const local = await localReadConfiguration()
@@ -85,6 +86,11 @@ async function adminRunCommand(): Promise<unknown> {
   try {
     const app = applicationCreateService(connection)
     await app.initialize()
+    if (command === 'data.repair-news-context') {
+      const data = inputReadObject(input, ['apply'], 'input')
+      if (data.apply !== undefined && typeof data.apply !== 'boolean') throw new Error('apply must be boolean')
+      return await repairUpdateNewsContext(connection, data.apply === true)
+    }
     if (command === 'init' || command === 'user.create') {
       const data = inputReadObject(input, command === 'init' ? ['id', 'displayName'] : ['id', 'displayName', 'hostAdmin'], 'input')
       if (command === 'user.create' && typeof data.hostAdmin !== 'boolean') throw new Error('hostAdmin must be boolean')
