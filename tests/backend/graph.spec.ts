@@ -6,7 +6,6 @@ import { repairUpdateNewsContext } from '../../backend/repair'
 import {
   storeCreateConnection,
   storeCreateGraphStore,
-  storeDeleteConnection,
   GRAPH_COLLECTION,
 } from '../../backend/store'
 import { createGraphApi, type TestGraphApi } from './fixtures/graph-api'
@@ -201,7 +200,7 @@ describe('Graph HTTP API', () => {
     try {
       const fresh = graphCreateService(storeCreateGraphStore(reopened))
       expect(await fresh.read({ method: 'map.get', params: { mapId } })).toMatchObject({ nodes: [{ id: newsB }, { id: claim }] })
-    } finally { await storeDeleteConnection(reopened) }
+    } finally { await reopened.close() }
     expect(await request('query', {
       method: 'map.list', params: { workspaceId },
     })).toMatchObject({

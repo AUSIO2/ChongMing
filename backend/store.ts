@@ -293,7 +293,3 @@ export async function storeCreateConnection(uri: string): Promise<Connection> {
   await connection.asPromise()
   return connection
 }
-
-export async function storeDeleteConnection(connection: Connection): Promise<void> {
-  await connection.close()
-}

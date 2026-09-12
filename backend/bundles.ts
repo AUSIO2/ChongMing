@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { AgentInput, AgentProfile, BundleAsset, BundleMap, MapBundle, WorkspaceBundle } from '../contracts/control'
+import type { AgentInput, AgentProfile, BundleAsset, BundleMap, WorkspaceBundle } from '../contracts/control'
 import type { GraphEdge, GraphNode } from '../contracts/graph'
 import { controlReadAgent } from './control-input'
 import { GraphError } from './graph-error'
@@ -162,5 +162,3 @@ export function bundlesCreateImport(bundle: WorkspaceBundle, workspaceId: string
   return { workspace: { id: workspaceId, name: overrideName ?? bundle.workspace.name, description: bundle.workspace.description, agentSource: 'empty' as const },
     agents, maps, assets: bundle.assets.map(asset => ({ original: asset, id: assetIds.get(asset.id)! })) }
 }
-
-export type PortableBundle = MapBundle | WorkspaceBundle

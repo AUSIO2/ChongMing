@@ -78,6 +78,21 @@ describe('desktop client IPC authority', () => {
     })
     f.dispose()
   })
+
+  it('registers one destroy listener per window and aborts all its pending calls', async () => {
+    const f = fixture()
+    f.read.mockImplementation((...args: unknown[]) => new Promise((_resolve, reject) => {
+      const signal = args[2] as AbortSignal
+      signal.addEventListener('abort', () => reject(new ClientError({ code: 'REQUEST_ABORTED', message: 'Window closed', status: 0, retryable: false })), { once: true })
+    }))
+    const secondId = '22222222-2222-4222-8222-222222222222'
+    const requests = [callId, secondId].map(id => f.handlers.get(CLIENT_CHANNELS.read)!(f.event, id, 'map.get', { mapId: 'map' }))
+    expect(f.contents.listenerCount('destroyed')).toBe(1)
+    f.contents.emit('destroyed')
+    for (const result of await Promise.all(requests)) expect(result).toMatchObject({ ok: false, error: { code: 'REQUEST_ABORTED' } })
+    expect(f.contents.listenerCount('destroyed')).toBe(0)
+    f.dispose()
+  })
 })
 
 describe('Renderer bridge adapter', () => {

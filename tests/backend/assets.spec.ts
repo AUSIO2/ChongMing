@@ -7,7 +7,7 @@ import { assetsCreateService, type AssetsService, type AssetUploadInput } from '
 import { authCreateService, type AuthService } from '../../backend/auth'
 import { controlCreateService, type ControlService } from '../../backend/control'
 import { graphInputReadNodeData } from '../../backend/graph-input'
-import { storeCreateConnection, storeCreateGraphStore, storeDeleteConnection, GRAPH_COLLECTION, type GraphDocument } from '../../backend/store'
+import { storeCreateConnection, storeCreateGraphStore, GRAPH_COLLECTION, type GraphDocument } from '../../backend/store'
 import type { Asset, ControlCommand, MapBundle, WorkspaceBundle } from '../../contracts/control'
 import type { GraphNode, GraphNodeData } from '../../contracts/graph'
 
@@ -74,7 +74,7 @@ beforeAll(async () => {
   await control.seed()
   owner = await user('Owner', true); editor = await user('Editor'); outsider = await user('Unrelated administrator', true)
 }, 30000)
-afterAll(async () => { if (connection) await storeDeleteConnection(connection); await mongo?.stop() })
+afterAll(async () => { if (connection) await connection.close(); await mongo?.stop() })
 
 describe('GridFS assets', () => {
   it('streams bytes, verifies integrity and replays concurrent uploads as one immutable Asset', async () => {

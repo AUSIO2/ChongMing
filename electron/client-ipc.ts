@@ -39,14 +39,6 @@ export function clientRegisterIpc(input: { ipc: IpcMain; gateway: ClientGateway;
   const calls = new Map<string, { owner: WebContents; controller: AbortController }>()
   const cancelled = new Set<string>()
   const senders = new Set<WebContents>()
-  function clientTrackSender(sender: WebContents): void {
-    if (senders.has(sender)) return
-    senders.add(sender)
-    sender.once('destroyed', () => {
-      for (const [id, call] of calls) if (call.owner === sender) { call.controller.abort(); calls.delete(id) }
-      senders.delete(sender)
-    })
-  }
   async function clientCreateReply<T>(event: IpcMainInvokeEvent, operation: () => Promise<T>): Promise<ClientBridgeResult<T>> {
     try { clientAssertSender(event, input.contents(), input.rendererUrl); return { ok: true, value: await operation() } }
     catch (error) { return { ok: false, error: clientReadError(error) } }
@@ -57,7 +49,14 @@ export function clientRegisterIpc(input: { ipc: IpcMain; gateway: ClientGateway;
     if (cancelled.delete(id)) throw clientCreateIpcError('REQUEST_ABORTED', 'Request was cancelled')
     const controller = new AbortController()
     calls.set(id, { owner: event.sender, controller })
-    clientTrackSender(event.sender)
+    const sender = event.sender
+    if (!senders.has(sender)) {
+      senders.add(sender)
+      sender.once('destroyed', () => {
+        for (const [id, call] of calls) if (call.owner === sender) { call.controller.abort(); calls.delete(id) }
+        senders.delete(sender)
+      })
+    }
     try { return await operation(controller.signal) } finally { calls.delete(id) }
   }
   input.ipc.handle(CLIENT_CHANNELS.connection, event => clientCreateReply(event, () => input.gateway.getConnection()))

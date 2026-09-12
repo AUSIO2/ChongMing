@@ -73,17 +73,6 @@ function graphCreateReceipt(
   return { requestId, method, inputHash, createdNodeIds, createdEdgeIds, createdAt: now }
 }
 
-function graphAssertRevision(document: GraphDocument, expectedRevision: number): void {
-  if (document.revision !== expectedRevision) {
-    throw new GraphError(
-      409,
-      'REVISION_CONFLICT',
-      `Expected revision ${expectedRevision}, found ${document.revision}`,
-      document.revision,
-    )
-  }
-}
-
 function graphReadUnique(values: string[], label: string): Set<string> {
   const result = new Set(values)
   if (result.size !== values.length) {
@@ -289,7 +278,10 @@ export function graphCreateService(store: GraphStore, options: { leaseMs?: numbe
         return { data: graphCreateWriteResult(document, priorReceipt), replayed: true }
       }
       if (document.deletedAt) throw new GraphError(410, 'MAP_GONE', `Map was deleted: ${document.id}`)
-      graphAssertRevision(document, command.params.expectedRevision)
+      if (document.revision !== command.params.expectedRevision) {
+        throw new GraphError(409, 'REVISION_CONFLICT',
+          `Expected revision ${command.params.expectedRevision}, found ${document.revision}`, document.revision)
+      }
 
       if (command.method === 'map.delete') {
         if (document.run && ['running', 'waiting'].includes(document.run.status)) {

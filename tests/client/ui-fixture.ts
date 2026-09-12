@@ -9,7 +9,7 @@ import type { Connection } from 'mongoose'
 import { apiCreateServer } from '../../backend/api'
 import { applicationCreateService } from '../../backend/application'
 import { hostCreateWorker, type HostWorker } from '../../backend/host'
-import { storeCreateConnection, storeDeleteConnection } from '../../backend/store'
+import { storeCreateConnection } from '../../backend/store'
 import type { GraphAgentProfile, GraphDataRead, GraphRunConfiguration } from '../../contracts/graph'
 
 import routerPrompt from './fixtures/router.json'
@@ -71,7 +71,7 @@ export async function fixtureCreateEnvironment() {
     await host?.close()
     await fixtureCloseServer(server)
     await fixtureCloseServer(provider)
-    if (connection) await storeDeleteConnection(connection)
+    if (connection) await connection.close()
     if (mongo) await mongo.stop()
     await rm(directory, { recursive: true, force: true })
   })()

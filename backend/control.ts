@@ -12,8 +12,6 @@ import parseSeed from '../subagentconfig/fact-parser/extract.json'
 import splitRouteSeed from '../subagentconfig/fact-extractor/main-agent-route.json'
 import splitMergeSeed from '../subagentconfig/fact-extractor/main-agent-merge.json'
 
-export { controlReadCommand, controlReadQuery } from './control-input'
-
 interface ControlReceipt { userId: string; requestId: string; method: string; hash: string; resourceId?: string }
 export interface WorkspaceDocument {
   _id: string; name: string; description: string; revision: number

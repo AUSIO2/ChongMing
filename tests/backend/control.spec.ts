@@ -6,7 +6,7 @@ import type { AgentInput, AgentList, AgentProfile, AppBootstrap, ControlCommand,
 import { authCreateService, type AuthService } from '../../backend/auth'
 import { controlCreateService, type ControlService, type WorkspaceDocument } from '../../backend/control'
 import { controlReadAgent, controlReadCommand } from '../../backend/control-input'
-import { GRAPH_COLLECTION, storeCreateConnection, storeDeleteConnection } from '../../backend/store'
+import { GRAPH_COLLECTION, storeCreateConnection } from '../../backend/store'
 import { verificationConfiguration } from './fixtures/verification'
 
 let replica: MongoMemoryReplSet
@@ -49,7 +49,7 @@ beforeAll(async () => {
 }, 30_000)
 
 afterAll(async () => {
-  try { if (connection) await storeDeleteConnection(connection) }
+  try { if (connection) await connection.close() }
   finally { if (replica) await replica.stop({ doCleanup: true, force: true }) }
 })
 
@@ -263,6 +263,6 @@ describe('Shared Control transactions', () => {
       expect([next.router, next.merger, ...next.agents].every(agent => agent.provider === llm.provider && agent.model === llm.model)).toBe(true)
       expect(frozen.router).toMatchObject(bootstrap.settings.llm)
       expect(frozen.router.model).not.toBe(next.router.model)
-    } finally { await storeDeleteConnection(freshConnection) }
+    } finally { await freshConnection.close() }
   })
 })

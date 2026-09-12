@@ -5,7 +5,7 @@ import { applicationCreateService } from './application'
 import { GraphError } from './graph-error'
 import { inputReadId, inputReadObject, inputReadString } from './input'
 import { localReadConfiguration, localReadUri, localUpdateSecret, localUpdateSettings } from './local-settings'
-import { storeCreateConnection, storeDeleteConnection } from './store'
+import { storeCreateConnection } from './store'
 import endpointPrompt from './prompts/admin/endpoint.json'
 import { repairUpdateNewsContext } from './repair'
 
@@ -53,7 +53,7 @@ async function adminRunCommand(): Promise<unknown> {
       if (command === 'database.stage') await localUpdateSettings({ ...local.settings, mongoUri: uri })
       return { ok: true, replicaSet: true, databaseName: connection.name, staged: command === 'database.stage' }
     } catch { return { ok: false, error: 'Database is unavailable or does not support transactions' } }
-    finally { if (connection) await storeDeleteConnection(connection) }
+    finally { if (connection) await connection.close() }
   }
   if (command === 'endpoint.test') {
     const data = inputReadObject(input, ['url', 'kind', 'model', 'secretName'], 'input')
@@ -120,7 +120,7 @@ async function adminRunCommand(): Promise<unknown> {
     else if (command === 'user.enable') await app.auth.enableUser(inputReadId(data.userId, 'userId'))
     else await app.auth.disableUser(inputReadId(data.userId, 'userId'))
     return { ok: true }
-  } finally { await storeDeleteConnection(connection) }
+  } finally { await connection.close() }
 }
 
 adminRunCommand().then(result => console.log(JSON.stringify(result, null, 2))).catch(error => {

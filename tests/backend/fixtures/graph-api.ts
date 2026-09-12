@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { apiCreateServer } from '../../../backend/api'
 import { applicationCreateService } from '../../../backend/application'
-import { storeCreateConnection, storeDeleteConnection } from '../../../backend/store'
+import { storeCreateConnection } from '../../../backend/store'
 import type { ContextField, GraphNodeData, GraphRunConfiguration, GraphWorkGrant } from '../../../contracts/graph'
 import type { AgentInput, PromptKind } from '../../../contracts/control'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
@@ -127,7 +127,7 @@ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verif
     async close() {
       server.closeAllConnections()
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-      await storeDeleteConnection(connection)
+      await connection.close()
       await mongo.stop()
     },
   }

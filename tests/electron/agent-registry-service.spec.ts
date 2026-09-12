@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   registryCreate,
   registryGet,
@@ -10,6 +10,9 @@ import {
   registryUpdate,
 } from '../../electron/api/agent-registry-service'
 import { promptUpdateConfigRoot } from '../../electron/shared/prompt-loader'
+import { localAgentSyncFromDiskPath } from '../../electron/api/local-agent-service'
+
+vi.mock('../../electron/api/local-agent-service', () => ({ localAgentSyncFromDiskPath: vi.fn().mockResolvedValue(undefined) }))
 
 let tmpRoot = ''
 
@@ -20,6 +23,7 @@ function seed(relativePath: string, data: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   tmpRoot = path.join(os.tmpdir(), `chongming-registry-${Date.now()}`)
   mkdirSync(path.join(tmpRoot, 'fact-extractor/sub-agents'), { recursive: true })
   mkdirSync(path.join(tmpRoot, 'fact-verifier/sub-agents'), { recursive: true })
@@ -35,7 +39,8 @@ beforeEach(() => {
   promptUpdateConfigRoot(tmpRoot)
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await vi.dynamicImportSettled()
   const moduleDir = path.dirname(new URL(import.meta.url).pathname)
   promptUpdateConfigRoot(path.join(moduleDir, '../../subagentconfig'))
 })
@@ -55,7 +60,7 @@ describe('agent-registry-service', () => {
     expect(list.some(a => a.agentType === 'parse')).toBe(true)
   })
 
-  it('creates split agent with claimCategory and previews output', () => {
+  it('creates split agent with claimCategory and previews output', async () => {
     registryCreate({
       agentType: 'split',
       agentName: 'new-agent',
@@ -64,11 +69,17 @@ describe('agent-registry-service', () => {
       endpointSlug: 'new-agent',
       claimCategory: 'causal',
     })
+    await vi.dynamicImportSettled()
+    expect(localAgentSyncFromDiskPath).toHaveBeenCalledTimes(1)
     const detail = registryGet('fact-extractor/sub-agents/new-agent')
     expect(detail.claimCategory).toBe('causal')
     const preview = registryPreviewOutput('splitSubAgent', { claimCategory: 'causal' })
     expect(preview).toContain('causal')
     registryUpdate('fact-extractor/sub-agents/new-agent', { claimCategory: 'quote' })
     expect(registryGet('fact-extractor/sub-agents/new-agent').claimCategory).toBe('quote')
+    await vi.dynamicImportSettled()
+    expect(localAgentSyncFromDiskPath).toHaveBeenCalledTimes(2)
+    expect(localAgentSyncFromDiskPath).toHaveBeenNthCalledWith(1, 'fact-extractor/sub-agents/new-agent')
+    expect(localAgentSyncFromDiskPath).toHaveBeenNthCalledWith(2, 'fact-extractor/sub-agents/new-agent')
   })
 })

@@ -16,7 +16,8 @@ import type { ControlCommand, ControlQuery } from '../contracts/control'
 import { GraphError } from './graph-error'
 import { graphInputReadNodeData } from './graph-input'
 import type { ApplicationService } from './application'
-import { controlReadCommand, controlReadQuery } from './control'
+import { controlReadCommand, controlReadQuery } from './control-input'
+import { assetsReadCommand } from './assets'
 import { configurationReadSlots } from './configuration'
 import {
   inputReadObject as apiReadObject, inputReadString as apiReadString, inputReadId as apiReadId,
@@ -221,29 +222,8 @@ function apiReadCommand(value: unknown): GraphCommand | ControlCommand {
       },
     }
   }
-  if (envelope.method === 'asset.delete') {
-    const params = apiReadObject(envelope.params, ['assetId', 'expectedSha256'], 'params')
-    return { requestId, method: 'asset.delete', params: {
-      assetId: apiReadId(params.assetId, 'assetId'), expectedSha256: apiReadString(params.expectedSha256, 'expectedSha256'),
-    } }
-  }
-  if (envelope.method === 'workspace.import') {
-    const params = apiReadObject(envelope.params, ['id', 'bundleAssetId', 'stagingWorkspaceId', 'name'], 'params')
-    if (params.name !== null && typeof params.name !== 'string') throw new GraphError(400, 'INVALID_ARGUMENT', 'name must be string or null')
-    return { requestId, method: 'workspace.import', params: {
-      id: apiReadId(params.id, 'id'), bundleAssetId: apiReadId(params.bundleAssetId, 'bundleAssetId'),
-      stagingWorkspaceId: apiReadId(params.stagingWorkspaceId, 'stagingWorkspaceId'), name: params.name,
-    } }
-  }
+  if (envelope.method === 'asset.delete' || envelope.method === 'workspace.import') return assetsReadCommand(value)
   return controlReadCommand(value)
-}
-
-function apiReadDataQuery(value: unknown): { mapId: string; operationId: string } {
-  const input = apiReadObject(value, ['mapId', 'operationId'], 'data.read')
-  return {
-    mapId: apiReadId(input.mapId, 'mapId'),
-    operationId: apiReadString(input.operationId, 'operationId'),
-  }
 }
 
 function apiReadDataProposal(value: unknown): GraphDataProposal {
@@ -358,8 +338,10 @@ export function apiCreateServer(
       if (request.method === 'POST' && request.url === '/internal/v1/data/read') {
         apiValidateToken(request, internalToken)
         const proof = apiReadWorkProof(request)
-        const input = apiReadDataQuery(await apiReadBody(request))
-        apiWriteJson(response, 200, { ok: true, data: await service.readData(input.mapId, input.operationId, proof) })
+        const input = apiReadObject(await apiReadBody(request), ['mapId', 'operationId'], 'data.read')
+        const mapId = apiReadId(input.mapId, 'mapId')
+        const operationId = apiReadString(input.operationId, 'operationId')
+        apiWriteJson(response, 200, { ok: true, data: await service.readData(mapId, operationId, proof) })
         return
       }
       if (request.method === 'POST' && request.url === '/internal/v1/data/propose') {

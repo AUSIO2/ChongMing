@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { graphCreateService, type GraphService } from '../../backend/graph'
 import { authCreateService } from '../../backend/auth'
 import { controlCreateService } from '../../backend/control'
-import { storeCreateConnection, storeCreateGraphStore, storeDeleteConnection } from '../../backend/store'
+import { storeCreateConnection, storeCreateGraphStore } from '../../backend/store'
 import type { GraphDataProposal, GraphWorkGrant } from '../../contracts/graph'
 import { verificationConfiguration, verificationSlots } from './fixtures/verification'
 
@@ -144,7 +144,7 @@ describe('Work leases across a Mongo primary election', () => {
       expect(finished.receipts.filter(receipt => receipt.requestId === acceptedReport.id)).toHaveLength(1)
       expect(finished.receipts.filter(receipt => receipt.requestId === pendingReport.id)).toHaveLength(1)
     } finally {
-      const closed = await Promise.allSettled(connections.map(storeDeleteConnection))
+      const closed = await Promise.allSettled(connections.map(connection => connection.close()))
       await replica.stop({ doCleanup: true, force: true })
       const failure = closed.find(result => result.status === 'rejected')
       if (failure?.status === 'rejected') throw failure.reason
