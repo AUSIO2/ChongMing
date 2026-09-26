@@ -13,32 +13,13 @@ const require = createRequire(path.join(project, 'package.json'))
 const ts = require('typescript')
 const read = file => readFileSync(file, 'utf8')
 const parse = file => ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true)
-const currentFiles = ['electron/api/types.ts', 'electron/mapper/types.ts'].map(file => parse(path.join(project, file)))
-const declarations = new Map()
-for (const source of currentFiles) {
-  for (const node of source.statements) {
-    if (ts.isInterfaceDeclaration(node)) declarations.set(node.name.text, node)
-  }
-}
-const oldMethods = []
-for (const member of declarations.get('ElectronAPI').members) {
-  const group = member.name.getText()
-  const type = declarations.get(member.type.typeName.getText())
-  assert(type, `Unresolved current interface: ${group}`)
-  for (const method of type.members) oldMethods.push(`${group}.${method.name.getText()}`)
-}
-assert.equal(oldMethods.length, 43, 'Current API changed; re-audit method coverage')
+// 064 removed the audited runtime. Freeze its method/command inventory and source hashes
+// instead of keeping executable legacy code solely for historical-document checks.
+const historical = JSON.parse(read(path.join(directory, '052-历史审计索引.json')))
+const { oldMethods, oldCommands } = historical
 const documentation = read(path.join(directory, '052-完整接口文档.md'))
+assert.equal(oldMethods.length, 43, 'Historical API inventory changed')
 for (const name of oldMethods) assert(documentation.includes(`| ${name} |`), `Missing old API mapping: ${name}`)
-const mapperSource = currentFiles[1]
-const mapperDeclaration = mapperSource.statements.find(node => ts.isTypeAliasDeclaration(node) && node.name.text === 'MapperCommand')
-assert(mapperDeclaration && ts.isUnionTypeNode(mapperDeclaration.type), 'MapperCommand shape changed; re-audit')
-const oldCommands = mapperDeclaration.type.types.map(node => {
-  assert(ts.isTypeLiteralNode(node), 'MapperCommand branch shape changed')
-  const member = node.members.find(item => item.name?.getText() === 'type')
-  assert(member && ts.isLiteralTypeNode(member.type), 'MapperCommand discriminant missing')
-  return member.type.literal.text
-})
 for (const name of oldCommands) assert(documentation.includes(`| ${name} |`), `Missing old Mapper command: ${name}`)
 
 const contract = path.join(directory, '052-接口契约.ts')
@@ -53,7 +34,7 @@ for (const interfaceName of ['QueryMap', 'CommandMap']) {
   targetCounts[interfaceName] = names.length
 }
 
-let linkCount = 0
+let linkCount = 0, archivedLinks = 0
 const documents = readdirSync(directory).filter(name => name.startsWith('052-') && name.endsWith('.md'))
 for (const name of documents) {
   const file = path.join(directory, name)
@@ -66,6 +47,12 @@ for (const name of documents) {
     if (/^(https?:|#|codex:)/.test(link)) continue
     const match = link.match(/^(.*?)(?::(\d+))?(?:#.*)?$/)
     const absolute = path.resolve(directory, match[1])
+    const archived = historical.sources[path.relative(project, absolute)]
+    if (archived) {
+      assert.match(archived.sha256, /^[a-f0-9]{64}$/)
+      if (match[2]) assert(Number(match[2]) >= 1 && Number(match[2]) <= archived.lines, `Bad historical source line: ${link}`)
+      archivedLinks++; linkCount++; continue
+    }
     assert(existsSync(absolute), `Broken link in ${name}: ${link}`)
     if (match[2]) {
       const line = Number(match[2])
@@ -82,6 +69,6 @@ const result = spawnSync(process.execPath, [
 assert.equal(result.status, 0, `${result.stdout}${result.stderr}${result.error ?? ''}`)
 assert.ok(Number(read(path.join(directory, 'counter.txt')).trim()) >= 52, 'Document counter precedes this contract')
 console.log(JSON.stringify({
-  currentMethods: oldMethods.length, currentMapperCommands: oldCommands.length, ...targetCounts,
-  markdownDocuments: documents.length, localLinks: linkCount, typecheck: 'passed',
+  historicalMethods: oldMethods.length, historicalMapperCommands: oldCommands.length, ...targetCounts,
+  markdownDocuments: documents.length, localLinks: linkCount, archivedSourceLinks: archivedLinks, typecheck: 'passed',
 }, null, 2))

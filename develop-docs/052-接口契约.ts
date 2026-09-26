@@ -1,5 +1,6 @@
 /**
- * 052 目标接口契约（设计工件，当前生产尚未实现）。
+ * 052 完整目标接口契约（设计工件，不是当前生产 API 清单）。
+ * 053–058 已实现子集；059 本轮字段以正式 contracts/* 为准。
  * 网络 DTO 只使用 JSON 值；不引用 Electron、Mongoose 或 DSH 类型。
  * 字段约束、状态转换、权限和 HTTP 映射见 052-完整接口文档.md。
  */
@@ -71,7 +72,7 @@ export interface Review {
   state: 'pending' | 'answered' | 'superseded'
   decision: { value: 'approve' | 'reject' | 'revise'; userId: Id; note: string | null; at: Timestamp } | null
 }
-export type Scope = { kind: 'map' } | { kind: 'nodes'; nodeIds: Id[] }
+export interface Scope { nodeIds: Id[] }
 export type RunStatus = 'accepted' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
 export type OperationStatus = 'ready' | 'executing' | 'waiting' | 'completed' | 'failed' | 'cancelled'
 export interface PublicError {
@@ -84,13 +85,13 @@ export interface OperationSummary {
   resultNodeIds: Id[]; reviewIds: Id[]; error: PublicError | null
 }
 export interface RunSummary {
-  id: Id; scope: Scope; until: Until; mode: Mode; status: RunStatus
+  id: Id; scope: Scope; until: Until; mode: Mode; status: RunStatus; paused: boolean
   operations: OperationSummary[]; error: PublicError | null
   createdAt: Timestamp; updatedAt: Timestamp
 }
 export interface Receipt {
   id: Id; operationId: Id; inputRefs: NodeRef[]; inputFingerprint: string
-  configFingerprint: string; draftRevision: Revision; nodeIds: Id[]; edgeIds: Id[]; acceptedAt: Timestamp
+  configFingerprint: string; outputRefs: NodeRef[]; draftRevision: Revision; nodeIds: Id[]; edgeIds: Id[]; acceptedAt: Timestamp
 }
 export interface Report {
   id: Id; operationId: Id; slotId: Id; producer: ProfileRef; inputRefs: NodeRef[]
@@ -100,7 +101,8 @@ export interface Report {
   createdAt: Timestamp
 }
 export interface OperationView extends OperationSummary {
-  inputRefs: NodeRef[]; context: OperationContext; reports: Report[]; reviews: Review[]; receipt: Receipt | null
+  inputRefs: NodeRef[]; outputRefs: NodeRef[]; configFingerprint: string
+  context: OperationContext; reports: Report[]; reviews: Review[]; receipt: Receipt | null
 }
 export interface OperationContext {
   route: { revision: Revision; slots: Slot[]; approved: boolean } | null
@@ -113,7 +115,7 @@ export interface GraphSnapshot {
   mapId: Id; workspaceId: Id; revision: Revision; name: string
   nodes: Node[]; edges: Edge[]; policies: NodePolicy[]; missingInputs: NodeRef[]
   run: RunSummary | null; reviews: Review[]
-  capabilities: { editGraph: boolean; startRun: boolean; cancelRun: boolean; answerReview: boolean }
+  capabilities: { editGraph: boolean; startRun: boolean; pauseRun: boolean; resumeRun: boolean; cancelRun: boolean; answerReview: boolean }
   updatedAt: Timestamp
 }
 export interface MapSummary {
@@ -212,6 +214,8 @@ export interface CommandMap {
   'run.start': Spec<MapMutation & { id: Id; scope: Scope; until: Until; mode: Mode }, GraphWriteResult>
   'run.retry': Spec<MapMutation & { previousRunId: Id; id: Id }, GraphWriteResult>
   'run.cancel': Spec<MapMutation & { runId: Id }, GraphWriteResult>
+  'run.pause': Spec<MapMutation & { runId: Id }, GraphWriteResult>
+  'run.resume': Spec<MapMutation & { runId: Id }, GraphWriteResult>
   'run.set-mode': Spec<MapMutation & { runId: Id; mode: Mode }, GraphWriteResult>
   'review.update': Spec<MapMutation & { runId: Id; reviewId: Id; expectedReviewRevision: Revision; content: ReviewContent }, GraphWriteResult>
   'review.answer': Spec<MapMutation & { runId: Id; reviewId: Id; expectedReviewRevision: Revision; decision: 'approve' | 'reject' | 'revise'; note: string | null }, GraphWriteResult>
@@ -278,10 +282,10 @@ export interface HostAdminAPI {
 }
 /** Host-private contracts. ExecutionGrant is never supplied by a model or renderer. */
 export interface ExecutionGrant {
-  mapId: Id; runId: Id; operationId: Id; hostId: Id; holderId: Id; fence: number; leaseUntil: Timestamp
+  mapId: Id; runId: Id; operationId: Id; hostId: Id; holderId: Id; fence: number; expiresAt: Timestamp
 }
 export interface ClaimInput { hostId: Id; holderId: Id; operations: OperationKind[]; policyVersions: string[] }
-export interface LeaseResult { grant: ExecutionGrant; sessionKey: string; inputRefs: NodeRef[]; policyFingerprint: string }
+export interface LeaseResult { grant: ExecutionGrant; inputRefs: NodeRef[]; policyFingerprint: string }
 export type DshRead =
   | { kind: 'input' }
   | { kind: 'nodes'; nodeIds: Id[]; relations: boolean }

@@ -1,6 +1,6 @@
 # 051 — 多 Host 协同演进数据图实施原稿
 
-设计：[051-多Host协同演进数据图.md](./051-多Host协同演进数据图.md)。结合 050 的功能保留清单实施；本轮没有修改生产代码或运行集成测试。
+设计：[051 多 Host](./051-多Host协同演进数据图.md)。054 已完成角色工作租约基线；059 在现有实现上补齐节点驱动闭环和暂停，执行顺序见 [059 实施原稿](./059-implement-节点驱动协作闭环与暂停恢复.md)。以下是整体目标与待补检查，不声称均已实现。
 
 ## 1. 先验证最危险的边界
 
@@ -17,25 +17,26 @@
 
 ## 2. 数据与领取
 
-- 050 的 Map 聚合增加可按 operationId 精确更新的 operations。
-- 增加 ownerHostId、holderId、leaseUntil、fence、本地 Session 绑定。
+- Run 使用 scope.nodeIds/until/operations[] 和独立 paused；operation 有 inputRefs/outputRefs、配置指纹、业务草稿/Review。
+- 沿用独立 lease 容器中的 workId/operationId/hostId/holderId/expiresAt/fence；不把本地 Session 绑定放进业务身份。
 - 领取/续租使用数据库时间及当前状态条件，使用 majority 写确认。
-- 所有写入为字段级 CAS，不 replace 整图或 operations 容器。
+- 业务聚合提交用最新 Map revision CAS；租约仅定向更新，禁止普通提交回写旧 lease 容器。
 - 纯续租不推进业务 revision，用户可见状态和数据变化推进。
-- 新增 claim.ts，按本地容量领取；ready 排序、空轮询退避。
+- 扩展现有 work/Host 循环，不新增 claim.ts、调度器或队列；无可领取项时沿用轮询间隔。
 - 控制状态、输入版本、Review 版本、幂等收据和 lease 围栏同路径校验。
 
 ## 3. DSH 与业务继续
 
-- 将一个 Run 一个根 Session 改成一个领取代数一个本地根 Session。
-- 每个 Session 只承担绑定的 parse/split/verify 业务项，内部使用原生 SubAgent。
+- 未提交工作每次重新领取使用新本地 Session，不要求原会话、模型上下文或 token 级恢复。
+- 每次 DSH 执行只承担绑定的节点/角色工作；保留 split/verify 内部 router、角度报告与 merge。
 - 工具调用捕获 holder/fence，禁止迟到调用冒用后来的执行授权。
 - 接管从共享报告/决定继续，新的 holder/fence 不改变业务幂等 key。
-- 等待人工时释放执行租约并停驻 DSH；回答后操作 ready，由任意 Host 领取。
+- Review 属于 operation；一项等待不阻止其他独立项。回答保存业务决定，不清 paused；未暂停时新工作由任意 Host 领取。
 - 新产物与后继操作尽量同次提交；周期按规则补查缺失操作。
 - Run 完成以同一 revision 下重算 scope/until 为准。
 - 不可继续的失败与 Run.failed 同次提交；显式重试建新 Run，复用有效报告/收据，不复活旧执行授权。
-- 保留运行中普通图编辑限制；Review 修改只作用于候选草稿。
+- 保留活跃 Run（包括暂停）期间普通图编辑/删除/覆盖限制；Review 只改候选。
+- pause 在现有权限事务内设置 paused/revision/收据并定向过期该 Run lease，保留 fence；resume 同 Run 重算业务，不增加执行 epoch。
 
 ## 4. API、资产与部署
 
@@ -62,6 +63,9 @@
 | primary 切换 | 已 majority 接受结果保留；不确定结果查收据后处理 |
 | 同 Host 两个进程 | holderId 区分，旧进程不得因同 hostId 获得新授权 |
 | 一个操作不可继续失败 | Run 同时 failed，其余 Host 的新写入被围栏拒绝 |
-| 失败后立即显式重试 | 新 Run 复用有效报告，旧 Run 迟到调用始终无权写入 |
+| 失败后显式重试 | 新 Run 仅复用已证明输入/输出版本与配置仍有效的业务成果，旧授权不复活 |
+| 快速 pause→resume | 旧 grant 续租/提案/fail 全被拒绝；新领取递增 fence |
+| pause 与新 claim/renew 并发 | 权限事务冲突重试，不遗漏需要失效的租约 |
+| 多篇新闻与空拆分结果 | 独立 operation 可并行，零结果有收据且不会无限拆分 |
 
 全量功能回归继续按 050 实施原稿执行。这里不增加 P2P 同步、CRDT、独立调度服务或会话存储改造。

@@ -33,7 +33,7 @@ export const createLinkedClaim = {
 export const startRun = {
   requestId: '40000000-0000-4000-8000-000000000002',
   method: 'run.start',
-  params: { mapId, expectedRevision: 1, id: runId, scope: { kind: 'nodes', nodeIds: [newsId] }, until: 'verified', mode: 'human-in-loop' },
+  params: { mapId, expectedRevision: 1, id: runId, scope: { nodeIds: [newsId] }, until: 'verified', mode: 'human-in-loop' },
 } satisfies CommandRequest
 
 export const approveReview = {
@@ -66,4 +66,15 @@ export const retryFailedRun = {
   requestId: '40000000-0000-4000-8000-000000000004',
   method: 'run.retry',
   params: { mapId, expectedRevision: 20, previousRunId: runId, id: '30000000-0000-4000-8000-000000000002' },
+} satisfies CommandRequest
+
+// Pause controls the same business Run; resume keeps its reports and Review decisions.
+export const pauseRun = {
+  requestId: '40000000-0000-4000-8000-000000000006', method: 'run.pause',
+  params: { mapId, expectedRevision: 21, runId },
+} satisfies CommandRequest
+
+export const resumeRun = {
+  requestId: '40000000-0000-4000-8000-000000000007', method: 'run.resume',
+  params: { mapId, expectedRevision: 22, runId },
 } satisfies CommandRequest

@@ -2,7 +2,7 @@
 
 > 多 Host 执行、领取与部署部分结合 [051 实施原稿](./051-implement-多Host协同演进数据图.md) 执行，不再按单 Host 边界落地。
 
-对应设计：[050-数据节点织网后端架构.md](./050-数据节点织网后端架构.md)。本轮只做设计，以下均未执行。
+对应设计：[050 数据节点架构](./050-数据节点织网后端架构.md)。本文保留整体功能迁移清单；053–058 已完成共享后端、核查与客户端基线，尚缺的节点驱动闭环按 [059 实施原稿](./059-implement-节点驱动协作闭环与暂停恢复.md) 继续，不重新执行已完成阶段。060补齐管理和文件流转，061接MQ/SSE，062恢复各阶段树，063接执行活动摘要；064已完成第六阶段的旧运行源码/依赖收敛与CLI切换；065新增SQLite独立本机服务入口；066已接Electron本机服务托管，067完成模块边界与运行入口分离；旧Mapper数据导入及其他平台的发行验收仍待后续。
 
 ## 1. 完成标准
 
@@ -15,8 +15,8 @@
 - 保留已有未提交修改，不 reset、清库或覆盖。
 - 记录当前测试、类型检查、CLI 和打包基线；区分既有失败与本次回归。
 - 在隔离分支做 DSH 最小闭环，锁定可安装版本、公开接口及持久化方案。
-- 使用真实 continuable 子 Agent，验证两个子报告、路由限制、人工确认、强制重启、旧结果复用及整棵子树取消。
-- 验证 Host 绑定 operation/slot 与原生 childId 的公开实现路径；恢复不得依赖模型重新编造身份。
+- 沿用已验证 DSH SDK，验证多个结构化报告、路由限制、人工确认、Host 重启和旧业务结果复用；不要求模型会话恢复。
+- 验证 Host 绑定 operation/角色/slot 和 holder/fence；重新领取未提交工作使用新 Session，业务身份不依赖模型重建。
 - 验证 current model/baseUrl、按 Agent 配置、搜索和报告 schema。
 
 退出条件：通过设计第 14 节闭环，尤其是完成报告不重跑及取消后不可落库。未通过不删除旧运行路径。
@@ -44,12 +44,13 @@
 
 ### 第四阶段：接通 DSH 根 Agent 和业务工具
 
-- 一个 Run 绑定一个根 Session，配置快照装配成 profiles。
+- Run 包含 scope.nodeIds/until/operations[]/paused；每次工作领取使用本地 DSH 会话，配置快照装配成 profiles。
 - 仅新增项目业务 `data.read / data.propose` 工具；输出按提案类型严格校验。
 - 子 Agent 报告、路由/草稿及最终提案使用同一业务写入边界。
-- DSH 原生完成委派、并行、消息继续、取消和执行持久化。
-- 根 Agent 完成时由业务规则检查 scope/until 后置条件。
-- Host 实现唯一启动/重试恢复入口，读取收据和原生 Session 继续。
+- DSH 执行当前工作的模型/工具/SubAgent；不同 Source、News、Claim 的 operation 并行由现有 Host 领取，内部角度并行继续保留。
+- 接受产物后从业务事实派生后继，合法零结果写完成记录；按同一图版本检查 scope/until 全部后置条件。
+- 现有 Host 循环读取共享业务报告、Review、输入/输出版本和配置指纹继续；未提交工作新 Session 重跑。
+- pause/resume 在现有权限事务里写独立 paused 位与收据；pause 原子定向过期本 Run 租约，保留 fence。Review 回答不清 paused。
 
 退出条件：parse/split/verify 均可完成自动/HITL；无 Mongo worker 生命周期、模型请求副本或重试队列。
 
@@ -58,14 +59,14 @@
 - 前端只导入 contracts，用 snapshot 更新正式数据、用 review 更新草稿。
 - 多来源图布局支持多入边；Agent 卡片改为显示投影。
 - Timeline 只投影业务进度；旧像素坐标不参与后端执行。
-- 实现运行/错误/取消/重试/切模式和多人 Review 冲突显示。
+- 实现 scope/until、多 operation 进度、暂停/继续/错误/取消和独立多人 Review 冲突显示。
 - 既有标签页、节点编辑、Agent 管理、键盘导航和导入导出均完成验收。
 
 退出条件：断开任意客户端任务继续，重连恢复业务状态；前端没有 Agent 调度/Session 恢复逻辑。
 
 ### 第六阶段：整体切换与清理
 
-- 一次性迁移可保留的业务数据、生成 UUID、重建关系，不迁移可执行旧 Run。
+- 显式本机升级工具处理单 operation 旧 Run，默认不动用户数据库；旧 Mapper 数据另作明确导入，不迁移模型执行现场。
 - 切换只支持当前 schema；无永久旧字段双读/双写或兼容转发。
 - 删除旧 AgentLoop、LangGraph/LangChain/LangSmith、MapperCallRecord、executeCalls 和 stage worker 调度。
 - 删除持久化 Timeline 调度字段与客户端 Map lease。
@@ -86,14 +87,16 @@
 | 发现新证据、修改待审路由 | operationId 不变，生成新的草稿/提交身份，旧批准不可复用 |
 | 两个同 revision 的用户更新 | 只有一个成功，另一个取得冲突和最新快照 |
 | 两个用户回答同一 Review | 只有一个有效决定；编辑草稿后旧批准失效 |
-| 决定落库后、唤醒 DSH 前崩溃 | 恢复后读到同一个决定，不要求重复批准 |
+| 决定落库后、下一工作启动前崩溃 | 新领取会话读到同一业务决定，不要求重复批准 |
 | 用户拒绝保存且不要求修订 | 不重新枚举该工作，Run 明确未达成，不误报完成 |
 | 运行两个子 Agent，一个报告后 Host 崩溃 | 已接受报告不重跑，只继续未满足项 |
 | 图已提交、DSH 工具结果未记录时崩溃 | 同身份重试取得原收据，不重复节点 |
 | 同一幂等身份提交不同 payload | 明确冲突，不覆盖第一次接受内容 |
 | 取消后子 Agent 迟到 | 不新增业务数据；子树关闭；重启后不自动恢复取消 Run |
 | Host 正常关闭再启动 | 未完成 Run 可继续，与用户取消区分 |
-| 根 Agent idle/自称完成但目标未满足 | 不显示业务 completed，返回剩余项或明确失败 |
+| 模型 idle 或全部已登记项完成但后继未达成 | 按 scope/until 闭包重算，不提前 completed |
+| 快速 pause→resume，旧 Host 仍计算 | 旧 grant 不能续租/提案/fail；新领取 fence 递增 |
+| 一个 operation 待审 | 其他独立节点继续；暂停后批准不清 Run.paused |
 | SSE 建立过程中发生提交 | 基线/后续快照无缺口，重连可恢复 |
 | Viewer 写入、跨 Workspace 访问 | Host 拒绝；Activity 不泄露内部凭证和非授权数据 |
 | 导出后导入新工作区 | 节点关系和资产可用；旧活跃 Run/Session 不被重新执行 |
@@ -110,7 +113,7 @@ npm run headless -- --help
 npm run build:check
 ```
 
-Host/DSH 集成检查命令在第一阶段闭环确定后加入 package.json；此处不预写不存在的命令。
+Host/DSH 测试沿用现有 tests/backend；059 完成后记录实际新增范围与运行结果，不将历史记录当成本轮通过。
 
 审查生产 imports 和字段，确保没有旧 AgentLoop、MapperCallRecord、checkpointTail、自建 worker 调度或前端 DSH 依赖。历史文档不作为静态删除对象。
 

@@ -1,186 +1,501 @@
-# 编码规范
+# 重明开发规范
 
-## 1. 提示词配置化
+版本：074 · 2026-09-16。本文约束代码如何组织业务、隐藏协作细节和表达状态，是项目现行开发规范的唯一入口。
 
-所有 AI 提示词（prompt）**必须**是可配置的，不允许硬编码在业务逻辑中。
+代码审阅先看主流程、依赖、状态和副作用。标点与缩进归附录，不作为可读性重构的主要成果。
 
-### 规则
+[实际模块与入口](./ARCHITECTURE.md) · [072重构计划](./develop-docs/072-可读性与服务结构重构.md) · [规范修订记录](./develop-docs/074-开发规范统一.md)
 
-- 每个提示词对应一个独立的配置文件（如 `.json` 或 `.yaml`）
-- 配置文件包含两个字段：
-  - `description`：提示词的用途说明
-  - `content`：提示词模板内容
-- **配置文件的路径必须能够代表该提示词被实际调用的位置**。例如：
-  - 拆分模块的默认策略 prompt → `subagentconfig/fact-extractor/default-strategy.json`
-  - 核查模块的逻辑一致性 SubAgent prompt → `subagentconfig/fact-verifier/sub-agents/logic-consistency.json`
-- SubAgent 配置可额外包含 catalog 字段（`agentName` / `displayLabel` / `defaultPriority` / `tools`），由 `sub-agent-catalog` 扫描加载；`tools` 为工具名字符串数组（如 `["web_search"]`）
+## 先看这些会让代码难懂的问题
 
-### 配置文件格式示例
+以下来自当前源码，都是后续模块重构应消除的具体问题。这里只规定整改要求，未表示源码已经修改。
 
-```json
-{
-  "description": "默认拆分策略：将新闻文本拆分为可独立核查的事实陈述",
-  "content": "请将以下新闻文本拆分为可独立核查的事实陈述。\n以 JSON 数组返回，每条格式为 { \"content\": \"...\", \"category\": \"...\" }\n\n{{context}}\n\n{{content}}"
+| 当前问题 | 必须写成什么样 | 审阅时怎样拒收 |
+|---|---|---|
+| [runUpdateProgress](./backend/modules/graph/run-state.ts)混合任务建立、历史复用、后继展开和Run终态计算 | 主流程能读出“处理当前节点→取得或建立Operation→依据已接受产物展开后继→汇总状态”，每个复杂决策有明确名称 | 只把原表达式搬进几个无业务含义的helper，仍需要同时记住全部规则，不通过 |
+| [controlReadCopyLibrary / requireRole](./backend/modules/workspace/workspace-service.ts)看似读取或检查，实际写入writeFence | 私有步骤的名称和interface说明直接表明“取得本次写授权/锁定配置版本”，并保留同一事务 | 读调用代码看不出它会写库；或为了符合read名字删掉必要写入，不通过 |
+| [sessionCreateState](./apps/ui/state/client-session.ts)里会话、当前图、偏好和重试共享大量状态 | 每组状态有明确的进程内所有者；完整的打开/切换/取消操作内部处理代次与清理 | 调用者或Vue组件需要依次执行停止订阅、递增代次、重置状态才可安全切图，不通过 |
+| [runUpdateProposal](./backend/modules/graph/run-state.ts)同时判断operation.kind、proposal.kind、actor.role并交叉取数据 | 各业务分支先建立明确的输入与授权条件，再处理对应报告/产物；共用步骤只接它实际需要的数据 | 改一类提案还要跟踪多个布尔开关和非空断言才能知道哪份数据有效，不通过 |
+| [graph模块](./backend/modules/graph/graph-service.ts)需要同时遵守鉴权、收据、版本和租约规则 | 对外一次调用完成该动作，关键顺序由module统一保证，内部步骤有业务名称 | 新增一组“先检查、再保存、再发事件”的公共方法，让调用方自己维持正确顺序，不通过 |
+| [现有用途注释](./backend/application/graph-application.ts)反复写“处理相关工作并返回结果” | 写实际对象、动作和必要副作用，例如“验证写入身份，并在同一事务中执行命令” | 注释可以原封不动贴到另一个无关函数上，或名称变化后仍保留旧说明，不通过 |
+
+每次重构要能回答：改完后，读者少需要记住哪条隐含规则？更改一项业务规则时，少需要同步改哪些地方？文件变短、注释变多、格式统一都不能单独回答这两个问题。
+
+## 0. 如何执行本规范
+
+- **必须**：新增代码和本次修改的完整函数必须满足；违反时应修正，或记录有具体依据的局部例外。
+- **建议**：默认采用；实现有更清楚的表达时可以不同，但要解释其对调用者的实际好处。
+- 未触及的既有代码按072逐模块整改。本文件发布不代表现有代码已全部合规，也不要求每次小改动格式化全库。
+- 用户明确需求优先。已定义的协议、存储和行为约束不能因样式调整改变；新增例外应注明范围、原因和适用期限。
+- 本版取代旧coding.md中冲突的规则，特别是机械禁止介词、形容词及要求所有内部名称堆叠模块前缀的写法。历史开发文档用于追溯，不再另立现行规范。
+- 唯一设计skill为[codebase-design](/Users/xiong/.codex/skills/codebase-design/SKILL.md)。使用其设计原则时仍保留用户要求的中文用途注释和本项目业务约束。
+
+规则编号用于审阅，例如“违反 NAME-2：校验函数隐藏数据库写入”。工具是否已覆盖见第16节；规范要求与当前自动化能力分别陈述。
+
+## 1. 模块、文件和依赖
+
+### MOD-1：按完整业务能力组织module【必须】
+
+采用073文件树。新增文件先确定归属，禁止在根目录或shared中堆放难以归类的业务实现。
+
+| 位置 | 内容 |
+|---|---|
+| backend/modules/graph | 图、Run、Operation、Work、Review和收据规则 |
+| backend/modules/workspace | 工作区、成员、Agent配置与共享设置 |
+| backend/modules/identity | 用户、令牌与身份验证 |
+| backend/modules/assets | 资产与数据包 |
+| backend/modules/shared | 真正共用的领域错误和输入验证 |
+| backend/application | 组合完整业务动作，组织鉴权和事务 |
+| backend/ports | 已存在真实替换需求的interface |
+| backend/adapters | HTTP、存储、消息、来源读取等adapter |
+| backend/execution | Host生命周期与DSH执行 |
+| apps | 运行入口、配置装配和界面；UI按features归类 |
+| client / contracts / platform / resources | 公共客户端 / 共享协议 / 平台能力 / 配置资源 |
+
+### MOD-2：interface写出完整约定【必须】
+
+interface包含参数、结果、错误、调用顺序、并发、取消及资源归属，不只是一段TypeScript类型。调用者不应自行拼装鉴权、判重、状态变化和提交才完成一次业务动作。
+
+### MOD-3：拆分必须产生理解收益【必须】
+
+函数、类、闭包、多个文件均可构成module。新增包装层要通过删除测试：去掉它后，复杂度是否会回到多个调用者？若只少一次转发，就不保留该包装层。没有类数、文件数、函数行数的硬指标。
+
+### MOD-4：依赖从apps装配【必须】
+
+业务module不能导入数据库、队列、HTTP或DSH的具体adapter。新增seam必须有实际变化需求和合理的生产/测试adapter；复用现有Persistence、GraphStore和WorkTransport，不重复造同义interface。
+
+私有实现之间允许必要的内部seam，不因测试而把私有状态全部公开。遵循当前架构检查的逐目录规则；改变依赖方向需在设计中解释。
+
+### MOD-5：文件名直接表达用途【必须】
+
+TypeScript/JavaScript文件和目录用kebab-case，Vue组件用PascalCase.vue，测试用被测能力.spec.ts。main.ts、preload.ts、README.md等固定入口名保留。
+
+避免新增utils.ts、helpers.ts、common-service.ts等含混文件。shared只放多个module真实共用且不属于某一业务的内容。
+
+## 2. 导入与文件阅读顺序
+
+### FILE-1：顶层导入，明确来源【必须】
+
+顺序为Node内置、第三方、共享contracts、其他module、本module相对导入，各组留空行；类型依赖显式使用import type，同一来源的类型可并入带type标记的导入。
+
+静态导入放文件开头。动态导入仅用于真实的惰性加载或运行条件；有副作用的导入必须说明，不能为了排序改变其执行顺序。
+
+项目内部直接导入定义文件，禁止新建只转发export的层层index.ts。已有真正的入口index.ts不因名字而删除。
+
+### FILE-2：扩展名与路径一致【必须】
+
+沿用工程约定：TS本地导入省略.ts，Vue导入保留.vue，Node直接加载的资源保留.mjs/.cjs/.json等扩展名。禁止源码中的本机绝对路径和依赖开发者目录层级的寻址。
+
+源码路径、安装包路径、资源路径要分清；移动文件时同时处理import、动态加载、mock、子进程入口和复制资源。
+
+### FILE-3：文件内先说明主要能力【建议】
+
+依次安排导入、必要类型/常量、主要导出、内部步骤。纯函数module建议主要流程在前、帮助理解的私有函数随后；类按字段、构造、公开操作、私有步骤组织。局部函数若只有一个拥有者，放在它附近即可，不强制所有helper沉到底部。
+
+## 3. 命名
+
+### NAME-1：同一概念始终同名【必须】
+
+| 形式 | 约定 | 示例 |
+|---|---|---|
+| 变量、参数、普通方法 | camelCase | expectedRevision、workId |
+| 类型、类、interface、enum | PascalCase | GraphWorkGrant、ClientError |
+| 稳定共享常量、枚举成员 | UPPER_SNAKE_CASE | MAX_RESPONSE_BYTES、LEASE_EXPIRED |
+| 布尔变量/谓词 | 能读成判断，is/has/can或领域谓词 | isPaused、hasReceipt、canEdit、workCanRun |
+| 集合 | 复数或明确容器含义 | operations、workById |
+| 单位 | 必须进入名称或类型约定 | timeoutMs、sizeBytes |
+
+Map、Run、Operation、Work、Review、Lease、Receipt采用已有业务词义，不再为同一概念创造Task/Job/Step等平行名字。普通局部值不需要全大写。
+
+### NAME-2：名称必须说明动作与副作用【必须】
+
+read/find/get/validate/assert不得暗含持久化写入或启动后台任务；纯计算用calculate/derive/format等适当动词，写入/锁定/取消要用能表达该行为的名称。
+
+同一业务动作可以包含必要步骤，但不能用“更新进度”掩盖发现后继、建立任务和复用历史的全部职责。固定公开协议名无法改动时，内部具名步骤和interface说明必须补足含义。
+
+| 含混表达 | 可采用的表达 |
+|---|---|
+| controlReadCopyLibrary，实际增加writeFence | catalogAcquireLibrary |
+| controlValidateTools，实际还锁定工具配置 | 纯校验与catalogAcquireTools分别表达 |
+| runUpdateProgress，实际推进整个节点闭包 | runAdvanceGraph |
+| readDraft，实际替换编辑草稿并重置基线 | selectAgentDraft |
+| handle / process / manager / data | 按实际动作与领域对象命名；例如submitProposal |
+
+### NAME-3：按作用域决定名称长度【必须】
+
+导出的领域普通函数默认使用“领域+动词+对象”，如runAdvanceGraph、workReadItems；文件私有函数可以用collectInputRefs等清楚的短名；实例方法可以用pause、close，不重复堆叠类名前缀。
+
+允许必要的介词、形容词和状态限定，如readSnapshotAfterCommit、pendingReports。准确性高于机械分词规则。一个函数名需要串起多个不相关动词时，先检查它是否承担太多意图。
+
+Vue use*、平台回调签名、标准协议方法、HTTP命令名和IPC channel保持其所属约定。命名整理不能改变线上协议。
+
+## 4. 业务主流程的形状
+
+### FLOW-1：主流程只展示当前层次的业务步骤【必须】
+
+例如“提交提案”的上层流程可以展示：验证调用凭据 → 核对已接受收据 → 仅对新提案校验当前租约、输入及提交权限 → 接纳提案 → 推进后继 → 原子提交。查询语句、对象拼装、字段过滤等细节放进相应步骤的implementation。
+
+步骤顺序必须保持真实业务语义和特例，不能为了凑整齐流程改变历史重放优先级。每个步骤的名字都要解释该领域动作，不能只是step1/handle/process。
+
+读主流程时若需要深入某个helper，才能判断这里是否写库、启动任务或改变授权范围，说明interface表达不足，必须修正。
+
+### FLOW-2：按修改原因和不变量决定提取【必须】
+
+值得提取的代码应封装独立业务决策、复用的同一规则、具有自身生命周期的状态，或稳定的外部依赖。提取后调用方应少知道一些条件或实现细节。
+
+仅为缩短函数而提取几行，然后增加大量参数、共享可变context或双向回调，不通过。几个步骤共同维护一条不变量时，应留在同一module的控制下；它们可以是内部函数，不必各自变成公开interface。
+
+### FLOW-3：业务分支的数据关系直接可见【必须】
+
+先按领域类型进入对应分支，再处理该类型的数据和权限。减少“先计算多个布尔开关，后面靠开关组合决定读取哪份结构”的写法。相关条件只在有明确语义的入口建立，不用非空断言在多个分支之间传递隐含保证。
+
+共用逻辑接收已确定的数据，不同时接收多种可选结果和额外mode开关再重新判断。同一条件反复出现在多个位置时，核对它是否是一条应集中维护的业务规则；不能仅因语法相似就合并不同含义的判断。
+
+## 5. 函数、类与interface形状
+
+### FN-1：一个函数表达一个业务意图【必须】
+
+同一函数可以有多个必要步骤，但步骤应处于相近抽象层。主要流程中不要同时出现领域决策、手工协议字节解析和资源销毁细节。用具名步骤表达复杂流程，不靠更多转发层模拟结构。
+
+不硬定十行函数或五十行类。判断标准是读者能否概括用途、确定输入/输出，并找到副作用与失败路径。
+
+### FN-2：选择实现形式的依据【建议】
+
+- 无I/O的计算、状态推导优先普通函数。
+- 需要长期持有资源和生命周期的module可以使用类或有明确状态所有权的闭包。
+- 小而内聚的闭包可以保留；禁止把多个无关生命周期全放进一个返回大对象的工厂。
+- 不为了统一外观把所有函数变成类，或给单一构造加一套工厂/interface/注册器。
+
+### FN-3：参数与返回值可读【必须】
+
+多个容易混淆的业务参数使用具名对象；避免pause(true, false)这类不解释含义的布尔组合。已有固定协议映射不随意修改。
+
+导出的普通函数、跨module方法和主要异步操作声明返回类型。局部简单回调允许推导。返回DTO写清类型，不让调用者依赖一个巨型工厂的推导结构；ReturnType<typeof setTimeout>等标准工具类型可保留。
+
+### FN-4：创建、使用、关闭分开【必须】
+
+构造器只保存依赖和初始化内存状态；I/O在明确的initialize/start等操作中完成。导出的实例方法作为回调使用时保证this绑定；关闭必须可重复调用，调用者可以等待资源结束。
+
+## 6. TypeScript与输入验证
+
+### TYPE-1：unknown进入，窄类型流转【必须】
+
+HTTP、IPC、模型输出、文件内容及不可信历史记录在各自入口解析成可信类型，再进入业务实现。as T和泛型参数不是运行时验证；不同真实信任入口各自校验，已经验证的内部数据不层层重复typeof。
+
+禁止以any、as unknown as、非空断言!或@ts-ignore逃避尚未建立的不变式。确因第三方类型缺失需要局部断言时，把它限制在adapter，说明依据并有对应验证。
+
+### TYPE-2：用类型表达实际状态【必须】
+
+有互斥状态的数据使用带判别字段的联合类型，不建立包含大量可选字段的“万能对象”。分支先按kind/status/role缩窄，再访问对应字段。穷尽分支应有编译期检查，避免新增类型落进默认成功路径。
+
+~~~ts
+type ClaimResult =
+  | { status: 'claimed'; workId: string }
+  | { status: 'busy'; retryAfterMs: number }
+  | { status: 'obsolete' }
+
+export function workDescribeClaim(result: ClaimResult): string {
+  // 将领取结果转换成简短说明，并让新增结果类型触发编译检查。
+  switch (result.status) {
+    case 'claimed':
+      return '已领取：' + result.workId
+    case 'busy':
+      return '需要等待：' + result.retryAfterMs + 'ms'
+    case 'obsolete':
+      return '工作已不再需要执行'
+  }
+
+  const unreachable: never = result
+  return unreachable
 }
-```
+~~~
 
-## 2. 编码前必须完成技术设计文档
+示例展示类型穷尽；其中是普通状态说明，实际错误文案遵循ERR-2。
 
-在开始编码之前，**必须**先完成两份文档：一份是根据计划制定的技术设计文档，一份是implement plan的原稿，保存为为.md文件。
+### TYPE-3：字段含义和可变性明确【必须】
 
-### 规则
+null表示明确的空值，undefined表示未提供/可选，沿用现有协议约定。默认值必须对应真实可省略输入，不能用??掩盖本来不应缺失的数据。
 
-- 文档标题根据编码内容自定
-- 技术设计文档文件名带开发顺序 ID，格式为 `{ID}-{标题}.md`（如 `001-事实拆分框架设计.md`）
-- implement plan的格式为{ID}-implement-{标题}.md（如 `001-implement-事实拆分框架设计.md`）
-- 技术设计文档和 implement plan都保存在项目根目录的 `develop-docs/` 文件夹下
-- 在 `develop-docs/counter.txt` 中维护当前最大编号，每次创建新文档时递增
+对外只读快照、配置和调用参数在类型上标明相应readonly意图；只读类型不等于运行时深冻结。确需副本时在所有权交接处创建，不在每一层重复深拷贝。
 
-## 3. 函数命名（模块前缀 + CRUD）
+interface用于对象能力/结构，type用于联合、映射和别名；保持一个概念一个权威定义。无需为每个字符串ID、数组建立包装类。
 
-内部实现函数统一为 **`{prefix}{Verb}{Entity}`**（PascalCase 拼接）：
+## 7. 中文用途注释
 
-- **prefix**：模块短名，标识所属文件/域
-- **Verb**：单一动词（CRUD 或扩展动词）
-- **Entity**：纯名词复合
+### COMMENT-1：每个函数都说明实际用途【必须】
 
-### 硬规则
+覆盖函数声明、方法、构造器、变量/属性绑定箭头函数、匿名回调及测试辅助函数。中文要说清“对什么做什么，得到什么结果或产生什么副作用”。
 
-1. **无介词**：禁止 `From` `To` `For` `With` `On` `In` `At` `By` `Of` 等；方向/来源并入实体（`News` 代替 `FromNews`，`Persist` 代替 `FromPersist`）
-2. **无定语**：禁止 `Rejected` `Active` `Empty` `All` `Current` `Locked` `Visible` `Flat` `Complete` 等形容词或过去分词作定语；动词已表意则省略（`docDeleteClaims`），否则并入实体（`RunEnd` 代替 `RunComplete`）
-3. **动词单一**：禁止 `UpdateReset` 等复合动词，用扩展动词 `Reset` / `Restore`
+块状函数的用途注释放在签名下、函数体第一行。表达式箭头使用紧邻表达式的块注释；复杂回调可以改为具名函数，但不能只为放注释制造调用层。只有声明无实现的interface签名放在上方说明；同一函数的重载声明不重复堆相同说明。
 
-### 实体复合顺序
+~~~ts
+type WorkSummary = {
+  id: string
+  status: 'ready' | 'accepted'
+}
 
-`{域}{对象}{子对象}`，例如 `PersistGraph`、`DraftClaim`、`NewsRoute`、`NodeFocus`。
+export function workReadPending(
+  works: readonly WorkSummary[],
+): WorkSummary[] {
+  // 列出还没有接纳结果的工作，供后续领取。
+  return works.filter(
+    work =>
+      /* 只保留尚未完成结果提交的工作。 */
+      work.status === 'ready',
+  )
+}
+~~~
 
-### 动词表
+### COMMENT-2：禁止无信息注释【必须】
 
-| 动词 | 含义 |
-|------|------|
-| `Create` | 新建文档/记录/ID 字符串 |
-| `Read` | 查询/解析/序列化输出 |
-| `Update` | 变更/应用事件/upsert/投影 |
-| `Delete` | 移除/清空/剪枝 |
-| `Reset` | 回到初始态 |
-| `Restore` | 从 checkpoint 恢复会话 |
-| `Can` / `Is` | 权限判定 / 布尔谓词 |
-| `Build` | 复杂图/适配器工厂 |
-| `Run` | 执行 LangGraph |
-| `Register` | 注册/安装 |
-| `Format` | 展示文本 |
+不合格：“处理当前模块相关工作”“读取数据并返回结果”“创建服务供后续使用”。也不能把函数名简单翻译一遍。
 
-### 模块前缀
+合格：“取消旧图的订阅，防止迟到消息覆盖新页面”“校验本次写入权限，并让并发撤权与这次事务发生冲突”。写库、修改传入对象、启动后台工作、释放资源等副作用必须说明。
 
-| 前缀 | 模块 |
-|------|------|
-| `mapDocument` | `electron/mapper/document.ts` |
-| `project` | `electron/mapper/project.ts` |
-| `read` | `electron/mapper/output.ts` 的模型输出解析 |
-| `parse` / `split` / `verify` | `electron/mapper/stages/` |
-| `mapLease` | `electron/api/map-lease.ts` |
-| `mapId` | `electron/shared/map-ids.ts` |
-| `layout` | `src/flow-map/layout.ts` |
-| `timeline` | `src/flow-map/timeline.ts` |
-| `label` | `src/flow-map/tool-labels.ts` |
-| `llm` | `electron/shared/llm-utils.ts` |
-| `err` | `electron/shared/errors.ts` |
-| `ctx` | `electron/shared/context.ts` |
-| `prompt` | `electron/shared/prompt-vars.ts` |
-| `db` | `electron/shared/database.ts` |
-| `handler` | `electron/api/register-handlers.ts` |
-| `tool` | `electron/tools/index.ts` |
+### COMMENT-3：用途与原因各有位置【必须】
 
-### 正反例
+用途写在函数开始；难以从代码推断的原因写在相应逻辑旁，例如为什么重放必须先于revision检查、为何退出时仍要发送有界release。
 
-| 差 | 优 |
-|----|-----|
-| `docCreateFromNews` | `docCreateNews` |
-| `docDeleteRejectedClaims` | `docDeleteClaims` |
-| `mapIdReadFocusFromNodeId` | `mapIdReadNodeFocus` |
-| `docCreateEmpty` | `docCreate` |
-| `docIsParamsLocked` | `docIsParamLock` |
-| `mapIdReadSubAgentFlat` | `mapIdReadSubAgentClaim` |
-| `ctxReadVisible` | `ctxReadAiContext` |
-| `docUpdateRunComplete` | `docUpdateRunEnd` |
-| `clearHitlRuntimes` | `docDeleteHitlRuntime` |
+修改函数时同步修改注释。删除重复、过时和误导说明；不留注释掉的旧实现。TODO说明具体缺口、触发条件与跟踪位置，不使用“以后优化”等空话。需要跨module理解的顺序、错误与资源约定写入interface文档。
 
-### 豁免（不改名）
+## 8. 状态、副作用和数据转换
 
-- `MapperAPI` 接口方法（`read`、`dispatch`、`watch`）
-- Vue `use*` composable、Pinia store 内部方法
-- IPC channel 字符串（`channels.ts`）
-- 类型/接口名、Vue 组件名
+### STATE-1：进程内状态有唯一所有者【必须】
 
-新增内部函数时必须遵循本规范；详细迁移记录见 `develop-docs/020-函数命名规范.md`。
+在module创建处说明进程内关键可变状态的所有者、有效范围和清理时机。其他module通过明确操作或只读投影访问；不把整个store的可写refs传给所有内部对象。共享持久化状态允许多个合法客户端/Host写入，通过事务、版本和租约仲裁，不能把本规则解释为整张图只能由一个进程写入。
 
-## 4. 不做向前兼容
+纯计算不修改输入。状态转换可以修改本次命令独占的草稿，但名称和说明必须明确；共享快照不得被直接修改。提交失败不能留下被意外改写的共享内存。
 
-迁移或重构时，**不要**为旧 API、旧字段、旧命名保留并行路径或 shim。
+### STATE-2：状态更新的时点清楚【必须】
 
-### 规则
+异步操作前读取的状态，在返回后使用前重新确认所属会话/视图/版本仍有效。只在真正接纳结果后更新已持久化状态；活动摘要、乐观显示与已提交结果分别表示。
 
-- 一次性改全栈调用方（类型、IPC、DB 字段、前端 adapter），而不是在边界层做「双读双写」长期共存
-- 禁止新增「读时兼容旧字段、写时只写新字段」之类过渡逻辑，除非当前任务明确要求且有过期删除节点
-- 废弃即删除：旧 handler、旧 channel、旧类型名、旧集合名，随迁移 PR 一并移除，不保留转发别名
-- 数据迁移用**一次性脚本**升级存量文档，而不是在运行时代码里永久分支
+一次状态转换使用同一时间基准；持久化时间沿用UTC/协议格式，展示层再本地化。跨进程传协议定义的数据，允许传输支持的Uint8Array等数据容器；不传Vue代理、携带业务方法/私有状态的实例或AbortSignal。
 
-### 正反例
+### STATE-3：派生值只计算一次来源【必须】
 
-| 差 | 优 |
-|----|-----|
-| `mapRead` 内 `newsId ?? mapId` 双读 | 全库改 `mapId`，迁移脚本处理存量 |
-| 保留 `news:*` IPC 转发半年 | 同 PR 改 preload + renderer |
-| `NEWS_ROOT_ID` 与新 `news:default` 长期并存 | 迁移节点 id 后只保留一种 |
+已有状态可以计算出来的值用纯计算或computed表达，避免维护第二份可写副本。需要缓存时写明失效条件；不得用宽泛watch无条件同步多个副本。
 
-## 5. 兜底与类型检查：先问是否必要
+## 9. 异步、取消与资源生命周期
 
-写 `??`、`?.`、宽泛 `typeof`/`in` 判断、`as` 断言、try/catch 吞错、多分支 fallback 之前，**先判断这条路径是否真实存在**。
+### ASYNC-1：后台操作必须有人负责【必须】
 
-### 规则
+每个Promise、timer、listener、reader、订阅和子进程都有创建者与结束责任。await、return，或把任务保存到生命周期中等待；只有明确的旁路任务可使用void，且必须处理拒绝并说明失败影响。
 
-- 若类型系统或调用契约已保证不变式，**不要**再写运行时重复校验
-- 若某状态按设计不可能出现，应修数据流或类型定义，而不是加 silent fallback
-- 允许防御的场景：外部输入（IPC、文件、网络、用户编辑）、Mongo 存量脏数据的一次性迁移边界
-- 类型检查优先收窄来源（解析函数、zod/显式 DTO），避免在业务深处堆 `if (x && typeof x === 'object')`
-- 禁止用兜底掩盖 bug：「取不到就用默认值」若会隐藏错误，应 `throw` 明确错误码
+禁止无负责人、无失败处理的异步调用，也不能把forEach(async ...)当作可等待流程。独立任务可并行，有事务/顺序依赖的任务按业务顺序执行。
 
-### 自问清单（写之前过一遍）
+### ASYNC-2：取消与过期结果分别处理【必须】
 
-1. 调用方能否保证该字段存在？
-2. 这是公开边界还是内部已类型化的路径？
-3. fallback 会让错误更晚、更难排查吗？
-4. 删掉这段代码，测试/类型检查是否会失败？若不会，多半不必写
+AbortSignal用来停止等待和通知取消；epoch/request序号用来丢弃已返回的旧结果。两者不互相替代。请求成功和失败的状态写回都检查所属作用域。
 
-### 正反例
+取消按既有取消语义处理，不能一律记为永久业务失败。等待取消后仍要清理自有资源；不得因中止信号已触发而跳过必要排空。
 
-| 差 | 优 |
-|----|-----|
-| 每个节点 `kind` 后接五层 optional chaining | `graph-doc` 入口校验一次，内部用窄类型 |
-| `parentNodeId ?? NEWS_ROOT_ID ?? mapId` 链式默认 | 启动 `runTransition` 时必填，缺则 `MAP_INVALID_SCOPE` |
-| `catch { return [] }` 隐藏 DB 失败 | `AppError` 向上抛，adapter 统一展示 |
+### ASYNC-3：关闭顺序和期限属于interface【必须】
 
-## 6. 修 Bug：先发掘根因
+interface必须说明哪些操作取消、哪些需要限时排空。Host/DSH遵循：停止产生新工作 → 中止正在执行的工作 → 等待执行清理 → 有界释放租约/连接 → 完成关闭。已开始的原子提交、HTTP输出和Outbox发布确认保留各自的有界排空/结果确认语义，不能统一abort后当作未发生。多次close复用同一个关闭过程；长连接不能占住串行队列让disconnect排到永远。
 
-修 Bug 时**先定位根因再改代码**，禁止用兜底、重试、绕路把症状盖住。
+finally覆盖成功、失败和取消路径。清理错误不能无记录地覆盖原始错误；保留主要失败，并按诊断约定报告次要清理失败。空catch仅用于明确可忽略的次要清理/诊断操作，必须写明为什么可忽略。
 
-### 规则
+### ASYNC-4：超时与重试不能掩盖错误【必须】
 
-- 复现 → 缩小范围（哪一层、哪条数据路径）→ 解释「为什么会发生」→ 再写最小修复
-- 修复应打在**产生错误不变式的源头**（序列化、类型契约、状态机），而不是在更外层吞掉异常
-- 若修复依赖「某字段可能为空所以 `??` 默认值」，须先证明该空值是合法输入；否则应修上游保证或 `throw`
-- 回归：根因修复应配**能失败在没有修复时的测试**（单测 / 最小复现），避免同类问题复发
+超时写清单位、起点、到期动作和总期限。重试需要可重试分类、幂等依据及退避/停止条件；不对全部409/403/协议错误统一重试。
 
-### 自问清单
+同一命令结果不确定时重用原requestId和冻结payload；更改输入形成新意图时才使用新ID。不能在数据库写冲突重试内部再次调用模型。
 
-1. 这是表象还是根因？（例如 IPC clone 失败 → 根因是 Mongoose DocumentArray，不是「再包一层 try/catch」）
-2. 同类数据路径是否还有相同漏洞？
-3. 修复后能否用一句话说明「为什么不会再发生」？
+## 10. 错误消息、异常和诊断
 
-### 正反例
+### ERR-1：按语义分类错误【必须】
 
-| 差 | 优 |
-|----|-----|
-| `map:get` 失败就 `catch` 返回 `null` | 查明 `claims` 为 DocumentArray，序列化层转纯对象 |
-| 布局错位就硬编码 offset | 查清 `parentId` 与 layout 深度契约不一致，改投影 |
-| 偶发失败加重试 3 次 | 查清 race 在 `runId` 校验，改 gate 逻辑 |
+控制流依据错误类型、稳定code或明确判别字段；禁止解析错误文案决定重试/取消，例如message.includes('LEASE_LOST')。
+
+区分无效输入、权限失败、版本冲突、租约丢失、请求取消、临时网络失败、非法协议、执行失败和未知内部错误。只在能转换语义、恢复或释放资源的层级捕获，不在每层重复catch/log。
+
+### ERR-2：错误message必须枚举化【必须】
+
+本地定义的运行时错误、失败状态和校验提示引用字符串枚举；成员名使用UNKNOWN_FIELD等语义名称，不把整句文案机械转大写，不用VALUE_VALUE表达参数含义。
+
+已有RuntimeMessage逐模块迁移；只移动当前完整任务范围内的文案，保留其输出含义与协议字段。真正共用的消息放contracts，私有消息跟随module。正常按钮/标题、提示词、业务正文、来自远端的message不是本地错误枚举。
+
+动态模板必须表达参数含义，并能发现缺失/错位，不能默默输出undefined。原生MJS/CJS可使用有语义名称的冻结对象作为等价枚举，不能为了导入TS破坏Node直接加载。
+
+### ERR-3：对外错误与内部诊断分开【必须】
+
+保留status、code、retryable、errorId和必要currentRevision；未知错误对外返回受控文案，诊断记录必要上下文。不得把凭据、完整模型内容、本机路径或任意异常文本拼进公开响应。
+
+同一失败由明确层级负责记录；下层不重复打印完整错误。已有headersSent时按流协议结束/销毁，不能再发送第二份JSON错误。全局异常处理是最后出口，不代替局部资源清理。
+
+### ERR-4：诊断可定位、可限制【必须】
+
+沿用DiagnosticReporter及稳定事件名；带必要的requestId/mapId/workId/errorId，严重程度符合实际。日志有大小/轮转约束，避免逐token或每次心跳输出大对象。不要用console.log/error代替已经存在的业务诊断interface。
+
+## 11. 持久化、事务、租约和消息
+
+### DATA-1：授权与业务写入保持同一事务【必须】
+
+token/user/工作区权限检查及对应writeFence写入不能被重构成事务外先读。未经鉴权不确认公开收据。对合法重放先核对method/inputHash，再处理新请求的revision条件；用户请求身份继续隔离。
+
+图变更、Receipt与待发布状态原子提交。图创建、删除、资产导入等特例保留，不为了共享模板抹掉不同的提交规则。
+
+### DATA-2：租约在最终提交时检查【必须】
+
+Work提交携带workId、holderId和fence；持久层原子条件确认有效租约与版本。先readLease成功不代表后续无条件commit安全。
+
+暂停/取消/接管后旧grant不能提交新结果；已接受历史提案仍按原收据规则确认。客户端deadline用于保守停止，存储负责最终有效性判断；续租不改变公开图revision。
+
+### DATA-3：通知不替代事实状态【必须】
+
+数据库中的节点/工作状态决定是否执行，消息只是唤醒通知。重复、乱序、断连重投都通过领取和收据处理；ACK不能被解释为模型只执行一次。
+
+Work必须覆盖不同数据节点及其后继操作，不能仅按角度去重。明确区分“允许重复计算”和“已接纳结果不重复”。
+
+### DATA-4：慢I/O与不可逆副作用单独组织【必须】
+
+模型、网络抓取、大文件读取不放入长事务。导入/上传暂存与提交按现有流程处理；提交结果不确定时不能删除可能已被引用的不可变资源。
+
+同一业务interface分别验证Mongo和SQLite；内存fixture不能代替真实adapter的事务、主节点切换、持久化和消息重投验证。
+
+## 12. Vue与界面
+
+### UI-1：SFC固定阅读顺序【必须】
+
+script setup → template → style。script内依次为imports、props/emits、依赖、自有状态、computed、操作函数、watch/生命周期。宏调用保持Vue要求的合法位置；复杂类型可以就近或放所属module的types文件。
+
+template只展示数据和发送用户意图，不内联网络调用或多步状态修改。computed无副作用；不直接改props；列表使用稳定业务key。状态结构不得为了方便模板暴露后端凭据或私有执行信息。
+
+### UI-2：界面状态有明确归属【必须】
+
+会话module管理连接、工作区、当前图、订阅和过期结果；页面管理焦点、展开等交互。远端Run/Work由后端拥有。关标签页、切工作区或断线不能暗中发送run.cancel。
+
+暂停时清除临时activity；快照revision不倒退；新SSE基线使旧HTTP成功和失败失效。偏好保存绑定工作区，旧保存结束不得清除新工作区dirty。
+
+### UI-3：样式局部、交互完整【必须】
+
+组件默认使用scoped样式，通用设计值放既有共享样式；选择器表达所属元素，不依赖其他feature的内部DOM。不用随意的!important、deep选择器或全局class覆盖掩盖结构问题。
+
+优先语义化button/input/label，交互保留键盘和焦点行为；加载、空状态、错误状态可区分。样式重构保持各阶段树形展开、视口和节点选择行为，不把实现名暴露成用户文案。
+
+## 13. Electron、协议与资源配置
+
+### PLATFORM-1：运行端能力分清【必须】
+
+renderer通过preload的窄interface调用；不能直读凭据、数据库或Host执行代码。Main的IPC验证sender/frame和输入，watch ID/序号按窗口隔离；注册监听同时提供注销路径。
+
+本机子进程就绪信息只接受固定回环连接；token不进入可展示状态。连接切换、忘记凭据、关窗口、退出应用的效果分别表达。
+
+### PLATFORM-2：协议与实现类型分开【必须】
+
+外部DTO、命令、事件和错误结构以contracts为准，不在调用层复制同义类型。网络与IPC只传可序列化数据；不要把断言后的未知JSON当作完整可信泛型返回。
+
+每次协议/字段变化须显式设计并一次更新全部调用方；单纯可读性重构不修改HTTP路径、命令、IPC channel或持久化schema。
+
+### CONFIG-1：提示词与部署配置可定位【必须】
+
+每份默认提示词独立存放于resources/prompts，含description和content；apps/config装配注入，业务module不直接读取默认文件。运行使用冻结的工作区配置，不能缺失时悄悄换回默认Agent。
+
+DSH工作执行器、patch和plugin的相邻资源定位与打包复制一致。源码文件移动时同时验证源码执行和随包执行。
+
+### CONFIG-2：配置与密钥分别处理【必须】
+
+部署配置在入口解析后传入，业务深处不反复读环境变量。密钥只走现有私有配置/环境和受控传递路径，不写进DTO、日志、提示词或测试快照。
+
+文件大小、来源访问、路径和权限限制沿用现有规则；内部类型已保证的值不再重复兜底，真正外部输入必须校验。
+
+## 14. 测试代码
+
+### TEST-1：从module的interface验证行为【必须】
+
+名称说明触发条件与可观察结果；准备、执行、断言分清。重点验证权限、重放、版本、暂停恢复、取消、旧响应隔离和资源结束，不只断言私有函数调用次数。
+
+测试代码同样遵守命名、排版和中文用途说明；数据构造函数说明生成的场景。故意无效输入可以使用unknown/局部断言，清楚注明测试意图，不能让整套fixture无约束地any化。
+
+### TEST-2：测试替身放在真实seam【必须】
+
+在已有时间、网络、runner等替换点控制结果；必要内部seam可用于制造提交竞态，最终断言仍看行为。异步测试优先受控Promise/事件推进，不用任意sleep猜完成。
+
+真实期限、数据库接管和网络故障测试可以有受限等待，但必须说明等待条件、有终止期限，并在finally清理自有资源。
+
+### TEST-3：删除旧测试必须有替代证据【必须】
+
+记录旧测试原来证明什么、新interface如何证明、最终保留/迁移/删除。浅层转发测试可以被更有意义的行为测试替代；不删除真实adapter、并发、协议、故障和必要算法覆盖来让重构通过。
+
+不得因为纯排版/注释调整就新增镜像实现的测试。复用已有行为验证；只有真实缺口才补测试。
+
+### TEST-4：如实报告验证【必须】
+
+编译通过、测试运行通过、UI人工检查、打包运行分别记录。Vitest运行不等于tests被类型检查；Node进程检查不等于桌面界面验证。
+
+首次失败和复跑结果都记录；偶发503后复跑通过不能宣称其根因已修复。未执行项目写明，不复用历史结果冒充当前通过。
+
+## 15. 开发与重构流程
+
+### CHANGE-1：先有设计与执行原稿【必须】
+
+实施代码前在develop-docs保存编号设计与implement原稿，counter维护最大编号；同一阶段的计划修订在原编号内更新。内容包括目的、范围、interface、不变式、迁移步骤和验证方式，不以文档数量替代设计。
+
+变更先读实现与调用者，确认当前未提交和未跟踪内容；必要迁移建立可恢复快照。使用rg定位引用，路径移动同时检查配置、测试与相邻资源。
+
+### CHANGE-2：一次完成一块可观察能力【必须】
+
+逐module、逐完整路径推进；每块同时整理名称、中文说明、类型和消息。内部名称/路径一次改完调用方，不留旧名称转发或双读双写shim。
+
+本规则不授权删除用户数据库集合或存量文件；涉及数据变更另行设计一次性迁移。没有用户要求不借重构改变协议、存储或产品行为。
+
+### CHANGE-3：修根因，区分行为变更【必须】
+
+定位复现、缩小原因、修复不变式、增加能复现问题的检查。禁止用默认值、吞错或无限重试掩盖缺陷。
+
+机械搬移/排版与行为修复分别说明；发现功能缺陷时记录并单独处理，不混在文件改名中。纯整理可通过语法结构/导出对照辅助确认，不能代替必要行为测试。
+
+### CHANGE-4：提交与交付可审阅【必须】
+
+保持一个清楚主题，说明改变的行为或理解成本、验证、限制和恢复方式。描述最终实现，不堆过程历史或以测试数量证明可读性。提交/推送按用户任务授权执行，不因“规范要求”自动发布。
+
+## 16. 当前自动检查与人工责任
+
+以下是2026-09-16实际检查能力，不是对未来工具的承诺：
+
+| 检查 | 当前入口 | 覆盖与限制 |
+|---|---|---|
+| 运行代码类型 | npx vue-tsc --noEmit | apps、backend、contracts、client、platform、scripts TS；不包含tests |
+| 模块依赖 | npm run test:boundaries 中check-architecture.mjs | 目录规则、资源禁入、部分入口依赖闭包；不是所有apps文件或全面循环依赖检查 |
+| 错误消息 | 同命令中的check-runtime-messages.mjs | 已登记构造器/助手、message变量及message/error对象字段；默认只扫运行目录.ts/.mjs，不扫Vue、tests、scripts，赋值等有已知缺口 |
+| 行为回归 | npm test | 先执行边界检查，再用隔离RabbitMQ运行Vitest；不是纯离线单元测试 |
+| 本机行为 | npm run test:local | SQLite、本机执行及相关集成；不代替Mongo/RabbitMQ验证 |
+| 构建 | npm run build:check | 类型、边界、资源准备、Vite和桌面打包 |
+| 随包运行 | npm run test:desktop-runtime | Node/SQLite/DSH、重启与父进程断开；不等于人工GUI检查 |
+| 差异卫生 | git diff --check | 差异空白问题；不是完整formatter |
+| 排版/lint | 尚未配置 | 当前无统一format/lint脚本与配置，本版格式规则先人工执行 |
+| 注释准确性、depth/locality | 人工走读 | 数量统计与AST盘点不能判断是否说人话、是否有独立价值 |
+
+后续工具接入分步完成：先选定并固定格式配置，以check模式报告存量；只格式化当前模块；再加入已有行为保护的语义检查。tests类型检查与消息扫描扩展按072落实，未经实现和验证不得把上表改成“已自动保证”。
+
+## 17. 每次改动的自查清单
+
+- [ ] 文件归属明确，新增module通过删除测试，没有无价值转发层。
+- [ ] interface包含调用顺序、错误、状态和资源约定，调用者不用记住私有实现。
+- [ ] 名称表达业务含义和副作用；公开协议名没有被顺手修改。
+- [ ] 一行一个动作，复杂条件可逐项检查，没有嵌套三元或压缩状态修改。
+- [ ] 外部输入已解析，内部类型已缩窄，没有用any/断言/兜底掩盖缺口。
+- [ ] 每个触及函数和回调都有准确中文用途说明，无模板废话与重复注释。
+- [ ] 进程内可变状态有唯一所有者，共享数据写入由事务/版本/租约仲裁；异步成功和失败都隔离过期结果。
+- [ ] Promise、timer、listener、reader、子进程都有取消与结束责任。
+- [ ] 错误用code/类型分类，文案枚举化，公开错误和内部诊断分开。
+- [ ] 鉴权事务、Receipt、租约、MQ重投和树形界面的既有行为保持。
+- [ ] 验证覆盖实际风险，失败/复跑/未验证项如实记录。
+- [ ] 文档与实现同步，未宣称工具检查了实际未覆盖的规则。
+
+## 附录：机械格式约定
+
+这些细节供formatter配置使用，不占业务结构审阅的重点；目前工具未接入，沿用一致写法即可。
+
+### FMT-1：基础格式【格式约定】
+
+UTF-8、LF、文件末尾换行；两空格缩进；TS/JS单引号、JSON双引号；默认无分号，语法需要时保留；合法多行结构使用尾逗号。目标行宽120列，字符串、URL和正则按实际可读性处理。
+
+### FMT-2：状态修改便于核对【格式约定】
+
+不同状态变量分别声明和修改，同一结果的解构可以合并；不把多次await和赋值压在一行。控制语句、函数体和异常处理正常换行，简单表达式回调可保留表达式形式。
+
+### FMT-3：复杂条件便于阅读【格式约定】
+
+三元只用于简单值选择，不嵌套；长条件按逻辑项换行，复杂含义使用有业务名称的局部判断。真正的结构要求见FLOW-1至FLOW-3，换行本身不算完成重构。

@@ -1,14 +1,14 @@
 # 052 — 代码复核与实现架构实施原稿
 
-对应 [架构/函数总表](./052-代码复核与实现架构.md)、[完整接口文档](./052-完整接口文档.md) 和 [类型契约](./052-接口契约.ts)。第一阶段DSH封装、第二阶段数据图已完成。第三阶段最初的固定两个报告方案已由 [053 动态核查路由](./053-动态核查路由.md) 替换：路由Agent按Claim选择自定义Agent/tool和角度，DSH委派各slot，独立汇总Agent提交结论，人工模式审核路由与结果。当前实现接口以 [055 接口文档](./055-接口文档.md) 为准。资产管理界面与旧前端接线尚未实施。
+对应 [架构/函数总表](./052-代码复核与实现架构.md)、[完整接口文档](./052-完整接口文档.md) 和 [类型契约](./052-接口契约.ts)。第一阶段DSH封装、第二阶段数据图已完成。第三阶段最初的固定两个报告方案已由 [053 动态核查路由](./053-动态核查路由.md) 替换：路由Agent按Claim选择自定义Agent/tool和角度，DSH委派各slot，独立汇总Agent提交结论，人工模式审核路由与结果。当前已实现接口见 [055](./055-接口文档.md)/[056](./056-接口文档.md) 及正式 contracts/*。056 已完成核查客户端闭环，057/058 已精简并验收；完整管理 UI 与产品 SSE 仍未接通。
 
-**用户最新决定：从零重写，先将DSH封装成可独立调用的接口。** 第一期只固定智能体执行边界，再建设数据图与业务运行，最后接多Host。旧源码仅用作功能检查依据；新后端不import旧Mapper、旧AgentLoop或旧后端服务。
+**用户最新决定：在 053–058 基线上继续 [059 节点驱动闭环与暂停](./059-implement-节点驱动协作闭环与暂停恢复.md)。** Run 改为 scope.nodeIds/until/operations[] 和独立 paused，parse/split/verify 处理不同新闻事实；不从零重写，不恢复旧 Mapper 或模型会话现场。
 
-054进度：已继续实现[自动执行与多Host租约](./054-自动执行与多Host租约.md)，当前协议以[054接口文档](./054-接口文档.md)为准。产品SSE/Activity与旧前端接线仍在第6阶段。
+054进度：已继续实现[自动执行与多Host租约](./054-自动执行与多Host租约.md)，当前协议以[054接口文档](./054-接口文档.md)为准。此阶段只闭合单 Claim 内部角色工作；产品 SSE/Activity 与多节点推进继续分阶段接线。
 
-055进度：已实现身份/共享控制配置/资产与v3包，当前完整协议见[055接口文档](./055-接口文档.md)。本机连接变更采用停止、stage和重启，未提供未经drain的热切换；前端与parse/split执行继续按第6阶段推进。
+055进度：已实现身份/共享控制配置/资产与v3包，当前完整协议见[055接口文档](./055-接口文档.md)。本机连接变更采用停止、stage和重启，未提供未经drain的热切换；056 已接核查前端；parse/split 和跨节点推进按 059 继续。
 
-最终产品接口规模为9个查询、23个命令；独立DSH封装是后端内部能力，不计入这些产品命令。数据图阶段实现一个graph.apply变更校验/提交路径，不恢复旧node/edge/policy各自独立的处理链。
+052 完整目标接口为 9 个查询、25 个命令（包括 pause/resume），不代表生产已实现数量；独立DSH封装是后端内部能力，不计入这些产品命令。数据图阶段实现一个graph.apply变更校验/提交路径，不恢复旧node/edge/policy各自独立的处理链。
 
 原生Agent/SubAgent/Session/provider直接装配，先用一个简单测试工具验证扩展注册。data.read/propose业务接入模块在Graph出现后接入；Tavily仅在现成provider不满足时补适配，不把Graph/claim/Review存储插件化。
 
@@ -22,7 +22,7 @@
 | 3 | 业务运行接入DSH：Run/operation、候选报告/Review/收据、实际读集、data.read/propose | 已有Claim→动态路由→各角度报告→汇总/人工确认→结果接受 |
 | 4 | 多Host执行：领取/续租/fence、工作发现与终态、接管、共享通知 | 两Host并行同图；旧fence拒绝、取消与响应丢失恢复通过 |
 | 5 | auth/Control/资产：成员、共享Agent库、副本、偏好、secret/admin、GridFS/v3包 | 共享配置/资产及管理能力闭合 |
-| 6 | 补齐parse/split/verify、产品SSE/Activity代理、Client/Desktop/CLI/Vue | 全部用户业务流程与现有功能清单通过 |
+| 6 | 056 核查客户端已完成；059 补齐 scope/until、多 operation、parse/split、空结果/版本、paused 与前端 | 多新闻事实闭包通过；产品 SSE/Activity 和完整管理能力继续按实际范围推进 |
 | 7 | 需要时导入旧业务数据，正式切换并删除旧运行入口 | 产品只使用新后端，完成部署/回归文档 |
 
 第一阶段产出是后续正式复用的DSH执行封装，不是新的AgentLoop框架或只有假执行器的服务。直接针对锁定的DSH公开API实现，不提前建立Graph/Run/多Host租约依赖。
@@ -45,13 +45,13 @@
 
 ```text
 contracts/dsh.ts          start/run/close的DTO与事件
-backend/dsh.ts            原生DSH装配、会话/消息/取消封装
+backend/dsh.ts            已实现 SDK start/run/close，不增加冷会话恢复
 backend/dsh-http.ts       loopback HTTP与SSE映射
 backend/main.ts           本期只装配DSH服务、优雅关闭
 tests/backend/dsh.spec.ts 原生测试provider与真实模型smoke
 ```
 
-核心实现函数：dshCreateRuntime及其start/run/close实现、dshReadEvent、dshHttpCreateServer。业务层未来的dshRunOperation只调用这套封装，不重新启动另一条Agent路径。
+核心实现函数：dshCreateRuntime及其start/run/close实现、dshReadEvent、dshHttpCreateServer。本轮工作执行继续调用这套封装，不重建另一条 Agent 路径；命名 Session 的同进程能力不是接管所需前提。
 
 验收：
 
@@ -97,7 +97,7 @@ backend/store.ts         Mongo模型、读取、字段级CAS
 tests/backend/graph.spec.ts  真实HTTP/数据库闭环
 ```
 
-数据图阶段实现applicationCreateHost/applicationDeleteHost、apiCreateServer/apiReadQuery/apiDispatchCommand/apiWriteError、graphReadGraph/graphUpdateGraph/graphReadSnapshot、storeCreateConnection/storeReadGraph/storeReadGraphs/storeCommitGraph/storeDeleteConnection的必要部分，不创建其他空服务文件。
+数据图阶段已落具体 API、Graph 与 Store 边界；早期函数名仅作职责映射。058 已删除 storeDeleteConnection 等无策略包装，本轮直接复用现有函数与 Connection.close，不按旧列表重新创建。
 
 验收脚本必须顺序证明：
 
@@ -116,7 +116,7 @@ tests/backend/graph.spec.ts  真实HTTP/数据库闭环
 - Map/Node/Opinion/Slot 的位置型 ID 映射为稳定 ID，重建所有来源和共享关系。
 - Workspace.agents 保留私有内容；共享配置库初始版本按明确来源导入，遇到磁盘/公共池不一致报告差异，不静默择一。
 - 将 Workspace.ui 转成本人初始偏好；不能把某一人的标签页覆盖全部成员。
-- 旧 Run/调用账本留在备份审计，不迁成可自动执行的新 Session。
+- 旧 Mapper Run/调用账本只作审计，不迁模型执行现场。059 提供显式本机升级工具处理新后端的单 operation 旧 Run；默认不写用户 DB，不加运行时双协议。
 - 旧已核查数据保留内容和出处；缺有效输入记录时标需复核。
 - 本地来源上传为共享资产并重写assetId；任何缺失文件列为迁移错误，不伪造ready资源。
 
@@ -146,7 +146,8 @@ tests/backend/graph.spec.ts  真实HTTP/数据库闭环
 - 旧Host失租后即使恢复计算也不能写；旧工具调用不冒用新fence。
 - 同图短CAS冲突只重读校验，不重复模型调用或覆盖其他租约。
 - Mongo已提交但响应丢失可读取原收据；lease代数不进入业务幂等key。
-- waiting释放租约；答案落库后任意Host接管，复用报告。
+- operation 等待释放当前工作租约，其他独立项继续；答案落库不清 paused；新领取会话复用有效报告。
+- pause 与 claim/renew/proposal/fail 竞争、快速 pause→resume 和旧请求重放均验证；同事务失效租约，不加执行 epoch。
 - cancel/fail与commit/renew/complete竞争顺序明确；retry创建新Run。
 - primary切换、无数据库、Host关机、客户端断开分别符合协议；禁止memory fallback。
 - SSE基线无缺口、旧Activity代次被丢弃、慢客户端重连、权限撤销。
