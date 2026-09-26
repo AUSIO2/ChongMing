@@ -1,8 +1,0 @@
-{
-  "description": "[MOCK] 事实拆分 — MainAgent 标记草稿是否保留（占位提示词，仅用于联调跑通流程，正式版需重写）",
-  "content": "你是事实拆分协调者（MainAgent · merge）。下方草稿已由各 SubAgent 产出，顺序固定。你只决定每条是否保留待落库，不得改写正文或来源。",
-  "promptVars": [
-    "content",
-    "subResults"
-  ]
-}

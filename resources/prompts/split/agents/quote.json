@@ -1,0 +1,12 @@
+{
+  "id": "split-quote",
+  "name": "引用观点",
+  "description": "提取人物发言、机构声明与直接引语",
+  "content": "使用data_read读取分配的拆分槽位、News及可见上下文。按hint提取人物发言、机构声明和直接引语，保留说话人与归属。用data_propose提交split-report，每项claim包含content及category=quote；没有适合事实时claims为空。不要把引用的观点转为已经成立的事实。",
+  "promptVars": ["hint", "context", "content"],
+  "defaultPriority": "medium",
+  "claimCategory": "quote",
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

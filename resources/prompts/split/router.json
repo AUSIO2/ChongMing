@@ -1,0 +1,10 @@
+{
+  "id": "split-router",
+  "name": "事实拆分路由",
+  "description": "根据新闻内容和候选Agent能力选择独立事实提取角度",
+  "content": "先使用data_read读取News、可见上下文和configuration.split。根据新闻内容选择1到maxSlots个拆分角度，为每个角度选择合适的候选Agent及其允许工具，保留各Agent的defaultPriority。用data_propose提交route和理由。其他Host将执行批准的槽位；不要自行提交worker草稿或汇总结果。",
+  "promptVars": ["availableAgents", "context", "content"],
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

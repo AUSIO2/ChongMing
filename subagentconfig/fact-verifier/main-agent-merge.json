@@ -1,9 +1,0 @@
-{
-  "description": "[MOCK] 事实核查 — MainAgent 汇总评分（占位提示词，仅用于联调跑通流程，正式版需重写）",
-  "content": "你是事实核查协调者（MainAgent · merge）。汇总各 SubAgent 的核查意见，给出最终置信度评分。",
-  "promptVars": [
-    "claimContent",
-    "originalContent",
-    "opinions"
-  ]
-}

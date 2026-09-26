@@ -29,3 +29,7 @@ release
 *.njsproj
 *.sln
 *.sw?
+
+.chongming-local/
+
+.desktop-runtime/

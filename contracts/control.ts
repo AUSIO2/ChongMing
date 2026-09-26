@@ -34,9 +34,9 @@ export interface AppBootstrap {
   identity: Identity
   settings: ClusterSettings
   metadata: {
-    version: string; promptKinds: PromptKind[]; executableKinds: ['verify']; scores: [0, 0.5, 1]
+    version: string; promptKinds: PromptKind[]; executableKinds: Array<'parse' | 'split' | 'verify'>; scores: [0, 0.5, 1]
     variables: Record<PromptKind, string[]>
-    outputs: Array<{ kind: 'verifyRoute' | 'verifySubAgent' | 'verifyMerge'; content: string }>
+    outputs: Array<{ kind: PromptKind; content: string }>
   }
 }
 export interface Asset { id: string; workspaceId: string; filename: string; mediaType: string; size: number; sha256: string; createdAt: string }
@@ -55,6 +55,7 @@ export type ControlQuery =
   | { method: 'workspace.get'; params: { workspaceId: string } }
   | { method: 'agent.list'; params: { scope: AgentScope; kind?: PromptKind } }
   | { method: 'asset.get'; params: { assetId: string } }
+  | { method: 'asset.list'; params: PageInput & { workspaceId: string } }
 export type WorkspaceMutation = { workspaceId: string; expectedRevision: number }
 export type ControlCommand = { requestId: string } & (
   | { method: 'workspace.create'; params: { id: string; name: string; description: string; agentSource: 'empty' | 'library' } }

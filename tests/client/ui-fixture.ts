@@ -1,3 +1,6 @@
+import { queueCreateTransport } from '../../backend/adapters/messaging/rabbitmq'
+import { sqliteCreatePersistence, type SqlitePersistence } from '../../backend/adapters/storage/sqlite/persistence'
+import { setTimeout as delay } from 'node:timers/promises'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server, type ServerResponse } from 'node:http'
@@ -6,15 +9,23 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import type { Connection } from 'mongoose'
-import { apiCreateServer } from '../../backend/api'
-import { applicationCreateService } from '../../backend/application'
-import { hostCreateWorker, type HostWorker } from '../../backend/host'
-import { storeCreateConnection } from '../../backend/store'
+import { apiCreateServer } from '../../backend/adapters/http/graph-http-server'
+import { applicationCreateService } from '../../apps/graph-server/application'
+import { applicationCreateLocalService } from '../../apps/local-server/application'
+import { hostCreateWorker, type HostWorker, type HostInput } from '../../backend/execution/host-worker'
+import { storeCreateConnection } from '../../backend/adapters/storage/mongo/connection'
+import { rabbitCreateFixture } from '../backend/fixtures/rabbitmq'
 import type { GraphAgentProfile, GraphDataRead, GraphRunConfiguration } from '../../contracts/graph'
 
 import routerPrompt from './fixtures/router.json'
 import workerPrompt from './fixtures/worker.json'
 import mergePrompt from './fixtures/merge.json'
+import parsePrompt from './fixtures/parse.json'
+import splitRouterPrompt from './fixtures/split-router.json'
+import splitWorkerPrompt from './fixtures/split-worker.json'
+import splitMergePrompt from './fixtures/split-merge.json'
+
+type HostInputQueue = HostInput['queue']
 
 interface WireMessage {
   role: string; content?: string; tool_call_id?: string
@@ -24,14 +35,17 @@ interface WireMessage {
 export interface FixtureModelCall { role: string; tool: string; sessionId: string }
 
 function fixtureReadConfiguration(): GraphRunConfiguration {
-  const prompts = { router: routerPrompt, worker: workerPrompt, merge: mergePrompt }
-  const profile = (id: string, name: string, role: 'router' | 'worker' | 'merge'): GraphAgentProfile => ({
+  const prompts = { router: routerPrompt, worker: workerPrompt, merge: mergePrompt, parse: parsePrompt, 'split-router': splitRouterPrompt, 'split-worker': splitWorkerPrompt, 'split-merge': splitMergePrompt }
+  const vars: Record<keyof typeof prompts, string[]> = { parse: ['rawContent'], router: ['claimContent', 'availableAgents'], worker: ['hint', 'claimContent'], merge: ['claimContent', 'opinions'], 'split-router': ['availableAgents', 'context', 'content'], 'split-worker': ['hint', 'context', 'content'], 'split-merge': ['content', 'subResults'] }
+  const profile = (id: string, name: string, role: keyof typeof prompts): GraphAgentProfile => ({
     id, name, description: `${name}，使用本机确定性验收数据。`,
     content: prompts[role].content,
     provider: 'deepseek-official', model: 'deepseek-v4-flash', tools: role === 'worker' ? ['archive_lookup'] : [],
-    promptVars: role === 'router' ? ['claimContent', 'availableAgents'] : role === 'worker' ? ['hint', 'claimContent'] : ['claimContent', 'opinions'],
+    promptVars: vars[role],
   })
   return {
+    parse: profile('ui-parse', '来源解析', 'parse'),
+    split: { router: profile('ui-split-router', '拆分路由', 'split-router'), merger: profile('ui-split-merger', '事实汇总', 'split-merge'), agents: [profile('ui-split-worker', '事实提取', 'split-worker')] },
     router: profile('ui-router', '核查路由', 'router'), merger: profile('ui-merger', '综合判断', 'merge'),
     agents: [profile('ui-source', '来源核验', 'worker'), profile('ui-data', '数据核验', 'worker'), profile('ui-logic', '逻辑核验', 'worker')],
     tools: [{ name: 'archive_lookup', description: '读取本机验收证据，不连接外部数据源。' }], maxSlots: 5,
@@ -60,32 +74,42 @@ function fixtureWriteReply(response: ServerResponse, name: string, args: unknown
 }
 
 /** A real, disposable backend and native DSH Host. Only the local model HTTP responses are scripted. */
-export async function fixtureCreateEnvironment() {
+export async function fixtureCreateEnvironment(options: { hostAdmin?: boolean; modelDelayMs?: number; storage?: 'mongo' | 'sqlite' } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-ui-'))
   const modelCalls: FixtureModelCall[] = []
   const errors: string[] = []
+  let sqlite: SqlitePersistence | undefined
   let mongo: MongoMemoryReplSet | undefined, connection: Connection | undefined
   let server: Server | undefined, provider: Server | undefined, host: HostWorker | undefined
+  let applicationService: ReturnType<typeof applicationCreateService> | undefined
+  let broker: Awaited<ReturnType<typeof rabbitCreateFixture>> | undefined
+  let messagingNamespace: string | undefined
   let closing: Promise<void> | undefined
   const close = () => closing ??= (async () => {
     await host?.close()
     await fixtureCloseServer(server)
     await fixtureCloseServer(provider)
+    await applicationService?.closeMessaging()
     if (connection) await connection.close()
+    await sqlite?.close()
     if (mongo) await mongo.stop()
+    if (broker && messagingNamespace) await broker.deleteNamespace(messagingNamespace)
+    await broker?.close()
     await rm(directory, { recursive: true, force: true })
   })()
   try {
     provider = createServer(async (request, response) => {
       try {
+        if (request.method === 'GET' && request.url === '/source') { response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); response.end('本机来源：这条消息包含两项需要分别核查的事实。'); return }
         if (request.method !== 'POST' || request.url !== '/v1/chat/completions'
           || request.headers.authorization !== 'Bearer ui-fixture-key') throw new Error('Unexpected model request')
         const chunks: Buffer[] = []
         for await (const chunk of request) chunks.push(Buffer.from(chunk))
         const { messages } = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { messages: WireMessage[] }
         const persona = messages.filter(message => message.role === 'user' || message.role === 'system').map(message => message.content).join('\n')
-        const role = persona.match(/UI_FIXTURE_ROLE=(router|worker|merge)/)?.[1]
+        const role = persona.match(/UI_FIXTURE_ROLE=(router|worker|merge|parse|split-router|split-worker|split-merge)/)?.[1]
         if (!role) throw new Error('Fixture role persona is absent')
+        if (options.modelDelayMs) await delay(options.modelDelayMs)
         const calls = new Map(messages.flatMap(message => message.tool_calls ?? []).map(call => [call.id, call]))
         const results = messages.filter(message => message.role === 'tool').map(message => ({
           name: calls.get(message.tool_call_id ?? '')?.function.name,
@@ -102,10 +126,13 @@ export async function fixtureCreateEnvironment() {
         } })
         if (last.name !== 'data_read') throw new Error('The accepted native work should have ended its turn')
         const data = last.data as unknown as GraphDataRead
-        if (data.work.actor.role !== role) throw new Error('Model persona differs from its granted work')
-        if (role === 'router') return send('data_propose', { proposal: {
+        if (data.work.actor.role !== role.replace('split-', '')) throw new Error('Model persona differs from its granted work')
+        if (role === 'parse') return send('data_propose', { proposal: { kind: 'parse', reason: '从来源中提取一篇新闻。', news: [{ content: data.rawContent!, context: { 来源: { value: '本机验收来源', visibleToAI: true } } }] } })
+        if (role === 'split-worker') return send('data_propose', { proposal: { kind: 'split-report', reason: '提取两个可独立核查的事实。', claims: [{ content: '本机来源中的第一项事实。', category: 'data' }, { content: '本机来源中的第二项事实。', category: 'quote' }] } })
+        if (role === 'split-merge') return send('data_propose', { proposal: { kind: 'split-merge', reportIds: data.splitReports.map(report => report.id), reason: '保留两项有来源依据的候选事实。', selected: data.splitReports.flatMap(report => report.claims.map((_claim, index) => ({ reportId: report.id, index }))) } })
+        if (role === 'router' || role === 'split-router') return send('data_propose', { proposal: {
           kind: 'route', reason: '从来源、数据与逻辑三个独立角度核查，保留每项依据。',
-          slots: data.configuration.agents.slice(0, 3).map((agent, index) => ({
+          slots: (data.operationKind === 'split' ? data.configuration.split!.agents : data.configuration.agents).slice(0, 3).map((agent, index) => ({
             id: `check-${index + 1}`, agentId: agent.id, angle: agent.name,
             priority: (['high', 'medium', 'low'] as const)[index], hint: `请完成${agent.name}，写明证据和限制。`, tools: [...agent.tools],
           })),
@@ -130,12 +157,26 @@ export async function fixtureCreateEnvironment() {
       '- insert:', '    - id: verification-evidence-fixture',
       `      name: ${JSON.stringify(path.resolve('tests/backend/fixtures/evidence-tool.mjs'))}`, '',
     ].join('\n'), { mode: 0o600 })
-    mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
-    connection = await storeCreateConnection(mongo.getUri('chongming_ui_fixture'))
-    const application = applicationCreateService(connection, { leaseMs: 5000 })
+    let application: ReturnType<typeof applicationCreateService>, queue: HostInputQueue
+    if (options.storage === 'sqlite') {
+      sqlite = sqliteCreatePersistence(path.join(directory, 'sqlite'))
+      const local = applicationCreateLocalService(sqlite, { leaseMs: 5000, allowPrivateSources: true })
+      application = local
+      queue = { namespace: 'local', open: async () => local.localQueue }
+    } else {
+      mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
+      connection = await storeCreateConnection(mongo.getUri('chongming_ui_fixture'))
+      broker = await rabbitCreateFixture()
+      application = applicationCreateService(connection, { leaseMs: 5000, allowPrivateSources: true, messaging: broker.queue })
+      queue = queueCreateTransport(broker.queue)
+    }
+    applicationService = application
     await application.initialize()
+    messagingNamespace = application.messaging().namespace
+    await application.startMessaging()
     await application.control.seed(fixtureReadConfiguration())
-    const identity = await application.auth.createUser({ id: randomUUID(), displayName: '界面验收用户', hostAdmin: false })
+    const identity = await application.auth.createUser({ id: randomUUID(), displayName: '界面验收用户', hostAdmin: options.hostAdmin === true })
+    const member = options.hostAdmin ? await application.auth.createUser({ id: randomUUID(), displayName: '验收协作成员', hostAdmin: false }) : null
     const { token, tokenId } = await application.auth.createToken(identity.userId)
     const workspace = await application.auth.transact(token, ctx => application.control.createWorkspace(ctx, {
       id: randomUUID(), name: '重明 · 核查验收', description: '独立本机验收环境，模型输出为确定性测试数据。', agentSource: 'library',
@@ -145,7 +186,7 @@ export async function fixtureCreateEnvironment() {
     const baseUrl = await fixtureStartServer(server)
     host = hostCreateWorker({ hostId: 'ui-fixture-host', dataApiUrl: baseUrl, token: internalToken,
       dshHome: path.join(directory, 'dsh-home'), cwd: directory, processCwd: directory,
-      dshBin: path.resolve('node_modules/@deepseek-ai/dsh/lib/bin.js'), patches: [patchPath], pollMs: 50,
+      dshBin: path.resolve('node_modules/@deepseek-ai/dsh/lib/bin.js'), patches: [patchPath], queue,
       env: { DEEPSEEK_API_KEY: 'ui-fixture-key', DSH_TELEMETRY_DISABLED: '1',
         CHONGMING_CONFIG_DIR: path.join(directory, 'local-config'),
         CHONGMING_E2E_TOOL_LOG: path.join(directory, 'tool-calls.jsonl'),
@@ -153,8 +194,10 @@ export async function fixtureCreateEnvironment() {
     })
     await host.start()
     const credentialsPath = path.join(directory, 'credentials.json')
-    await writeFile(credentialsPath, JSON.stringify({ baseUrl, token, workspaceId: workspace.id, displayName: identity.displayName }, null, 2), { mode: 0o600 })
-    return { baseUrl, token, tokenId, identity, workspaceId: workspace.id, directory, credentialsPath,
+    await writeFile(credentialsPath, JSON.stringify({ baseUrl, sourceUrl: providerUrl + '/source', token, workspaceId: workspace.id, displayName: identity.displayName,
+      ...(member ? { memberUserId: member.userId } : {}),
+    }, null, 2), { mode: 0o600 })
+    return { baseUrl, sourceUrl: providerUrl + '/source', token, tokenId, identity, workspaceId: workspace.id, directory, credentialsPath,
       application, modelCalls, errors, close }
   } catch (error) { await close(); throw error }
 }
@@ -162,7 +205,7 @@ export async function fixtureCreateEnvironment() {
 export type UiFixture = Awaited<ReturnType<typeof fixtureCreateEnvironment>>
 
 async function fixtureRunMain() {
-  const fixture = await fixtureCreateEnvironment()
+  const fixture = await fixtureCreateEnvironment({ hostAdmin: process.argv.includes('--admin'), storage: process.argv.includes('--sqlite') ? 'sqlite' : 'mongo' })
   console.log(JSON.stringify({ event: 'ui.fixture.ready', pid: process.pid, baseUrl: fixture.baseUrl, workspaceId: fixture.workspaceId,
     credentialsPath: fixture.credentialsPath, proxyEnvironment: { CHONGMING_GRAPH_API: fixture.baseUrl } }))
   const stop = () => { void fixture.close().then(() => console.log(JSON.stringify({ event: 'ui.fixture.stopped' }))) }

@@ -1,0 +1,10 @@
+{
+  "id": "split-merger",
+  "name": "事实拆分汇总",
+  "description": "从独立拆分报告中保留可核查事实并去重，保持正文和来源",
+  "content": "使用data_read读取News、批准路由及全部splitReports。比较各worker的claims，移除重复、无事实依据或不宜独立核查的草稿；不得改写正文、类别或来源。用data_propose提交split-merge，reportIds精确覆盖全部批准槽位报告，selected使用每条保留草稿的reportId和从0开始的index。允许selected为空。",
+  "promptVars": ["content", "subResults"],
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

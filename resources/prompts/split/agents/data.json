@@ -1,0 +1,12 @@
+{
+  "id": "split-data",
+  "name": "数据事实",
+  "description": "提取数值、统计、日期等数据型事实",
+  "content": "使用data_read读取分配的拆分槽位、News及可见上下文。按hint提取可独立核查的数值、统计、日期等事实，保留完整语义。用data_propose提交split-report，每项claim包含content及category=data；没有适合事实时claims为空。不要验证真伪或编造新闻外事实。",
+  "promptVars": ["hint", "context", "content"],
+  "defaultPriority": "high",
+  "claimCategory": "data",
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

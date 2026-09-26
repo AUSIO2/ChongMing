@@ -36,11 +36,11 @@ export default defineConfig(() => {
       vue(),
       ...(web ? [] : [clientCreateContentPolicy(), electron({
         main: {
-          entry: 'electron/client-main.ts',
+          entry: 'apps/desktop/main.ts',
           vite: { build: { rollupOptions: { external: clientIsDependency, output: { entryFileNames: 'main.js' } } } },
         },
         preload: {
-          input: path.join(__dirname, 'electron/client-preload.ts'),
+          input: path.join(__dirname, 'apps/desktop/preload.ts'),
           vite: { build: { rollupOptions: { output: { entryFileNames: 'preload.js' } } } },
         },
       })]),

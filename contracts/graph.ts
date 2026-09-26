@@ -26,6 +26,8 @@ export interface GraphAgentProfile {
 }
 
 export interface GraphRunConfiguration {
+  parse?: GraphAgentProfile
+  split?: { router: GraphAgentProfile; merger: GraphAgentProfile; agents: GraphAgentProfile[] }
   router: GraphAgentProfile
   merger: GraphAgentProfile
   agents: GraphAgentProfile[]
@@ -58,7 +60,7 @@ export interface GraphMergeDraft {
 }
 
 /** Trusted bridge identity, supplied in authenticated headers, never model arguments. */
-export type GraphDataActor = { role: 'router' | 'merge' } | { role: 'worker'; slotId: string }
+export type GraphDataActor = { role: 'parse' | 'router' | 'merge' } | { role: 'worker'; slotId: string }
 
 export interface GraphWorkProof {
   workId: string
@@ -82,7 +84,7 @@ export interface GraphWorkGrant extends GraphWork, GraphWorkProof {
 }
 
 export type GraphWorkCommand =
-  | { method: 'claim'; params: { hostId: string; holderId: string; mapId?: string } }
+  | { method: 'claim'; params: { hostId: string; holderId: string; mapId: string; workId: string; deploymentId: string } }
   | { method: 'read'; params: GraphWorkProof & { mapId: string } }
   | { method: 'renew'; params: GraphWorkProof & { mapId: string } }
   | { method: 'release'; params: GraphWorkProof & { mapId: string } }
@@ -96,9 +98,11 @@ export interface GraphNode {
   updatedAt: string
   importedFrom?: { bundleId: string; nodeId: string; revision: number }
   validity?: 'current' | 'stale'
+  /** Read-only provenance projected from accepted operation history; never an execution node. */
+  producer?: { operationId: string; kind: 'parse' | 'split'; inputId: string; agentId: string; agentName: string; slotId?: string; angle?: string }
 }
 
-export type GraphEdgeKind = 'mentions' | 'verifies' | 'related-to'
+export type GraphEdgeKind = 'derived-from' | 'mentions' | 'verifies' | 'related-to'
 
 export interface GraphEdgeInput {
   id: string
@@ -161,24 +165,33 @@ export interface GraphReview {
 
 export interface GraphOperation {
   id: string
-  kind: 'verify'
+  kind: 'parse' | 'split' | 'verify'
   targetId: string
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
   inputRefs: Array<{ id: string; revision: number }>
+  configurationHash: string
+  outputRefs: Array<{ id: string; revision: number; reportId?: string; index?: number }>
+  rawContent?: string
   route: GraphRoute | null
   draft: GraphMergeDraft | null
   reports: GraphReport[]
+  splitReports: GraphSplitReport[]
+  contentDraft: GraphContentDraft | null
   review: GraphReview | null
   resultNodeId: string | null
 }
 
 export interface GraphRun {
   id: string
+  scope: { nodeIds: string[] }
+  until: 'news' | 'claims' | 'verified'
+  paused: boolean
+  regenerate: boolean
   mode: 'auto' | 'human-in-loop'
   status: 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
   configuration: GraphRunConfiguration
   error?: { code: string; message: string; workId: string }
-  operation: GraphOperation
+  operations: GraphOperation[]
   createdAt: string
   updatedAt: string
 }
@@ -227,7 +240,9 @@ export type GraphCommand =
         mapId: string
         expectedRevision: number
         id: string
-        targetId: string
+        scope: { nodeIds: string[] }
+        until: GraphRun['until']
+        regenerate?: boolean
         mode: 'auto' | 'human-in-loop'
       }
     }
@@ -236,11 +251,13 @@ export type GraphCommand =
       method: 'run.cancel'
       params: { mapId: string; expectedRevision: number; runId: string }
     }
+  | { requestId: string; method: 'run.pause'; params: { mapId: string; expectedRevision: number; runId: string } }
+  | { requestId: string; method: 'run.resume'; params: { mapId: string; expectedRevision: number; runId: string } }
   | {
       requestId: string
       method: 'review.update'
       params: {
-        mapId: string; expectedRevision: number; runId: string
+        mapId: string; expectedRevision: number; runId: string; operationId: string
         reviewId: string; expectedReviewRevision: number
         reason: string; slots: GraphRouteSlot[]
       }
@@ -252,6 +269,7 @@ export type GraphCommand =
         mapId: string
         expectedRevision: number
         runId: string
+        operationId: string
         reviewId: string
         expectedReviewRevision: number
         decision: 'approve' | 'reject'
@@ -262,23 +280,38 @@ export interface GraphDataRead {
   mapId: string
   runId: string
   operationId: string
-  claim: GraphNode & { data: Extract<GraphNodeData, { kind: 'claim' }> }
+  operationKind: GraphOperation['kind']
+  target: GraphNode & { data: Extract<GraphNodeData, { kind: 'source' | 'news' | 'claim' }> }
+  rawContent?: string
   context: Array<{ id: string; content: string; context: Record<string, ContextField> }>
   configuration: GraphRunConfiguration
   route: GraphRoute | null
   reports: GraphReport[]
+  splitReports: GraphSplitReport[]
+  contentDraft: GraphContentDraft | null
   draft: GraphMergeDraft | null
   review: GraphReview | null
-  phase: 'route' | 'workers' | 'merge' | 'waiting' | 'done'
+  phase: 'parse' | 'route' | 'workers' | 'merge' | 'waiting' | 'done'
   proposalId: string
   work: { id: string; actor: GraphDataActor; routeRevision: number; status: 'ready' | 'accepted' }
 }
 
 export type GraphDataProposal = { mapId: string; operationId: string; id: string } & (
+  | { kind: 'parse'; reason: string; news: GraphNewsOutput[] }
+  | { kind: 'split-report'; routeRevision: number; slotId: string; reason: string; claims: GraphClaimOutput[] }
+  | { kind: 'split-merge'; routeRevision: number; reportIds: string[]; reason: string; selected: GraphClaimSelection[] }
   | { kind: 'route'; reason: string; slots: GraphRouteSlot[] }
   | { kind: 'report'; routeRevision: number; slotId: string; score: 0 | 0.5 | 1; reason: string }
   | { kind: 'merge'; routeRevision: number; reportIds: string[]; score: 0 | 0.5 | 1; reason: string }
 )
+
+export interface GraphNewsOutput { content: string; context: Record<string, ContextField> }
+export interface GraphClaimOutput { content: string; category: string | null }
+export interface GraphClaimSelection { reportId: string; index: number }
+export interface GraphSplitReport extends Omit<GraphReport, 'score'> { claims: GraphClaimOutput[] }
+export type GraphContentDraft =
+  | { kind: 'parse'; reason: string; news: GraphNewsOutput[] }
+  | { kind: 'split'; reason: string; selected: GraphClaimSelection[] }
 
 export interface GraphSuccess<T> {
   ok: true
@@ -290,5 +323,5 @@ export interface GraphSuccess<T> {
 export interface GraphFailure {
   ok: false
   requestId: string
-  error: { code: string; message: string; retryable: boolean; currentRevision?: number }
+  error: { code: string; message: string; retryable: boolean; errorId: string; currentRevision?: number }
 }

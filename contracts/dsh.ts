@@ -7,7 +7,7 @@ export type DshJson =
   | { [key: string]: DshJson }
 
 export interface DshRuntimeConfig {
-  dshBin: string
+  dshBin?: string
   dshHome: string
   cwd: string
   processCwd: string

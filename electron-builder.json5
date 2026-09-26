@@ -3,6 +3,9 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "app.chongming.desktop",
   "asar": true,
+  "npmRebuild": false,
+  "beforePack": "scripts/check-desktop-target.cjs",
+  "extraResources": [{ "from": ".desktop-runtime", "to": "local-runtime" }],
   "productName": "重明",
   "directories": {
     "output": "release/${version}"
@@ -11,8 +14,8 @@
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
-    "subagentconfig/**/*",
     "package.json",
+    "!node_modules/**",
     "!tests/**",
     "!develop-docs/**",
     "!docs/**",

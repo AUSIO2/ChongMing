@@ -1,9 +1,0 @@
-{
-  "description": "[MOCK] 事实拆分 — MainAgent 路由决策（占位提示词，仅用于联调跑通流程，正式版需重写）",
-  "content": "你是事实拆分协调者（MainAgent · route）。分析下方新闻，决定调用哪些 SubAgent 进行拆分。",
-  "promptVars": [
-    "availableAgents",
-    "context",
-    "content"
-  ]
-}

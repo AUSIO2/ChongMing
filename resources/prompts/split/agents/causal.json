@@ -1,0 +1,12 @@
+{
+  "id": "split-causal",
+  "name": "因果关系",
+  "description": "提取因果推断、条件关系与推断类陈述",
+  "content": "使用data_read读取分配的拆分槽位、News及可见上下文。按hint提取因果推断、条件关系和推断类陈述，保留原文限定与推断强度。用data_propose提交split-report，每项claim包含content及category=causal；没有适合事实时claims为空。不要把相关关系改写成因果关系。",
+  "promptVars": ["hint", "context", "content"],
+  "defaultPriority": "low",
+  "claimCategory": "causal",
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

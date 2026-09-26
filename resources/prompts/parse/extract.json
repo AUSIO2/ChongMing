@@ -1,0 +1,10 @@
+{
+  "id": "parse-extract",
+  "name": "源稿解析",
+  "description": "从共享源稿提取新闻正文，保留事实和来源语境",
+  "content": "使用data_read读取分配的Source和rawContent。将原稿整理为连贯的新闻正文，保留事实信息，不添加推测；多篇独立新闻分别输出，无新闻时允许news为空。用data_propose提交parse，news中每项包含content与context；没有额外上下文时context为空对象。有上下文时明确每个字段value和visibleToAI。不要读取客户端或Host任意文件路径。",
+  "promptVars": ["rawContent"],
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

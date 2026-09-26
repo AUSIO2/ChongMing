@@ -1,29 +1,35 @@
 import { randomUUID } from 'node:crypto'
-import { apiCreateServer } from '../../../backend/api'
-import { applicationCreateService } from '../../../backend/application'
-import { storeCreateConnection } from '../../../backend/store'
+import { apiCreateServer } from '../../../backend/adapters/http/graph-http-server'
+import { applicationCreateService } from '../../../apps/graph-server/application'
+import { storeCreateConnection } from '../../../backend/adapters/storage/mongo/connection'
+import { workReadItems } from '../../../backend/modules/graph/work-state'
 import type { ContextField, GraphNodeData, GraphRunConfiguration, GraphWorkGrant } from '../../../contracts/graph'
 import type { AgentInput, PromptKind } from '../../../contracts/control'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { expect } from 'vitest'
 import { verificationConfiguration } from './verification'
+import { rabbitCreateFixture } from './rabbitmq'
+import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 
 export function grantHeaders(grant: GraphWorkGrant) {
   return { 'x-work-id': grant.workId, 'x-work-holder': grant.holderId, 'x-work-fence': String(grant.fence) }
 }
 
-export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verificationConfiguration()) {
+export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verificationConfiguration(), reporter?: DiagnosticReporter) {
+  const broker = await rabbitCreateFixture()
+  const queue = broker.queue
   const token = 'test-work-token'
   const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
   const uri = mongo.getUri('chongming_work_test')
   const connection = await storeCreateConnection(uri)
-  const application = applicationCreateService(connection, { leaseMs })
+  const application = applicationCreateService(connection, { leaseMs, allowPrivateSources: true, messaging: queue, reporter })
   await application.initialize()
+  await application.startMessaging()
   const { store, auth, control } = application
   await control.seed(seedConfiguration)
   const owner = await auth.createUser({ id: randomUUID(), displayName: 'Fixture Owner', hostAdmin: true })
   const { token: userToken } = await auth.createToken(owner.userId)
-  const server = apiCreateServer(application, { internalToken: token })
+  const server = apiCreateServer(application, { internalToken: token, reporter })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Test Graph API did not bind')
@@ -50,9 +56,15 @@ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verif
     return post('/internal/v1/work', { method, params }, { authorization: `Bearer ${token}` })
   }
   async function claim(mapId: string, hostId = 'test-host', holderId = randomUUID()): Promise<GraphWorkGrant | null> {
-    const result = await work('claim', { mapId, hostId, holderId })
-    expect(result).toMatchObject({ status: 200, body: { ok: true } })
-    return result.body.data
+    const document = await store.read(mapId)
+    if (!document) return null
+    for (const item of workReadItems(document)) {
+      const result = await work('claim', { mapId, workId: item.workId, hostId, holderId,
+        deploymentId: application.messaging().deploymentId })
+      expect(result).toMatchObject({ status: 200, body: { ok: true } })
+      if (result.body.data.status === 'claimed') return result.body.data.grant
+    }
+    return null
   }
   async function read(grant: GraphWorkGrant) {
     const result = await post('/internal/v1/data/read', { mapId: grant.mapId, operationId: grant.operationId }, {
@@ -68,8 +80,8 @@ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verif
     const data = await read(grant)
     return {
       mapId: grant.mapId, operationId: grant.operationId, id: data.proposalId,
-      ...(input.kind === 'route' ? {} : { routeRevision: data.route.revision }),
-      ...(input.kind === 'report' && grant.actor.role === 'worker' ? { slotId: grant.actor.slotId } : {}),
+      ...(['route', 'parse'].includes(String(input.kind)) ? {} : { routeRevision: data.route.revision }),
+      ...(['report', 'split-report'].includes(String(input.kind)) && grant.actor.role === 'worker' ? { slotId: grant.actor.slotId } : {}),
       ...input,
     }
   }
@@ -80,7 +92,11 @@ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verif
     })
     const agents = [profile(configuration.router, 'verifyRoute', 'fact-verifier/main-agent-route'),
       profile(configuration.merger, 'verifyMerge', 'fact-verifier/main-agent-merge'),
-      ...configuration.agents.map(agent => profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`))]
+      ...configuration.agents.map(agent => profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`)),
+      ...(configuration.parse ? [profile(configuration.parse, 'parseExtract', 'fact-parser/extract')] : []),
+      ...(configuration.split ? [profile(configuration.split.router, 'splitRoute', 'fact-extractor/main-agent-route'),
+        profile(configuration.split.merger, 'splitMerge', 'fact-extractor/main-agent-merge'),
+        ...configuration.split.agents.map(agent => profile(agent, 'splitSubAgent', `fact-extractor/sub-agents/${agent.id}`))] : [])]
     return auth.transact(userToken, async ctx => {
       const bootstrap = await control.read(ctx, { method: 'app.bootstrap', params: {} }) as { settings: { revision: number } }
       await control.dispatch(ctx, { requestId: randomUUID(), method: 'settings.update', params: {
@@ -104,17 +120,17 @@ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verif
     expect(await command('graph.apply', { mapId, expectedRevision: 0,
       changes: { nodes: { put: nodes }, ...(news ? { edges: { put: [{ id: randomUUID(), kind: 'mentions', from: newsId, to: claimId }] } } : {}) },
     })).toMatchObject({ status: 200 })
-    const result = await command('run.start', { mapId, expectedRevision: 1, id: runId, targetId: claimId, mode })
+    const result = await command('run.start', { mapId, expectedRevision: 1, id: runId, scope: { nodeIds: [claimId] }, until: 'verified', regenerate: true, mode })
     expect(result).toMatchObject({ status: 200, body: { data: { snapshot: { run: { id: runId, status: 'running' } } } } })
     return { mapId, claimId, runId, workspaceId: workspace.id,
-      operationId: result.body.data.snapshot.run.operation.id as string,
+      operationId: result.body.data.snapshot.run.operations[0].id as string,
       configuration: result.body.data.snapshot.run.configuration as GraphRunConfiguration }
   }
   async function answer(mapId: string, decision: 'approve' | 'reject' = 'approve') {
     const current = await snapshot(mapId)
-    const review = current.run.operation.review
+    const review = current.run.operations[0].review
     const body = { requestId: randomUUID(), method: 'review.answer', params: {
-      mapId, expectedRevision: current.revision, runId: current.run.id, reviewId: review.id,
+      mapId, expectedRevision: current.revision, runId: current.run.id, operationId: current.run.operations[0].id, reviewId: review.id,
       expectedReviewRevision: review.revision, decision,
     } }
     const result = await post('/api/v1/command', body)
@@ -122,13 +138,17 @@ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verif
     return { body, snapshot: result.body.data.snapshot }
   }
   return {
-    url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri,
+    url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri, queue,
+    deleteNamespace: broker.deleteNamespace,
     post, rawPost, command, snapshot, work, claim, read, propose, proposal, createWorkspace, createRun, answer,
     async close() {
       server.closeAllConnections()
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await application.closeMessaging()
       await connection.close()
       await mongo.stop()
+      await broker.deleteNamespace(application.messaging().namespace)
+      await broker.close()
     },
   }
 }
