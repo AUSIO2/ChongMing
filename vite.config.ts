@@ -1,17 +1,20 @@
+// 配置 Web 代理和桌面构建入口，并为桌面页面注入受限内容安全策略。
 import { defineConfig, type Plugin } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import vue from '@vitejs/plugin-vue'
 
-function clientIsDependency(id: string): boolean {
+function clientIsDependency(/* 构建器正在解析的模块标识，区分裸包名、相对路径、绝对路径和虚拟模块。 */ id: string): boolean {
+  // 识别裸包导入，使 Electron 主进程构建保留外部依赖而非打包相对资源。
   return !id.startsWith('.') && !id.startsWith('\0') && !path.isAbsolute(id)
 }
 
 function clientCreateContentPolicy(): Plugin {
+  // 创建仅构建阶段生效的插件，为桌面页面注入内容安全策略。
   return {
     name: 'desktop-content-security-policy',
     apply: 'build',
-    transformIndexHtml: () => [{
+    transformIndexHtml: () => /* 在 HTML 头部插入策略，禁止页面自行联网、提交表单或嵌入对象。 */  [{
       tag: 'meta',
       attrs: {
         'http-equiv': 'Content-Security-Policy',
@@ -23,6 +26,7 @@ function clientCreateContentPolicy(): Plugin {
 }
 
 export default defineConfig(() => {
+  // 校验 API 代理来源，并按 Web 或桌面模式装配 Vue、Electron 与安全策略插件。
   const web = process.env.CHONGMING_WEB === '1'
   const target = new URL(process.env.CHONGMING_GRAPH_API ?? 'http://127.0.0.1:4320')
   if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password

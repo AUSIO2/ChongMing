@@ -1,4 +1,5 @@
-/** Runtime failure and error-state messages. Normal UI copy and log event names do not belong here. */
+// 集中声明运行失败文案，并用索引占位符填充动态字段。
+/** 仅保存运行失败和错误状态文案；普通界面文本及日志事件名不放入此枚举。 */
 export enum RuntimeMessage {
   A_BUNDLE_SUPPORTS_AT_MOST_100_MAPS = "A bundle supports at most 100 Maps",
   A_CLAIMED_WORK_GRANT_IS_REQUIRED = "A claimed work grant is required",
@@ -482,7 +483,7 @@ export enum RuntimeMessage {
   X_WORK_FENCE_IS_REQUIRED = "x-work-fence is required",
 }
 
-// 用途：把当前模块转换成调用方需要的格式。
-export function messageFormat(template: RuntimeMessage, ...values: unknown[]): string {
-  return template.replace(/\{(\d+)\}/g, (_match, index: string) => String(values[Number(index)]))
+export function messageFormat(/* 共享运行文案枚举中的模板，数字占位符从零开始索引。 */ template: RuntimeMessage, /* 按占位索引提供的实参列表；每项转为字符串，缺项会得到 undefined 文本。 */ ...values: unknown[]): string {
+  // 按数字占位符替换运行文案中的参数，不改变文案枚举本身。
+  return template.replace(/\{(\d+)\}/g, (/* 正则匹配到的完整占位符，此处仅使用捕获的索引。 */ _match, /* 占位符中的十进制数字文本，转换为数组索引。 */ index: string) => /* 将占位符索引对应的实参转换为字符串。 */  String(values[Number(index)]))
 }

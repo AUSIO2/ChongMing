@@ -1,3 +1,4 @@
+// 文件职责：解析业务与 Host HTTP 协议，组织认证、文件流、事件流和统一错误响应。
 import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
 import { activityIsStatus } from '../../../contracts/activity'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
@@ -30,15 +31,13 @@ import {
 } from '../../modules/shared/input-validation'
 
 const MAX_BODY_BYTES = 1_048_576
-
-// 用途：处理API 请求相关工作，并把结果交给调用方。
-function apiWriteJson(response: ServerResponse, status: number, body: unknown): void {
+function apiWriteJson(/* 当前请求的 HTTP 响应，写出 JSON 后结束。 */ response: ServerResponse, /* 本次 JSON 响应使用的 HTTP 状态码。 */ status: number, /* 已准备好的公共响应载荷，可包含成功数据或脱敏错误。 */ body: unknown): void {
+  // 写出带 UTF-8 内容类型的 JSON 响应并结束请求。
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
 }
-
-// 用途：读取请求体，并把结构化结果交给调用方。
-async function apiReadBody(request: IncomingMessage): Promise<unknown> {
+async function apiReadBody(/* 未经验证的请求正文流，读取时累计检查大小。 */ request: IncomingMessage): Promise<unknown> {
+  // 限制 JSON 请求体至 1 MiB，并将格式错误映射为客户端错误。
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request) {
@@ -53,9 +52,8 @@ async function apiReadBody(request: IncomingMessage): Promise<unknown> {
     throw new GraphError(400, 'INVALID_JSON', RuntimeMessage.BODY_MUST_BE_VALID_JSON)
   }
 }
-
-// 用途：读取变更，并把结构化结果交给调用方。
-function apiReadChanges(value: unknown): GraphChanges {
+function apiReadChanges(/* 图编辑请求中的原始 changes 对象，需逐字段校验。 */ value: unknown): GraphChanges {
+  // 解析图名称、节点和关系的批量增删输入，拒绝未知字段及非法类型。
   const changes = apiReadObject(value, ['name', 'nodes', 'edges'], 'params.changes')
   const nodes = changes.nodes === undefined
     ? undefined
@@ -66,14 +64,16 @@ function apiReadChanges(value: unknown): GraphChanges {
   return {
     name: changes.name === undefined ? undefined : apiReadString(changes.name, 'params.changes.name'),
     nodes: nodes && {
-      put: nodes.put === undefined ? undefined : apiReadArray(nodes.put, 'params.changes.nodes.put').map((value, index) => {
+      put: nodes.put === undefined ? undefined : apiReadArray(nodes.put, 'params.changes.nodes.put').map((/* 本批待新增或更新节点的原始 JSON 条目。 */ value, /* 节点在提交数组中的位置，用于生成准确的校验字段路径。 */ index) => {
+        // 校验单个节点身份及对应类型的数据结构。
         const item = apiReadObject(value, ['id', 'data'], `params.changes.nodes.put[${index}]`)
         return { id: apiReadId(item.id, 'node.id'), data: graphInputReadNodeData(item.data, 'node.data') }
       }),
       remove: nodes.remove === undefined ? undefined : apiReadIds(nodes.remove, 'params.changes.nodes.remove'),
     },
     edges: edges && {
-      put: edges.put === undefined ? undefined : apiReadArray(edges.put, 'params.changes.edges.put').map((value, index) => {
+      put: edges.put === undefined ? undefined : apiReadArray(edges.put, 'params.changes.edges.put').map((/* 本批待新增或更新关系的原始 JSON 条目。 */ value, /* 关系在提交数组中的位置，用于生成准确的校验字段路径。 */ index) => {
+        // 校验单条关系的种类、身份与端点字段。
         const item = apiReadObject(value, ['id', 'kind', 'from', 'to'], `params.changes.edges.put[${index}]`)
         const kind = item.kind
         if (kind !== 'derived-from' && kind !== 'mentions' && kind !== 'verifies' && kind !== 'related-to') {
@@ -90,9 +90,8 @@ function apiReadChanges(value: unknown): GraphChanges {
     },
   }
 }
-
-// 用途：读取查询，并把结构化结果交给调用方。
-function apiReadQuery(value: unknown): GraphQuery | ControlQuery {
+function apiReadQuery(/* 客户端原始查询信封，包含待验证的方法及参数。 */ value: unknown): GraphQuery | ControlQuery {
+  // 按查询方法校验图、Run 或资产身份，其余查询交给工作区协议解析器。
   const envelope = apiReadObject(value, ['method', 'params'], 'query')
   if (envelope.method === 'map.list') {
     const params = apiReadObject(envelope.params, ['workspaceId'], 'params')
@@ -113,9 +112,8 @@ function apiReadQuery(value: unknown): GraphQuery | ControlQuery {
   }
   return controlReadQuery(value)
 }
-
-// 用途：读取命令，并把结构化结果交给调用方。
-function apiReadCommand(value: unknown): GraphCommand | ControlCommand {
+function apiReadCommand(/* 客户端原始命令信封，需验证请求身份、方法及对应参数。 */ value: unknown): GraphCommand | ControlCommand {
+  // 按命令种类校验幂等身份、版本及业务参数，并分派资产和管理命令解析。
   const envelope = apiReadObject(value, ['requestId', 'method', 'params'], 'command')
   const requestId = apiReadId(envelope.requestId, 'requestId')
   if (envelope.method === 'map.create') {
@@ -238,26 +236,24 @@ function apiReadCommand(value: unknown): GraphCommand | ControlCommand {
   if (envelope.method === 'asset.delete' || envelope.method === 'workspace.import') return assetsReadCommand(value)
   return controlReadCommand(value)
 }
-
-// 用途：读取布尔值，并把结构化结果交给调用方。
-function apiReadBoolean(value: unknown, label: string): boolean {
+function apiReadBoolean(/* 待校验的布尔输入，不接受字符串或数字代替。 */ value: unknown, /* 报错使用的字段路径，帮助调用者定位非法布尔值。 */ label: string): boolean {
+  // 要求输入是真正的布尔值，避免字符串被隐式转换。
   if (typeof value !== 'boolean') throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_MUST_BE_BOOLEAN, label))
   return value
 }
-// 用途：读取API 请求，并把结构化结果交给调用方。
-function apiReadUntil(value: unknown): 'news' | 'claims' | 'verified' {
+function apiReadUntil(/* 客户端指定的运行终点，必须属于支持的三个业务阶段。 */ value: unknown): 'news' | 'claims' | 'verified' {
+  // 将执行终点限制为新闻、事实或已核查三种阶段。
   if (value !== 'news' && value !== 'claims' && value !== 'verified') throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.UNTIL_MUST_BE_NEWS_CLAIMS_OR_VERIFIED)
   return value
 }
-// 用途：读取API 请求，并把结构化结果交给调用方。
-function apiReadOutputs(value: unknown, kind: 'news'): import('../../../contracts/graph').GraphNewsOutput[]
-// 用途：读取API 请求，并把结构化结果交给调用方。
-function apiReadOutputs(value: unknown, kind: 'claim'): import('../../../contracts/graph').GraphClaimOutput[]
-// 用途：读取API 请求，并把结构化结果交给调用方。
-function apiReadOutputs(value: unknown, kind: 'news' | 'claim') {
+function apiReadOutputs(/* 解析提案中的原始新闻数组，尚未验证内容和上下文。 */ value: unknown, /* 固定为新闻的输出种类，同时确定重载返回类型。 */ kind: 'news'): import('../../../contracts/graph').GraphNewsOutput[]
+function apiReadOutputs(/* 拆分报告中的原始事实数组，尚未验证内容和分类。 */ value: unknown, /* 固定为事实的输出种类，同时确定重载返回类型。 */ kind: 'claim'): import('../../../contracts/graph').GraphClaimOutput[]
+function apiReadOutputs(/* 待验证的模型产物数组，单次 Operation 最多接受 256 条。 */ value: unknown, /* 本次产物的业务种类，决定允许的字段及返回结构。 */ kind: 'news' | 'claim') {
+  // 验证至多 256 条新闻或事实产物，并投影为对应输出结构。
   const items = apiReadArray(value, kind)
   if (items.length > 256) throw new GraphError(413, 'OUTPUT_LIMIT', RuntimeMessage.AT_MOST_256_OUTPUTS_PER_OPERATION)
-  return items.map(value => {
+  return items.map(/* 新闻或事实数组中的单个未验证产物。 */ value => {
+    // 按产物类型校验内容及上下文或分类，剔除不属于输出协议的字段。
     const item = apiReadObject(value, kind === 'news' ? ['content', 'context'] : ['content', 'category'], kind)
     const node = graphInputReadNodeData({ ...item, kind }, kind)
     if (node.kind === 'news') return { content: node.content, context: node.context }
@@ -265,9 +261,8 @@ function apiReadOutputs(value: unknown, kind: 'news' | 'claim') {
     throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.INVALID_OUTPUT_KIND)
   })
 }
-
-// 用途：读取数据提案，并把结构化结果交给调用方。
-function apiReadDataProposal(value: unknown): GraphDataProposal {
+function apiReadDataProposal(/* Host 发送的原始提案载荷，需按提案种类收窄。 */ value: unknown): GraphDataProposal {
+  // 按提案类型校验路由、报告、候选选择与汇总参数，建立可信提交结构。
   const input = apiReadObject(value,
     ['mapId', 'operationId', 'id', 'kind', 'reason', 'slots', 'routeRevision', 'slotId', 'score', 'reportIds', 'news', 'claims', 'selected'], 'data.propose')
   const base = {
@@ -291,7 +286,8 @@ function apiReadDataProposal(value: unknown): GraphDataProposal {
   }
   if (input.kind === 'split-merge') {
     apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'reportIds', 'selected'], 'split-merge')
-    const selected = apiReadArray(input.selected, 'selected').map(value => {
+    const selected = apiReadArray(input.selected, 'selected').map(/* 拆分汇总中的单个候选引用，含报告身份与候选索引。 */ value => {
+      // 校验被选候选的报告身份与非负整数索引。
       const item = apiReadObject(value, ['reportId', 'index'], 'selection')
       return { reportId: apiReadString(item.reportId, 'reportId'), index: apiReadRevision(item.index, 'index') }
     })
@@ -309,9 +305,8 @@ function apiReadDataProposal(value: unknown): GraphDataProposal {
   }
   throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.PROPOSAL_KIND_IS_INVALID)
 }
-
-// 用途：校验令牌输入，发现不符合约束时立即报错。
-function apiValidateToken(request: IncomingMessage, token: string | undefined): void {
+function apiValidateToken(/* 携带 Authorization 头的内部请求，头内容仍不可信。 */ request: IncomingMessage, /* 部署配置的内部 Host 令牌；缺失时内部请求一律拒绝。 */ token: string | undefined): void {
+  // 核对配置的内部 Host Bearer 令牌，等长字节使用恒定时间比较。
   const supplied = request.headers.authorization
   const expected = token ? `Bearer ${token}` : ''
   if (!expected || typeof supplied !== 'string' || Buffer.byteLength(supplied) !== Buffer.byteLength(expected)
@@ -319,38 +314,33 @@ function apiValidateToken(request: IncomingMessage, token: string | undefined): 
     throw new GraphError(401, 'UNAUTHORIZED', RuntimeMessage.INTERNAL_API_REQUIRES_A_CONFIGURED_HOST_TOKEN)
   }
 }
-
-// 用途：读取用户令牌，并把结构化结果交给调用方。
-function apiReadUserToken(request: IncomingMessage): string {
+function apiReadUserToken(/* 携带用户 Authorization 头的请求，此处只提取令牌字符串。 */ request: IncomingMessage): string {
+  // 从 Authorization 头提取非空用户令牌，身份有效性由应用层验证。
   const header = request.headers.authorization
   if (!header?.startsWith('Bearer ') || header.length <= 7) throw new GraphError(401, 'UNAUTHORIZED', RuntimeMessage.A_USER_TOKEN_IS_REQUIRED)
   return header.slice(7)
 }
-
-// 用途：读取工作标识，并把结构化结果交给调用方。
-function apiReadWorkId(value: unknown): string {
+function apiReadWorkId(/* 未经校验的工作身份，字符和长度必须符合租约键约定。 */ value: unknown): string {
+  // 限制工作身份的字符集合与长度，供租约索引使用。
   const workId = apiReadString(value, 'workId')
   if (!/^[a-zA-Z0-9_:-]{1,256}$/.test(workId)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.WORKID_IS_INVALID)
   return workId
 }
-
-// 用途：读取凭证，并把结构化结果交给调用方。
-function apiReadProof(input: Record<string, unknown>): GraphWorkProof {
+function apiReadProof(/* 已经确认是对象的原始工作凭证字段，仍需逐项验证。 */ input: Record<string, unknown>): GraphWorkProof {
+  // 校验工作身份、持有者 UUID 与正整数栅栏版本。
   const workId = apiReadWorkId(input.workId)
   const fence = apiReadRevision(input.fence, 'fence')
   if (fence < 1) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.FENCE_MUST_BE_POSITIVE)
   return { workId, holderId: apiReadId(input.holderId, 'holderId'), fence }
 }
-
-// 用途：读取工作凭证，并把结构化结果交给调用方。
-function apiReadWorkProof(request: IncomingMessage): GraphWorkProof {
+function apiReadWorkProof(/* 携带 x-work-id、x-work-holder 和 x-work-fence 的内部请求。 */ request: IncomingMessage): GraphWorkProof {
+  // 从工作请求头解析租约凭证，拒绝缺失或非十进制的 fence。
   const fence = request.headers['x-work-fence']
   if (typeof fence !== 'string' || !/^[1-9][0-9]*$/.test(fence)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.X_WORK_FENCE_IS_REQUIRED)
   return apiReadProof({ workId: request.headers['x-work-id'], holderId: request.headers['x-work-holder'], fence: Number(fence) })
 }
-
-// 用途：读取工作命令，并把结构化结果交给调用方。
-function apiReadWorkCommand(value: unknown): GraphWorkCommand {
+function apiReadWorkCommand(/* 未经验证的领取、续租、读取、释放或失败命令信封。 */ value: unknown): GraphWorkCommand {
+  // 校验工作领取或租约操作参数，并限制 Host 身份和失败消息长度。
   const input = apiReadObject(value, ['method', 'params'], 'work')
   if (input.method === 'claim') {
     const params = apiReadObject(input.params, ['hostId', 'holderId', 'mapId', 'workId', 'deploymentId'], 'params')
@@ -373,9 +363,8 @@ function apiReadWorkCommand(value: unknown): GraphWorkCommand {
   }
   return { method: input.method, params: proof }
 }
-
-// 用途：处理API 请求相关工作，并把结果交给调用方。
-function apiWriteError(response: ServerResponse, requestId: string, error: unknown, reporter?: DiagnosticReporter, route?: string): void {
+function apiWriteError(/* 尚未发送响应头的 HTTP 输出流，函数将结束错误响应。 */ response: ServerResponse, /* 关联本次命令或请求的身份，随失败信封返回。 */ requestId: string, /* 请求执行期间捕获的异常，未知异常不得直接暴露给客户端。 */ error: unknown, /* 可选内部诊断报告器，用于保存原始故障及生成错误编号。 */ reporter?: DiagnosticReporter, /* 可选请求路径，只取有界文本作为诊断上下文。 */ route?: string): void {
+  // 将领域错误写成公共失败响应，对未知异常脱敏并生成诊断编号。
   const graphError = error instanceof GraphError
     ? error
     : new GraphError(500, 'INTERNAL_ERROR', RuntimeMessage.INTERNAL_SERVER_ERROR)
@@ -395,17 +384,20 @@ function apiWriteError(response: ServerResponse, requestId: string, error: unkno
   }
   apiWriteJson(response, graphError.status, body)
 }
-
-// 用途：创建API 请求，供后续流程使用。
 export function apiCreateServer(
-  application: ApplicationService,
-  options: { internalToken?: string; reporter?: DiagnosticReporter } = {},
-): Server & { beginShutdown(): void } {
+  /* 由部署入口组装的应用服务，承担身份、权限与业务事务。 */ application: ApplicationService,
+  /* 可选内部令牌及诊断配置；默认空对象，令牌可回退到环境配置。 */ options: { internalToken?: string; reporter?: DiagnosticReporter } = {},
+): Server & {
+  // 进入停止接收新写入、领取与订阅的阶段；现有连接由后续 close 负责排空。
+  beginShutdown(): void
+} {
+  // 组装业务、内部 Host 和文件 HTTP 入口，并提供拒绝新写入的关闭标记。
   const internalToken = options.internalToken ?? process.env.CHONGMING_DATA_TOKEN
   const service = application.graph
   const streams = new Set<ServerResponse>()
   let stopping = false
-  const server = createServer(async (request, response) => {
+  const server = createServer(async (/* 服务器收到的原始 HTTP 请求，路由、令牌和载荷均在本层解析。 */ request, /* 当前请求的响应流，普通 JSON、附件及 SSE 共用此输出。 */ response) => {
+    // 路由并验证请求，在授权后执行对应业务；流开始后的异常改为终止连接。
     let requestId: string = randomUUID()
     try {
       if (request.method === 'GET' && request.url === '/health') {
@@ -467,7 +459,7 @@ export function apiCreateServer(
       if (request.method === 'POST' && url.pathname === '/api/v1/assets') {
         if (stopping) throw new GraphError(503, 'SERVICE_STOPPING', RuntimeMessage.SERVICE_IS_STOPPING)
         const token = apiReadUserToken(request)
-        if ([...url.searchParams.keys()].some(key => !['workspaceId', 'filename'].includes(key))) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.UNKNOWN_UPLOAD_PARAMETER)
+        if ([...url.searchParams.keys()].some(/* 上传 URL 的查询字段名，只允许工作区身份和文件名。 */ key => /* 拒绝上传 URL 中未声明的参数。 */  !['workspaceId', 'filename'].includes(key))) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.UNKNOWN_UPLOAD_PARAMETER)
         const length = request.headers['content-length']
         if (typeof length !== 'string' || !/^[0-9]+$/.test(length)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.CONTENT_LENGTH_IS_REQUIRED)
         const size = Number(length)
@@ -541,12 +533,17 @@ export function apiCreateServer(
     }
   })
   const close = server.close.bind(server)
-  Object.assign(server, { // 用途：处理当前模块相关的Shutdown。
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    beginShutdown() { stopping = true } })
-  server.close = callback => {
+  Object.assign(server, {
+    beginShutdown() {
+      // 标记服务停止接收新的领取、订阅和业务写入。
+       stopping = true } })
+  server.close = /* Node HTTP Server 可选关闭回调，原样转交底层关闭实现。 */ callback => {
+    // 关闭全部 SSE 响应后转交原 HTTP Server 的关闭操作。
     for (const stream of streams) stream.destroy()
     return close(callback)
   }
-  return server as Server & { beginShutdown(): void }
+  return server as Server & {
+    // 标记停止接收新业务，供运行入口在关闭 HTTP 服务前先降低就绪状态。
+    beginShutdown(): void
+  }
 }

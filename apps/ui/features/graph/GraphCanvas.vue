@@ -1,3 +1,4 @@
+<!-- 图画布：绘制阶段树，显示执行状态，支持节点选择、分支聚焦与键盘导航。 -->
 <script setup lang="ts">
 import { ACTIVITY_LABELS, type GraphActivity } from '../../../../contracts/activity'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -9,76 +10,104 @@ const props = defineProps<{ snapshot: GraphSnapshot; activities?: GraphActivity[
 const emit = defineEmits<{ select: [id: string | null] }>()
 const containerRef = ref<HTMLElement | null>(null)
 const svgRef = ref<SVGSVGElement | null>(null)
-const layout = computed(() => graphReadCanvasLayout(props.snapshot))
-const contentWidth = computed(() => layout.value.width)
-const contentHeight = computed(() => layout.value.height)
+const layout = computed(() => /* 根据当前快照计算阶段树节点坐标和连线路径。 */ graphReadCanvasLayout(props.snapshot))
+const contentWidth = computed(() => /* 提供布局宽度供缩放与适应视图计算。 */ layout.value.width)
+const contentHeight = computed(() => /* 提供布局高度供缩放与适应视图计算。 */ layout.value.height)
 const markerId = `arrow-${crypto.randomUUID()}`
 const { svgStyle, scalePercent, zoomIn, zoomOut, resetView, fitToView, fitLayoutRect, focusLayoutRect, onPointerDown, onPointerMove, onPointerUp } = useCanvasPanZoom({ containerRef, svgRef, contentWidth, contentHeight })
 
 const focusedId = ref<string | null>(null)
-const focused = computed(() => layout.value.nodes.find(node => node.id === focusedId.value))
-const projected = computed(() => focused.value?.synthetic ? focused.value : null)
+const focused = computed(() =>
+  /* 从画布节点中查找当前键盘或鼠标焦点。 */
+  layout.value.nodes.find(/* 当前布局中的只读节点，按画布身份匹配焦点。 */ node =>
+    /* 匹配当前聚焦的画布节点标识。 */
+    node.id === focusedId.value))
+const projected = computed(() => /* 仅为合成的阶段投影提供分支详情内容。 */ focused.value?.synthetic ? focused.value : null)
 const stages = [{ label: '解析', input: 'source', kinds: ['source', 'parseAgent', 'news'] },
   { label: '拆分', input: 'news', kinds: ['news', 'splitAgent', 'claim'] },
   { label: '核查', input: 'claim', kinds: ['claim', 'verifyAgent', 'opinion', 'verification'] }]
-// 用途：处理界面相关工作，并把结果交给调用方。
-function canvasSelect(item: CanvasNode | null) { focusedId.value = item?.id ?? null; emit('select', item?.selectId ?? null) }
-// 用途：处理界面相关工作，并把结果交给调用方。
-function canvasFocusStage(stage: typeof stages[number]) {
+function canvasSelect(/* 被点击或键盘选中的画布投影；null 表示清空选择，selectId 对应真实节点。 */ item: CanvasNode | null) {
+  // 更新画布焦点，并向父组件发送对应真实节点的选择。
+  focusedId.value = item?.id ?? null; emit('select', item?.selectId ?? null)
+}
+function canvasFocusStage(/* 工具栏提供的阶段定义，包含输入类型和允许聚焦的后继类型。 */ stage: typeof stages[number]) {
+  // 选取指定处理阶段的根分支，计算包含后继的边界并缩放至可见区域。
   const nodes = layout.value.nodes
-  const root = nodes.find(node => node.id === props.selectedId && node.kind === stage.input)
-    ?? nodes.find(node => node.kind === stage.input && !node.synthetic)
+  const root = nodes.find(/* 布局候选节点，用所选真实身份及阶段输入类型筛选。 */ node => /* 优先使用当前所选且类型符合阶段输入的节点。 */ node.id === props.selectedId && node.kind === stage.input)
+    ?? nodes.find(/* 布局候选节点，用阶段类型和非合成标记选择后备根。 */ node => /* 在没有合适选择时寻找该阶段的真实输入节点。 */ node.kind === stage.input && !node.synthetic)
   if (!root) return
   const ids = new Set([root.id])
   for (const node of nodes) if (node.parentId && ids.has(node.parentId) && stage.kinds.includes(node.kind)) ids.add(node.id)
-  const branch = nodes.filter(node => ids.has(node.id))
-  const left = Math.min(...branch.map(node => node.x)) - 12, top = Math.min(...branch.map(node => node.y)) - 30
-  fitLayoutRect(left, top, Math.max(...branch.map(node => node.x + node.width)) - left + 12,
-    Math.max(...branch.map(node => node.y + node.height)) - top + 20)
+  const branch = nodes.filter(/* 布局节点，只保留已纳入当前阶段分支的身份。 */ node => /* 筛选属于此次阶段分支的节点。 */ ids.has(node.id))
+  const left = Math.min(...branch.map(/* 当前分支节点，读取其布局左边界。 */ node =>
+    /* 提取分支节点左边界以确定整体横向范围。 */
+    node.x)) - 12, top = Math.min(...branch.map(/* 当前分支节点，读取其布局上边界。 */ node =>
+    /* 提取分支节点上边界以确定整体纵向范围。 */
+    node.y)) - 30
+  fitLayoutRect(left, top, Math.max(...branch.map(/* 当前分支节点，用横坐标和宽度计算右边界。 */ node => /* 计算分支节点右边界以确定聚焦区域宽度。 */ node.x + node.width)) - left + 12,
+    Math.max(...branch.map(/* 当前分支节点，用纵坐标和高度计算下边界。 */ node => /* 计算分支节点下边界以确定聚焦区域高度。 */ node.y + node.height)) - top + 20)
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 async function canvasResetMap() {
+  // 切图或首次出现节点时重置缩放，并把当前选择或第一个根节点移入视野。
   focusedId.value = props.selectedId
   await nextTick()
   resetView()
-  const first = layout.value.nodes.find(node => node.id === props.selectedId) ?? layout.value.nodes.find(node => !node.parentId)
+  const first = layout.value.nodes.find(/* 布局中的节点，用于寻找当前真实选择对应的投影。 */ node =>
+    /* 查找当前选择对应的画布节点。 */
+    node.id === props.selectedId) ?? layout.value.nodes.find(/* 布局中的节点，用无父节点标记寻找后备根。 */ node =>
+    /* 没有选择时寻找首个布局根节点。 */
+    !node.parentId)
   if (first) focusLayoutRect(first.x, first.y, first.width, first.height)
 }
-watch(() => props.snapshot.mapId, canvasResetMap)
-watch(() => props.snapshot.nodes.length, (count, previous) => { if (!previous && count) void canvasResetMap() })
-watch(() => props.selectedId, async id => {
+watch(() => /* 观察图标识变化以触发画布复位。 */ props.snapshot.mapId, canvasResetMap)
+watch(() => /* 观察图节点数以识别从空图到有内容的变化。 */ props.snapshot.nodes.length, (
+  /* Vue 提供的新节点数量，用于识别空图首次出现内容。 */ count,
+  /* 上次观测的节点数量，用于只在从空到有的变化时重置视图。 */ previous
+) => {
+  // 首次出现节点时重新定位画布。
+  if (!previous && count) void canvasResetMap()
+})
+watch(() => /* 观察父组件的真实节点选择变化。 */ props.selectedId, async /* 父组件的新真实节点选择，null 表示取消选择。 */ id => {
+  // 同步画布焦点，并在 DOM 更新后将相应节点移入可见区域。
   if (focused.value?.selectId !== id) focusedId.value = id
   await nextTick()
   if (focused.value) focusLayoutRect(focused.value.x, focused.value.y, focused.value.width, focused.value.height)
 })
 onMounted(canvasResetMap)
 
-// 用途：读取状态，并把结构化结果交给调用方。
-function canvasReadStatus(item: CanvasNode): string {
-  const activity = props.activities?.find(activity => activity.runId === props.snapshot.run?.id && activity.nodeId === item.selectId
+function canvasReadStatus(/* 要生成状态文案的画布节点，可能是合成分支或真实数据节点。 */ item: CanvasNode): string {
+  // 优先显示当前活动，其次展示合成分支、运行状态或节点关联摘要。
+  const activity = props.activities?.find(/* 会话提供的只读活动摘要，用运行、节点和执行者身份匹配当前卡片。 */ activity =>
+    /* 匹配当前运行、真实节点和合成 Agent 分支对应的活动。 */
+    activity.runId === props.snapshot.run?.id && activity.nodeId === item.selectId
     && (!item.synthetic || item.id === 'view:' + item.kind + ':' + activity.operationId + ':' + (activity.actor.role === 'worker' ? activity.actor.slotId : activity.actor.role === 'router' ? 'route' : activity.actor.role)))
   if (activity && !props.snapshot.run?.paused) return ACTIVITY_LABELS[activity.status]
   if (item.synthetic) return item.status
   const id = item.id, node = item.node
   if (node.validity === 'stale') return '需要复核'
-  const operation = props.snapshot.run?.operations.find(operation => operation.targetId === id)
+  const operation = props.snapshot.run?.operations.find(/* 当前运行中的只读 Operation，用目标节点身份匹配。 */ operation => /* 查找以当前真实节点为目标的 Operation。 */ operation.targetId === id)
   if (operation) return `${props.snapshot.run!.paused && ['running', 'waiting'].includes(operation.status) ? '已暂停 · ' : ''}${graphReadOperationProgress(operation)}`
   if (node.data.kind === 'verification') return `${node.data.opinions.length} 个角度的意见`
   if (node.data.kind === 'claim') {
-    const sources = props.snapshot.edges.filter(edge => edge.kind === 'mentions' && edge.to === id).length
+    const sources = props.snapshot.edges.filter(/* 图中的真实关系，筛选指向当前事实的新闻引用。 */ edge => /* 统计指向当前事实的新闻引用关系。 */ edge.kind === 'mentions' && edge.to === id).length
     return sources ? `${sources} 篇关联新闻` : '可独立核查的事实'
   }
   return node.data.kind === 'news' ? '保留正文与上下文' : '可供事实引用'
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
-function canvasSelectKeyboard(event: KeyboardEvent, id: string): void {
-  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); canvasSelect(layout.value.nodes.find(node => node.id === id) ?? null); return }
+function canvasSelectKeyboard(
+  /* SVG 节点派发的键盘事件，识别确认、取消和方向键并阻止默认导航。 */ event: KeyboardEvent,
+  /* 接收键盘事件的画布节点身份，作为导航起点。 */ id: string
+): void {
+  // 处理选择、取消与方向键导航，并同步 SVG 节点焦点。
+  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); canvasSelect(layout.value.nodes.find(/* 布局中的候选节点，用当前键盘起点身份匹配。 */ node =>
+    /* 查找键盘确认操作对应的画布节点。 */
+    node.id === id) ?? null); return }
   if (event.key === 'Escape') { event.preventDefault(); canvasSelect(null); return }
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
   event.preventDefault()
   const next = graphReadCanvasNeighbor(layout.value, id, event.key as 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown')
   if (next) {
-    canvasSelect(layout.value.nodes.find(node => node.id === next) ?? null)
+    canvasSelect(layout.value.nodes.find(/* 布局中的候选节点，用方向导航算出的目标身份匹配。 */ node => /* 查找方向导航选出的下一个画布节点。 */ node.id === next) ?? null)
     const element = svgRef.value?.querySelector<SVGGElement>(`[data-node-id="${CSS.escape(next)}"]`)
     element?.focus()
   }
@@ -86,11 +115,12 @@ function canvasSelectKeyboard(event: KeyboardEvent, id: string): void {
 </script>
 
 <template>
+  <!-- 先展示工具栏，再绘制真实节点和合成阶段投影；详情面板显示当前分支内容。 -->
   <section ref="containerRef" class="graph-canvas" aria-label="事实关系图"
     @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp" @pointercancel="onPointerUp">
     <div class="graph-toolbar zoom-controls" @pointerdown.stop>
       <div class="graph-caption"><strong>阶段树</strong><span>{{ snapshot.nodes.length }} 个节点 · {{ snapshot.edges.length }} 条关联</span></div>
-      <div class="zoom-buttons"><button v-for="stage in stages" :key="stage.label" type="button" :disabled="!layout.nodes.some(node => node.kind === stage.input)" @click="canvasFocusStage(stage)">{{ stage.label }}</button>
+      <div class="zoom-buttons"><button v-for="stage in stages" :key="stage.label" type="button" :disabled="!layout.nodes.some(/* 当前布局节点，用阶段输入类型检查工具栏入口是否可用。 */ node => /* 判断当前图是否包含该阶段的输入节点。 */ node.kind === stage.input)" @click="canvasFocusStage(stage)">{{ stage.label }}</button>
         <button type="button" aria-label="缩小图画布" title="缩小" @click="zoomOut">−</button>
         <button type="button" aria-label="重置缩放" title="重置为 100%" @click="resetView">{{ scalePercent }}</button>
         <button type="button" aria-label="放大图画布" title="放大" @click="zoomIn">+</button>
@@ -138,6 +168,7 @@ function canvasSelectKeyboard(event: KeyboardEvent, id: string): void {
 </template>
 
 <style scoped>
+/* 区分节点类型、选中状态、过期结果和共享连线，并固定缩放与详情控件。 */
 .graph-canvas { position: relative; flex: 1; width: 100%; height: 100%; min-height: 280px; overflow: hidden; background-color: var(--bg-viewport); background-image: radial-gradient(var(--border-subtle) .7px, transparent .7px); background-size: 18px 18px; }
 .graph-toolbar { flex-wrap: wrap; position: absolute; z-index: 2; top: 10px; left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
 .graph-caption { display: flex; align-items: baseline; gap: 10px; color: var(--text-muted); padding: 5px 8px; background: var(--bg-viewport); }

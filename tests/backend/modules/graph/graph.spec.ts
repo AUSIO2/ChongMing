@@ -1,3 +1,4 @@
+// 通过 HTTP 与持久化验证图输入、版本提交、幂等重放和删除行为。
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -11,21 +12,26 @@ import { createGraphApi, type TestGraphApi } from '../../fixtures/graph-api'
 let api: TestGraphApi
 let workspaceId: string
 
-async function request(path: 'query' | 'command', body: unknown) {
+async function request(/* 选择公共查询还是写命令端点。 */ path: 'query' | 'command', /* 按 JSON 发送、由用例自行断言的请求体。 */ body: unknown) {
+  // 以夹具用户身份转发公共图查询或命令，保留响应以核对版本及错误。
   return api.post(`/api/v1/${path}`, body)
 }
 
 beforeAll(async () => {
+  // 启动隔离图服务并创建本文件使用的工作区。
   api = await createGraphApi()
   workspaceId = (await api.createWorkspace()).id
 }, 30_000)
 
 afterAll(async () => {
+  // 清理本文件的图 API、数据库和消息资源。
   await api?.close()
 })
 
 describe('Graph HTTP API', () => {
+  // 组织图输入校验、空上下文保留、幂等提交及持久化的回归测试。
   it('rejects mixed-kind and missing required node fields at the HTTP boundary', async () => {
+    // 提交混合节点种类字段或缺失必填字段，验证 HTTP 边界拒绝且原图不变。
     const mapId = randomUUID()
     await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Boundary validation' })
     const before = await api.snapshot(mapId)
@@ -46,6 +52,7 @@ describe('Graph HTTP API', () => {
   })
 
   it('preserves an explicitly empty News context through storage and later graph writes', async () => {
+    // 验证显式空新闻上下文经存储和后续写入仍保留，并检查历史缺字段的显式修复行为。
     const mapId = randomUUID(), newsId = randomUUID()
     expect((await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Empty context' })).status).toBe(201)
     const created = await api.command('graph.apply', { mapId, expectedRevision: 0, changes: { nodes: { put: [
@@ -69,6 +76,7 @@ describe('Graph HTTP API', () => {
   })
 
   it('confirms an accepted source edit after the source and its asset have been deleted', async () => {
+    // 删除来源和附件后重放原编辑，验证仍能确认成功但同请求不同输入必须冲突。
     const content = Buffer.from('source evidence')
     const sha256 = createHash('sha256').update(content).digest('hex')
     const asset = await api.application.assets.upload(api.userToken,
@@ -89,6 +97,7 @@ describe('Graph HTTP API', () => {
   })
 
   it('rejects an oversized document before publishing it', async () => {
+    // 尝试直接创建超过图大小限制的文档，验证拒绝发生在持久化发布之前。
     const id = randomUUID(), now = new Date().toISOString()
     await expect(api.store.create({ id, workspaceId, revision: 0, name: 'Too large', nodes: [{
       id: randomUUID(), revision: 0, data: { kind: 'news', content: 'x'.repeat(8 * 1024 * 1024), context: {} }, createdAt: now, updatedAt: now,
@@ -98,6 +107,7 @@ describe('Graph HTTP API', () => {
   })
 
   it('persists a shared graph with CAS and idempotent writes', async () => {
+    // 验证共享图的原子版本竞争、输入幂等、失败回滚、关系删除、重连读取及删除重放。
     const mapId = randomUUID()
     const newsA = randomUUID()
     const newsB = randomUUID()
@@ -166,7 +176,7 @@ describe('Graph HTTP API', () => {
         params: { mapId, expectedRevision: 1, changes: { name: 'Winner B' } },
       }),
     ])
-    expect(concurrent.map(result => result.status).sort()).toEqual([200, 409])
+    expect(concurrent.map(/* 并发图写入中当前提取 HTTP 状态码的响应。 */ result => /* 提取并发写入状态码，确认一个成功而另一个发生版本冲突。 */ result.status).sort()).toEqual([200, 409])
 
     const beforeInvalid = await request('query', { method: 'map.get', params: { mapId } })
     const revision = beforeInvalid.body.data.revision as number
@@ -189,7 +199,7 @@ describe('Graph HTTP API', () => {
       params: { mapId, expectedRevision: revision, changes: { nodes: { remove: [newsA] } } },
     })
     expect(removed).toMatchObject({ status: 200, body: { data: { snapshot: { revision: revision + 1 } } } })
-    expect(removed.body.data.snapshot.nodes.map((node: { id: string }) => node.id)).toEqual([newsB, claim])
+    expect(removed.body.data.snapshot.nodes.map((/* 删除后快照中当前提取身份的节点。 */ node: { id: string }) => /* 提取删除操作后的节点身份，核对仅删除指定节点及其关联边。 */ node.id)).toEqual([newsB, claim])
     expect(removed.body.data.snapshot.edges).toEqual([
       expect.objectContaining({ id: edgeB, from: newsB, to: claim }),
     ])

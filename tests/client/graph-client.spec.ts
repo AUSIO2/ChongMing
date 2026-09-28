@@ -1,3 +1,4 @@
+// 公共 HTTP 客户端测试：覆盖响应校验、请求取消、固定端点及凭据生命周期。
 import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientCreateApi, clientCreateGateway, clientReadBaseUrl } from '../../client/graph-client'
@@ -11,22 +12,38 @@ const bootstrap: AppBootstrap = {
   metadata: { version: '056', promptKinds: ['verifyRoute'], executableKinds: ['verify'], scores: [0, 0.5, 1] },
 }
 const snapshot = { mapId: 'map', workspaceId: 'workspace', revision: 7, name: 'Map', nodes: [], edges: [], run: null, updatedAt: '' }
-function success(data: unknown, requestId = 'response') { return Response.json({ ok: true, requestId, replayed: false, data }) }
+function success(
+  /* 嵌入成功响应的测试业务数据，可故意缺失字段用于协议校验。 */ data: unknown,
+  /* 响应中的关联请求身份，默认 response；可指定错误身份验证匹配检查。 */ requestId = 'response'
+) {
+  // 构造包含请求标识、重放标记和业务数据的成功 HTTP 响应。
+  return Response.json({ ok: true, requestId, replayed: false, data })
+}
 const servers: Server[] = []
 afterEach(async () => {
+  // 每个用例后恢复模拟并关闭已创建的测试服务器。
   vi.restoreAllMocks()
-  await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => { server.closeAllConnections(); server.close(error => error ? reject(error) : resolve()) })))
+  await Promise.all(servers.splice(0).map(/* 当前用例登记的测试 HTTP 服务器，清理时关闭连接和监听。 */ server => /* 为每个测试服务器建立可等待的关闭操作。 */ new Promise<void>((
+    /* 该服务器完全关闭后调用的完成入口。 */ resolve,
+    /* 该服务器关闭失败时调用的拒绝入口。 */ reject
+  ) => {
+      // 先断开现有连接，再等待服务器停止监听。
+      server.closeAllConnections(); server.close(/* Node 关闭回调传来的可选错误，存在时使测试清理失败。 */ error => /* 根据服务器关闭结果完成或拒绝清理 Promise。 */ error ? reject(error) : resolve())
+  })))
 })
-async function listen(server: Server): Promise<string> {
+async function listen(/* 尚未监听的测试服务器，启动后登记给 afterEach 统一清理。 */ server: Server): Promise<string> {
+  // 在本机随机端口启动并登记测试服务，返回可请求的源地址。
   servers.push(server)
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>(/* 本机临时端口绑定成功后调用的完成入口。 */ resolve => /* 开始监听临时端口，监听成功后结束等待。 */ server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Test server did not bind')
   return 'http://127.0.0.1:' + address.port
 }
 
 describe('public Fetch client', () => {
+  // 验证公开 Fetch 客户端的协议校验、取消、路径和认证边界。
   it('requires the new Run scope and control state and carries both control commands', async () => {
+    // 验证 Run 控制字段必须齐全，且暂停与恢复命令返回对应状态。
     const run = { id: 'run', scope: { nodeIds: ['claim'] }, until: 'verified', paused: true, regenerate: false,
       status: 'waiting', mode: 'human-in-loop', configuration: verificationConfiguration(), operations: [], createdAt: '', updatedAt: '' }
     const fetcher = vi.fn<typeof fetch>()
@@ -44,19 +61,23 @@ describe('public Fetch client', () => {
   })
 
   it('uses fixed API paths and preserves mutation identity, result and revision', async () => {
+    // 验证查询和命令使用固定端点，并保留请求身份、版本与返回结果。
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(success(snapshot))
       .mockResolvedValueOnce(success({ snapshot, createdNodeIds: [], createdEdgeIds: [] }, 'request-1'))
     const client = clientCreateApi({ baseUrl: 'http://localhost:4320/', token: 'test-token', fetch: fetcher })
     expect(await client.read('map.get', { mapId: 'map' })).toEqual(snapshot)
     const result = await client.dispatch('request-1', 'graph.apply', { mapId: 'map', expectedRevision: 6, changes: { name: 'Renamed' } })
     expect(result.data.snapshot.revision).toBe(7)
-    expect(fetcher.mock.calls.map(call => String(call[0]))).toEqual(['http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/command'])
+    expect(fetcher.mock.calls.map(/* Vitest 记录的 Fetch 参数元组，首项用于固定路径断言。 */ call =>
+      /* 提取 Fetch 调用 URL，供路径断言。 */
+      String(call[0]))).toEqual(['http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/command'])
     for (const [, init] of fetcher.mock.calls) expect(init).toMatchObject({ redirect: 'error', credentials: 'omit', headers: { authorization: 'Bearer test-token' } })
     expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toMatchObject({ requestId: 'request-1', params: { expectedRevision: 6 } })
     client.close()
   })
 
   it('never rebases or retries a 409 and rejects missing or mismatched success results', async () => {
+    // 验证 409 不会自动重试或改写版本，缺失或错配的成功响应会被拒绝。
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ ok: false, requestId: 'request', error: { code: 'REVISION_CONFLICT', message: 'Changed', retryable: false, currentRevision: 9 } }, { status: 409 }))
       .mockResolvedValueOnce(Response.json({ ok: true, requestId: 'response', replayed: false }))
@@ -74,8 +95,16 @@ describe('public Fetch client', () => {
   })
 
   it('aborts pending requests on caller cancellation, timeout and close', async () => {
-    const fetcher: typeof fetch = (_url, init) => new Promise((_resolve, reject) => {
-      init!.signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+    // 验证调用者取消、客户端关闭和超时分别中断请求并报告对应错误。
+    const fetcher: typeof fetch = (
+      /* 模拟 Fetch 收到的地址；本用例只验证生命周期，不读取它。 */ _url,
+      /* 模拟 Fetch 收到的请求选项，含需要监听的 AbortSignal。 */ init
+    ) => /* 返回等待取消的网络 Promise，模拟未完成请求。 */ new Promise((
+      /* 网络 Promise 完成入口，此夹具始终等待取消，故不调用。 */ _resolve,
+      /* 网络 Promise 拒绝入口，收到取消时结束模拟请求。 */ reject
+    ) => {
+      // 安装取消监听，使网络请求可由客户端生命周期结束。
+      init!.signal!.addEventListener('abort', () => /* 收到取消信号时拒绝模拟请求。 */ reject(new Error('aborted')), { once: true })
     })
     const api = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'token', fetch: fetcher, timeoutMs: 1000 })
     const stop = new AbortController()
@@ -90,6 +119,7 @@ describe('public Fetch client', () => {
   })
 
   it('rejects a minimized News DTO before it reaches the UI and accepts an explicit empty context', async () => {
+    // 验证新闻响应必须显式包含 context，空对象合法而缺失字段无效。
     const broken = {
       id: 'news-1', revision: 0, createdAt: '2026-09-11T00:00:00.000Z', updatedAt: '2026-09-11T00:00:00.000Z',
       data: { kind: 'news', content: 'Stored News with missing context' },
@@ -107,9 +137,19 @@ describe('public Fetch client', () => {
   })
 
   it('refuses redirects without requesting the redirect destination or sending its token there', async () => {
+    // 验证重定向被拒绝，目标服务没有收到请求或令牌。
     let hits = 0
-    const destination = await listen(createServer((_request, response) => { hits++; response.end('should not be reached') }))
-    const origin = await listen(createServer((_request, response) => { response.writeHead(302, { location: destination + '/private' }); response.end() }))
+    const destination = await listen(createServer((
+      /* 访问重定向目标的请求，本用例只统计访问次数。 */ _request,
+      /* 重定向目标的响应写入端，若意外访问则返回占位正文。 */ response
+    ) => {
+      // 统计重定向目标是否意外被访问。
+      hits++; response.end('should not be reached')
+    }))
+    const origin = await listen(createServer((/* 访问源服务的请求，本夹具统一返回重定向。 */ _request, /* 源服务响应写入端，设置跨服务 Location 并结束响应。 */ response) => {
+      // 返回跨服务重定向，检验客户端禁止跟随跳转。
+      response.writeHead(302, { location: destination + '/private' }); response.end()
+    }))
     const api = clientCreateApi({ baseUrl: origin, token: 'private-client-token' })
     await expect(api.read('app.bootstrap', {})).rejects.toBeInstanceOf(ClientError)
     expect(hits).toBe(0)
@@ -117,7 +157,10 @@ describe('public Fetch client', () => {
   })
 
   it('rejects arbitrary endpoint URLs and oversized response bodies', async () => {
-    for (const value of ['file:///private/data', 'http://user:pass@example.test', 'https://example.test/path', 'http://example.test?target=private']) expect(() => clientReadBaseUrl(value)).toThrow()
+    // 验证带凭据、路径或查询的源地址以及超大 JSON 响应被拒绝。
+    for (const value of ['file:///private/data', 'http://user:pass@example.test', 'https://example.test/path', 'http://example.test?target=private']) expect(() =>
+      /* 执行指定地址的规范化，供抛错断言。 */
+      clientReadBaseUrl(value)).toThrow()
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('{}', { headers: { 'content-length': String(17 * 1024 * 1024) } }))
     const api = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'token', fetch: fetcher })
     await expect(api.read('app.bootstrap', {})).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' })
@@ -125,7 +168,9 @@ describe('public Fetch client', () => {
 })
 
 describe('connection gateway', () => {
+  // 验证网关连接替换、凭据记忆和显式退出的生命周期。
   it('keeps browser credentials in memory and drops the old session before any replacement attempt', async () => {
+    // 验证浏览器凭据只留内存，替换登录失败也不会恢复旧会话。
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(success(bootstrap))
       .mockResolvedValueOnce(Response.json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Invalid token', retryable: false } }, { status: 401 }))
@@ -141,7 +186,14 @@ describe('connection gateway', () => {
   })
 
   it('distinguishes normal app close from explicit credential forgetting', async () => {
-    const store = { load: vi.fn(async () => null), save: vi.fn(async () => true), clear: vi.fn(async () => {}), canRemember: () => true }
+    // 验证普通关闭保留已保存凭据，显式断开才清除它们。
+    const store = { load: vi.fn(async () =>
+      /* 模拟凭据存储中没有可恢复的连接。 */
+      null), save: vi.fn(async () =>
+      /* 模拟凭据成功保存并可在以后恢复。 */
+      true), clear: vi.fn(async () => {
+      // 记录凭据清除调用，不需要真实持久化。
+    }), canRemember: () => /* 声明测试凭据存储支持记住登录。 */ true }
     const gateway = clientCreateGateway({ baseUrl: 'http://localhost:4320', store, fetch: vi.fn<typeof fetch>().mockResolvedValue(success(bootstrap)) })
     await gateway.connect({ baseUrl: 'http://localhost:4320', token: 'stored-token', remember: true })
     expect(await gateway.getConnection()).toMatchObject({ remembered: true })

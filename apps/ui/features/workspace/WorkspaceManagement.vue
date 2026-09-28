@@ -1,3 +1,4 @@
+<!-- 工作区管理：编辑资料、设置成员角色和确认删除，保留发生版本冲突的草稿。 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { ClientGateway } from '../../../../contracts/client'
@@ -6,60 +7,75 @@ import { useManagementTask } from '../management/use-management'
 
 const props = defineProps<{ gateway: ClientGateway; workspace: WorkspaceView | null; bootstrap: AppBootstrap }>()
 const emit = defineEmits<{ changed: []; unauthorized: [] }>()
-const task = useManagementTask({ gateway: props.gateway, onUnauthorized: () => emit('unauthorized') })
+const task = useManagementTask({ gateway: props.gateway, onUnauthorized: () => /* 将管理请求的认证失效通知父组件。 */ emit('unauthorized') })
 const { busy, error, canRetry } = task
-const owner = computed(() => props.workspace?.role === 'owner')
+const owner = computed(() => /* 判断当前用户是否为工作区所有者。 */ props.workspace?.role === 'owner')
 const name = ref(''), description = ref(''), revision = ref(0), baseline = ref('')
-const serialized = computed(() => JSON.stringify({ name: name.value, description: description.value }))
-const dirty = computed(() => serialized.value !== baseline.value)
-const conflict = computed(() => dirty.value && props.workspace?.revision !== revision.value)
+const serialized = computed(() => /* 序列化工作区名称与说明，供编辑草稿比较。 */ JSON.stringify({ name: name.value, description: description.value }))
+const dirty = computed(() => /* 判断资料草稿是否偏离已保存基线。 */ serialized.value !== baseline.value)
+const conflict = computed(() => /* 判断未保存资料所依据的工作区版本是否过期。 */ dirty.value && props.workspace?.revision !== revision.value)
 const memberId = ref(''), memberRole = ref<Role>('viewer'), memberAction = ref<'set' | 'remove'>('set'), memberRevision = ref(0)
-const member = computed(() => props.workspace?.members.find(item => item.userId === memberId.value.trim()))
-const memberConflict = computed(() => !!memberId.value && memberRevision.value !== props.workspace?.revision)
+const member = computed(() =>
+  /* 按表单中的用户标识查找现有成员。 */
+  props.workspace?.members.find(/* 当前工作区的一条成员记录，只用于匹配用户身份。 */ item =>
+    /* 匹配去掉首尾空白的成员用户标识。 */
+    item.userId === memberId.value.trim()))
+const memberConflict = computed(() => /* 判断成员表单所依据的工作区版本是否已变化。 */ !!memberId.value && memberRevision.value !== props.workspace?.revision)
 const deleteName = ref('')
 const roleLabels: Record<Role, string> = { owner: '所有者', editor: '编辑者', viewer: '只读成员' }
 
-// 用途：读取草稿，并把结构化结果交给调用方。
 function workspaceReadDraft() {
+  // 载入工作区名称与说明，同时重置资料版本和内容基线。
   if (!props.workspace) return
   name.value = props.workspace.name; description.value = props.workspace.description
   revision.value = props.workspace.revision; baseline.value = serialized.value
 }
-watch(() => props.workspace, workspace => {
+watch(() => /* 观察当前工作区资料和权限变化。 */ props.workspace, /* 父组件传入的最新工作区；空值表示当前没有可编辑工作区。 */ workspace => {
+  // 未修改资料时接纳服务端版本，并为空白成员表单更新版本基线。
   if (!workspace) return
   if (!baseline.value || !dirty.value) workspaceReadDraft()
   if (!memberId.value) memberRevision.value = workspace.revision
 }, { immediate: true })
-// 用途：读取界面，并把结构化结果交给调用方。
-function workspaceReadMember(item: Member, action: 'set' | 'remove') {
+function workspaceReadMember(
+  /* 从成员列表选择的只读记录，将身份和角色复制进编辑表单。 */ item: Member,
+  /* 本次成员操作为设定角色或移除，用于确定表单模式。 */ action: 'set' | 'remove'
+) {
+  // 把所选成员和操作类型载入成员表单，并记住工作区版本。
   memberId.value = item.userId; memberRole.value = item.role; memberAction.value = action
   memberRevision.value = props.workspace!.revision
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
-function workspaceResetMember() { memberId.value = ''; memberRole.value = 'viewer'; memberAction.value = 'set'; memberRevision.value = props.workspace!.revision }
-// 用途：更新界面，并保持相关状态一致。
+function workspaceResetMember() {
+  // 清空成员表单，恢复只读角色和当前工作区版本。
+  memberId.value = ''; memberRole.value = 'viewer'; memberAction.value = 'set'; memberRevision.value = props.workspace!.revision
+}
 async function workspaceUpdateDetails() {
+  // 仅在所有者有有效改动且版本未冲突时保存工作区资料。
   if (!props.workspace || !owner.value || !dirty.value || conflict.value || !name.value.trim()) return
-  await task.command('workspace.update', { workspaceId: props.workspace.id, expectedRevision: revision.value, name: name.value.trim(), description: description.value }, result => {
+  await task.command('workspace.update', { workspaceId: props.workspace.id, expectedRevision: revision.value, name: name.value.trim(), description: description.value }, /* 资料保存成功的响应，提供服务端确认的名称、说明与版本。 */ result => {
+    // 接纳保存后的名称、说明与版本，重置脏状态并通知父组件。
     name.value = result.data.name; description.value = result.data.description; revision.value = result.data.revision; baseline.value = serialized.value
     emit('changed')
   })
 }
-// 用途：更新界面，并保持相关状态一致。
 async function workspaceUpdateMember() {
+  // 按成员表单版本设置角色或移除成员。
   if (!props.workspace || !owner.value || !memberId.value.trim() || memberConflict.value) return
   await task.command('member.set', { workspaceId: props.workspace.id, expectedRevision: memberRevision.value, userId: memberId.value.trim(), role: memberAction.value === 'remove' ? null : memberRole.value }, () => {
+    // 成员变更成功后重置表单并通知父组件刷新。
     workspaceResetMember(); emit('changed')
   })
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 async function workspaceDelete() {
+  // 在所有者输入准确名称后按当前版本删除工作区。
   if (!props.workspace || !owner.value || deleteName.value !== props.workspace.name) return
-  await task.command('workspace.delete', { workspaceId: props.workspace.id, expectedRevision: props.workspace.revision }, () => emit('changed'))
+  await task.command('workspace.delete', { workspaceId: props.workspace.id, expectedRevision: props.workspace.revision }, () =>
+    /* 删除成功后通知父组件刷新工作区状态。 */
+    emit('changed'))
 }
 </script>
 
 <template>
+  <!-- 工作区资料、成员表单和删除确认共享版本与请求状态。 -->
   <section class="management-page" aria-label="工作区与成员管理">
     <p v-if="!workspace" class="muted">先选择或创建一个工作区，再管理资料与成员。</p>
     <template v-else>
@@ -90,5 +106,6 @@ async function workspaceDelete() {
 </template>
 
 <style scoped>
+/* 划分资料、成员与删除区域，并突出权限变更和冲突提示。 */
 .management-page{display:grid;gap:16px}.section-head,.actions,.member-row{display:flex;align-items:center;gap:9px}.section-head{justify-content:space-between}h3{font-size:15px}h4{font-size:13px}form,label{display:grid;gap:8px}form{gap:12px}input,textarea,select{padding:7px;font-size:12px;min-width:0}form>button{justify-self:start}.muted,small{color:var(--text-muted);line-height:1.6;font-size:11px}code,small{overflow-wrap:anywhere}.member-list{display:grid;gap:8px}.member-row{justify-content:space-between;border:1px solid var(--border-subtle);padding:10px;align-items:flex-start}.member-row>div:first-child{display:grid;gap:5px;min-width:0}.member-row span{font-size:11px}.member-form,.delete-section{padding:14px;background:var(--bg-viewport);border:1px solid var(--border-subtle)}.actions{flex-wrap:wrap}.conflict,.error{padding:12px;border:1px solid var(--border);background:var(--bg-viewport);line-height:1.7}.conflict button{margin:6px 8px 0 0}.danger,.error{color:var(--danger)}.delete-section summary{cursor:pointer;color:var(--danger)}.delete-section p,.delete-section button,.delete-section label{margin-top:12px}
 </style>

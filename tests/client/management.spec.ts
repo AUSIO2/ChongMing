@@ -1,3 +1,4 @@
+// 管理任务单元测试：验证草稿隔离、重试身份、作用域取消和刷新版本仲裁。
 import { effectScope, reactive } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientGateway } from '../../contracts/client'
@@ -6,14 +7,21 @@ import { useManagementTask } from '../../apps/ui/features/management/use-managem
 import { sessionCreateState } from '../../apps/ui/state/client-session'
 import { verificationConfiguration } from '../backend/fixtures/verification'
 
-vi.mock('../../apps/ui/transport/client-gateway', () => ({ api: {} }))
+vi.mock('../../apps/ui/transport/client-gateway', () => /* 替换应用默认网关，避免单元测试触发真实连接装配。 */ ({ api: {} }))
 function deferred<T>() {
-  let resolve!: (value: T) => void, reject!: (error: unknown) => void
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  // 创建可由测试手动完成或拒绝的 Promise，以安排迟到结果。
+  let resolve!: (/* 测试手动交付给延迟 Promise 的成功值。 */ value: T) => void, reject!: (/* 测试手动注入的任意拒绝原因。 */ error: unknown) => void
+  const promise = new Promise<T>((/* Promise 构造器提供的完成函数，保存供用例安排成功返回。 */ yes, /* Promise 构造器提供的拒绝函数，保存供用例安排失败返回。 */ no) => {
+    // 保存 Promise 的完成和拒绝入口。
+    resolve = yes; reject = no
+  })
   return { promise, resolve, reject }
 }
-const networkError = () => new ClientError({ status: 0, code: 'NETWORK_ERROR', message: 'Disconnected', retryable: true })
+const networkError = () =>
+  /* 创建可重试网络错误，模拟尚未确认的请求结果。 */
+  new ClientError({ status: 0, code: 'NETWORK_ERROR', message: 'Disconnected', retryable: true })
 function fixture() {
+  // 建立带可观察查询、命令和认证失效回调的管理任务。
   const dispatch = vi.fn(), read = vi.fn(), onUnauthorized = vi.fn()
   const gateway = { dispatch, read } as unknown as ClientGateway
   const task = useManagementTask({ gateway, onUnauthorized })
@@ -21,12 +29,20 @@ function fixture() {
 }
 
 describe('Management request lifetime and mutation identity', () => {
+  // 覆盖管理请求的草稿隔离、原操作重试、作用域取消与认证失效。
   it('freezes nested reactive drafts and bytes and retries the exact original operation', async () => {
+    // 验证嵌套响应式草稿和字节被复制，传输层修改或后续编辑不会改变重试内容。
     const f = fixture()
     const draft = reactive({ members: [{ userId: 'member', role: 'editor' }], bytes: new Uint8Array([1, 2, 3]) })
     const calls: Array<{ input: typeof draft; requestId: string }> = []
-    const execute = vi.fn(async (input: typeof draft, requestId: string) => {
-      calls.push({ input: { members: input.members.map(member => ({ ...member })), bytes: input.bytes.slice() }, requestId })
+    const execute = vi.fn(async (
+      /* 管理任务交给本次尝试的独立输入副本；测试故意修改它以检查隔离。 */ input: typeof draft,
+      /* 管理任务分配的稳定操作身份，记录并比较重试是否复用。 */ requestId: string
+    ) => {
+      // 记录独立提交参数，修改收到的副本并令首次调用失败，以检验原操作重试。
+      calls.push({ input: { members: input.members.map(/* 本次提交副本中的成员记录，再复制一份保留断言基线。 */ member =>
+        /* 复制成员条目，保留调用时输入以供两次提交比较。 */
+        ({ ...member })), bytes: input.bytes.slice() }, requestId })
       input.members[0].role = 'mutated inside transport'; input.bytes[0] = 99
       if (calls.length === 1) throw networkError()
       return 'accepted'
@@ -43,6 +59,7 @@ describe('Management request lifetime and mutation identity', () => {
   })
 
   it('keeps an uncertain command until retry or explicit abandonment', async () => {
+    // 验证不确定命令会阻止新命令，放弃重试后才允许新请求身份。
     const f = fixture()
     f.dispatch.mockRejectedValueOnce(networkError()).mockResolvedValue({ ok: true, data: { deleted: true } })
     const input = { workspaceId: 'workspace', expectedRevision: 4 }
@@ -58,8 +75,9 @@ describe('Management request lifetime and mutation identity', () => {
   })
 
   it('aborts on panel disposal and discards late successful writes', async () => {
+    // 验证面板释放会取消请求，迟到写入结果不会触发接纳回调。
     const f = fixture(), pending = deferred<unknown>(), accept = vi.fn()
-    f.dispatch.mockImplementation(() => pending.promise)
+    f.dispatch.mockImplementation(() => /* 返回由测试控制完成时机的命令 Promise。 */ pending.promise)
     const writing = f.task.command('member.set', { workspaceId: 'workspace', expectedRevision: 4, userId: 'member', role: 'viewer' }, accept)
     const signal = f.dispatch.mock.calls[0][3] as AbortSignal
     expect(f.task.busy.value).toBe(true)
@@ -73,9 +91,12 @@ describe('Management request lifetime and mutation identity', () => {
   })
 
   it('ties requests to the component scope so replacing identity cannot adopt old reads', async () => {
+    // 验证管理请求绑定 Vue 作用域，身份替换后不接纳旧查询结果。
     const scope = effectScope(), pending = deferred<unknown>(), accept = vi.fn()
-    const read = vi.fn(() => pending.promise)
-    const task = scope.run(() => useManagementTask({ gateway: { read } as unknown as ClientGateway, onUnauthorized: vi.fn() }))!
+    const read = vi.fn(() => /* 延迟查询结果，供作用域销毁后交付。 */ pending.promise)
+    const task = scope.run(() =>
+      /* 在测试作用域中创建管理任务，以验证自动释放绑定。 */
+      useManagementTask({ gateway: { read } as unknown as ClientGateway, onUnauthorized: vi.fn() }))!
     const reading = task.read('workspace.get', { workspaceId: 'old-workspace' }, accept)
     scope.stop()
     pending.resolve({ id: 'old-workspace' })
@@ -85,6 +106,7 @@ describe('Management request lifetime and mutation identity', () => {
   })
 
   it('reports version conflicts without changing or retrying the draft', async () => {
+    // 验证版本冲突保留原草稿和预期版本，且不自动重试。
     const f = fixture()
     f.dispatch.mockRejectedValue(new ClientError({ status: 409, code: 'REVISION_CONFLICT', message: 'Changed', retryable: false, currentRevision: 8 }))
     const draft = reactive({ workspaceId: 'workspace', expectedRevision: 3, name: 'Unsaved name', description: 'Kept text' })
@@ -99,6 +121,7 @@ describe('Management request lifetime and mutation identity', () => {
   })
 
   it('routes expired authorization to the session owner instead of offering a write retry', async () => {
+    // 验证 401 通知会话所有者，且不保留写入重试入口。
     const f = fixture()
     f.read.mockRejectedValue(new ClientError({ status: 401, code: 'UNAUTHORIZED', message: 'Expired', retryable: false }))
     expect(await f.task.read('app.bootstrap', {})).toBeNull()
@@ -109,6 +132,7 @@ describe('Management request lifetime and mutation identity', () => {
 })
 
 async function openedManagement() {
+    // 构造已登录并打开暂停运行的会话，供管理刷新测试观察图和选择是否保留。
     const time = '2026-09-12T00:00:00.000Z'
     const workspace = { id: 'workspace', name: 'Original', description: '', revision: 1, role: 'owner', mapCount: 1, updatedAt: time, agents: [], members: [], preferences: { workspaceId: 'workspace', revision: 0, openMapIds: ['map'], currentMapId: 'map', nodeSelection: { map: 'claim' } } }
     const bootstrap = { identity: { userId: 'user', displayName: 'User', hostAdmin: true }, settings: { revision: 1, llm: { provider: 'fixture', model: 'before' }, tools: [], limits: { maxAgentSlots: 4 } }, metadata: { version: '060' } }
@@ -116,10 +140,22 @@ async function openedManagement() {
       run: { id: 'run', scope: { nodeIds: ['claim'] }, until: 'verified', paused: true, regenerate: false, mode: 'auto', status: 'running', configuration: verificationConfiguration(), operations: [], createdAt: time, updatedAt: time } }
     const dispatch = vi.fn(), disconnect = vi.fn()
     const gateway = {
-      watch: vi.fn((_mapId: string, _onEvent: unknown, signal?: AbortSignal) => new Promise<void>((_resolve, reject) => { signal?.addEventListener('abort', () => reject(new Error('Stopped')), { once: true }) })),
-      connect: vi.fn(async () => structuredClone(bootstrap)),
-      getConnection: vi.fn(async () => ({ baseUrl: 'http://fixture', configured: true, remembered: false, canRemember: false })),
-      read: vi.fn(async (method: string) => {
+      watch: vi.fn((
+        /* 订阅的图身份；此刷新夹具只关注取消，不区分图。 */ _mapId: string,
+        /* 订阅事件回调；此夹具不推送事件，故不使用。 */ _onEvent: unknown,
+        /* 可选的订阅取消信号，触发后拒绝长连接 Promise。 */ signal?: AbortSignal
+      ) =>
+        /* 模拟持续到取消信号到达才结束的图订阅。 */
+        new Promise<void>((/* 订阅 Promise 的成功入口，此夹具只通过取消结束。 */ _resolve, /* 订阅 Promise 的拒绝入口，取消时注入停止错误。 */ reject) => {
+          // 为模拟订阅安装取消拒绝回调。
+          signal?.addEventListener('abort', () => /* 收到取消后结束模拟订阅。 */ reject(new Error('Stopped')), { once: true })
+      })),
+      connect: vi.fn(async () => /* 为登录返回独立的启动信息副本。 */ structuredClone(bootstrap)),
+      getConnection: vi.fn(async () =>
+        /* 返回已配置且不记住凭据的连接信息。 */
+        ({ baseUrl: 'http://fixture', configured: true, remembered: false, canRemember: false })),
+      read: vi.fn(async (/* 公开查询方法名，选择对应的启动信息、工作区或图夹具。 */ method: string) => {
+        // 按查询方法返回可变夹具的独立快照，供测试模拟服务端刷新。
         if (method === 'app.bootstrap') return structuredClone(bootstrap)
         if (method === 'workspace.list') return { items: [structuredClone(workspace)], nextCursor: null }
         if (method === 'workspace.get') return structuredClone(workspace)
@@ -135,12 +171,19 @@ async function openedManagement() {
 }
 
 describe('Management refresh preserves the current graph', () => {
+  // 覆盖管理刷新中的版本仲裁、迟到结果隔离和当前图状态保留。
   it('ignores older management successes and failures and never rolls settings backward', async () => {
+    // 验证旧管理成功及错误均被忽略，全局设置版本不会倒退。
     const f = await openedManagement()
     const read = f.read.getMockImplementation()!
     const oldBootstrap = structuredClone(f.bootstrap), late = deferred<any>()
     let intercept = true
-    f.read.mockImplementation(((method: string, params: any, signal: any) => {
+    f.read.mockImplementation(((
+      /* 被拦截查询的方法名，只延迟首个启动信息请求。 */ method: string,
+      /* 查询业务参数，非拦截分支原样转给原模拟实现。 */ params: any,
+      /* 查询的取消信号，非拦截分支原样保留。 */ signal: any
+    ) => {
+      // 仅延迟首次启动信息查询，其他请求沿用夹具实现。
       if (method === 'app.bootstrap' && intercept) { intercept = false; return late.promise }
       return read(method as any, params, signal)
     }) as typeof read)
@@ -154,7 +197,7 @@ describe('Management refresh preserves the current graph', () => {
     await f.session.refreshManagement()
     expect(f.session.bootstrap.value?.settings.llm.model).toBe('newest')
     const failed = deferred<any>()
-    f.read.mockImplementationOnce(() => failed.promise)
+    f.read.mockImplementationOnce(() => /* 延迟旧管理读取的错误，供较新刷新完成后再拒绝。 */ failed.promise)
     const oldFailure = f.session.refreshManagement()
     await f.session.refreshManagement()
     failed.reject(new ClientError({ status: 401, code: 'UNAUTHORIZED', message: 'Old authorization result', retryable: false }))
@@ -165,11 +208,17 @@ describe('Management refresh preserves the current graph', () => {
   })
 
   it('keeps Workspace and preference revisions independent and ignores stale access failures', async () => {
+    // 验证工作区与偏好版本独立推进，旧访问错误不清空当前图或选择。
     const f = await openedManagement()
     const read = f.read.getMockImplementation()!
     const initialRun = f.session.snapshot.value!.run, oldWorkspace = structuredClone(f.workspace), late = deferred<any>()
     let intercept = true
-    f.read.mockImplementation(((method: string, params: any, signal: any) => {
+    f.read.mockImplementation(((
+      /* 被拦截查询的方法名，只延迟首个工作区详情请求。 */ method: string,
+      /* 查询业务参数，其他查询保持原夹具行为。 */ params: any,
+      /* 查询的取消信号，其他查询继续使用原生命周期。 */ signal: any
+    ) => {
+      // 仅延迟首次工作区读取，制造新旧版本交错到达。
       if (method === 'workspace.get' && intercept) { intercept = false; return late.promise }
       return read(method as any, params, signal)
     }) as typeof read)
@@ -186,7 +235,7 @@ describe('Management refresh preserves the current graph', () => {
     await f.session.refreshWorkspace()
     expect(f.session.workspace.value).toMatchObject({ name: 'Latest fields', revision: 4, preferences: { revision: 9 } })
     const failed = deferred<any>()
-    f.read.mockImplementationOnce(() => failed.promise)
+    f.read.mockImplementationOnce(() => /* 延迟旧工作区访问错误，供刷新后检验失效结果隔离。 */ failed.promise)
     const oldFailure = f.session.refreshWorkspace()
     await f.session.refreshWorkspace()
     failed.reject(new ClientError({ status: 404, code: 'WORKSPACE_NOT_FOUND', message: 'Old access result', retryable: false }))
@@ -201,6 +250,7 @@ describe('Management refresh preserves the current graph', () => {
   })
 
   it('adopts Workspace and Settings changes without replacing a paused Run or selection', async () => {
+    // 验证管理刷新接纳工作区与设置变化，同时保留暂停运行对象和节点选择。
     const { session, workspace, bootstrap, dispatch } = await openedManagement()
     const initialRun = session.snapshot.value!.run
     workspace.name = 'Updated workspace'; workspace.revision = 2

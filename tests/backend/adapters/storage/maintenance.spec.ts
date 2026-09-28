@@ -1,3 +1,4 @@
+// 文件职责：验证旧 Run 显式迁移的预览、身份保留、复用判定和原子拒绝。
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -14,21 +15,26 @@ import { verificationConfiguration, verificationSlots } from '../../fixtures/ver
 
 let mongo: MongoMemoryReplSet, connection: Connection
 beforeAll(async () => {
+  // 启动单节点 Mongo 副本集并连接独立迁移测试数据库。
   mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
   connection = await storeCreateConnection(mongo.getUri('node_run_migration_' + randomUUID()))
 }, 30_000)
 afterAll(async () => {
+  // 无论连接关闭是否成功，都停止临时 Mongo 副本集。
   try { await connection?.close() }
   finally { await mongo?.stop() }
 })
-beforeEach(async () => { await connection.db!.collection(GRAPH_COLLECTION).deleteMany({}) })
+beforeEach(async () => {
+  // 清空图集合，隔离各迁移用例的历史数据。
+   await connection.db!.collection(GRAPH_COLLECTION).deleteMany({}) })
 
-function legacyMap(status: 'running' | 'waiting' | 'completed' = 'completed') {
+function legacyMap(/* 要构造的旧 Run 状态，默认 completed；决定报告、审核与结果节点形状。 */ status: 'running' | 'waiting' | 'completed' = 'completed') {
+  // 构造包含旧单 Operation、报告、审核、结果和过期租约的历史图。
   const now = '2026-08-20T10:00:00.000Z'
   const mapId = randomUUID(), targetId = randomUUID(), runId = randomUUID(), operationId = randomUUID(), resultId = randomUUID()
   const configuration = verificationConfiguration()
   const slots = verificationSlots(2)
-  const reports = slots.slice(0, status === 'running' ? 1 : 2).map((slot, index) => ({
+  const reports = slots.slice(0, status === 'running' ? 1 : 2).map((/* 历史路由中的一个槽位，用来生成对应的旧核查报告。 */ slot, /* 槽位在配置数组中的位置，用于取得匹配 Agent 的展示名称。 */ index) => /* 为旧路由槽位生成具有稳定身份的已接纳报告。 */  ({
     id: operationId + ':report:1:' + slot.id, slotId: slot.id, agentId: slot.agentId, agentName: configuration.agents[index].name,
     angle: slot.angle, tools: slot.tools, routeRevision: 1, score: 0.5, reason: 'Evidence already accepted', createdAt: now,
   }))
@@ -37,12 +43,12 @@ function legacyMap(status: 'running' | 'waiting' | 'completed' = 'completed') {
     createdAt: now, answeredAt: status === 'waiting' ? null : now }
   const operation = { id: operationId, kind: 'verify', targetId, status, inputRefs: [{ id: targetId, revision: 3 }],
     route: { revision: 1, reason: 'Frozen route', slots, approved: true }, reports,
-    draft: status === 'running' ? null : { id: operationId + ':merge:1', routeRevision: 1, reportIds: reports.map(report => report.id), score: 0.5, reason: 'Frozen merge' },
+    draft: status === 'running' ? null : { id: operationId + ':merge:1', routeRevision: 1, reportIds: reports.map(/* 历史报告对象，提取 ID 填入旧汇总草稿的引用列表。 */ report => /* 收集旧汇总草稿引用的报告身份。 */  report.id), score: 0.5, reason: 'Frozen merge' },
     review, resultNodeId: status === 'completed' ? resultId : null }
   const run = { id: runId, mode: status === 'waiting' ? 'human-in-loop' : 'auto', status, configuration, operation, createdAt: now, updatedAt: now }
   const nodes = [{ id: targetId, revision: 3, data: { kind: 'claim', content: 'Original fact', category: null }, createdAt: now, updatedAt: now }]
   if (status === 'completed') (nodes as unknown[]).push({ id: resultId, revision: 2,
-    data: { kind: 'verification', score: 0.5, reason: 'Frozen merge', reportIds: reports.map(report => report.id), opinions: reports }, createdAt: now, updatedAt: now })
+    data: { kind: 'verification', score: 0.5, reason: 'Frozen merge', reportIds: reports.map(/* 历史报告对象，提取 ID 填入旧核查节点的报告列表。 */ report => /* 收集旧核查节点引用的报告身份。 */  report.id), opinions: reports }, createdAt: now, updatedAt: now })
   return { _id: mapId, workspaceId: randomUUID(), name: 'Legacy graph', revision: 9, nodes,
     edges: status === 'completed' ? [{ id: randomUUID(), kind: 'verifies', from: resultId, to: targetId, revision: 0, createdAt: now, updatedAt: now }] : [],
     run, runHistory: [] as unknown[],
@@ -54,20 +60,29 @@ function legacyMap(status: 'running' | 'waiting' | 'completed' = 'completed') {
 }
 
 describe('Explicit legacy node-run migration', () => {
+  // 覆盖管理员迁移命令与底层事务迁移规则。
   it('exposes an explicit admin command whose default inspection never initializes application collections', async () => {
+    // 验证管理员命令默认仅预览，不初始化无关集合；显式应用才迁移并暂停旧 Run。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const original = legacyMap('waiting')
     await graphs.insertOne(original)
     const collections = await connection.db!.listCollections({}, { nameOnly: true }).toArray()
-    async function command(input: unknown) {
+    async function command(/* 通过 stdin 交给真实管理员命令的 JSON 值，可故意提供非法 apply 类型。 */ input: unknown) {
+      // 运行真实管理员 CLI 并通过 stdin 提供迁移参数，收集输出及退出码。
       const child = spawn(process.execPath, ['--import', 'tsx', path.resolve('apps/graph-server/admin.ts'), 'data.migrate-node-runs'], {
         cwd: path.resolve('.'), stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env,
           CHONGMING_MONGO_URI: mongo.getUri(connection.name), CHONGMING_CONFIG_DIR: path.join(tmpdir(), 'unused-migration-config-' + randomUUID()) },
       })
       let output = '', errors = ''
-      child.stdout.on('data', chunk => { output += chunk.toString() })
-      child.stderr.on('data', chunk => { errors += chunk.toString() })
-      const exited = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) })
+      child.stdout.on('data', /* 管理员 CLI stdout 字节块，拼接为待断言的结构化结果。 */ chunk => {
+        // 收集管理员命令的结构化标准输出。
+         output += chunk.toString() })
+      child.stderr.on('data', /* 管理员 CLI stderr 字节块，保存失败诊断。 */ chunk => {
+        // 收集管理员命令的诊断错误文本。
+         errors += chunk.toString() })
+      const exited = new Promise<number | null>((/* 命令退出时兑现退出码的回调。 */ resolve, /* 命令子进程启动失败时拒绝等待的回调。 */ reject) => {
+        // 把子进程退出或启动失败转为可等待结果。
+         child.once('error', reject); child.once('exit', resolve) })
       child.stdin.end(JSON.stringify(input))
       return { code: await exited, output, errors }
     }
@@ -86,6 +101,7 @@ describe('Explicit legacy node-run migration', () => {
   }, 20_000)
 
   it('defaults to dry-run, preserves business identities and history on apply, and is idempotent', async () => {
+    // 验证默认预览无写入，应用保留图和业务身份，重复应用不再变更。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const original = legacyMap()
     original.run.configuration.parse = { ...original.run.configuration.router, id: 'unused-parser' }
@@ -116,31 +132,33 @@ describe('Explicit legacy node-run migration', () => {
     expect(await graphs.findOne({ _id: original._id })).toEqual(migrated)
   })
 
-  it.each([0, 2])('reuses only unchanged legacy outputs after canonicalizing input refs (current output revision %s)', async revision => {
+  it.each([0, 2])('reuses only unchanged legacy outputs after canonicalizing input refs (current output revision %s)', async /* 参数化用例指定的结果节点当前版本，零表示未修改，二表示已修改。 */ revision => {
+    // 比较未修改与已修改旧产物，验证规范化输入后只复用仍有效的结果。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const original = legacyMap()
-    original.nodes.find(node => node.id === original.run.operation.resultNodeId)!.revision = revision
+    original.nodes.find(/* 旧图节点候选，定位原结果节点以调整测试版本。 */ node => /* 定位旧结果节点以设置本用例需要的当前版本。 */  node.id === original.run.operation.resultNodeId)!.revision = revision
     const newsId = randomUUID(), now = original.run.updatedAt
     ;(original.nodes as unknown[]).push({ id: newsId, revision: 1, data: { kind: 'news', content: 'Original report', context: {} }, createdAt: now, updatedAt: now })
     original.edges.push({ id: randomUUID(), kind: 'mentions', from: newsId, to: original.run.operation.targetId, revision: 0, createdAt: now, updatedAt: now })
     original.run.operation.inputRefs.push({ id: newsId, revision: 1 })
-    original.run.operation.inputRefs.sort((a, b) => b.id.localeCompare(a.id))
+    original.run.operation.inputRefs.sort((/* 故意反序排列时左侧输入引用，用其 ID 参与比较。 */ a, /* 故意反序排列时右侧输入引用，身份降序放在前面。 */ b) => /* 故意反序排列旧输入引用，测试迁移会规范排序。 */  b.id.localeCompare(a.id))
     await graphs.insertOne(original)
     await repairMigrateNodeRuns(connection, true)
     const document = (await storeCreateGraphStore(connection).read(original._id))!
-    expect(document.run!.operations[0].inputRefs).toEqual([...original.run.operation.inputRefs].sort((a, b) => a.id.localeCompare(b.id)))
+    expect(document.run!.operations[0].inputRefs).toEqual([...original.run.operation.inputRefs].sort((/* 期望正序排序中的左侧输入引用。 */ a, /* 期望正序排序中的右侧输入引用，用于比较身份大小。 */ b) => /* 按身份正序建立规范化输入引用的期望结果。 */  a.id.localeCompare(b.id)))
     expect(document.run!.operations[0].outputRefs).toEqual([{ id: original.run.operation.resultNodeId, revision: 0 }])
-    const outputBefore = structuredClone(document.nodes.find(node => node.id === original.run.operation.resultNodeId))
+    const outputBefore = structuredClone(document.nodes.find(/* 迁移后图节点候选，找到原结果并保存其副本。 */ node => /* 保存迁移后结果节点副本，验证新 Run 不修改旧产物。 */  node.id === original.run.operation.resultNodeId))
     const next = runCreateRun(document, { mapId: document.id, expectedRevision: document.revision, id: randomUUID(),
       scope: { nodeIds: [original.run.operation.targetId] }, until: 'verified', mode: 'auto', regenerate: false }, document.run!.configuration, now)
     expect(next.run!.status).toBe(revision === 0 ? 'completed' : 'running')
     expect(next.run!.operations[0].resultNodeId).toBe(revision === 0 ? original.run.operation.resultNodeId : null)
     expect(next.run!.operations[0].reports).toEqual(revision === 0 ? original.run.operation.reports : [])
-    expect(next.nodes.find(node => node.id === original.run.operation.resultNodeId)).toEqual(outputBefore)
+    expect(next.nodes.find(/* 新 Run 建立后的节点候选，定位原结果检查它未被修改。 */ node => /* 读取新 Run 建立后的原结果节点以比较内容不变。 */  node.id === original.run.operation.resultNodeId)).toEqual(outputBefore)
     expect(outputBefore!.revision).toBe(revision)
   })
 
-  it.each(['running', 'waiting'] as const)('migrates an inactive-lease %s Run to paused without losing reports or Review', async status => {
+  it.each(['running', 'waiting'] as const)('migrates an inactive-lease %s Run to paused without losing reports or Review', async /* 参数化用例给定的活动旧状态，running 与 waiting 都应迁移为暂停。 */ status => {
+    // 验证活动旧 Run 以暂停状态迁移，并保留报告、审核和服务器时间基准。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const original = legacyMap(status)
     await graphs.insertOne(original)
@@ -156,6 +174,7 @@ describe('Explicit legacy node-run migration', () => {
   })
 
   it('reports live leases in dry-run and refuses apply atomically using server time', async () => {
+    // 验证有效租约在预览中标记阻塞，显式应用时整批迁移回滚。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const first = legacyMap(), active = legacyMap('running')
     await graphs.insertMany([first, active])
@@ -169,6 +188,7 @@ describe('Explicit legacy node-run migration', () => {
   })
 
   it('leaves an already migrated current Run untouched while upgrading legacy history', async () => {
+    // 只迁移旧历史 Run，验证已经转换的当前 Run 保持原样。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const original = legacyMap()
     await graphs.insertOne(original)
@@ -182,7 +202,8 @@ describe('Explicit legacy node-run migration', () => {
     expect(migrated.runHistory[0].operations[0].id).toBe(history.operation.id)
   })
 
-  it.each(['operation-kind', 'missing-operation', 'input-revision', 'report-score', 'mixed-schema', 'lease-shape'])('rejects malformed legacy %s without writing', async field => {
+  it.each(['operation-kind', 'missing-operation', 'input-revision', 'report-score', 'mixed-schema', 'lease-shape'])('rejects malformed legacy %s without writing', async /* 本轮要破坏的历史字段类别，决定注入哪一种不支持结构。 */ field => {
+    // 逐类破坏历史结构，验证迁移明确拒绝且不写回任何数据。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const invalid: any = legacyMap()
     if (field === 'operation-kind') invalid.run.operation.kind = 'split'

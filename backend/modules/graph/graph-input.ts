@@ -1,10 +1,11 @@
+// 校验各类图节点与意见的外部输入，保留不同节点类型各自的字段边界。
 import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
 import type { GraphNodeData, GraphReport } from '../../../contracts/graph'
 import { GraphError } from '../shared/domain-error'
 import { inputReadObject, inputReadString, inputReadId, inputReadNames, inputReadRevision, inputReadScore, inputReadArray } from '../shared/input-validation'
 
-// 用途：处理数据图相关工作，并把结果交给调用方。
-function graphInputReadReport(value: unknown): GraphReport {
+function graphInputReadReport(/* 来自节点输入中、尚未验证的历史意见记录。 */ value: unknown): GraphReport {
+  // 校验核查意见的身份、槽位、评分和时间字段，构造可保存的报告记录。
   const item = inputReadObject(value,
     ['id', 'slotId', 'agentId', 'agentName', 'angle', 'tools', 'routeRevision', 'score', 'reason', 'createdAt'], 'opinion')
   const createdAt = inputReadString(item.createdAt, 'opinion.createdAt')
@@ -18,8 +19,8 @@ function graphInputReadReport(value: unknown): GraphReport {
   }
 }
 
-// 用途：处理数据图相关工作，并把结果交给调用方。
-export function graphInputReadNodeData(value: unknown, label: string): GraphNodeData {
+export function graphInputReadNodeData(/* 来自 HTTP 命令或数据包、尚未按节点类型校验的值。 */ value: unknown, /* 写入错误信息的节点字段路径。 */ label: string): GraphNodeData {
+  // 按节点种类解析专属字段，校验来源地址、资产标识及新闻上下文的可见性。
   const base = inputReadObject(
     value,
     ['kind', 'content', 'context', 'category', 'score', 'reason', 'reportIds', 'opinions', 'locator', 'label', 'capturedAt'],
@@ -72,7 +73,8 @@ export function graphInputReadNodeData(value: unknown, label: string): GraphNode
     throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTEXT_MUST_BE_AN_OBJECT, label))
   }
   const rawContext = base.context as Record<string, unknown>
-  const context = Object.fromEntries(Object.entries(rawContext).map(([key, item]) => {
+  const context = Object.fromEntries(Object.entries(rawContext).map((/* 新闻上下文中的字段名及其尚未验证的内容对象。 */ [key, item]) => {
+    // 逐项验证上下文内容与 AI 可见标记，保留原字段名称。
     const field = inputReadObject(item, ['value', 'visibleToAI'], `${label}.context.${key}`)
     if (typeof field.value !== 'string' || typeof field.visibleToAI !== 'boolean') {
       throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTEXT_VALUE_IS_INVALID, label, key))

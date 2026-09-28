@@ -1,3 +1,4 @@
+// 读写本机配置与密钥文件，通过独占锁串行化更新并以临时文件替换内容。
 import { RuntimeMessage, messageFormat } from '../../contracts/messages'
 import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -5,14 +6,16 @@ import { randomUUID } from 'node:crypto'
 import { inputReadObject, inputReadString } from '../../backend/modules/shared/input-validation'
 import { GraphError } from '../../backend/modules/shared/domain-error'
 
+// 不含密钥的本机路径及服务地址设置；密钥存放于独立文件。
 export interface LocalSettings { mongoUri?: string; dataApiUrl?: string; dshHome?: string }
 const secretNames = new Set(['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'TAVILY_API_KEY', 'CHONGMING_DATA_TOKEN', 'CHONGMING_AMQP_URL'])
 
-// 用途：读取目录，并把结构化结果交给调用方。
-function localReadDirectory(): string { return path.resolve(process.env.CHONGMING_CONFIG_DIR ?? '.chongming-host') }
+function localReadDirectory(): string {
+  // 解析本机配置目录，优先使用环境变量指定的位置。
+   return path.resolve(process.env.CHONGMING_CONFIG_DIR ?? '.chongming-host') }
 
-// 用途：读取文件，并把结构化结果交给调用方。
-async function localReadFile(name: string): Promise<Record<string, unknown>> {
+async function localReadFile(/* 配置目录内由程序选定的 JSON 文件名。 */ name: string): Promise<Record<string, unknown>> {
+  // 读取配置 JSON；文件不存在视为空配置，其他读取或解析失败报告配置错误。
   try { return JSON.parse(await readFile(path.join(localReadDirectory(), name), 'utf8')) }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
@@ -20,8 +23,8 @@ async function localReadFile(name: string): Promise<Record<string, unknown>> {
   }
 }
 
-// 用途：处理本机服务相关工作，并把结果交给调用方。
-async function localWriteFile(name: string, value: unknown): Promise<void> {
+async function localWriteFile(/* 配置目录内由程序选定的目标文件名，临时文件与其同目录。 */ name: string, /* 需要整体序列化保存的配置值，不在此函数做业务校验。 */ value: unknown): Promise<void> {
+  // 将配置写入仅当前用户可读的临时文件，再重命名替换目标文件。
   const directory = localReadDirectory()
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const temporary = path.join(directory, `${name}.${randomUUID()}.tmp`)
@@ -29,12 +32,13 @@ async function localWriteFile(name: string, value: unknown): Promise<void> {
   await rename(temporary, path.join(directory, name))
 }
 
-// 用途：执行本机服务流程，并返回执行结果。
-async function localRunWrite<T>(write: () => Promise<T>): Promise<T> {
+async function localRunWrite<T>(/* 拿到独占锁后执行的异步更新，由本函数负责最终释放锁。 */ write: () => Promise<T>): Promise<T> {
+  // 获取独占配置锁后执行更新，无论成功失败都关闭锁文件并删除锁。
   const directory = localReadDirectory()
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const lockPath = path.join(directory, 'configuration.lock')
-  const lock = await open(lockPath, 'wx', 0o600).catch(error => {
+  const lock = await open(lockPath, 'wx', 0o600).catch(/* 创建独占锁文件的失败原因，EEXIST 表示另一项写入尚未完成。 */ error => {
+    // 把已存在的锁转换为可识别的并发写入冲突，保留其他文件系统错误。
     if (error.code === 'EEXIST') throw new GraphError(409, 'LOCAL_SETTINGS_BUSY', RuntimeMessage.ANOTHER_LOCAL_CONFIGURATION_WRITE_IS_ACTIVE_RETRY_AFTER_IT_FINISHES)
     throw error
   })
@@ -42,22 +46,23 @@ async function localRunWrite<T>(write: () => Promise<T>): Promise<T> {
   finally { await lock.close(); await unlink(lockPath) }
 }
 
-// 用途：读取配置，并把结构化结果交给调用方。
 export async function localReadConfiguration(): Promise<{ settings: LocalSettings; secrets: Record<string, string> }> {
+  // 读取并校验设置和密钥的允许字段，返回配置与字符串密钥。
   const values = inputReadObject(await localReadFile('settings.json'), ['mongoUri', 'dataApiUrl', 'dshHome'], 'settings')
   const settings: LocalSettings = {}
   for (const key of ['mongoUri', 'dataApiUrl', 'dshHome'] as const) {
     if (values[key] !== undefined) settings[key] = inputReadString(values[key], key)
   }
   const raw = inputReadObject(await localReadFile('secrets.json'), [...secretNames], 'secrets')
-  const secrets = Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, inputReadString(value, key)]))
+  const secrets = Object.fromEntries(Object.entries(raw).map((/* 已校验字段白名单中的密钥名和值，逐项验证值为字符串。 */ [key, value]) => /* 逐项校验密钥值为字符串后重建密钥字典。 */  [key, inputReadString(value, key)]))
   return { settings, secrets }
 }
 
-// 用途：更新密钥，并保持相关状态一致。
-export async function localUpdateSecret(name: string, value: string | null): Promise<{ configured: boolean }> {
+export async function localUpdateSecret(/* 待设置的密钥名称，必须属于程序允许的环境变量白名单。 */ name: string, /* 密钥原文；null 表示删除，非空字符串校验由输入边界完成。 */ value: string | null): Promise<{ configured: boolean }> {
+  // 在允许的密钥名称范围内更新或删除单个密钥，并返回是否已配置。
   if (!secretNames.has(name)) throw new Error(RuntimeMessage.UNKNOWN_HOST_SECRET_NAME)
   return localRunWrite(async () => {
+    // 持锁重读最新密钥集合，应用单项修改后整体写回，避免覆盖并发更新。
     const { secrets } = await localReadConfiguration()
     if (value === null) delete secrets[name]
     else secrets[name] = inputReadString(value, 'value')
@@ -66,9 +71,9 @@ export async function localUpdateSecret(name: string, value: string | null): Pro
   })
 }
 
-// 用途：更新设置，并保持相关状态一致。
-export async function localUpdateSettings(settings: LocalSettings): Promise<void> {
+export async function localUpdateSettings(/* 替换整个设置文件的配置对象，先检查允许字段及字符串值。 */ settings: LocalSettings): Promise<void> {
+  // 校验完整设置对象后持锁替换设置文件。
   inputReadObject(settings, ['mongoUri', 'dataApiUrl', 'dshHome'], 'settings')
   for (const [key, value] of Object.entries(settings)) inputReadString(value, key)
-  await localRunWrite(() => localWriteFile('settings.json', settings))
+  await localRunWrite(() => /* 在配置锁内写入已校验的设置对象。 */  localWriteFile('settings.json', settings))
 }

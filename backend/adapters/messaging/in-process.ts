@@ -1,3 +1,4 @@
+// 文件职责：为独立本机模式提供单 Host 的进程内工作队列、提交通知与活动缓存。
 import { RuntimeMessage } from '../../../contracts/messages'
 import { randomUUID } from 'node:crypto'
 import type { GraphActivity } from '../../../contracts/activity'
@@ -10,26 +11,32 @@ import { GraphError } from '../../modules/shared/domain-error'
 import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 
 /** One process, one consumer. Work is derived again from persisted state at every startup. */
-// 用途：创建本机服务，供后续流程使用。
-export function localCreateMessaging(database: Persistence & PersistenceEvents, reporter?: DiagnosticReporter) {
+export function localCreateMessaging(/* 本机持久化与提交事件入口；消息服务订阅它但不关闭数据库。 */ database: Persistence & PersistenceEvents, /* 可选诊断接收器，用于记录后台分发的致命错误。 */ reporter?: DiagnosticReporter) {
+  // 维护本机消息通道与订阅生命周期，并在启动时从持久化 Run 重建待执行工作。
   const stop = new AbortController(), pending = new Map<string, QueueWork>()
-  const listeners = new Set<(change: QueueChange | null) => void>()
+  const listeners = new Set<(/* 实时变更提示；null 用于告知监听者通道已终止。 */ change: QueueChange | null) => void>()
   const activities = new Map<string, QueueChange>()
   const store = database.graph()
-  let deploymentId: string, started = false, consuming = false, unsubscribe = () => {}
+  let deploymentId: string, started = false, consuming = false, unsubscribe = () => {
+    // 数据库订阅建立前无需解除监听。
+  }
   let failure: unknown | undefined
-  let wake = () => {}, resolveClosed!: () => void, flushing: Promise<void> | undefined, dirty = false
-  const closed = new Promise<void>(resolve => { resolveClosed = resolve })
-  const messaging = () => ({ version: 1 as const, deploymentId, namespace: 'local.' + deploymentId, enabled: true })
-  // 用途：记录本机服务的失败，并让上层及时收敛。
-  function localFail(error: unknown) {
+  let wake = () => {
+    // 消费者尚未等待时，发布工作无需唤醒任何 Promise。
+  }, resolveClosed!: () => void, flushing: Promise<void> | undefined, dirty = false
+  const closed = new Promise<void>(/* 通道关闭 Promise 的兑现函数，停止和致命故障共用。 */ resolve => {
+    // 保存关闭完成回调，供停止或致命错误解除等待。
+     resolveClosed = resolve })
+  const messaging = () => /* 返回本机部署身份和固定的进程内队列命名空间。 */  ({ version: 1 as const, deploymentId, namespace: 'local.' + deploymentId, enabled: true })
+  function localFail(/* 导致本机分发无法继续的异常，保留为服务终止原因。 */ error: unknown) {
+    // 记录消息分发的致命错误，停止消费者并通知所有订阅者断开。
     failure = error
     reporter?.report({ name: 'messaging.local.failed', severity: 'fatal', context: { phase: 'dispatch' }, error })
     stop.abort(error); wake(); resolveClosed()
     for (const listener of listeners) { try { listener(null) } catch { /* the original listener failure is already terminal */ } }
   }
-  // 用途：发布变更消息，让其他组件收到状态变化。
-  function localPublishChange(change: QueueChange) {
+  function localPublishChange(/* 待发布的业务刷新或活动提示，活动按 fence 与序号去重。 */ change: QueueChange) {
+    // 按 fence 和序号丢弃过时活动，再向当前监听者同步发布变更。
     if (stop.signal.aborted) return
     if (change.kind === 'activity') {
       const activity = change.activity!, key = activity.workId, prior = activities.get(key)?.activity
@@ -42,8 +49,8 @@ export function localCreateMessaging(database: Persistence & PersistenceEvents, 
       catch (error) { localFail(error); throw error }
     }
   }
-  // 用途：执行本机服务流程，并返回执行结果。
   async function localRunFlush() {
+    // 串行扫描待发布图，生成工作通知和快照提示后按版本清除标记。
     while (dirty && !stop.signal.aborted) {
       dirty = false
       for await (const document of store.readDispatch()) {
@@ -53,46 +60,58 @@ export function localCreateMessaging(database: Persistence & PersistenceEvents, 
       }
     }
   }
-  // 用途：更新本机服务，并保持相关状态一致。
   function localUpdateDispatch() {
+    // 合并多次提交通知，确保同一时间只有一个待发布图扫描。
     dirty = true
-    flushing ??= localRunFlush().catch(error => {
+    flushing ??= localRunFlush().catch(/* 后台待发布图扫描抛出的异常，将终止本消息通道。 */ error => {
+      // 将后台扫描异常升级为消息通道的终止故障。
       localFail(error)
-    }).finally(() => { flushing = undefined; if (dirty && !stop.signal.aborted) localUpdateDispatch() })
+    }).finally(() => {
+      // 释放扫描占用；结束期间若又有变更则启动下一轮扫描。
+       flushing = undefined; if (dirty && !stop.signal.aborted) localUpdateDispatch() })
   }
-  // 用途：关闭当前模块并释放占用的资源。
   async function close() {
+    // 取消数据库监听与消费等待，通知订阅者断开并等待发布任务结束。
     if (!stop.signal.aborted) { stop.abort(); unsubscribe(); wake(); for (const listener of listeners) listener(null); resolveClosed() }
     await flushing
   }
   const queue: QueueLink = {
     signal: stop.signal, closed,
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async publishWork(message) {
+    async publishWork(/* 待领取工作通知，按图身份与工作身份合并重复项。 */ message) {
+      // 按图与工作身份合并重复通知，并唤醒等待中的消费者。
       if (stop.signal.aborted) throw new Error(RuntimeMessage.LOCAL_WORK_CHANNEL_IS_CLOSED)
       pending.set(message.mapId + ':' + message.workId, message); wake()
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async publishChange(change) { localPublishChange(change) },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async subscribeChanges(handler, signal) {
-      const listener = (change: QueueChange | null) => { if (change) handler(change) }
+    async publishChange(/* 经本机消息入口发送的业务变更提示。 */ change) {
+      // 将通道变更交给本机监听者分发。
+       localPublishChange(change) },
+    async subscribeChanges(/* 接收非空变更的同步处理器，由调用方提供。 */ handler, /* 可选订阅取消信号，只解除本监听，不关闭整个消息服务。 */ signal) {
+      // 注册变更处理器，并返回可同时移除监听和取消钩子的清理操作。
+      const listener = (/* 本机分发提示；关闭时收到 null，业务处理器不接收该值。 */ change: QueueChange | null) => {
+        // 只向业务处理器转交实际变更，忽略关闭用的空通知。
+         if (change) handler(change) }
       listeners.add(listener)
-      const remove = () => { listeners.delete(listener) }
+      const remove = () => {
+        // 从本机监听集合移除此订阅。
+         listeners.delete(listener) }
       signal?.addEventListener('abort', remove, { once: true })
-      return async () => { remove(); signal?.removeEventListener('abort', remove) }
+      return async () => {
+        // 结束订阅并卸下对应的取消事件监听。
+         remove(); signal?.removeEventListener('abort', remove) }
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async consumeWork(handler, signal) {
+    async consumeWork(/* 逐条执行通知的异步处理器，返回 ack 或 retry 决定是否重入队。 */ handler, /* 可选 Host 停止信号，与本机通道关闭信号共同取消当前消费。 */ signal) {
+      // 独占消费本机工作队列，依处理结果确认或重新入队，取消后退出循环。
       if (consuming) throw new Error(RuntimeMessage.INDEPENDENT_LOCAL_MODE_SUPPORTS_ONE_HOST)
       consuming = true
       const lifetime = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
-      const abort = () => wake()
+      const abort = () => /* 取消消费时解除空队列等待，让循环及时退出。 */  wake()
       lifetime.addEventListener('abort', abort)
       try {
         while (!lifetime.aborted) {
           const first = pending.entries().next().value
-          if (!first) { await new Promise<void>(resolve => { wake = resolve; if (lifetime.aborted) resolve() }); continue }
+          if (!first) { await new Promise<void>(/* 当前空队列等待的唤醒函数，由发布工作或取消消费时调用。 */ resolve => {
+            // 保存本轮空队列的唤醒回调，并处理已发生的取消。
+             wake = resolve; if (lifetime.aborted) resolve() }); continue }
           pending.delete(first[0])
           const result = await handler(first[1], lifetime)
           if (result === 'retry' && !lifetime.aborted) pending.set(first[0], first[1])
@@ -103,20 +122,22 @@ export function localCreateMessaging(database: Persistence & PersistenceEvents, 
   }
   return {
     queue, messaging,
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
     async initialize() {
-      await database.transaction(async session => {
+      // 建立或读取稳定部署身份，避免服务重启后更换本机命名空间。
+      await database.transaction(async /* 本次部署身份初始化事务的会话，由持久化层管理。 */ session => {
+        // 在同一事务中首次插入部署身份或复用既有身份。
         const records = database.records<{ _id: string; deploymentId: string }>('control_deployment')
         let record = await records.get('identity', session)
         if (!record) { record = { _id: 'identity', deploymentId: randomUUID() }; await records.insert(record, session) }
         deploymentId = record.deploymentId
       })
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
     async startMessaging() {
+      // 监听存储提交并恢复持久化工作，等待首轮待通知标记发布完毕。
       if (started) return
       started = true
-      unsubscribe = database.subscribe(changes => {
+      unsubscribe = database.subscribe(/* 刚提交事务产生的记录变更集合，已忽略纯授权栅栏修改。 */ changes => {
+        // 按变更表分发图、工作区、共享设置和访问权限刷新提示。
         for (const change of changes) {
           if (change.table === GRAPH_COLLECTION) localUpdateDispatch()
           else if (change.table === 'control_workspaces') localPublishChange({ version: 1, deploymentId, kind: 'workspace', workspaceId: change.id })
@@ -128,16 +149,20 @@ export function localCreateMessaging(database: Persistence & PersistenceEvents, 
       localUpdateDispatch(); await flushing
       if (stop.signal.aborted) throw stop.signal.reason
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async finished() { await closed; return failure },
+    async finished() {
+      // 等待通道终止并返回触发关闭的致命错误。
+       await closed; return failure },
     closeMessaging: close,
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    watchChanges(listener: (change: QueueChange | null) => void) {
+    watchChanges(/* 调用方的实时监听函数；收到 null 时应结束现有订阅。 */ listener: (/* 业务变更或通道关闭标志，null 表示停止推送。 */ change: QueueChange | null) => void) {
+      // 仅在消息通道运行期间注册实时监听，并返回解除监听操作。
       if (!started || stop.signal.aborted) throw new GraphError(503, 'MESSAGING_UNAVAILABLE', RuntimeMessage.LOCAL_NOTIFICATIONS_ARE_NOT_RUNNING)
-      listeners.add(listener); return () => { listeners.delete(listener) }
+      listeners.add(listener); return () => {
+        // 解除调用者注册的实时变更监听。
+         listeners.delete(listener) }
     },
-    readActivities: (mapId: string) => [...activities.values()].filter(change => change.mapId === mapId),
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async publishActivity(activity: GraphActivity, holderId: string) { localPublishChange({ version: 1, deploymentId, kind: 'activity', mapId: activity.mapId, activity, holderId }) },
+    readActivities: (/* 需要补齐初始活动状态的图身份。 */ mapId: string) => /* 读取指定图的临时活动缓存，供客户端首次订阅时补齐状态。 */  [...activities.values()].filter(/* 缓存中的单条活动消息，用其 mapId 判断归属。 */ change => /* 只保留目标图的活动消息。 */  change.mapId === mapId),
+    async publishActivity(/* 已由应用层检查租约的固定活动摘要，不包含原始模型内容。 */ activity: GraphActivity, /* 发布活动的工作持有者身份，供后续缓存读取重新验证授权。 */ holderId: string) {
+      // 附带持有者身份发布工作活动，供后续租约复核。
+       localPublishChange({ version: 1, deploymentId, kind: 'activity', mapId: activity.mapId, activity, holderId }) },
   }
 }

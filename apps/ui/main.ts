@@ -1,3 +1,4 @@
+// 渲染进程入口：装配 Vue、Pinia、路由和全局错误边界后挂载工作台。
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'

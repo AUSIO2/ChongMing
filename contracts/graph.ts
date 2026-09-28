@@ -1,8 +1,11 @@
+// 定义图快照、执行计划、工作授权、Agent 提案及公共读写协议。
+// 新闻上下文值及是否允许进入模型输入的可见性。
 export interface ContextField {
   value: string
   visibleToAI: boolean
 }
 
+// 持久化业务节点数据，按来源、证据、新闻、陈述或核验结果区分结构。
 export type GraphNodeData =
   | { kind: 'source'; locator: GraphLocator; label: string | null }
   | { kind: 'evidence'; content: string; locator: GraphLocator; capturedAt: string }
@@ -10,8 +13,10 @@ export type GraphNodeData =
   | { kind: 'claim'; content: string; category: string | null }
   | { kind: 'verification'; score: 0 | 0.5 | 1; reason: string; reportIds: string[]; opinions: GraphReport[] }
 
+// 来源定位信息，指向已存资产或外部 URL。
 export type GraphLocator = { kind: 'asset'; assetId: string; mediaType: string } | { kind: 'url'; url: string }
 
+// 已解析供执行使用的 Agent 内容、工具和模型设置。
 export interface GraphAgentProfile {
   id: string
   name: string
@@ -25,6 +30,7 @@ export interface GraphAgentProfile {
   claimCategory?: 'data' | 'quote' | 'causal' | null
 }
 
+// 一次 Run 使用的解析、拆分及核验配置快照，包含工具目录与槽位上限。
 export interface GraphRunConfiguration {
   parse?: GraphAgentProfile
   split?: { router: GraphAgentProfile; merger: GraphAgentProfile; agents: GraphAgentProfile[] }
@@ -35,6 +41,7 @@ export interface GraphRunConfiguration {
   maxSlots: number
 }
 
+// 一次分工中的槽位身份、Agent、调查角度、优先级和允许工具。
 export interface GraphRouteSlot {
   id: string
   agentId: string
@@ -44,6 +51,7 @@ export interface GraphRouteSlot {
   tools: string[]
 }
 
+// 带版本与批准状态的分工方案，报告必须绑定对应路由版本。
 export interface GraphRoute {
   revision: number
   reason: string
@@ -51,6 +59,7 @@ export interface GraphRoute {
   approved: boolean
 }
 
+// 待接受的合并结果，固定所依据的路由版本与报告编号。
 export interface GraphMergeDraft {
   id: string
   routeRevision: number
@@ -59,15 +68,17 @@ export interface GraphMergeDraft {
   reason: string
 }
 
-/** Trusted bridge identity, supplied in authenticated headers, never model arguments. */
+/** 可信桥接绑定的角色身份由认证后的执行授权确定，不接受模型参数指定身份。 */
 export type GraphDataActor = { role: 'parse' | 'router' | 'merge' } | { role: 'worker'; slotId: string }
 
+// 证明某次领取身份的工作编号、持有者和 fence，用于隔离旧执行。
 export interface GraphWorkProof {
   workId: string
   holderId: string
   fence: number
 }
 
+// 某次 Operation 下一个角色的可执行工作描述。
 export interface GraphWork {
   workId: string
   mapId: string
@@ -77,12 +88,14 @@ export interface GraphWork {
   routeRevision: number
 }
 
+// 授予特定 Host 的工作及租约证明，包含服务端到期时间与租约时长。
 export interface GraphWorkGrant extends GraphWork, GraphWorkProof {
   hostId: string
   expiresAt: string
   leaseMs: number
 }
 
+// Host 工作生命周期协议，除 claim 外均需携带当前租约证明。
 export type GraphWorkCommand =
   | { method: 'claim'; params: { hostId: string; holderId: string; mapId: string; workId: string; deploymentId: string } }
   | { method: 'read'; params: GraphWorkProof & { mapId: string } }
@@ -90,6 +103,7 @@ export type GraphWorkCommand =
   | { method: 'release'; params: GraphWorkProof & { mapId: string } }
   | { method: 'fail'; params: GraphWorkProof & { mapId: string; message: string } }
 
+// 图中的业务节点、版本和来源投影；执行状态由 Run/Operation 单独表达。
 export interface GraphNode {
   id: string
   revision: number
@@ -98,12 +112,14 @@ export interface GraphNode {
   updatedAt: string
   importedFrom?: { bundleId: string; nodeId: string; revision: number }
   validity?: 'current' | 'stale'
-  /** Read-only provenance projected from accepted operation history; never an execution node. */
+  /** 从已接纳的 Operation 历史投影出的只读来源信息，不代表可执行节点。 */
   producer?: { operationId: string; kind: 'parse' | 'split'; inputId: string; agentId: string; agentName: string; slotId?: string; angle?: string }
 }
 
+// 业务节点之间允许的关系种类。
 export type GraphEdgeKind = 'derived-from' | 'mentions' | 'verifies' | 'related-to'
 
+// 图边的稳定编号、关系种类及有向两端。
 export interface GraphEdgeInput {
   id: string
   kind: GraphEdgeKind
@@ -111,12 +127,14 @@ export interface GraphEdgeInput {
   to: string
 }
 
+// 持久化图边，补充版本及创建更新时间。
 export interface GraphEdge extends GraphEdgeInput {
   revision: number
   createdAt: string
   updatedAt: string
 }
 
+// 一次图编辑的可选改名和节点、边增删集合。
 export interface GraphChanges {
   name?: string
   nodes?: {
@@ -129,6 +147,7 @@ export interface GraphChanges {
   }
 }
 
+// 某个图版本的完整公开状态，含业务节点、边和当前 Run。
 export interface GraphSnapshot {
   mapId: string
   workspaceId: string
@@ -140,6 +159,7 @@ export interface GraphSnapshot {
   updatedAt: string
 }
 
+// 绑定槽位与路由版本的核验意见，保留 Agent 和使用工具信息。
 export interface GraphReport {
   id: string
   slotId: string
@@ -153,6 +173,7 @@ export interface GraphReport {
   createdAt: string
 }
 
+// 路由或结果的人工审核状态及独立审核版本。
 export interface GraphReview {
   id: string
   kind: 'route' | 'result'
@@ -163,6 +184,7 @@ export interface GraphReview {
   answeredAt: string | null
 }
 
+// 针对一个目标节点的执行记录，保存输入输出引用、角色报告、草稿与审核状态。
 export interface GraphOperation {
   id: string
   kind: 'parse' | 'split' | 'verify'
@@ -181,6 +203,7 @@ export interface GraphOperation {
   resultNodeId: string | null
 }
 
+// 一次图执行计划及其配置快照，汇总各 Operation 和暂停、失败、终止状态。
 export interface GraphRun {
   id: string
   scope: { nodeIds: string[] }
@@ -196,6 +219,7 @@ export interface GraphRun {
   updatedAt: string
 }
 
+// 图列表使用的概况及版本，省略完整节点与执行细节。
 export interface GraphMapSummary {
   id: string
   workspaceId: string
@@ -206,17 +230,20 @@ export interface GraphMapSummary {
   updatedAt: string
 }
 
+// 图写入后的公开快照以及本次创建的节点、边编号。
 export interface GraphWriteResult {
   snapshot: GraphSnapshot
   createdNodeIds: string[]
   createdEdgeIds: string[]
 }
 
+// 公共图查询的参数协议。
 export type GraphQuery =
   | { method: 'map.list'; params: { workspaceId: string } }
   | { method: 'map.get'; params: { mapId: string } }
   | { method: 'run.get'; params: { mapId: string; runId: string } }
 
+// 带幂等请求编号的公共图命令，变更需匹配图及必要的审核版本。
 export type GraphCommand =
   | {
       requestId: string
@@ -276,6 +303,7 @@ export type GraphCommand =
       }
     }
 
+// 提供给已授权执行角色的业务输入及上下文，包含本次工作和提案编号。
 export interface GraphDataRead {
   mapId: string
   runId: string
@@ -296,6 +324,7 @@ export interface GraphDataRead {
   work: { id: string; actor: GraphDataActor; routeRevision: number; status: 'ready' | 'accepted' }
 }
 
+// Agent 提交的解析、分工、报告或合并结果，按种类绑定必要路由与报告信息。
 export type GraphDataProposal = { mapId: string; operationId: string; id: string } & (
   | { kind: 'parse'; reason: string; news: GraphNewsOutput[] }
   | { kind: 'split-report'; routeRevision: number; slotId: string; reason: string; claims: GraphClaimOutput[] }
@@ -305,14 +334,20 @@ export type GraphDataProposal = { mapId: string; operationId: string; id: string
   | { kind: 'merge'; routeRevision: number; reportIds: string[]; score: 0 | 0.5 | 1; reason: string }
 )
 
+// 解析阶段产出的新闻正文及上下文。
 export interface GraphNewsOutput { content: string; context: Record<string, ContextField> }
+// 拆分阶段产出的陈述正文及可选类别。
 export interface GraphClaimOutput { content: string; category: string | null }
+// 合并阶段按报告编号和报告内索引选择陈述。
 export interface GraphClaimSelection { reportId: string; index: number }
+// 拆分角色的报告，以陈述列表替代核验评分。
 export interface GraphSplitReport extends Omit<GraphReport, 'score'> { claims: GraphClaimOutput[] }
+// 待接纳的解析新闻草稿或拆分选择草稿。
 export type GraphContentDraft =
   | { kind: 'parse'; reason: string; news: GraphNewsOutput[] }
   | { kind: 'split'; reason: string; selected: GraphClaimSelection[] }
 
+// 成功响应携带请求编号和收据重放标记，业务结果位于 data。
 export interface GraphSuccess<T> {
   ok: true
   requestId: string
@@ -320,6 +355,7 @@ export interface GraphSuccess<T> {
   data: T
 }
 
+// 失败响应携带请求编号及可重试性、诊断编号和可选当前版本。
 export interface GraphFailure {
   ok: false
   requestId: string

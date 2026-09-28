@@ -1,3 +1,4 @@
+// 准备独立 Node 服务目录、安装最小 DSH 依赖并打包桌面本地服务及必要资源。
 import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
@@ -12,7 +13,7 @@ const output = path.join(root, '.desktop-runtime')
 const lock = await readFile(path.join(root, 'package-lock.json'))
 const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const runtimePackage = { name: 'chongming-local-runtime', private: true, version: rootPackage.version,
-  dependencies: Object.fromEntries(['@deepseek-ai/dsh-sdk-client', '@deepseek-ai/dsh-tools'].map(name => [name, rootPackage.dependencies[name]])) }
+  dependencies: Object.fromEntries(['@deepseek-ai/dsh-sdk-client', '@deepseek-ai/dsh-tools'].map(/* 允许随包发布的 DSH 包名，从项目依赖中继承其版本范围。 */ name => /* 只将两个 DSH 包及项目锁定版本纳入随包运行时依赖清单。 */  [name, rootPackage.dependencies[name]])) }
 const runtimeLock = JSON.parse(lock)
 runtimeLock.name = runtimePackage.name
 runtimeLock.packages[''] = { name: runtimePackage.name, version: runtimePackage.version, dependencies: runtimePackage.dependencies }
@@ -23,7 +24,7 @@ try { previous = JSON.parse(await readFile(path.join(output, 'runtime.json'), 'u
 await mkdir(path.join(output, 'bin'), { recursive: true })
 const binary = path.join(output, 'bin', process.platform === 'win32' ? 'node.exe' : 'node')
 if (JSON.stringify(previous) !== JSON.stringify(identity)) {
-  // This directory is generated only; never mutate the project's installed native dependencies.
+  // 此目录仅存放生成产物，重装运行依赖不能改动项目自身已安装的原生依赖。
   await rm(path.join(output, 'node_modules'), { recursive: true, force: true })
   await cp(process.execPath, binary)
   await chmod(binary, 0o755)

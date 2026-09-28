@@ -1,4 +1,5 @@
-/** Typed request examples; these do not send requests or mutate a running application. */
+// 提供 052 历史契约的类型化请求样例，不发送网络请求或修改运行数据。
+/** 类型化请求示例仅供静态检查，不发送请求或修改运行中的应用。 */
 import type { CommandRequest, DshProposal, QueryRequest } from './052-接口契约.js'
 
 const mapId = '10000000-0000-4000-8000-000000000001'
@@ -46,7 +47,7 @@ export const approveReview = {
   },
 } satisfies CommandRequest
 
-// IDs/revisions below must come from the Host's data.read proposalTokens, not be invented by a model.
+// 下列提案标识和版本必须来自 Host 的 data.read proposalTokens，不能由模型自行生成。
 export const emptySplitReport = {
   kind: 'report', proposalId: 'host-issued-report-token', draftRevision: 1,
   content: { kind: 'split', claims: [] },
@@ -68,7 +69,7 @@ export const retryFailedRun = {
   params: { mapId, expectedRevision: 20, previousRunId: runId, id: '30000000-0000-4000-8000-000000000002' },
 } satisfies CommandRequest
 
-// Pause controls the same business Run; resume keeps its reports and Review decisions.
+// 暂停作用于同一个业务 Run；恢复沿用已有报告和审核决定。
 export const pauseRun = {
   requestId: '40000000-0000-4000-8000-000000000006', method: 'run.pause',
   params: { mapId, expectedRevision: 21, runId },

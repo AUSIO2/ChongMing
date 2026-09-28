@@ -1,3 +1,4 @@
+<!-- 工作台外壳：组合左右侧栏、中心画布、底部面板和可拖动分隔条。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { usePanelResize } from '../../composables/usePanelResize'
@@ -8,7 +9,7 @@ import ResizableRowSplit from './ResizableRowSplit.vue'
 const { leftWidth, rightWidth, startResizeLeft, startResizeRight } = usePanelResize()
 const { dockHeight, startResizeBottom } = useBottomDockResize()
 
-const mainStyle = computed(() => ({
+const mainStyle = computed(() => /* 将面板宽度和底部高度投影为布局使用的 CSS 变量。 */ ({
   '--panel-left-width': `${leftWidth.value}px`,
   '--panel-right-width': `${rightWidth.value}px`,
   '--bottom-dock-height': `${dockHeight.value}px`,
@@ -16,6 +17,7 @@ const mainStyle = computed(() => ({
 </script>
 
 <template>
+  <!-- 插槽分别承载顶部、左右面板、画布、底部停靠区和页脚。 -->
   <div class="app-shell" :style="mainStyle">
     <slot name="top" />
 
@@ -68,6 +70,7 @@ const mainStyle = computed(() => ({
 </template>
 
 <style scoped>
+/* 用弹性布局与动态尺寸变量组织三栏和底部停靠区。 */
 .app-shell {
   display: flex;
   flex-direction: column;

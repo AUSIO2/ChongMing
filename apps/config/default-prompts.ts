@@ -1,3 +1,4 @@
+// 把随构建发布的解析、分流与核验提示词装配为工作区默认 Agent 配置。
 import type { GraphAgentProfile } from '../../contracts/graph'
 import type { GraphSeedConfiguration } from '../../backend/modules/workspace/agent-configuration'
 import defaults from '../../resources/prompts/verify/configuration.json'
@@ -13,7 +14,7 @@ import splitData from '../../resources/prompts/split/agents/data.json'
 import splitQuote from '../../resources/prompts/split/agents/quote.json'
 import splitCausal from '../../resources/prompts/split/agents/causal.json'
 
-/** Build-owned defaults injected at an application composition root. */
+/** 由构建提供默认资源，在应用装配入口注入业务层。 */
 export const DEFAULT_RUN_CONFIGURATION: GraphSeedConfiguration = {
   ...defaults, router, merger, agents: [sources, logic, numbers], parse: parser,
   split: { router: splitRouter, merger: splitMerger,

@@ -1,3 +1,4 @@
+// 文件职责：验证 SQLite 事务隔离、授权租约、崩溃恢复和完整本机服务重启。
 import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -12,52 +13,69 @@ import { workReadItems } from '../../../../backend/modules/graph/work-state'
 import { localCreateRuntime } from '../../../../apps/local-server/runtime'
 
 const cleanup: Array<() => Promise<unknown>> = []
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
+afterEach(async () => {
+  // 按创建逆序释放各用例注册的数据库、服务与临时目录。
+   for (const close of cleanup.splice(0).reverse()) await close() })
 async function sqliteCreateFixture() {
+  // 创建独立临时目录及 SQLite 连接，并注册配套清理。
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-sqlite-'))
-  cleanup.push(() => rm(directory, { recursive: true, force: true }))
+  cleanup.push(() => /* 删除用例专属数据库与附件目录。 */  rm(directory, { recursive: true, force: true }))
   const database = sqliteCreatePersistence(directory)
-  cleanup.push(() => database.close())
+  cleanup.push(() => /* 关闭测试创建的 SQLite 持久化连接。 */  database.close())
   return { directory, database }
 }
-async function sqliteCreateApp(database: SqlitePersistence) {
+async function sqliteCreateApp(/* 夹具创建的 SQLite 持久化连接，应用共用它但清理由外层登记。 */ database: SqlitePersistence) {
+  // 基于给定数据库启动已初始化和配置的本机应用及消息服务。
   const app = applicationCreateLocalService(database, { leaseMs: 250 })
-  cleanup.push(() => app.closeMessaging())
+  cleanup.push(() => /* 停止夹具应用的进程内消息服务。 */  app.closeMessaging())
   await app.initialize(); await app.control.seed(verificationConfiguration()); await app.startMessaging()
   return app
 }
 
 describe('Independent SQLite persistence', () => {
+  // 覆盖独立本机持久化从事务到进程恢复的行为。
   it('rolls back atomically, isolates asynchronous readers and persists across exclusive reopening', async () => {
+    // 验证失败事务不留数据或通知，外部读取等待提交，独占连接关闭后可持久重开。
     const { database, directory } = await sqliteCreateFixture()
-    expect(() => sqliteCreatePersistence(directory)).toThrow()
+    expect(() => /* 尝试重复打开同一数据库以验证独占锁。 */  sqliteCreatePersistence(directory)).toThrow()
     const records = database.records<{ _id: string; value: number }>('test')
     const changes: unknown[] = []
-    database.subscribe(items => changes.push(items))
-    await expect(database.transaction(async tx => { await records.insert({ _id: 'a', value: 1 }, tx); throw new Error('rollback') })).rejects.toThrow('rollback')
+    database.subscribe(/* 成功提交后发布的记录变更批次，保存以验证回滚不产生通知。 */ items => /* 记录提交后通知，供回滚不通知的断言使用。 */  changes.push(items))
+    await expect(database.transaction(async /* 故意失败事务的活动会话，插入必须在此会话中才能随异常回滚。 */ tx => {
+      // 插入记录后抛错，验证事务整体回滚。
+       await records.insert({ _id: 'a', value: 1 }, tx); throw new Error('rollback') })).rejects.toThrow('rollback')
     expect(await records.get('a')).toBeNull()
     expect(changes).toEqual([])
     let entered!: () => void, release!: () => void
-    const ready = new Promise<void>(resolve => { entered = resolve }), gate = new Promise<void>(resolve => { release = resolve })
-    const writing = database.transaction(async tx => { await records.insert({ _id: 'a', value: 2 }, tx); entered(); await gate })
+    const ready = new Promise<void>(/* 事务已写入但尚未提交的通知回调，用来协调外部读取时机。 */ resolve => {
+      // 保存事务已写入的同步点通知回调。
+       entered = resolve }), gate = new Promise<void>(/* 允许挂起事务继续提交的回调，由用例断言隔离性后显式调用。 */ resolve => {
+      // 保存允许挂起事务继续提交的释放回调。
+       release = resolve })
+    const writing = database.transaction(async /* 被用例暂停的写事务会话，记录插入保持未提交状态。 */ tx => {
+      // 在事务内写入记录后暂停，让外部读取验证隔离性。
+       await records.insert({ _id: 'a', value: 2 }, tx); entered(); await gate })
     await ready
     let readFinished = false
-    const reading = records.get('a').then(value => { readFinished = true; return value })
+    const reading = records.get('a').then(/* 外部读取完成后得到的记录副本，用于标记读取何时真正结束。 */ value => {
+      // 标记外部读取实际结束并透传结果。
+       readFinished = true; return value })
     await Promise.resolve()
     expect(readFinished).toBe(false)
     release(); await writing
     expect(await reading).toEqual({ _id: 'a', value: 2 })
     await database.close()
     const reopened = sqliteCreatePersistence(directory)
-    cleanup.push(() => reopened.close())
+    cleanup.push(() => /* 关闭持久化重开后的测试连接。 */  reopened.close())
     expect(await reopened.records('test').get('a')).toEqual({ _id: 'a', value: 2 })
   })
 
   it('shares authorization transactions, idempotency, CAS and pause fences with the graph service', async () => {
+    // 验证 SQLite 共用授权事务、请求重放、版本冲突和暂停后的租约栅栏。
     const { database, directory } = await sqliteCreateFixture(), app = await sqliteCreateApp(database)
     const user = await app.auth.createUser({ id: randomUUID(), displayName: 'Local', hostAdmin: true })
     const { token } = await app.auth.createToken(user.userId)
-    const workspace = await app.auth.transact(token, ctx => app.control.createWorkspace(ctx, { id: randomUUID(), name: 'Local', description: '', agentSource: 'library' }))
+    const workspace = await app.auth.transact(token, /* 拥有者令牌对应的授权事务上下文，工作区创建沿用其会话。 */ ctx => /* 在用户授权事务中创建本机工作区。 */  app.control.createWorkspace(ctx, { id: randomUUID(), name: 'Local', description: '', agentSource: 'library' }))
     const mapId = randomUUID(), claimId = randomUUID()
     const create = { requestId: randomUUID(), method: 'map.create' as const, params: { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Local graph' } }
     expect((await app.dispatch(token, create)).replayed).toBe(false)
@@ -71,7 +89,8 @@ describe('Independent SQLite persistence', () => {
     if (!('status' in first) || first.status !== 'claimed') throw new Error('Claim missing')
     const grant = first.grant
     const before = await app.readSnapshot(token, mapId)
-    await expect(app.auth.transact(token, async ctx => {
+    await expect(app.auth.transact(token, async /* 准备主动失败的授权事务上下文，测试业务记录与身份写入一起回滚。 */ ctx => {
+      // 授权事务写入后主动失败，验证业务记录随事务回滚。
       await database.records<{ _id: string; marker?: boolean }>('test').insert({ _id: 'never', marker: true }, ctx.session)
       throw new Error('reject')
     })).rejects.toThrow('reject')
@@ -90,9 +109,9 @@ describe('Independent SQLite persistence', () => {
     expect((await app.readSnapshot(token, mapId)).run?.paused).toBe(false)
     await app.closeMessaging(); await database.close()
     const reopened = sqliteCreatePersistence(directory)
-    cleanup.push(() => reopened.close())
+    cleanup.push(() => /* 关闭模拟重启后重新打开的数据库。 */  reopened.close())
     const resumed = await sqliteCreateApp(reopened)
-    const claimAgain = () => resumed.graph.dispatchWork({ method: 'claim', params: { mapId, workId: work.workId,
+    const claimAgain = () => /* 为重启后 Host 尝试领取同一工作，以比较期限前后的结果。 */  resumed.graph.dispatchWork({ method: 'claim', params: { mapId, workId: work.workId,
       deploymentId: resumed.messaging().deploymentId, hostId: 'after-restart', holderId: randomUUID() } })
     expect(await claimAgain()).toMatchObject({ status: 'busy' })
     await delay(300)
@@ -104,35 +123,41 @@ describe('Independent SQLite persistence', () => {
   })
 
   it('recovers the file lock and rolls back an open transaction after SIGKILL', async () => {
+    // 强杀持有未提交事务的子进程，验证文件锁释放且只有已提交记录留存。
     const directory = await mkdtemp(path.join(tmpdir(), 'chongming-crash-'))
-    cleanup.push(() => rm(directory, { recursive: true, force: true }))
+    cleanup.push(() => /* 清理强杀恢复用例的临时目录。 */  rm(directory, { recursive: true, force: true }))
     const child = spawn(process.execPath, ['--import', 'tsx', 'tests/backend/fixtures/sqlite-crash.ts', directory], { stdio: ['ignore', 'pipe', 'pipe'] })
-    const ended = new Promise<void>((resolve, reject) => { child.once('exit', () => resolve()); child.once('error', reject) })
+    const ended = new Promise<void>((/* 崩溃夹具子进程退出后兑现等待的回调。 */ resolve, /* 子进程启动出错时拒绝退出等待的回调。 */ reject) => {
+      // 等待测试子进程退出，并传播启动失败。
+       child.once('exit', () => /* 通知崩溃夹具进程已经结束。 */  resolve()); child.once('error', reject) })
     let output = ''
-    child.stdout.on('data', chunk => { output += chunk })
+    child.stdout.on('data', /* 崩溃夹具 stdout 字节块，累积后查找事务已打开的同步标记。 */ chunk => {
+      // 收集夹具 stdout，等待事务打开的确定性标记。
+       output += chunk })
     try {
-      await expect.poll(() => output, { timeout: 5000 }).toContain('transaction-open')
-      expect(() => sqliteCreatePersistence(directory)).toThrow()
+      await expect.poll(() => /* 返回已收到的进程输出，供有界轮询定位事务同步点。 */  output, { timeout: 5000 }).toContain('transaction-open')
+      expect(() => /* 在子进程仍持锁时尝试打开数据库，确认独占约束生效。 */  sqliteCreatePersistence(directory)).toThrow()
       child.kill('SIGKILL'); await ended
       const database = sqliteCreatePersistence(directory)
-      cleanup.push(() => database.close())
+      cleanup.push(() => /* 关闭崩溃恢复后重新打开的数据库。 */  database.close())
       expect(await database.records('crash_test').get('committed')).toMatchObject({ value: 'retained' })
       expect(await database.records('crash_test').get('pending')).toBeNull()
     } finally { child.kill('SIGKILL'); await ended }
   })
 
   it('restarts a complete local service with the same identity, configuration, workspace and stored graph', async () => {
+    // 重启完整本机运行时，验证身份、配置、工作区、图和部署身份均保留。
     const directory = await mkdtemp(path.join(tmpdir(), 'chongming-runtime-'))
-    cleanup.push(() => rm(directory, { recursive: true, force: true }))
+    cleanup.push(() => /* 清理完整运行时重启测试的持久化目录。 */  rm(directory, { recursive: true, force: true }))
     const one = await localCreateRuntime({ directory, port: 0, configuration: verificationConfiguration() })
-    cleanup.push(() => one.close())
+    cleanup.push(() => /* 关闭第一轮本机服务运行时。 */  one.close())
     const workspace = await one.application.read(one.userToken, { method: 'workspace.get', params: { workspaceId: one.workspaceId } })
     if (!('revision' in workspace)) throw new Error('Workspace missing')
     const mapId = randomUUID()
     await one.application.dispatch(one.userToken, { requestId: randomUUID(), method: 'map.create', params: { workspaceId: one.workspaceId, expectedRevision: workspace.revision, id: mapId, name: 'Survives restart' } })
     await one.close()
     const two = await localCreateRuntime({ directory, port: 0, configuration: verificationConfiguration() })
-    cleanup.push(() => two.close())
+    cleanup.push(() => /* 关闭重启后的第二轮本机服务运行时。 */  two.close())
     expect(two.userToken).toBe(one.userToken)
     expect(two.workspaceId).toBe(one.workspaceId)
     expect((await two.application.readSnapshot(two.userToken, mapId)).name).toBe('Survives restart')

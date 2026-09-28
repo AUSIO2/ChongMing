@@ -1,3 +1,4 @@
+// 文件职责：为单份已领取工作建立隔离 DSH 进程，并核对服务端提交结果。
 import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -11,6 +12,7 @@ import { promptReadWork } from './prompt-renderer'
 const businessPatch = fileURLToPath(new URL('./dsh-business.patch.yml', import.meta.url))
 
 export interface DshWorkInput {
+  // 调用方负责领取、续租与释放；本执行器只使用授权副本运行一个根会话。
   grant: GraphWorkGrant
   dataApiUrl: string
   token: string
@@ -25,7 +27,8 @@ export interface DshWorkInput {
   maxTokens?: number
   /** Bounded follow-up turns if the Agent stops before submitting this work's result. */
   maxRounds?: number
-  onEvent?: (event: DshEvent) => void
+  // 同步接收经过 JSON 复制的本次执行事件。
+  onEvent?: (/* 经过 JSON 复制的单条 DSH 执行通知，供外部活动观察者使用。 */ event: DshEvent) => void
 }
 
 export interface DshWorkResult {
@@ -40,20 +43,19 @@ export interface DshWorkResult {
 
 /** Temporary loss of the data/lease authority, not a model or configuration failure. */
 export class WorkAccessError extends Error {
-  // 用途：初始化WorkAccessError实例。
-  constructor(message: string) {
+  constructor(/* 解释工作 API 或租约暂时无法确认的错误文本。 */ message: string) {
+    // 标记数据访问或租约确认暂时失败，供 Host 区分于模型执行失败。
     super(message)
     this.name = 'WorkAccessError'
   }
 }
-
-// 用途：读取工作响应，并把结构化结果交给调用方。
 async function dshReadWorkReply<T>(
-  input: DshWorkInput,
-  path: string,
-  body: unknown,
-  headers: Record<string, string> = {},
+  /* 当前工作的可信授权、内部令牌、API 地址及取消信号。 */ input: DshWorkInput,
+  /* 相对于数据 API 的内部接口路径，由执行器固定选择。 */ path: string,
+  /* 与该内部接口对应的请求载荷，发送前序列化为 JSON。 */ body: unknown,
+  /* 可选额外请求头，默认空对象，读取输入时用于携带租约凭证。 */ headers: Record<string, string> = {},
 ): Promise<T> {
+  // 携带内部令牌调用工作 API，并区分暂时不可访问与明确协议错误。
   input.signal?.throwIfAborted()
   const url = new URL(path, input.dataApiUrl)
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error(RuntimeMessage.DATA_API_MUST_USE_HTTP_S)
@@ -86,9 +88,8 @@ async function dshReadWorkReply<T>(
   }
   return result.data as T
 }
-
-// 用途：读取工作状态，并把结构化结果交给调用方。
-async function dshReadWorkStatus(input: DshWorkInput): Promise<'ready' | 'accepted'> {
+async function dshReadWorkStatus(/* 本次执行的工作配置，授权身份用于查询结果是否已被接纳。 */ input: DshWorkInput): Promise<'ready' | 'accepted'> {
+  // 查询指定授权的提交状态，拒绝返回其他工作或未知状态。
   const grant = input.grant
   const data = await dshReadWorkReply<{ workId: string; status: 'ready' | 'accepted' }>(input, '/internal/v1/work', {
     method: 'read',
@@ -97,9 +98,8 @@ async function dshReadWorkStatus(input: DshWorkInput): Promise<'ready' | 'accept
   if (data?.workId !== grant.workId || !['ready', 'accepted'].includes(data.status)) throw new Error(RuntimeMessage.WORK_API_RETURNED_ANOTHER_OR_INVALID_WORK_STATUS)
   return data.status
 }
-
-// 用途：读取工作，并把结构化结果交给调用方。
-async function dshReadWork(input: DshWorkInput): Promise<GraphDataRead> {
+async function dshReadWork(/* 本次已领取工作配置，决定数据读取范围与须匹配的返回身份。 */ input: DshWorkInput): Promise<GraphDataRead> {
+  // 读取授权输入并逐项核对 Run、Operation、角色、路由版本及目标类型。
   const grant = input.grant
   const data = await dshReadWorkReply<GraphDataRead>(input, '/internal/v1/data/read', {
     mapId: grant.mapId, operationId: grant.operationId,
@@ -114,9 +114,8 @@ async function dshReadWork(input: DshWorkInput): Promise<GraphDataRead> {
     || (data.operationKind === 'parse' && typeof data.rawContent !== 'string')) throw new Error(RuntimeMessage.DATA_API_RETURNED_INVALID_OPERATION_INPUT)
   return data
 }
-
-// 用途：读取工作配置，并把结构化结果交给调用方。
-function dshReadWorkProfile(data: GraphDataRead, grant: GraphWorkGrant): GraphAgentProfile {
+function dshReadWorkProfile(/* 从 API 读取并已核对工作身份的执行视图，包含冻结配置与批准路由。 */ data: GraphDataRead, /* 当前执行授权，角色与槽位决定采用哪个 Agent 配置。 */ grant: GraphWorkGrant): GraphAgentProfile {
+  // 根据冻结配置和工作角色选择 Agent，检查 worker 槽位与工具授权。
   if (data.operationKind === 'parse') {
     if (grant.actor.role !== 'parse' || !data.configuration.parse) throw new Error(RuntimeMessage.PARSE_WORK_HAS_NO_CONFIGURED_PARSER)
     return data.configuration.parse
@@ -128,15 +127,15 @@ function dshReadWorkProfile(data: GraphDataRead, grant: GraphWorkGrant): GraphAg
   if (!data.route?.approved || data.route.revision !== grant.routeRevision) throw new Error(RuntimeMessage.WORK_HAS_NO_MATCHING_APPROVED_ROUTE)
   if (grant.actor.role !== 'worker') return configuration.merger
   const slotId = grant.actor.slotId
-  const slot = data.route.slots.find(slot => slot.id === slotId)
-  const profile = configuration.agents.find(agent => agent.id === slot?.agentId)
-  if (!slot || !profile || slot.tools.some(tool => !profile.tools.includes(tool))) throw new Error(RuntimeMessage.WORKER_HAS_NO_VALID_CONFIGURED_SLOT)
+  const slot = data.route.slots.find(/* 批准路由中的候选槽位，与当前 worker 的 slotId 比较。 */ slot => /* 查找工作授权绑定的路由槽位。 */  slot.id === slotId)
+  const profile = configuration.agents.find(/* 本 Run 冻结配置中的 Agent，与槽位指定身份比较。 */ agent => /* 取得该槽位指定的冻结 Agent 配置。 */  agent.id === slot?.agentId)
+  if (!slot || !profile || slot.tools.some(/* 路由槽位请求的工具名，必须包含在所选 Agent 的能力集合中。 */ tool => /* 检查路由所选工具是否超出 Agent 的能力集合。 */  !profile.tools.includes(tool))) throw new Error(RuntimeMessage.WORKER_HAS_NO_VALID_CONFIGURED_SLOT)
   return profile
 }
 
 /** One accepted work grant owns one DSH process. The caller owns claim, renew and release. */
-// 用途：执行工作流程，并返回执行结果。
-export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> {
+export async function dshRunWork(/* 调用方提供的单工作配置；执行器复制 grant，管理临时补丁和 DSH 进程。 */ options: DshWorkInput): Promise<DshWorkResult> {
+  // 为未完成工作启动独立 DSH 会话，有限追问直到收据确认，最终关闭进程并清理临时补丁。
   const input = { ...options, grant: structuredClone(options.grant) }
   const grant = input.grant
   input.signal?.throwIfAborted()
@@ -155,12 +154,16 @@ export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> 
   const patchDir = await mkdtemp(path.join(dshHome, 'work-'))
   let runtime: DshRuntimeAPI | undefined
   let closePromise: Promise<void> | undefined
-  // 用途：关闭工作，并释放相关资源。
   function dshCloseWork(): Promise<void> {
+    // 幂等关闭已创建的工作运行时，尚未创建时立即完成。
     if (!runtime) return Promise.resolve()
     return closePromise ??= runtime.close()
   }
-  const abort = () => { void dshCloseWork().catch(() => {}) }
+  const abort = () => {
+    // 工作取消时立即触发运行时关闭，不阻塞取消事件处理。
+     void dshCloseWork().catch(() => {
+    // 取消回调不传播关闭异常；主流程 finally 仍会等待同一关闭 Promise。
+  }) }
   try {
     input.signal?.throwIfAborted()
     const patchPath = path.join(patchDir, 'work.patch.yml')

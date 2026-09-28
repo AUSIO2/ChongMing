@@ -1,3 +1,4 @@
+// 文件职责：安全读取限定媒体类型的 HTTP 来源，固定解析后的目标并限制大小和期限。
 import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
 import { SOURCE_MEDIA_TYPES } from '../../ports/source-reader'
 import { lookup } from 'node:dns/promises'
@@ -19,38 +20,44 @@ for (const [address, prefix] of [
 
 
 /** Pin a validated destination; DNS rebinding and redirects cannot reach Host-local services. */
-// 用途：读取地址，并把结构化结果交给调用方。
-export async function sourceReadUrl(value: string, allowPrivate = false): Promise<string> {
+export async function sourceReadUrl(/* 待读取的来源 URL，仍需校验协议、凭据和解析地址。 */ value: string, /* 仅测试部署可显式启用的私网例外，默认拒绝禁止网段。 */ allowPrivate = false): Promise<string> {
+  // 校验无凭据的 HTTP 地址，固定可接受的解析目标，读取至多 1 MiB UTF-8 正文。
   const url = new URL(value)
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new GraphError(422, 'INVALID_SOURCE', RuntimeMessage.SOURCE_URL_MUST_USE_HTTP_S_WITHOUT_CREDENTIALS)
   const hostname = url.hostname.replace(/^\[|\]$/g, '')
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
+  const timeout = new Promise<never>((/* 超时 Promise 的成功回调，本分支永不成功因此不使用。 */ _, /* 超时 Promise 的失败回调，用于报告统一的来源超时错误。 */ reject) => {
+    // 建立覆盖 DNS 与 HTTP 读取的总超时等待。
     timer = setTimeout(() => {
+      // 达到期限时取消网络请求并返回来源超时错误。
       controller.abort()
       reject(new GraphError(422, 'SOURCE_UNAVAILABLE', RuntimeMessage.SOURCE_REQUEST_TIMED_OUT))
     }, 10_000)
   })
   const read = async () => {
+    // 解析并检查全部目标地址，以首个已验证地址发起不跟随重定向的请求。
     const family = isIP(hostname)
     const addresses = family ? [{ address: hostname, family }] : await lookup(hostname, { all: true, verbatim: true })
     controller.signal.throwIfAborted()
-    if (!addresses.length || (!allowPrivate && addresses.some(item => blocked.check(item.address, item.family === 6 ? 'ipv6' : 'ipv4')))) {
+    if (!addresses.length || (!allowPrivate && addresses.some(/* DNS 解析得到的地址与地址族，逐个对照禁止网段。 */ item => /* 判断任一解析地址是否属于禁止访问的网段。 */  blocked.check(item.address, item.family === 6 ? 'ipv6' : 'ipv4')))) {
       throw new GraphError(422, 'SOURCE_ADDRESS_BLOCKED', RuntimeMessage.SOURCE_URL_MUST_RESOLVE_TO_A_PUBLIC_INTERNET_ADDRESS)
     }
     const destination = addresses[0]
     const request = url.protocol === 'https:' ? httpsRequest : httpRequest
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<string>((/* 正文读取成功回调，接收严格解码后的 UTF-8 文本。 */ resolve, /* 网络、响应格式或读取限制失败时的拒绝回调。 */ reject) => {
+      // 启动固定目标的请求，并将响应读取或网络错误传递给调用者。
       const pending = request(url, {
         signal: controller.signal,
         family: destination.family,
-        lookup: (_hostname, options, callback) => {
+        lookup: (/* Node 发起连接时询问的主机名，此处忽略以固定已校验目标。 */ _hostname, /* Node 的 lookup 选项，all 决定回调接收单地址还是地址数组。 */ options, /* Node 连接解析回调，只返回此前校验通过的固定目的地址。 */ callback) => {
+          // 复用已校验的目标地址，阻止连接阶段再次 DNS 解析改变目的地。
           if (options.all) callback(null, [destination])
           else callback(null, destination.address, destination.family)
         },
         headers: { accept: [...SOURCE_MEDIA_TYPES].join(', ') },
-      }, async response => {
+      }, async /* 远端原始 HTTP 响应，状态、媒体类型、大小和编码均需验证。 */ response => {
+        // 验证成功状态和媒体类型，限量读取并严格解码 UTF-8，最后释放响应。
         try {
           if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
             throw new GraphError(422, 'SOURCE_UNAVAILABLE', messageFormat(RuntimeMessage.SOURCE_RETURNED_HTTP_VALUE, response.statusCode))

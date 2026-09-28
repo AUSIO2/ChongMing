@@ -1,3 +1,4 @@
+<!-- 节点详情：编辑正文和来源草稿，处理版本冲突，并展示核查结果与运行入口。 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { CommandInputMap } from '../../../../contracts/client'
@@ -17,9 +18,15 @@ interface EditorDraft {
   context: Array<{ id: string; key: string; value: string; visibleToAI: boolean }>
 }
 type VerificationNode = GraphNode & { data: Extract<GraphNodeData, { kind: 'verification' }> }
-const selected = computed(() => props.snapshot.nodes.find(node => node.id === props.selectedId) ?? null)
-const activeRun = computed(() => !!props.snapshot.run && ['running', 'waiting'].includes(props.snapshot.run.status))
-const editable = computed(() => props.canEdit && !props.busy && !activeRun.value && !!selected.value)
+const selected = computed(() =>
+  /* 从当前快照解析所选真实节点。 */
+  props.snapshot.nodes.find(/* 当前快照中的只读节点，用父组件选择的真实身份匹配。 */ node =>
+    /* 匹配父组件指定的节点标识。 */
+    node.id === props.selectedId) ?? null)
+const activeRun = computed(() =>
+  /* 判断是否仍有运行或等待中的 Run，暂停状态也锁定正文修改。 */
+  !!props.snapshot.run && ['running', 'waiting'].includes(props.snapshot.run.status))
+const editable = computed(() => /* 仅在有编辑权限、无请求且无活动运行时允许编辑选中节点。 */ props.canEdit && !props.busy && !activeRun.value && !!selected.value)
 const editor = ref<EditorDraft | null>(null)
 const baseContent = ref('')
 const contentRevision = ref(0)
@@ -31,72 +38,105 @@ const pendingSources = ref<string | null>(null)
 const mode = ref<'auto' | 'human-in-loop'>('human-in-loop')
 const until = ref<CommandInputMap['run.start']['until']>('verified')
 const regenerate = ref(false)
-const news = computed(() => props.snapshot.nodes.filter(node => node.data.kind === 'news'))
-const sortedSources = computed(() => JSON.stringify([...sourceIds.value].sort()))
-const sourcesDirty = computed(() => sortedSources.value !== baseSources.value)
-const serializedContent = computed(() => JSON.stringify(inspectorReadData()))
-const contentDirty = computed(() => !!editor.value && serializedContent.value !== baseContent.value)
-const dirty = computed(() => contentDirty.value || sourcesDirty.value)
-const versionChanged = computed(() => (contentDirty.value && contentRevision.value !== props.snapshot.revision)
+const news = computed(() => /* 列出当前图中可作为事实来源的新闻节点。 */ props.snapshot.nodes.filter(/* 当前快照中的只读节点，仅新闻可作为事实关联来源。 */ node => /* 筛选新闻类型节点。 */ node.data.kind === 'news'))
+const sortedSources = computed(() => /* 对所选新闻标识排序后序列化，使来源脏状态不受勾选顺序影响。 */ JSON.stringify([...sourceIds.value].sort()))
+const sourcesDirty = computed(() => /* 比较来源选择与已保存基线。 */ sortedSources.value !== baseSources.value)
+const serializedContent = computed(() => /* 序列化当前正文草稿供变更和提交回执比对。 */ JSON.stringify(inspectorReadData()))
+const contentDirty = computed(() => /* 判断正文草稿是否已有未保存修改。 */ !!editor.value && serializedContent.value !== baseContent.value)
+const dirty = computed(() => /* 合并正文和来源的未保存状态。 */ contentDirty.value || sourcesDirty.value)
+const versionChanged = computed(() => /* 检测有改动的正文或来源草稿是否基于过期图版本。 */ (contentDirty.value && contentRevision.value !== props.snapshot.revision)
   || (sourcesDirty.value && sourceRevision.value !== props.snapshot.revision))
-const missingSources = computed(() => sourceIds.value.filter(id => !news.value.some(node => node.id === id)))
+const missingSources = computed(() =>
+  /* 列出所选来源中已不在当前新闻列表的标识。 */
+  sourceIds.value.filter(/* 草稿已选的新闻身份，用于检查其是否已从快照移除。 */ id =>
+    /* 筛选已找不到对应新闻的来源标识。 */
+    !news.value.some(/* 当前可用新闻节点，用其身份核对来源选择。 */ node =>
+      /* 检查来源标识是否仍对应新闻节点。 */
+      node.id === id)))
 const contentError = computed(() => {
+  // 校验正文非空和新闻上下文字段名称唯一，返回首条表单错误。
   const draft = editor.value
   if (!draft) return ''
   if (!draft.content.trim()) return '正文不能为空。'
   if (draft.kind === 'news') {
-    const keys = draft.context.map(field => field.key.trim())
-    if (keys.some(key => !key)) return '请为每个上下文字段填写名称。'
+    const keys = draft.context.map(/* 新闻编辑草稿中的上下文字段，读取名称并去除首尾空白。 */ field => /* 规范上下文字段名的首尾空白供校验。 */ field.key.trim())
+    if (keys.some(/* 已经去除空白的字段名，空字符串视为校验失败。 */ key => /* 检测空的上下文字段名称。 */ !key)) return '请为每个上下文字段填写名称。'
     if (new Set(keys).size !== keys.length) return '上下文字段名称不能重复。'
   }
   return ''
 })
 const results = computed(() => {
-  const ids = new Set(props.snapshot.edges.filter(edge => edge.kind === 'verifies' && edge.to === selected.value?.id).map(edge => edge.from))
-  return props.snapshot.nodes.filter((node): node is VerificationNode => node.data.kind === 'verification' && ids.has(node.id))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  // 按真实核查关系收集选中节点的结论，并按更新时间从新到旧排序。
+  const ids = new Set(props.snapshot.edges.filter(/* 当前图的真实关系，筛选核查所选节点的关系。 */ edge =>
+    /* 筛选核查当前所选节点的关系。 */
+    edge.kind === 'verifies' && edge.to === selected.value?.id).map(/* 已匹配的核查关系，其起点是结论节点身份。 */ edge =>
+    /* 提取核查关系起点的结论节点标识。 */
+    edge.from))
+  return props.snapshot.nodes.filter((/* 当前图节点，结合节点类型和关系身份筛选关联结论。 */ node): node is VerificationNode =>
+    /* 只保留属于关联结论集合的核查节点。 */
+    node.data.kind === 'verification' && ids.has(node.id))
+    .sort((
+      /* 比较中的左侧核查结论，只读取更新时间。 */ a,
+      /* 比较中的右侧核查结论，以降序排列更新时间。 */ b
+    ) => /* 将最近更新的核查结论排在前面。 */ b.updatedAt.localeCompare(a.updatedAt))
 })
 
-// 用途：读取数据，并把结构化结果交给调用方。
 function inspectorReadData(): GraphNodeData | null {
+  // 把编辑草稿转换为新闻或事实提交数据，规范类别和上下文字段名。
   const draft = editor.value
   if (!draft) return null
   return draft.kind === 'claim'
     ? { kind: 'claim', content: draft.content, category: draft.category.trim() || null }
-    : { kind: 'news', content: draft.content, context: Object.fromEntries(draft.context.map(field => [field.key.trim(), { value: field.value, visibleToAI: field.visibleToAI }])) }
+    : { kind: 'news', content: draft.content, context: Object.fromEntries(draft.context.map(/* 编辑草稿中的上下文字段，转换为提交键值，不修改原草稿。 */ field =>
+      /* 将上下文字段转换为名称到值及可见性配置的键值对。 */
+      [field.key.trim(), { value: field.value, visibleToAI: field.visibleToAI }])) }
 }
-// 用途：读取来源，并把结构化结果交给调用方。
 function inspectorReadSources(): string[] {
-  return [...new Set(props.snapshot.edges.filter(edge => edge.kind === 'mentions' && edge.to === selected.value?.id).map(edge => edge.from))].sort()
+  // 从引用边中收集所选事实的新闻来源，去重并稳定排序。
+  return [...new Set(props.snapshot.edges.filter(/* 当前图的真实关系，筛选指向所选事实的新闻引用。 */ edge =>
+    /* 筛选指向所选事实的新闻引用边。 */
+    edge.kind === 'mentions' && edge.to === selected.value?.id).map(/* 已匹配的引用关系，其起点为新闻节点身份。 */ edge =>
+    /* 提取引用边起点的新闻标识。 */
+    edge.from))].sort()
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function inspectorLoadContent(): void {
+  // 从当前节点重建正文编辑草稿，并重置内容、版本和待确认提交基线。
   const node = selected.value
   if (node?.data.kind === 'news' || node?.data.kind === 'claim') {
     const data = node.data
     editor.value = { nodeId: node.id, kind: data.kind, content: data.content, category: data.kind === 'claim' ? data.category ?? '' : '',
-      context: data.kind === 'news' ? Object.entries(data.context).map(([key, field]) => ({ id: crypto.randomUUID(), key, ...field })) : [] }
+      context: data.kind === 'news' ? Object.entries(data.context).map((/* 从已保存新闻解构出的字段名和字段值；复制成带表单身份的编辑项。 */ [key, field]) =>
+        /* 为新闻上下文字段创建独立编辑项和稳定表单标识。 */
+        ({ id: crypto.randomUUID(), key, ...field })) : [] }
   } else editor.value = null
   baseContent.value = JSON.stringify(inspectorReadData())
   contentRevision.value = props.snapshot.revision
   pendingContent.value = null
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function inspectorLoadSources(): void {
+  // 从已保存关系恢复来源选择，并清除待确认的来源提交。
   sourceIds.value = selected.value?.data.kind === 'claim' ? inspectorReadSources() : []
   baseSources.value = JSON.stringify(sourceIds.value)
   sourceRevision.value = props.snapshot.revision
   pendingSources.value = null
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
-function inspectorReloadDraft(): void { inspectorLoadContent(); inspectorLoadSources() }
-// 用途：处理界面相关工作，并把结果交给调用方。
+function inspectorReloadDraft(): void {
+  // 一起重新载入正文和来源草稿。
+  inspectorLoadContent(); inspectorLoadSources()
+}
 function inspectorAdoptVersion(): void {
+  // 保留现有草稿内容，仅采用当前图版本作为下次提交依据。
   if (!selected.value) return
   contentRevision.value = props.snapshot.revision
   sourceRevision.value = props.snapshot.revision
 }
-watch(() => [props.snapshot.mapId, props.selectedId, props.snapshot.revision] as const, (current, previous) => {
+watch(() =>
+  /* 观察图、选择和版本，区分切换节点与同节点刷新。 */
+  [props.snapshot.mapId, props.selectedId, props.snapshot.revision] as const, (
+    /* 本次观测的图身份、节点选择和图版本三元组。 */ current,
+    /* 上次观测的同类三元组；首次立即回调时缺失，按全量重载处理。 */ previous
+  ) => {
+  // 切换选择时重载草稿；同节点刷新只覆盖未改动或已经服务端确认的提交。
   if (!previous || current[0] !== previous[0] || current[1] !== previous[1]) { inspectorReloadDraft(); return }
   const data = selected.value?.data
   if (!contentDirty.value || (pendingContent.value !== null && pendingContent.value === serializedContent.value && JSON.stringify(data) === pendingContent.value)) inspectorLoadContent()
@@ -104,37 +144,41 @@ watch(() => [props.snapshot.mapId, props.selectedId, props.snapshot.revision] as
   if (!sourcesDirty.value || (pendingSources.value !== null && pendingSources.value === sortedSources.value && currentSources === pendingSources.value)) inspectorLoadSources()
 }, { immediate: true })
 
-// 用途：处理界面相关工作，并把结果交给调用方。
 function inspectorSaveNode(): void {
+  // 通过表单与版本检查后记录提交内容，并发出保存正文事件。
   const data = inspectorReadData()
   if (!editor.value || !data || !editable.value || contentError.value || versionChanged.value) return
   pendingContent.value = JSON.stringify(data)
   emit('save', { expectedRevision: contentRevision.value, nodeId: editor.value.nodeId, data })
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function inspectorSaveSources(): void {
+  // 确认来源仍存在且版本有效后发出事实与新闻关联保存事件。
   if (selected.value?.data.kind !== 'claim' || !editable.value || versionChanged.value || missingSources.value.length) return
   pendingSources.value = sortedSources.value
   emit('linkSources', { expectedRevision: sourceRevision.value, claimId: selected.value.id, newsIds: [...sourceIds.value].sort() })
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function inspectorAddContext(): void {
+  // 在新闻草稿中追加一个默认允许提供给智能体的上下文字段。
   editor.value?.context.push({ id: crypto.randomUUID(), key: '', value: '', visibleToAI: true })
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function inspectorRemoveNode(): void {
+  // 仅在草稿已保存且版本有效时发出节点删除事件。
   if (!selected.value || !editable.value || dirty.value || versionChanged.value) return
   emit('remove', { expectedRevision: contentRevision.value, nodeId: selected.value.id })
 }
-// 用途：启动运行状态流程，并返回执行结果。
 function inspectorStartRun(): void {
+  // 使用选中节点作为起点发出运行请求，事实节点固定处理到核查完成。
   if (!selected.value || !editable.value || dirty.value) return
   emit('verify', { scope: { nodeIds: [selected.value.id] }, until: selected.value.data.kind === 'claim' ? 'verified' : until.value, mode: mode.value, regenerate: regenerate.value })
 }
-watch(() => props.selectedId, () => { until.value = 'verified'; regenerate.value = false })
+watch(() => /* 观察节点选择变化以重置运行选项。 */ props.selectedId, () => {
+  // 换选节点时恢复默认终点并关闭强制重新生成。
+  until.value = 'verified'; regenerate.value = false
+})
 </script>
 
 <template>
+  <!-- 按节点类型提供正文、来源、核查和结果区域，冲突时保留原编辑内容。 -->
   <section class="node-inspector" aria-label="节点详情">
     <header class="inspector-header"><h2>{{ selected ? GRAPH_KIND_LABELS[selected.data.kind] : '节点详情' }}</h2><span v-if="dirty" class="draft-tag">未保存</span></header>
     <div v-if="!selected && !editor" class="inspector-empty">选择一个节点，查看正文、来源与核查结果。</div>
@@ -181,7 +225,7 @@ watch(() => props.selectedId, () => { until.value = 'verified'; regenerate.value
             <span>{{ graphReadNodeText(item) }}</span>
           </label>
         </div>
-        <p v-if="missingSources.length" class="field-error">有来源已不存在。<button type="button" @click="sourceIds = sourceIds.filter(id => !missingSources.includes(id))">移除不可用来源</button></p>
+        <p v-if="missingSources.length" class="field-error">有来源已不存在。<button type="button" @click="sourceIds = sourceIds.filter(/* 草稿中的来源新闻身份，移除已失效的选择。 */ id => /* 移除已经失效的新闻来源选择。 */ !missingSources.includes(id))">移除不可用来源</button></p>
         <div v-if="canEdit" class="button-row"><button type="button" :disabled="!editable || !sourcesDirty || versionChanged || !!missingSources.length" @click="inspectorSaveSources">保存来源关联</button><button type="button" :disabled="busy || !sourcesDirty" @click="inspectorLoadSources">恢复来源关联</button></div>
       </section>
 
@@ -228,6 +272,7 @@ watch(() => props.selectedId, () => { until.value = 'verified'; regenerate.value
 </template>
 
 <style scoped>
+/* 统一详情表单、来源选项、结果卡片和版本冲突提示的可读布局。 */
 .node-inspector { min-width: 0; background: var(--bg-panel); }
 .inspector-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); }
 h2 { font-size: 14px; font-weight: 600; }h3 { font-size: 12px; font-weight: 600; }

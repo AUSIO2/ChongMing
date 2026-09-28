@@ -1,3 +1,4 @@
+<!-- 操作审核：编辑路由角度、展示报告和候选产物，并按审核版本提交决定。 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { GraphOperation, GraphRouteSlot, GraphRun, GraphSnapshot } from '../../../../contracts/graph'
@@ -9,16 +10,28 @@ const emit = defineEmits<{
   answer: [input: { mapId: string; expectedRevision: number; runId: string; operationId: string; reviewId: string; expectedReviewRevision: number; decision: 'approve' | 'reject' }]
 }>()
 
-const run = computed(() => props.run)
-const operation = computed(() => props.operation)
-const review = computed(() => operation.value.review)
-const route = computed(() => operation.value.route)
-const reports = computed(() => operation.value.kind === 'split' ? operation.value.splitReports : operation.value.reports)
-const configuration = computed(() => operation.value.kind === 'split' ? run.value.configuration.split! : run.value.configuration)
-const outputClaims = computed(() => operation.value.contentDraft?.kind === 'split' ? operation.value.contentDraft.selected.map(selection => operation.value.splitReports.find(report => report.id === selection.reportId)!.claims[selection.index]) : [])
-const pending = computed(() => operation.value.status === 'waiting' && review.value?.state === 'pending')
-const pendingRoute = computed(() => pending.value && review.value?.kind === 'route')
-const target = computed(() => props.snapshot.nodes.find(node => node.id === operation.value.targetId))
+const run = computed(() => /* 引用当前 Run 供审核面板计算。 */ props.run)
+const operation = computed(() => /* 引用当前 Operation 供状态和报告展示。 */ props.operation)
+const review = computed(() => /* 取得当前 Operation 的审核记录。 */ operation.value.review)
+const route = computed(() => /* 取得当前 Operation 的路由配置。 */ operation.value.route)
+const reports = computed(() => /* 按拆分或核查阶段选择对应报告集合。 */ operation.value.kind === 'split' ? operation.value.splitReports : operation.value.reports)
+const configuration = computed(() =>
+  /* 按 Operation 类型选择本次运行冻结的智能体配置。 */
+  operation.value.kind === 'split' ? run.value.configuration.split! : run.value.configuration)
+const outputClaims = computed(() =>
+  /* 把拆分汇总中的选择索引还原为待保存的事实内容。 */
+  operation.value.contentDraft?.kind === 'split' ? operation.value.contentDraft.selected.map(/* 拆分汇总选择项，保存原报告身份和候选事实零基索引。 */ selection =>
+    /* 按报告标识和项索引取得被选择的候选事实。 */
+    operation.value.splitReports.find(/* 已接纳的拆分报告，只用于匹配选择项引用的报告身份。 */ report =>
+      /* 匹配汇总选择引用的拆分报告。 */
+      report.id === selection.reportId)!.claims[selection.index]) : [])
+const pending = computed(() => /* 判断 Operation 是否正在等待一个尚未答复的审核。 */ operation.value.status === 'waiting' && review.value?.state === 'pending')
+const pendingRoute = computed(() => /* 判断当前待审事项是否为路由审核。 */ pending.value && review.value?.kind === 'route')
+const target = computed(() =>
+  /* 从快照中取得当前 Operation 的目标节点。 */
+  props.snapshot.nodes.find(/* 当前图的只读节点，用 Operation 的目标身份匹配。 */ node =>
+    /* 匹配 Operation 的目标标识。 */
+    node.id === operation.value.targetId))
 const form = ref<{ reason: string; slots: GraphRouteSlot[] } | null>(null)
 const baseFingerprint = ref('')
 const baseMapRevision = ref(0)
@@ -26,32 +39,43 @@ const baseReviewRevision = ref(0)
 const baseReviewId = ref<string | null>(null)
 const baseRunId = ref<string | null>(null)
 const pendingSave = ref<string | null>(null)
-const fingerprint = computed(() => JSON.stringify(form.value))
-const dirty = computed(() => !!form.value && fingerprint.value !== baseFingerprint.value)
-const sameReview = computed(() => run.value?.id === baseRunId.value && review.value?.id === baseReviewId.value)
-const versionChanged = computed(() => dirty.value && (!sameReview.value || props.snapshot.revision !== baseMapRevision.value || review.value?.revision !== baseReviewRevision.value))
-const routeEditable = computed(() => props.canEdit && !props.busy && pendingRoute.value && sameReview.value)
-const reportCount = computed(() => route.value?.slots.filter(slot => reports.value.some(report => report.slotId === slot.id && report.routeRevision === route.value!.revision)).length ?? 0)
+const fingerprint = computed(() => /* 序列化路由表单，供草稿变更和提交确认比对。 */ JSON.stringify(form.value))
+const dirty = computed(() => /* 比较表单与已保存基线，判断路由草稿是否修改。 */ !!form.value && fingerprint.value !== baseFingerprint.value)
+const sameReview = computed(() => /* 确认当前 Run 和审核记录仍是草稿创建时的对象。 */ run.value?.id === baseRunId.value && review.value?.id === baseReviewId.value)
+const versionChanged = computed(() =>
+  /* 检测修改后的草稿是否遇到运行、图或审核版本变化。 */
+  dirty.value && (!sameReview.value || props.snapshot.revision !== baseMapRevision.value || review.value?.revision !== baseReviewRevision.value))
+const routeEditable = computed(() => /* 仅在有权限、无请求且仍为同一路由审核时允许编辑。 */ props.canEdit && !props.busy && pendingRoute.value && sameReview.value)
+const reportCount = computed(() =>
+  /* 统计当前路由版本已经收到报告的槽位数量。 */
+  route.value?.slots.filter(/* 当前路由版本的槽位，用其身份检查报告是否已到齐。 */ slot =>
+    /* 筛选当前版本已有报告的路由槽位。 */
+    reports.value.some(/* 已收到的报告，槽位和路由版本必须同时匹配。 */ report =>
+      /* 匹配槽位标识与当前路由版本，排除旧报告。 */
+      report.slotId === slot.id && report.routeRevision === route.value!.revision)).length ?? 0)
 const validation = computed(() => {
+  // 校验路由理由、槽位数量、标识、Agent 与工具范围。
   const draft = form.value
   const agents = configuration.value.agents
   if (!draft) return ''
   if (!draft.reason.trim()) return '请填写选择这些角度的理由。'
   if (!draft.slots.length || draft.slots.length > run.value.configuration.maxSlots) return `请保留 1–${run.value.configuration.maxSlots} 个核查角度。`
-  if (new Set(draft.slots.map(slot => slot.id)).size !== draft.slots.length) return '角度标识重复，请移除重复项后重新添加。'
+  if (new Set(draft.slots.map(/* 路由编辑草稿中的槽位，只读取标识检查重复。 */ slot => /* 提取槽位标识用于重复检查。 */ slot.id)).size !== draft.slots.length) return '角度标识重复，请移除重复项后重新添加。'
   for (const slot of draft.slots) {
     if (!slot.angle.trim()) return '请为每个角度填写明确的处理问题。'
-    const agent = agents.find(agent => agent.id === slot.agentId)
+    const agent = agents.find(/* 当前运行冻结的 Agent 配置，用槽位选择身份匹配。 */ agent => /* 查找槽位选择的冻结 Agent 配置。 */ agent.id === slot.agentId)
     if (!agent) return '请选择本次核查配置中的智能体。'
-    if (slot.tools.some(tool => !agent.tools.includes(tool))) return '所选工具超出了这个智能体的能力范围。'
+    if (slot.tools.some(/* 草稿槽位请求使用的工具名，必须在所选 Agent 能力范围内。 */ tool => /* 检测超出该 Agent 工具范围的槽位授权。 */ !agent.tools.includes(tool))) return '所选工具超出了这个智能体的能力范围。'
   }
   return ''
 })
 
-// 用途：读取槽位，并把结构化结果交给调用方。
-function reviewReadSlots(slots: GraphRouteSlot[]): GraphRouteSlot[] { return slots.map(slot => ({ ...slot, tools: [...slot.tools] })) }
-// 用途：处理界面相关工作，并把结果交给调用方。
+function reviewReadSlots(/* 要复制的路由槽位集合，不修改原对象或工具数组。 */ slots: GraphRouteSlot[]): GraphRouteSlot[] {
+  // 复制路由槽位及工具数组，使编辑草稿独立于服务端路由。
+  return slots.map(/* 原路由槽位，复制对象和工具数组后才用于编辑。 */ slot => /* 复制槽位对象并单独复制工具列表。 */ ({ ...slot, tools: [...slot.tools] }))
+}
 function reviewReloadDraft(): void {
+  // 从待审路由建立表单，并重置运行、审核、图版本和待确认提交基线。
   form.value = pendingRoute.value && route.value ? { reason: route.value.reason, slots: reviewReadSlots(route.value.slots) } : null
   baseFingerprint.value = JSON.stringify(form.value)
   baseMapRevision.value = props.snapshot.revision
@@ -60,47 +84,54 @@ function reviewReloadDraft(): void {
   baseRunId.value = run.value?.id ?? null
   pendingSave.value = null
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function reviewAdoptVersion(): void {
+  // 在仍属同一路由审核时保留草稿，采用最新图和审核版本。
   if (!pendingRoute.value || !sameReview.value) return
   baseMapRevision.value = props.snapshot.revision
   baseReviewRevision.value = review.value!.revision
 }
-watch(() => [props.snapshot.mapId, props.snapshot.revision, run.value?.id] as const, (current, previous) => {
+watch(() => /* 观察图身份、版本与运行身份变化。 */ [props.snapshot.mapId, props.snapshot.revision, run.value?.id] as const, (
+  /* 本次观测的图身份、图版本和运行身份三元组。 */ current,
+  /* 上次观测的三元组；首次回调可能缺失，需初始化审核草稿。 */ previous
+) => {
+  // 切图时重载草稿；同图刷新仅接纳未修改内容或已确认保存结果。
   if (!previous || current[0] !== previous[0]) { reviewReloadDraft(); return }
   const saved = pendingRoute.value && route.value ? JSON.stringify({ reason: route.value.reason, slots: reviewReadSlots(route.value.slots) }) : ''
   if (!dirty.value || (sameReview.value && pendingSave.value !== null && pendingSave.value === fingerprint.value && saved === pendingSave.value)) reviewReloadDraft()
 }, { immediate: true })
 
-// 用途：处理界面相关工作，并把结果交给调用方。
 function reviewAddSlot(): void {
+  // 在数量限制内追加使用第一个 Agent 默认配置的新路由槽位。
   const profile = configuration.value.agents[0]
   if (!form.value || !profile || !routeEditable.value || form.value.slots.length >= run.value.configuration.maxSlots) return
   form.value.slots.push({ id: `angle-${crypto.randomUUID()}`, agentId: profile.id, angle: '', priority: profile.defaultPriority ?? 'medium', hint: '', tools: [...profile.tools] })
 }
-// 用途：更新Agent，并保持相关状态一致。
-function reviewUpdateAgent(slot: GraphRouteSlot): void {
-  const agent = configuration.value.agents.find(agent => agent.id === slot.agentId)
-  slot.tools = slot.tools.filter(tool => agent?.tools.includes(tool))
+function reviewUpdateAgent(/* 用户修改了 Agent 的可变草稿槽位，本函数会删去不再支持的工具。 */ slot: GraphRouteSlot): void {
+  // 更换槽位 Agent 后移除其不支持的工具。
+  const agent = configuration.value.agents.find(/* 运行冻结的 Agent 配置，用槽位新选择的身份匹配。 */ agent => /* 查找槽位当前选择的 Agent。 */ agent.id === slot.agentId)
+  slot.tools = slot.tools.filter(/* 草稿中原有的工具名，仅在新 Agent 支持时保留。 */ tool => /* 仅保留新 Agent 支持的工具。 */ agent?.tools.includes(tool))
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
 function reviewSaveDraft(): void {
+  // 校验权限、草稿和版本后，携带原审核身份发出路由草稿保存事件。
   if (!form.value || !run.value || !review.value || !routeEditable.value || !dirty.value || validation.value || versionChanged.value) return
   pendingSave.value = fingerprint.value
   emit('update', { mapId: props.snapshot.mapId, expectedRevision: baseMapRevision.value, runId: baseRunId.value!, operationId: operation.value.id,
     reviewId: baseReviewId.value!, expectedReviewRevision: baseReviewRevision.value, reason: form.value.reason, slots: reviewReadSlots(form.value.slots) })
 }
-// 用途：处理界面相关工作，并把结果交给调用方。
-function reviewAnswer(decision: 'approve' | 'reject'): void {
+function reviewAnswer(/* 用户对当前审核的批准或拒绝决定；批准前要求草稿已保存。 */ decision: 'approve' | 'reject'): void {
+  // 对当前待审事项发出批准或拒绝决定，阻止直接批准未保存的路由修改。
   if (!run.value || !review.value || !pending.value || !props.canEdit || props.busy || (decision === 'approve' && dirty.value)) return
   emit('answer', { mapId: props.snapshot.mapId, expectedRevision: props.snapshot.revision, runId: run.value.id, operationId: operation.value.id,
     reviewId: review.value.id, expectedReviewRevision: review.value.revision, decision })
 }
-// 用途：读取Agent，并把结构化结果交给调用方。
-function reviewReadAgent(agentId: string): string { return configuration.value.agents.find(agent => agent.id === agentId)?.name ?? '核查智能体' }
+function reviewReadAgent(/* 要展示名称的运行配置 Agent 身份。 */ agentId: string): string {
+  // 查找冻结配置中的 Agent 名称，缺失时提供展示默认值。
+  return configuration.value.agents.find(/* 当前运行冻结的 Agent 项，只读取其身份和名称。 */ agent => /* 匹配待展示的 Agent 标识。 */ agent.id === agentId)?.name ?? '核查智能体'
+}
 </script>
 
 <template>
+  <!-- 根据路由审核、处理进度与结果审核状态展示对应表单和批准入口。 -->
   <section class="run-review" :aria-label="`${GRAPH_OPERATION_LABELS[operation.kind]}进度与审核`" :data-operation-id="operation.id">
     <header class="run-header"><h2>{{ GRAPH_OPERATION_LABELS[operation.kind] }}</h2></header>
     <div class="run-content">
@@ -126,8 +157,8 @@ function reviewReadAgent(agentId: string): string { return configuration.value.a
           <label class="field"><span>优先级</span><select v-model="slot.priority" :aria-label="`角度 ${index + 1} 优先级`"><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label>
           <label class="field"><span>补充提示 <small>可选</small></span><textarea v-model="slot.hint" rows="2" :aria-label="`角度 ${index + 1} 补充提示`" /></label>
           <div class="tool-options"><span class="field-label">工具范围</span>
-            <label v-for="tool in configuration.agents.find(agent => agent.id === slot.agentId)?.tools ?? []" :key="tool" class="tool-choice" :title="run.configuration.tools.find(item => item.name === tool)?.description"><input v-model="slot.tools" type="checkbox" :value="tool"><span>{{ tool }}</span></label>
-            <p v-if="!configuration.agents.find(agent => agent.id === slot.agentId)?.tools.length" class="muted">此智能体只使用提供的材料。</p>
+            <label v-for="tool in configuration.agents.find(/* 本次运行冻结的 Agent 配置，用槽位选择身份匹配。 */ agent => /* 查找该槽位所选 Agent 的工具能力。 */ agent.id === slot.agentId)?.tools ?? []" :key="tool" class="tool-choice" :title="run.configuration.tools.find(/* 冻结工具目录条目，用工具名称查找说明。 */ item => /* 查找当前工具在冻结配置中的说明。 */ item.name === tool)?.description"><input v-model="slot.tools" type="checkbox" :value="tool"><span>{{ tool }}</span></label>
+            <p v-if="!configuration.agents.find(/* 本次运行冻结的 Agent 配置，用槽位选择身份匹配。 */ agent => /* 查找该槽位所选 Agent 的工具能力。 */ agent.id === slot.agentId)?.tools.length" class="muted">此智能体只使用提供的材料。</p>
           </div>
           <button v-if="canEdit" type="button" class="remove-angle" :disabled="!routeEditable || form.slots.length <= 1" @click="form.slots.splice(index, 1)">移除此角度</button>
         </fieldset>
@@ -144,7 +175,7 @@ function reviewReadAgent(agentId: string): string { return configuration.value.a
         <div class="progress-track" role="progressbar" aria-label="已收集的核查意见" :aria-valuenow="reportCount" :aria-valuemin="0" :aria-valuemax="route.slots.length"><div :style="{ width: `${route.slots.length ? reportCount / route.slots.length * 100 : 0}%` }" /></div>
         <div v-for="slot in route.slots" :key="slot.id" class="progress-slot">
           <div><strong>{{ slot.angle }}</strong><p>{{ reviewReadAgent(slot.agentId) }}</p></div>
-          <span v-if="!reports.some(report => report.slotId === slot.id && report.routeRevision === route!.revision)" class="muted">等待意见</span><span v-else class="report-ready">已收到</span>
+          <span v-if="!reports.some(/* 已接纳报告，必须匹配槽位和当前路由版本。 */ report => /* 检查该槽位在当前路由版本是否已有报告。 */ report.slotId === slot.id && report.routeRevision === route!.revision)" class="muted">等待意见</span><span v-else class="report-ready">已收到</span>
         </div>
       </section>
 
@@ -188,6 +219,7 @@ function reviewReadAgent(agentId: string): string { return configuration.value.a
 </template>
 
 <style scoped>
+/* 组织路由角度卡片、报告进度及审核结果，突出冲突和待审状态。 */
 .run-review { border-top: 1px solid var(--border); background: var(--bg-panel); min-width: 0; }.run-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); }h2 { font-size: 14px; font-weight: 600; }h3 { font-size: 12px; font-weight: 600; }.mode-label { color: var(--text-muted); background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 2px 7px; }
 .review-empty { padding: 18px 14px; color: var(--text-muted); line-height: 1.7; }.run-content { display: grid; gap: 13px; padding: 12px 14px; }.run-target { font: 13px/1.6 var(--content-font); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; border-left: 2px solid var(--border); padding-left: 9px; }
 .run-status { display: flex; align-items: center; gap: 7px; font-size: 12px; }.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }.attention .status-dot { background: var(--accent); }.failed .status-dot { background: var(--danger); }.cancelled .status-dot { background: var(--text-muted); }

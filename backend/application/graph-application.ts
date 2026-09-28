@@ -1,3 +1,4 @@
+// 组装身份、工作区、资产和图服务，统一公共请求的授权与事务边界。
 import { RuntimeMessage } from '../../contracts/messages'
 import type { Persistence } from '../ports/persistence'
 import type { MessagingService } from '../ports/messaging'
@@ -13,18 +14,18 @@ import { controlCreateService } from '../modules/workspace/workspace-service'
 import { graphCreateService, graphReadSnapshot } from '../modules/graph/graph-service'
 import { GraphError } from '../modules/shared/domain-error'
 
-// 用途：组装服务，供后续流程使用。
-export function applicationBuildService(database: Persistence,
-  outbox: MessagingService,
-  options: { leaseMs?: number; allowPrivateSources?: boolean; readUrl: SourceReader; seedConfiguration: GraphSeedConfiguration }) {
+export function applicationBuildService(/* 供所有业务服务共享、并负责授权事务的持久化入口。 */ database: Persistence,
+  /* 负责图变更通知、工作投递和临时活动的消息服务。 */ outbox: MessagingService,
+  /* 应用装配选项；leaseMs 以毫秒计且省略时由图服务使用 15000，另提供来源策略与默认 Agent 配置。 */ options: { leaseMs?: number; allowPrivateSources?: boolean; readUrl: SourceReader; seedConfiguration: GraphSeedConfiguration }) {
+  // 将鉴权、工作区、资产和图服务接入同一持久化入口，并暴露消息服务的生命周期。
   const store = database.graph()
   const auth = authCreateService(database)
   const control = controlCreateService(database, options.seedConfiguration)
   const assets = assetsCreateService(database, auth, control, options)
   const graph = graphCreateService(store, { ...options, readSource: assets.readSource })
 
-    // 用途：读取数据图，并把结构化结果交给调用方。
-    async function applicationReadMap(ctx: RequestContext, mapId: string, role: 'viewer' | 'editor') {
+  async function applicationReadMap(/* 已经解析用户身份并携带可选事务的请求上下文。 */ ctx: RequestContext, /* 需要读取并检查工作区权限的图身份。 */ mapId: string, /* 此次调用要求的最低工作区角色。 */ role: 'viewer' | 'editor') {
+    // 沿用请求的存储会话读取图并检查工作区角色；写请求的权限检查还会更新授权栅栏，参与并发撤权仲裁。
     const document = await database.graph(ctx.session).read(mapId)
     if (!document) throw new GraphError(404, 'MAP_NOT_FOUND', RuntimeMessage.MAP_NOT_FOUND)
     await control.requireRole(ctx, document.workspaceId, role)
@@ -35,42 +36,43 @@ export function applicationBuildService(database: Persistence,
     store, graph, auth, control, assets,
     messaging: outbox.messaging, startMessaging: outbox.startMessaging, messagingFinished: outbox.finished,
     closeMessaging: outbox.closeMessaging, watchChanges: outbox.watchChanges,
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async publishActivity(mapId: string, proof: GraphWorkProof, status: ActivityStatus, sequence: number) {
+    async publishActivity(/* 临时活动所属的图身份。 */ mapId: string, /* 活动上报者的 work、holder 和 fence 证明。 */ proof: GraphWorkProof, /* 当前执行阶段的活动状态。 */ status: ActivityStatus, /* 同一 work 与 fence 授权内递增的活动序号；工作被重新领取后可从新序号开始。 */ sequence: number) {
+      // 验证活动仍属于当前有效租约和可执行工作，再向消息服务发布临时执行状态。
       const activity = await activityReadRecord(store, mapId, proof, status, sequence)
       await outbox.publishActivity(activity, proof.holderId)
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async readActivities(token: string, mapId: string) {
+    async readActivities(/* 读取活动的用户令牌。 */ token: string, /* 需要列出有效临时活动的图身份。 */ mapId: string) {
+      // 验证查看权限，重新检查缓存活动的工作租约，并过滤已经失去租约的活动。
       await applicationReadMap(await auth.read(token), mapId, 'viewer')
-      const items = await Promise.all(outbox.readActivities(mapId).map(async change => {
+      const items = await Promise.all(outbox.readActivities(mapId).map(async /* 消息服务缓存中的当前活动变更。 */ change => {
+        // 用当前工作信息重建活动，保留原发布时间；只忽略租约失效，其他读取错误继续抛出。
         const item = change.activity!
         try {
           const current = await activityReadRecord(store, mapId, { workId: item.workId, holderId: change.holderId!, fence: item.fence }, item.status, item.sequence)
           return { ...current, updatedAt: item.updatedAt }
         } catch (error) { if (error instanceof GraphError && error.code === 'LEASE_LOST') return null; throw error }
       }))
-      return items.filter((item): item is NonNullable<typeof item> => item !== null)
+      return items.filter((/* 租约复核后的活动记录或表示失效项的 null。 */ item): item is NonNullable<typeof item> => /* 去掉租约失效时产生的空项。 */ item !== null)
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async readSnapshot(token: string, mapId: string) {
+    async readSnapshot(/* 读取图快照的用户令牌。 */ token: string, /* 需要投影为公开快照的图身份。 */ mapId: string) {
+      // 校验用户的查看权限并拒绝已删除的图，再返回带节点产出来源的公开快照。
       const document = await applicationReadMap(await auth.read(token), mapId, 'viewer')
       if (document.deletedAt) throw new GraphError(404, 'MAP_NOT_FOUND', RuntimeMessage.MAP_NOT_FOUND)
       return graphReadSnapshot(document)
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async authorizeMap(token: string, mapId: string) {
+    async authorizeMap(/* 建立事件订阅前需要校验的用户令牌。 */ token: string, /* 订阅目标图身份。 */ mapId: string) {
+      // 确认用户可以查看仍存在的图，供事件订阅等不需要完整快照的入口鉴权。
       const document = await applicationReadMap(await auth.read(token), mapId, 'viewer')
       if (document.deletedAt) throw new GraphError(404, 'MAP_NOT_FOUND', RuntimeMessage.MAP_NOT_FOUND)
     },
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
     async initialize(): Promise<void> {
+      // 先初始化身份服务及底层存储，再并行准备图、工作区、资产和消息服务。
       await auth.initialize()
       await Promise.all([store.initialize(), control.initialize(), assets.initialize(), outbox.initialize()])
     },
 
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async read(token: string, query: GraphQuery | ControlQuery) {
+    async read(/* 发起只读查询的用户令牌。 */ token: string, /* 待分派的图查询或管理查询。 */ query: GraphQuery | ControlQuery) {
+      // 解析用户身份，将查询交给对应业务服务，并在读取图列表、图或 Run 前检查查看权限。
       const ctx = await auth.read(token)
       if (query.method === 'asset.get') return assets.read(ctx, query.params.assetId)
       if (query.method === 'asset.list') return assets.list(ctx, query.params)
@@ -85,16 +87,17 @@ export function applicationBuildService(database: Persistence,
       return control.read(ctx, query)
     },
 
-    // 用途：处理当前模块相关工作，并把结果交给调用方。
-    async dispatch(token: string, command: GraphCommand | ControlCommand) {
+    async dispatch(/* 发起写命令的用户令牌。 */ token: string, /* 待在授权事务或资产专用流程中执行的命令。 */ command: GraphCommand | ControlCommand) {
+      // 将普通写命令的身份、权限和业务更新放入同一事务；数据包导入由资产服务管理自己的事务。
       if (command.method === 'workspace.import') return assets.importWorkspace(token, command)
-      return auth.transact(token, async ctx => {
+      return auth.transact(token, async /* 已经锁定用户和令牌授权版本的写请求上下文。 */ ctx => {
+        // 在已锁定写入身份的事务中分派命令，并为图写入绑定当前用户的幂等请求标识。
         if (command.method === 'asset.delete') return assets.delete(ctx, command)
         if (!['map.create', 'map.delete', 'graph.apply', 'run.start', 'run.cancel', 'run.pause', 'run.resume', 'review.update', 'review.answer'].includes(command.method)) {
           return control.dispatch(ctx, command as ControlCommand)
         }
         const input = command as GraphCommand
-        // Public idempotency belongs to the user, never a guessed requestId from another member.
+        // 用用户 ID 隔离收据，避免其他成员猜中 requestId 后重放不属于自己的请求。
         const scoped = { ...input, requestId: `${ctx.actor.userId}:${input.requestId}` } as GraphCommand
         const transactionalStore = database.graph(ctx.session)
         const service = graphCreateService(transactionalStore, options)
@@ -102,13 +105,15 @@ export function applicationBuildService(database: Persistence,
           const workspace = await control.requireRole(ctx, input.params.workspaceId, 'editor')
           const prior = await transactionalStore.read(input.params.id)
           if (prior && prior.workspaceId !== input.params.workspaceId) throw new GraphError(404, 'MAP_NOT_FOUND', RuntimeMessage.MAP_NOT_FOUND)
-          if (!prior?.receipts.some(receipt => receipt.requestId === scoped.requestId) && workspace.revision !== input.params.expectedRevision) {
+          // 已成功的创建请求可重放；只有新请求需要匹配当前工作区版本。
+          if (!prior?.receipts.some(/* 创建图前检查是否已有当前用户请求收据的记录。 */ receipt => /* 查找当前用户这次创建请求的收据。 */ receipt.requestId === scoped.requestId) && workspace.revision !== input.params.expectedRevision) {
             throw new GraphError(409, 'REVISION_CONFLICT', RuntimeMessage.WORKSPACE_REVISION_CHANGED, workspace.revision)
           }
           return service.dispatch(scoped)
         }
         const document = await applicationReadMap(ctx, input.params.mapId, 'editor')
-        const replay = document.receipts.some(receipt => receipt.requestId === scoped.requestId)
+        const replay = document.receipts.some(/* 当前图中用于判断用户请求是否已经提交的收据。 */ receipt => /* 判断当前用户的请求是否已经提交。 */ receipt.requestId === scoped.requestId)
+        // 重放沿用既有提交，不重新要求资产或配置仍满足新写入条件；图服务会核对收据的输入摘要。
         if (input.method === 'graph.apply' && !replay) await assets.assertReferences(ctx, document.workspaceId, input.params.changes.nodes?.put ?? [])
         const configuration = input.method === 'run.start' && !replay ? await control.configuration(ctx, document.workspaceId) : undefined
         return service.dispatch(scoped, configuration)

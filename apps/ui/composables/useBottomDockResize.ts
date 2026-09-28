@@ -1,3 +1,4 @@
+// 底部面板尺寸：按窗口空间约束拖动高度，并持久化布局偏好。
 import { ref } from 'vue'
 
 const STORAGE_KEY = 'chongming.bottomDockHeight'
@@ -5,8 +6,8 @@ const MIN_HEIGHT = 72
 const MAX_HEIGHT = 420
 const DEFAULT_HEIGHT = 132
 
-// 用途：处理界面相关工作，并把结果交给调用方。
 function loadHeight(): number {
+  // 恢复已保存的底部面板高度并限制范围；缺失或读取失败时使用默认高度。
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULT_HEIGHT
@@ -18,32 +19,32 @@ function loadHeight(): number {
   }
 }
 
-// 用途：处理界面相关工作，并把结果交给调用方。
-function saveHeight(height: number) {
+function saveHeight(/* 拖动结束后的面板高度，单位为 CSS 像素。 */ height: number) {
+  // 保存底部面板高度；存储不可用时保留本次界面的调整结果。
   try {
     localStorage.setItem(STORAGE_KEY, String(height))
   } catch {
-    /* ignore */
+    /* 浏览器存储不可用时仍保留本次布局调整。 */
   }
 }
 
-// 用途：处理界面相关工作，并把结果交给调用方。
 export function useBottomDockResize() {
+  // 持有底部面板高度，提供拖动调整与结束后保存的操作。
   const dockHeight = ref(loadHeight())
 
-  // 用途：处理界面相关工作，并把结果交给调用方。
-  function startResizeBottom(startY: number) {
+  function startResizeBottom(/* 分隔条按下时的视口纵坐标，单位为 CSS 像素。 */ startY: number) {
+    // 记录拖动起始高度，并安装窗口级鼠标移动和松开监听。
     const startHeight = dockHeight.value
-    // 用途：处理界面相关工作，并把结果交给调用方。
-    function onMove(e: MouseEvent) {
+    function onMove(/* 窗口派发的拖动事件，用纵坐标与起点之差调整面板高度。 */ e: MouseEvent) {
+      // 按向上拖动距离增加面板高度，同时限制最大值不超过窗口高度的 45%。
       const max = Math.min(MAX_HEIGHT, Math.floor(window.innerHeight * 0.45))
       dockHeight.value = Math.min(
         max,
         Math.max(MIN_HEIGHT, startHeight + (startY - e.clientY)),
       )
     }
-    // 用途：处理界面相关工作，并把结果交给调用方。
     function onUp() {
+      // 保存最终高度，并移除本次拖动的窗口监听。
       saveHeight(dockHeight.value)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)

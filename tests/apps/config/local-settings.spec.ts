@@ -1,3 +1,4 @@
+// 验证本机配置的文件权限、脱敏输出、并发锁与管理命令初始化。
 import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,9 +10,12 @@ import { localReadUri } from '../../../backend/adapters/storage/mongo/connection
 import { createGraphApi } from '../../backend/fixtures/graph-api'
 
 const directories: string[] = []
-afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(directories.splice(0).map(dir => rm(dir, { recursive: true, force: true }))) })
+afterEach(async () => {
+  // 恢复环境变量替身并并行删除每个用例创建的配置目录。
+   vi.unstubAllEnvs(); await Promise.all(directories.splice(0).map(/* 当前用例创建并登记的临时配置目录。 */ dir => /* 删除单个临时配置目录及其文件。 */  rm(dir, { recursive: true, force: true }))) })
 
 it('keeps local secrets private and exposes only redacted configuration through the admin CLI', async () => {
+  // 验证密钥仅落入私有文件，管理查询只暴露脱敏信息且删除与名称校验生效。
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-local-'))
   directories.push(directory)
   vi.stubEnv('CHONGMING_CONFIG_DIR', directory)
@@ -36,13 +40,14 @@ it('keeps local secrets private and exposes only redacted configuration through 
 }, 10_000)
 
 it('does not silently lose a successful concurrent secret update', async () => {
+  // 验证并发密钥更新要么成功保留，要么明确报告忙碌，不能静默丢失已成功更新。
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-local-race-'))
   directories.push(directory)
   vi.stubEnv('CHONGMING_CONFIG_DIR', directory)
   const names = ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']
-  const results = await Promise.allSettled(names.map(name => localUpdateSecret(name, `fixture-${name}`)))
+  const results = await Promise.allSettled(names.map(/* 本次并发测试要写入的允许密钥名称，用于形成各自测试值。 */ name => /* 为不同密钥同时发起写入以制造配置锁竞争。 */  localUpdateSecret(name, `fixture-${name}`)))
   const { secrets } = await localReadConfiguration()
-  expect(results.some(result => result.status === 'fulfilled')).toBe(true)
+  expect(results.some(/* 一次并发写入的 settled 结果，用于检查至少一项成功。 */ result => /* 检查至少一项并发更新成功完成。 */  result.status === 'fulfilled')).toBe(true)
   for (let index = 0; index < results.length; index++) {
     const result = results[index]
     if (result.status === 'fulfilled') expect(secrets[names[index]]).toBe(`fixture-${names[index]}`)
@@ -51,6 +56,7 @@ it('does not silently lose a successful concurrent secret update', async () => {
 })
 
 it('initializes a usable administrator token and a private Host token through the real CLI', async () => {
+  // 使用真实管理命令初始化用户令牌和私有 Host 令牌，并验证后者不出现在输出中。
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-admin-init-'))
   directories.push(directory)
   vi.stubEnv('CHONGMING_CONFIG_DIR', directory)

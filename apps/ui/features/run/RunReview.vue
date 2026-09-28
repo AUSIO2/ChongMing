@@ -1,3 +1,4 @@
+<!-- 运行面板：汇总 Operation 进度和活动，提供暂停、恢复、取消及逐项审核入口。 -->
 <script setup lang="ts">
 import { ACTIVITY_LABELS, type GraphActivity } from '../../../../contracts/activity'
 import { computed } from 'vue'
@@ -14,10 +15,10 @@ const emit = defineEmits<{
   pause: [input: CommandInputMap['run.pause']]
   resume: [input: CommandInputMap['run.resume']]
 }>()
-const run = computed(() => props.snapshot.run)
-const active = computed(() => !!run.value && ['running', 'waiting'].includes(run.value.status))
-// 用途：更新界面，并保持相关状态一致。
-function reviewUpdateControl(action: 'pause' | 'resume' | 'cancel'): void {
+const run = computed(() => /* 从当前图快照取得运行状态供面板展示。 */ props.snapshot.run)
+const active = computed(() => /* 判断运行是否仍在执行或等待，暂停中的运行也保留控制入口。 */ !!run.value && ['running', 'waiting'].includes(run.value.status))
+function reviewUpdateControl(/* 用户选择的运行控制动作，只接受暂停、恢复或取消。 */ action: 'pause' | 'resume' | 'cancel'): void {
+  // 在具备权限且运行未结束时，携带当前版本发送暂停、恢复或取消事件。
   if (!run.value || !active.value || !props.canEdit || props.busy) return
   const params = { mapId: props.snapshot.mapId, expectedRevision: props.snapshot.revision, runId: run.value.id }
   if (action === 'pause') emit('pause', params)
@@ -27,6 +28,7 @@ function reviewUpdateControl(action: 'pause' | 'resume' | 'cancel'): void {
 </script>
 
 <template>
+  <!-- 运行级控制位于顶部，每个 Operation 展示活动与独立审核组件。 -->
   <section class="run-panel" aria-label="运行进度与审核">
     <header><h2>处理进度与审核</h2><span v-if="run">{{ run.mode === 'auto' ? '自动处理' : '人工审核' }}</span></header>
     <p v-if="!run" class="run-note">选择来源、新闻或事实开始处理；每个节点的进度和审核会保留在这里。</p>
@@ -44,8 +46,8 @@ function reviewUpdateControl(action: 'pause' | 'resume' | 'cancel'): void {
       </div>
       <details v-for="operation in run.operations" :key="`${run.id}:${operation.id}`" class="operation-group" :open="operation.status !== 'completed'">
         <summary><strong>{{ GRAPH_OPERATION_LABELS[operation.kind] }}</strong><span>{{ graphReadOperationProgress(operation) }}</span></summary>
-        <ul v-if="!run.paused && activities?.some(item => item.operationId === operation.id)" class="activity-list" aria-label="当前执行活动">
-          <li v-for="item in activities.filter(item => item.operationId === operation.id)" :key="item.workId">
+        <ul v-if="!run.paused && activities?.some(/* 会话提供的活动摘要，用 Operation 身份匹配本行。 */ item => /* 只显示当前 Operation 的执行活动。 */ item.operationId === operation.id)" class="activity-list" aria-label="当前执行活动">
+          <li v-for="item in activities.filter(/* 会话提供的活动摘要，用 Operation 身份匹配本行。 */ item => /* 只显示当前 Operation 的执行活动。 */ item.operationId === operation.id)" :key="item.workId">
             <strong>{{ item.agentName }}</strong> · {{ ACTIVITY_LABELS[item.status] }}
           </li>
         </ul>
@@ -56,6 +58,7 @@ function reviewUpdateControl(action: 'pause' | 'resume' | 'cancel'): void {
 </template>
 
 <style scoped>
+/* 分隔各操作进度和活动列表，并区分取消与运行说明。 */
 .activity-list{padding:0 18px 10px 30px;font-size:12px;line-height:1.8;color:var(--text-muted)}
 .operation-group{border-top:1px solid var(--border-subtle)}.operation-group>summary{padding:10px 14px;cursor:pointer;line-height:1.6}.operation-group>summary strong{font-size:12px}.operation-group>summary span{display:block;margin-left:15px;font-size:11px;color:var(--text-muted)}
 .run-panel{border-top:1px solid var(--border);background:var(--bg-panel)}header{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px}h2{font-size:14px}header span,.run-summary p{font-size:11px;color:var(--text-muted)}.run-summary{display:grid;gap:9px;padding:0 14px 14px;line-height:1.6}.run-summary>strong{font-size:12px}.run-note{padding:12px 14px;color:var(--text-muted);line-height:1.7}.run-summary .run-note{padding:0}.run-actions{display:flex;gap:8px;flex-wrap:wrap}.cancel,.run-summary .error{color:var(--danger)}

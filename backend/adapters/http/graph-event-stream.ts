@@ -1,3 +1,4 @@
+// 文件职责：在认证 SSE 连接上发送图快照、执行活动、管理刷新和心跳。
 import { RuntimeMessage } from '../../../contracts/messages'
 import { once } from 'node:events'
 import type { ServerResponse } from 'node:http'
@@ -7,17 +8,21 @@ import { GraphError } from '../../modules/shared/domain-error'
 import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 
 /** A stream stores dirty flags only; each flush reads the newest authorized snapshot. */
-// 用途：处理实时事件相关工作，并把结果交给调用方。
-export async function eventsOpen(application: ApplicationService, token: string, mapId: string, response: ServerResponse,
-  diagnostics?: { reporter: DiagnosticReporter; requestId: string }): Promise<void> {
+export async function eventsOpen(/* 提供授权快照、活动读取及变更订阅的应用服务。 */ application: ApplicationService, /* 来自已解析 Authorization 头的用户令牌，每次刷新仍需重新鉴权。 */ token: string, /* 本 SSE 连接唯一订阅的图身份。 */ mapId: string, /* 本函数管理的 SSE 响应流，取消或故障时会结束或销毁。 */ response: ServerResponse,
+  /* 可选诊断报告器与当前 HTTP 请求身份，用于关联流内故障。 */ diagnostics?: { reporter: DiagnosticReporter; requestId: string }): Promise<void> {
+  // 维护单个图订阅的脏标记和连接生命周期，每次推送前重新取得授权状态。
   const lifetime = new AbortController()
   let resolveClosed!: () => void
-  const closed = new Promise<void>(resolve => { resolveClosed = resolve })
-  let unsubscribe = () => {}, timer: ReturnType<typeof setInterval> | undefined
+  const closed = new Promise<void>(/* 流完成通知的兑现函数，在响应关闭后解除上层等待。 */ resolve => {
+    // 保存流关闭回调，供销毁响应时解除等待。
+     resolveClosed = resolve })
+  let unsubscribe = () => {
+    // 消息订阅建立前没有监听需要解除。
+  }, timer: ReturnType<typeof setInterval> | undefined
   let activity = true, graph = false, heartbeat = false, access = false, running = true, revision = -1, workspaceId: string | undefined
   const scopes = new Set<'workspace' | 'settings'>(['workspace', 'settings'])
-    // 用途：关闭实时事件，并释放相关资源。
     function eventsClose() {
+      // 幂等取消监听和心跳，销毁响应并通知订阅结束。
     if (lifetime.signal.aborted) return
     lifetime.abort()
     unsubscribe()
@@ -26,8 +31,8 @@ export async function eventsOpen(application: ApplicationService, token: string,
     resolveClosed()
   }
   response.once('close', eventsClose)
-    // 用途：处理实时事件相关工作，并把结果交给调用方。
-    async function eventsWrite(event?: GraphStreamEvent) {
+    async function eventsWrite(/* 待发送的协议事件；未提供时发送无载荷心跳。 */ event?: GraphStreamEvent) {
+      // 编码 SSE 事件或心跳，在写缓冲满时有界等待 drain。
     lifetime.signal.throwIfAborted()
     const frame = event ? `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n` : ': heartbeat\n\n'
     if (!response.write(frame)) {
@@ -35,8 +40,8 @@ export async function eventsOpen(application: ApplicationService, token: string,
       await once(response, 'drain', { signal: AbortSignal.any([lifetime.signal, timeout]) })
     }
   }
-    // 用途：处理实时事件相关工作，并把结果交给调用方。
-    async function eventsWriteError(error: unknown) {
+    async function eventsWriteError(/* 刷新或写流过程中的异常，未知错误会先脱敏再返回。 */ error: unknown) {
+      // 为流内错误生成诊断身份并脱敏未知异常，尝试发出错误事件后结束响应。
     if (lifetime.signal.aborted) return
     const failure = error instanceof GraphError ? error : new GraphError(500, 'INTERNAL_ERROR', RuntimeMessage.REALTIME_SYNCHRONIZATION_FAILED)
     const errorId = failure.status >= 500
@@ -48,8 +53,8 @@ export async function eventsOpen(application: ApplicationService, token: string,
       response.end()
     } catch { eventsClose() }
   }
-    // 用途：执行实时事件流程，并返回执行结果。
     async function eventsRunFlush() {
+      // 串行合并脏标记，重新鉴权并推送最新快照、活动和管理刷新。
     if (running || lifetime.signal.aborted) return
     running = true
     try {
@@ -76,7 +81,8 @@ export async function eventsOpen(application: ApplicationService, token: string,
     finally { running = false }
   }
   try {
-    unsubscribe = application.watchChanges(change => {
+    unsubscribe = application.watchChanges(/* 消息服务发布的刷新提示；null 表示通道断开，必须关闭当前流。 */ change => {
+      // 把相关图或管理变更转为脏标记，消息通道断开时关闭流。
       if (!change) { eventsClose(); return }
       if (change.kind === 'activity') {
         if (change.mapId !== mapId) return
@@ -105,7 +111,9 @@ export async function eventsOpen(application: ApplicationService, token: string,
     await eventsWrite({ type: 'snapshot', snapshot })
     revision = snapshot.revision
     running = false
-    timer = setInterval(() => { heartbeat = true; void eventsRunFlush() }, 15000)
+    timer = setInterval(() => {
+      // 周期性安排心跳及授权复核，让空闲连接也能感知失效。
+       heartbeat = true; void eventsRunFlush() }, 15000)
     timer.unref()
     void eventsRunFlush()
     await closed

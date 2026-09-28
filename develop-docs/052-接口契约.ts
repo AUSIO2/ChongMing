@@ -1,3 +1,4 @@
+// 保存 052 阶段的历史目标接口契约；当前生产协议以 contracts 目录为准。
 /**
  * 052 完整目标接口契约（设计工件，不是当前生产 API 清单）。
  * 053–058 已实现子集；059 本轮字段以正式 contracts/* 为准。
@@ -246,41 +247,68 @@ export type GraphEvent =
   | { type: 'map.deleted'; mapId: Id; revision: Revision }
   | { type: 'access.revoked'; mapId: Id }
 export interface ClientAPI {
-  read<K extends QueryName>(method: K, params: QueryMap[K]['input']): Promise<QueryMap[K]['output']>
-  dispatch<K extends CommandName>(requestId: Id, method: K, params: CommandMap[K]['input']): Promise<CommandMap[K]['output']>
-  watch(mapId: Id, listener: (event: GraphEvent) => void): () => void
-  uploadAsset(input: { requestId: Id; workspaceId: Id; filename: string; mediaType: string; size: number; sha256: string; content: Uint8Array }): Promise<Asset>
-  downloadAsset(assetId: Id): Promise<Uint8Array>
-  exportMap(mapId: Id): Promise<MapBundle>
-  exportWorkspace(workspaceId: Id): Promise<WorkspaceBundle>
+  // 历史设计：按查询名称读取与输入对应的结果。
+  read<K extends QueryName>(/* 历史契约中的查询名称，决定请求与结果类型。 */ method: K, /* 历史查询映射所定义的对应输入。 */ params: QueryMap[K]['input']): Promise<QueryMap[K]['output']>
+  // 历史设计：使用稳定请求编号提交命令并返回其业务结果。
+  dispatch<K extends CommandName>(/* 历史契约中的稳定业务请求编号，用于写命令重放。 */ requestId: Id, /* 历史写命令映射中的名称。 */ method: K, /* 所选历史命令对应的业务参数与版本条件。 */ params: CommandMap[K]['input']): Promise<CommandMap[K]['output']>
+  // 历史设计：监听指定图事件，返回调用方负责执行的退订函数。
+  watch(/* 历史订阅接口的目标图编号。 */ mapId: Id, /* 历史图事件观察者，调用者负责执行返回的退订函数。 */ listener: (/* 该图产生的快照、活动或访问状态事件。 */ event: GraphEvent) => void): () => void
+  // 历史设计：上传带大小和摘要的字节内容，返回资产元信息。
+  uploadAsset(/* 历史上传输入，包含请求编号、工作区、文件元信息、字节大小、摘要和内容。 */ input: { requestId: Id; workspaceId: Id; filename: string; mediaType: string; size: number; sha256: string; content: Uint8Array }): Promise<Asset>
+  // 历史设计：按资产编号取得内容字节。
+  downloadAsset(/* 要下载的历史资产业务编号。 */ assetId: Id): Promise<Uint8Array>
+  // 历史设计：取得指定图的数据包。
+  exportMap(/* 要导出为数据包的历史图编号。 */ mapId: Id): Promise<MapBundle>
+  // 历史设计：取得工作区及其图和资产的数据包。
+  exportWorkspace(/* 要导出的历史工作区编号。 */ workspaceId: Id): Promise<WorkspaceBundle>
+  // 历史设计：关闭客户端持有的请求与订阅资源。
   close(): void
 }
-/** Desktop-only methods do not cross the network. */
+/** 历史设计中的桌面专用方法，不通过网络调用。 */
 export interface DesktopAPI {
+  // 历史设计：查询桌面服务地址和令牌是否已配置，不返回令牌。
   getConnection(): Promise<{ baseUrl: string; configuredToken: boolean }>
-  setConnection(input: { baseUrl: string; token: string | null }): Promise<void>
-  setTitle(title: string): Promise<void>
+  // 历史设计：设置服务地址及令牌，null 表示清除令牌。
+  setConnection(/* 历史桌面连接设置；token 为 null 表示清除令牌。 */ input: { baseUrl: string; token: string | null }): Promise<void>
+  // 历史设计：修改原生窗口标题。
+  setTitle(/* 历史桌面接口要求显示的原生窗口标题。 */ title: string): Promise<void>
+  // 历史设计：取得桌面应用版本。
   getVersion(): Promise<string>
+  // 历史设计：通过原生文件选择导入工作区，并显式返回用户取消。
   importWorkspace(): Promise<{ cancelled: true } | { cancelled: false; result: ImportResult }>
-  exportMap(mapId: Id): Promise<{ cancelled: true } | { cancelled: false; path: string }>
-  exportWorkspace(workspaceId: Id): Promise<{ cancelled: true } | { cancelled: false; path: string }>
-  pickSource(workspaceId: Id): Promise<{ cancelled: true } | { cancelled: false; asset: Asset }>
+  // 历史设计：把图导出到用户选择的位置，返回路径或取消结果。
+  exportMap(/* 经原生保存流程导出的目标图编号。 */ mapId: Id): Promise<{ cancelled: true } | { cancelled: false; path: string }>
+  // 历史设计：把工作区导出到用户选择的位置，返回路径或取消结果。
+  exportWorkspace(/* 经原生保存流程导出的目标工作区编号。 */ workspaceId: Id): Promise<{ cancelled: true } | { cancelled: false; path: string }>
+  // 历史设计：选择本机来源文件并上传至工作区，支持用户取消。
+  pickSource(/* 所选来源文件上传后归属的工作区编号。 */ workspaceId: Id): Promise<{ cancelled: true } | { cancelled: false; asset: Asset }>
 }
-/** Only the local Host admin CLI may call these methods. They are not public HTTP/Renderer methods. */
+/** 历史设计中的本机 Host 管理接口，仅由管理命令行调用，不向公共 HTTP 或渲染器开放。 */
 export interface HostAdminAPI {
+  // 历史设计：读取 Host 配置，数据库地址应为脱敏值。
   readSettings(): Promise<{ hostId: Id; mongoUriRedacted: string; clusterId: string; sessionDir: string }>
-  testDatabase(uri: string): Promise<{ ok: boolean; replicaSet: boolean; databaseName: string | null; error: string | null }>
-  stageDatabase(input: { uri: string; clusterId: string }): Promise<void>
+  // 历史设计：检查数据库连通性和副本集能力，返回诊断结果。
+  testDatabase(/* 待检查连通性与事务能力的数据库 URI，属于本机管理输入。 */ uri: string): Promise<{ ok: boolean; replicaSet: boolean; databaseName: string | null; error: string | null }>
+  // 历史设计：暂存待切换数据库地址及集群身份。
+  stageDatabase(/* 待暂存的数据库 URI 与预期集群身份，供后续重新连接使用。 */ input: { uri: string; clusterId: string }): Promise<void>
+  // 历史设计：停止新工作进入并报告仍在执行的数量。
   drain(): Promise<{ running: number }>
+  // 历史设计：按已暂存配置重新连接服务依赖。
   reconnect(): Promise<void>
-  setSecret(input: { name: 'llmApiKey' | 'tavilyApiKey'; value: string | null }): Promise<{ configured: boolean }>
+  // 历史设计：设置或删除指定密钥，只返回配置状态。
+  setSecret(/* 历史允许的密钥名称及原文，value 为 null 表示删除。 */ input: { name: 'llmApiKey' | 'tavilyApiKey'; value: string | null }): Promise<{ configured: boolean }>
+  // 历史设计：导入默认 Agent 并返回库版本与数量。
   importAgentSeeds(): Promise<{ libraryRevision: Revision; agentCount: number }>
-  createUser(input: { id: Id; displayName: string; hostAdmin: boolean }): Promise<Me>
-  createToken(userId: Id): Promise<{ tokenId: Id; token: string }>
-  revokeToken(tokenId: Id): Promise<void>
-  disableUser(userId: Id): Promise<void>
+  // 历史设计：创建指定身份及管理权限的用户。
+  createUser(/* 由本机管理员指定的新用户身份、显示名和管理权限。 */ input: { id: Id; displayName: string; hostAdmin: boolean }): Promise<Me>
+  // 历史设计：为用户签发令牌并在创建结果中返回原文。
+  createToken(/* 将获签认证令牌的用户业务编号。 */ userId: Id): Promise<{ tokenId: Id; token: string }>
+  // 历史设计：撤销指定令牌的认证能力。
+  revokeToken(/* 需要撤销的令牌业务编号，不是令牌原文。 */ tokenId: Id): Promise<void>
+  // 历史设计：停用指定用户。
+  disableUser(/* 需要停用的用户业务编号。 */ userId: Id): Promise<void>
 }
-/** Host-private contracts. ExecutionGrant is never supplied by a model or renderer. */
+/** 历史设计中的 Host 私有协议；执行授权不由模型或渲染器提供。 */
 export interface ExecutionGrant {
   mapId: Id; runId: Id; operationId: Id; hostId: Id; holderId: Id; fence: number; expiresAt: Timestamp
 }
@@ -314,20 +342,29 @@ export interface DshBinding {
   grant: ExecutionGrant; role: 'root' | 'worker'; slotId: Id | null; profile: ProfileRef
 }
 export interface ExecutionAPI {
-  claim(input: ClaimInput): Promise<LeaseResult | null>
-  renew(grant: ExecutionGrant): Promise<ExecutionGrant>
-  release(grant: ExecutionGrant): Promise<void>
-  read(binding: DshBinding, query: DshRead): Promise<DshReadResult>
-  propose(binding: DshBinding, proposal: DshProposal): Promise<DshProposalResult>
-  fail(grant: ExecutionGrant, error: PublicError): Promise<void>
+  // 历史设计：为 Host 领取匹配的执行授权，无可用工作时返回 null。
+  claim(/* 历史 Host 领取身份和可执行操作、策略版本筛选条件。 */ input: ClaimInput): Promise<LeaseResult | null>
+  // 历史设计：续期既有授权并返回更新后的授权。
+  renew(/* Host 当前持有的可信执行授权，用于延长同一租约。 */ grant: ExecutionGrant): Promise<ExecutionGrant>
+  // 历史设计：交还当前执行授权。
+  release(/* Host 要交还的当前执行授权。 */ grant: ExecutionGrant): Promise<void>
+  // 历史设计：使用受信任的执行绑定读取 Agent 可见工作数据。
+  read(/* 由可信 Host 绑定的租约、角色、槽位及配置身份，不由模型自报。 */ binding: DshBinding, /* 历史数据读取种类及其节点、报告或分页选择。 */ query: DshRead): Promise<DshReadResult>
+  // 历史设计：使用执行绑定提交提案，返回记录、审核或接纳结果。
+  propose(/* 提交方的可信执行绑定，用于确定授权及角色范围。 */ binding: DshBinding, /* 历史 Agent 提案，须使用 Host 提供的提案编号和草稿版本。 */ proposal: DshProposal): Promise<DshProposalResult>
+  // 历史设计：在执行授权下报告结构化工作失败。
+  fail(/* 报告失败所对应的当前执行授权。 */ grant: ExecutionGrant, /* 需要记录的公开业务错误，不携带私有运行时故障负载。 */ error: PublicError): Promise<void>
 }
 
-/** First-stage DSH-specific facade. Independent of Graph, Run, Mongo and ExecutionGrant. */
+/** 第一阶段 DSH 专用外观接口，与图、Run、Mongo 和执行授权无关。 */
 export interface DshFacadeEvent { method: string; params: Record<string, DshFacadeJson> }
-export type DshFacadeJson = null | boolean | number | string | DshFacadeJson[] | { [key: string]: DshFacadeJson }
+export type DshFacadeJson = null | boolean | number | string | DshFacadeJson[] | { [/* 历史 DSH JSON 对象的属性名，对应值仍满足递归 JSON 约束。 */ key: string]: DshFacadeJson }
 export interface DshFacadeRunResult { sessionId: string; finalResponse: string; events: DshFacadeEvent[] }
 export interface DshRuntimeAPI {
+  // 历史设计：启动独立 DSH 运行时外观。
   start(): Promise<void>
-  run(input: { prompt: string; sessionId?: string }, onEvent?: (event: DshFacadeEvent) => void): Promise<DshFacadeRunResult>
+  // 历史设计：执行会话一轮并通过回调观察 DSH 事件。
+  run(/* 历史 DSH 一轮提示词与可选既有会话编号。 */ input: { prompt: string; sessionId?: string }, /* 可选 DSH 事件观察者，未提供时仍返回累积事件结果。 */ onEvent?: (/* 历史外观接口投影出的 DSH 方法与 JSON 参数。 */ event: DshFacadeEvent) => void): Promise<DshFacadeRunResult>
+  // 历史设计：停止运行时并等待资源释放。
   close(): Promise<void>
 }

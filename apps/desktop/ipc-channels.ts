@@ -1,3 +1,4 @@
+// 集中定义桌面主进程与预加载桥接共用的 IPC 通道名称。
 export const CLIENT_CHANNELS = {
   connectLocal: 'client:connect-local',
   localState: 'client:local-state',
