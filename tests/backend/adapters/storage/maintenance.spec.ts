@@ -7,7 +7,6 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import type { Connection } from 'mongoose'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { repairMigrateNodeRuns } from '../../../../backend/adapters/storage/mongo/maintenance'
-import { runCreateRun } from '../../../../backend/modules/graph/run-state'
 import { GRAPH_COLLECTION, storeCreateInputHash } from '../../../../backend/modules/graph/graph-record'
 import { storeCreateConnection } from '../../../../backend/adapters/storage/mongo/connection'
 import { storeCreateGraphStore } from '../../../../backend/adapters/storage/mongo/graph-store'
@@ -16,7 +15,7 @@ import { verificationConfiguration, verificationSlots } from '../../fixtures/ver
 let mongo: MongoMemoryReplSet, connection: Connection
 beforeAll(async () => {
   // 启动单节点 Mongo 副本集并连接独立迁移测试数据库。
-  mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
+  mongo = await MongoMemoryReplSet.create({ instanceOpts: [{ launchTimeout: 30_000 }], replSet: { count: 1, storageEngine: 'wiredTiger' } })
   connection = await storeCreateConnection(mongo.getUri('node_run_migration_' + randomUUID()))
 }, 30_000)
 afterAll(async () => {
@@ -97,7 +96,7 @@ describe('Explicit legacy node-run migration', () => {
     const applied = await command({ apply: true })
     expect(applied.code, applied.errors).toBe(0)
     expect(JSON.parse(applied.output)).toMatchObject({ modifiedMaps: 1 })
-    expect((await graphs.findOne({ _id: original._id })).run.paused).toBe(true)
+    expect((await graphs.findOne({ _id: original._id })).runs[0].paused).toBe(true)
   }, 20_000)
 
   it('defaults to dry-run, preserves business identities and history on apply, and is idempotent', async () => {
@@ -112,10 +111,10 @@ describe('Explicit legacy node-run migration', () => {
     expect(await graphs.findOne({ _id: original._id })).toEqual(original)
     expect(await repairMigrateNodeRuns(connection, true)).toEqual({ matchedMaps: 1, matchedRuns: 2, activeRuns: 0, blockedMaps: 0, modifiedMaps: 1 })
     const migrated = await graphs.findOne({ _id: original._id })
-    expect(migrated.run).not.toHaveProperty('operation')
-    expect(migrated.run).toMatchObject({ id: original.run.id, status: 'completed', paused: false, regenerate: true,
+    expect(migrated.runs[0]).not.toHaveProperty('operation')
+    expect(migrated.runs[0]).toMatchObject({ id: original.run.id, status: 'completed', paused: false, regenerate: true,
       scope: { nodeIds: [original.run.operation.targetId] }, until: 'verified', configuration: original.run.configuration })
-    const operation = migrated.run.operations[0]
+    const operation = migrated.runs[0].operations[0]
     const { router, merger, agents, tools, maxSlots } = original.run.configuration
     expect(operation).toMatchObject(original.run.operation)
     expect(operation).toMatchObject({ splitReports: [], contentDraft: null,
@@ -132,31 +131,23 @@ describe('Explicit legacy node-run migration', () => {
     expect(await graphs.findOne({ _id: original._id })).toEqual(migrated)
   })
 
-  it.each([0, 2])('reuses only unchanged legacy outputs after canonicalizing input refs (current output revision %s)', async /* 参数化用例指定的结果节点当前版本，零表示未修改，二表示已修改。 */ revision => {
-    // 比较未修改与已修改旧产物，验证规范化输入后只复用仍有效的结果。
+  it.each([0, 2])('keeps legacy nodes behind the generic-data migration boundary after node-run repair (output revision %s)', async revision => {
+    // node-run repair 只处理它的退役 Run 结构；data/kind 节点仍须经过后续显式通用数据迁移。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
     const original = legacyMap()
-    original.nodes.find(/* 旧图节点候选，定位原结果节点以调整测试版本。 */ node => /* 定位旧结果节点以设置本用例需要的当前版本。 */  node.id === original.run.operation.resultNodeId)!.revision = revision
+    original.nodes.find(node => node.id === original.run.operation.resultNodeId)!.revision = revision
     const newsId = randomUUID(), now = original.run.updatedAt
     ;(original.nodes as unknown[]).push({ id: newsId, revision: 1, data: { kind: 'news', content: 'Original report', context: {} }, createdAt: now, updatedAt: now })
     original.edges.push({ id: randomUUID(), kind: 'mentions', from: newsId, to: original.run.operation.targetId, revision: 0, createdAt: now, updatedAt: now })
     original.run.operation.inputRefs.push({ id: newsId, revision: 1 })
-    original.run.operation.inputRefs.sort((/* 故意反序排列时左侧输入引用，用其 ID 参与比较。 */ a, /* 故意反序排列时右侧输入引用，身份降序放在前面。 */ b) => /* 故意反序排列旧输入引用，测试迁移会规范排序。 */  b.id.localeCompare(a.id))
+    original.run.operation.inputRefs.sort((a, b) => b.id.localeCompare(a.id))
     await graphs.insertOne(original)
     await repairMigrateNodeRuns(connection, true)
-    const document = (await storeCreateGraphStore(connection).read(original._id))!
-    expect(document.run!.operations[0].inputRefs).toEqual([...original.run.operation.inputRefs].sort((/* 期望正序排序中的左侧输入引用。 */ a, /* 期望正序排序中的右侧输入引用，用于比较身份大小。 */ b) => /* 按身份正序建立规范化输入引用的期望结果。 */  a.id.localeCompare(b.id)))
-    expect(document.run!.operations[0].outputRefs).toEqual([{ id: original.run.operation.resultNodeId, revision: 0 }])
-    const outputBefore = structuredClone(document.nodes.find(/* 迁移后图节点候选，找到原结果并保存其副本。 */ node => /* 保存迁移后结果节点副本，验证新 Run 不修改旧产物。 */  node.id === original.run.operation.resultNodeId))
-    const next = runCreateRun(document, { mapId: document.id, expectedRevision: document.revision, id: randomUUID(),
-      scope: { nodeIds: [original.run.operation.targetId] }, until: 'verified', mode: 'auto', regenerate: false }, document.run!.configuration, now)
-    expect(next.run!.status).toBe(revision === 0 ? 'completed' : 'running')
-    expect(next.run!.operations[0].resultNodeId).toBe(revision === 0 ? original.run.operation.resultNodeId : null)
-    expect(next.run!.operations[0].reports).toEqual(revision === 0 ? original.run.operation.reports : [])
-    expect(next.nodes.find(/* 新 Run 建立后的节点候选，定位原结果检查它未被修改。 */ node => /* 读取新 Run 建立后的原结果节点以比较内容不变。 */  node.id === original.run.operation.resultNodeId)).toEqual(outputBefore)
-    expect(outputBefore!.revision).toBe(revision)
+    const repaired = await graphs.findOne({ _id: original._id })
+    expect(repaired!.runs[0].operations[0].inputRefs).toEqual([...original.run.operation.inputRefs].sort((a, b) => a.id.localeCompare(b.id)))
+    expect(repaired!.runs[0].operations[0].outputRefs).toEqual([{ id: original.run.operation.resultNodeId, revision: 0 }])
+    await expect(storeCreateGraphStore(connection).read(original._id)).rejects.toMatchObject({ code: 'NODE_SCHEMA_UNSUPPORTED' })
   })
-
   it.each(['running', 'waiting'] as const)('migrates an inactive-lease %s Run to paused without losing reports or Review', async /* 参数化用例给定的活动旧状态，running 与 waiting 都应迁移为暂停。 */ status => {
     // 验证活动旧 Run 以暂停状态迁移，并保留报告、审核和服务器时间基准。
     const graphs = connection.db!.collection<any>(GRAPH_COLLECTION)
@@ -165,9 +156,9 @@ describe('Explicit legacy node-run migration', () => {
     const before = await connection.db!.admin().command({ hello: 1 })
     expect(await repairMigrateNodeRuns(connection, true)).toMatchObject({ activeRuns: 1, modifiedMaps: 1 })
     const migrated = await graphs.findOne({ _id: original._id })
-    expect(migrated.run).toMatchObject({ id: original.run.id, status, paused: true, regenerate: true })
-    expect(migrated.run.operations[0].reports).toEqual(original.run.operation.reports)
-    expect(migrated.run.operations[0].review).toEqual(original.run.operation.review)
+    expect(migrated.runs[0]).toMatchObject({ id: original.run.id, status, paused: true, regenerate: true })
+    expect(migrated.runs[0].operations[0].reports).toEqual(original.run.operation.reports)
+    expect(migrated.runs[0].operations[0].review).toEqual(original.run.operation.review)
     const after = await connection.db!.admin().command({ hello: 1 })
     expect(migrated.leases.original.expiresAt.getTime()).toBeGreaterThanOrEqual(before.localTime.getTime())
     expect(migrated.leases.original.expiresAt.getTime()).toBeLessThanOrEqual(after.localTime.getTime())
@@ -198,7 +189,7 @@ describe('Explicit legacy node-run migration', () => {
     await graphs.updateOne({ _id: original._id }, { $push: { runHistory: history } })
     expect(await repairMigrateNodeRuns(connection, true)).toMatchObject({ matchedMaps: 1, matchedRuns: 1, modifiedMaps: 1 })
     const migrated = await graphs.findOne({ _id: original._id })
-    expect(migrated.run).toEqual(current.run)
+    expect(migrated.runs).toEqual(current.runs)
     expect(migrated.runHistory[0].operations[0].id).toBe(history.operation.id)
   })
 

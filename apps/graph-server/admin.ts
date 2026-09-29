@@ -11,8 +11,11 @@ import { localReadUri } from '../../backend/adapters/storage/mongo/connection'
 import { storeCreateConnection } from '../../backend/adapters/storage/mongo/connection'
 import endpointPrompt from './resources/endpoint.json'
 import { repairMigrateNodeRuns, repairUpdateNewsContext } from '../../backend/adapters/storage/mongo/maintenance'
+import { migrationMigrateBranches } from '../../backend/adapters/storage/branch-migration'
+import { persistenceCreateMongo } from '../../backend/adapters/storage/mongo/persistence'
 import { diagnosticCreateReporter } from '../../platform/node/diagnostics'
 import { processRegisterBoundary } from '../../platform/node/process-boundary'
+import { DEFAULT_DEFINITION_PACKAGE } from '../config/default-prompts'
 
 const reporter = diagnosticCreateReporter({ component: 'admin-cli' })
 processRegisterBoundary({ component: 'admin-cli', reporter })
@@ -34,7 +37,7 @@ async function adminRunCommand(): Promise<unknown> {
   // 校验管理子命令并执行配置、连通性检查或数据管理，数据库操作结束后关闭连接。
   const { positionals, values } = parseArgs({ allowPositionals: true, options: { input: { type: 'string' } } })
   const command = positionals[0]
-  const supported = ['init', 'user.create', 'token.create', 'token.revoke', 'user.disable', 'user.enable', 'agents.seed', 'assets.cleanup', 'data.repair-news-context', 'data.migrate-node-runs', 'settings.read', 'secret.set', 'database.test', 'database.stage', 'endpoint.test']
+  const supported = ['init', 'user.create', 'token.create', 'token.revoke', 'user.disable', 'user.enable', 'agents.seed', 'assets.cleanup', 'data.repair-news-context', 'data.migrate-node-runs', 'data.migrate-branches', 'settings.read', 'secret.set', 'database.test', 'database.stage', 'endpoint.test']
   if (positionals.length !== 1 || !supported.includes(command)) throw new Error(messageFormat(RuntimeMessage.USAGE_NPM_RUN_ADMIN_VALUE_INPUT_JSON_FILE_OTHERWISE_READ_JSON_FROM, supported.join('|')))
   const input = await adminReadInput(values.input)
   const local = await localReadConfiguration()
@@ -98,6 +101,12 @@ async function adminRunCommand(): Promise<unknown> {
       const data = inputReadObject(input, ['apply'], 'input')
       if (data.apply !== undefined && typeof data.apply !== 'boolean') throw new Error(RuntimeMessage.APPLY_MUST_BE_BOOLEAN)
       return await repairMigrateNodeRuns(connection, data.apply === true)
+    }
+    if (command === 'data.migrate-branches') {
+      // 通用 Persistence 迁移与正常应用初始化分离，dry-run 不会顺带创建业务集合。
+      const data = inputReadObject(input, ['apply'], 'input')
+      if (data.apply !== undefined && typeof data.apply !== 'boolean') throw new Error(RuntimeMessage.APPLY_MUST_BE_BOOLEAN)
+      return await migrationMigrateBranches(persistenceCreateMongo(connection), data.apply === true, DEFAULT_DEFINITION_PACKAGE)
     }
     const app = applicationCreateService(connection)
     await app.initialize()

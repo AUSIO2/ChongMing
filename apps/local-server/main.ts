@@ -5,6 +5,9 @@ import { localCreateRuntime } from './runtime'
 import { localReadConfiguration } from '../config/local-settings'
 import { diagnosticCreateReporter } from '../../platform/node/diagnostics'
 import { processRunEntry } from '../../platform/node/process-boundary'
+import { sqliteCreatePersistence } from '../../backend/adapters/storage/sqlite/persistence'
+import { migrationMigrateBranches } from '../../backend/adapters/storage/branch-migration'
+import { DEFAULT_DEFINITION_PACKAGE } from '../config/default-prompts'
 
 const reporter = diagnosticCreateReporter({ component: 'local-service' })
 
@@ -12,17 +15,29 @@ async function localStartProcess(): Promise<() => Promise<void>> {
   // 解析本地运行参数并启动服务，监控队列异常并返回保留数据的关闭操作。
   const { values } = parseArgs({ options: {
     help: { type: 'boolean', short: 'h' }, directory: { type: 'string' }, port: { type: 'string' },
-    'dsh-home': { type: 'string' }, patch: { type: 'string', multiple: true },
+    'dsh-home': { type: 'string' }, patch: { type: 'string', multiple: true }, concurrency: { type: 'string' },
+    'migrate-branches': { type: 'boolean' }, apply: { type: 'boolean' },
   } })
   if (values.help) {
-    console.log('Usage: npm run local:serve -- [--directory .chongming-local] [--port 4320] [--dsh-home PATH] [--patch FILE]\nRequires Node.js 24+. Runs one local SQLite/API/DSH Host; no MongoDB or RabbitMQ. Models/tools may access the network.')
+    console.log('Usage: npm run local:serve -- [--directory .chongming-local] [--port 4320] [--dsh-home PATH] [--patch FILE] [--concurrency 1..64]\n       npm run local:serve -- --directory .chongming-local --migrate-branches [--apply]\nRequires Node.js 24+. Runs one local SQLite/API/DSH Host; no MongoDB or RabbitMQ. Migration mode takes the SQLite exclusive lock and does not start API/Host services.')
     return async () => {
       // 帮助模式没有创建运行资源，退出时无需清理。
       }
   }
+  if (values['migrate-branches']) {
+    // 离线模式只打开 SQLite 并获取其独占锁，不初始化 API、消息或 DSH Host。
+    const database = sqliteCreatePersistence(path.resolve(values.directory ?? '.chongming-local'))
+    try { console.log(JSON.stringify(await migrationMigrateBranches(database, values.apply === true, DEFAULT_DEFINITION_PACKAGE), null, 2)) }
+    finally { await database.close() }
+    return async () => {
+      // 迁移已在返回前关闭数据库，进程收尾无额外资源。
+      }
+  }
   const local = await localReadConfiguration()
+  const concurrencyValue = values.concurrency ?? process.env.CHONGMING_HOST_CONCURRENCY
   const runtime = await localCreateRuntime({ directory: values.directory ?? '.chongming-local', port: values.port === undefined ? undefined : Number(values.port),
     dshHome: values['dsh-home'], patches: values.patch?.map(/* 命令行给出的补丁文件路径，转换为绝对路径后传给运行时。 */ file => /* 将补丁文件转换为绝对路径。 */  path.resolve(file)), reporter,
+    concurrency: concurrencyValue === undefined ? undefined : Number(concurrencyValue),
     env: Object.fromEntries(Object.entries(local.secrets).filter((/* 本机密钥条目，仅取名称以保留显式进程环境的优先级。 */ [name]) => /* 仅把环境中缺少的密钥补充给本地运行时。 */  process.env[name] === undefined)) })
   console.log(JSON.stringify({ event: 'local.ready', baseUrl: runtime.baseUrl, connectionPath: runtime.connectionPath, tokenPath: runtime.tokenPath }))
   let closing = false

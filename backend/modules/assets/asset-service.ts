@@ -2,19 +2,42 @@
 import { RuntimeMessage } from '../../../contracts/messages'
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
-import type { Persistence } from '../../ports/persistence'
-import type { Asset, ControlCommand, ControlQuery, ImportResult, MapBundle, Page, WorkspaceBundle } from '../../../contracts/control'
-import type { GraphNode, GraphNodeData } from '../../../contracts/graph'
+import type { Persistence, StorageSession } from '../../ports/persistence'
+import type { AgentProfile, Asset, ControlCommand, ControlQuery, DefinitionView, ImportResult, MapBundle, Page, WorkspaceBundle } from '../../../contracts/control'
+import type { DefinitionCatalog, SourceLocatorValue } from '../../../contracts/data-definition'
+import type { GraphNode, GraphNodeInput, GraphPayload } from '../../../contracts/graph'
 import type { AuthService, RequestContext } from '../identity/identity-service'
 import type { ControlService } from '../workspace/workspace-service'
-import { ASSET_BYTE_LIMIT, BUNDLE_BYTE_LIMIT, bundlesAssertSize, bundlesCreateImport, bundlesReadAgents, bundlesReadMapDocument, bundlesReadWorkspace } from './bundle-codec'
+import { ASSET_BYTE_LIMIT, BUNDLE_BYTE_LIMIT, bundlesAssertSize, bundlesConvertV3, bundlesCreateImport, bundlesReadAgents, bundlesReadDefinitionClosure, bundlesReadMapDocument, bundlesReadWorkspace } from './bundle-codec'
 import { GraphError } from '../shared/domain-error'
 import { SOURCE_MEDIA_TYPES, type SourceReader } from '../../ports/source-reader'
 import { inputReadId, inputReadObject, inputReadRevision, inputReadString } from '../shared/input-validation'
 import { GRAPH_COLLECTION, storeCreateInputHash } from '../graph/graph-record'
+import { definitionsReadPayloadReferences } from '../shared/data-definition'
 
 export interface AssetUploadInput {
   workspaceId: string; filename: string; mediaType: string; size: number; sha256: string; requestId: string
+}
+
+function assetsReadPointer(/* 通用数据 payload。 */ payload: GraphPayload, /* 定义中已验证的确定 JSON Pointer。 */ pointer: string): unknown {
+  // source-text 只允许读取确定字段；通配引用由定义 helper 负责展开。
+  let value: unknown = payload
+  for (const part of pointer.slice(1).split('/').map(item => item.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    value = (value as Record<string, unknown>)[part]
+  }
+  return value
+}
+
+function assetsReadLocator(/* 注册类型中 source-text 绑定指向的未知字段。 */ value: unknown): SourceLocatorValue {
+  // 读取器只接受现有受限 asset/url 定位结构；普通 uri 字段不会自动触发网络访问。
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GraphError(422, 'INVALID_SOURCE', RuntimeMessage.EXPECTED_A_SOURCE_NODE)
+  const locator = value as Record<string, unknown>
+  if (locator.kind === 'asset' && typeof locator.assetId === 'string' && typeof locator.mediaType === 'string') {
+    return { kind: 'asset', assetId: locator.assetId, mediaType: locator.mediaType }
+  }
+  if (locator.kind === 'url' && typeof locator.url === 'string') return { kind: 'url', url: locator.url }
+  throw new GraphError(422, 'INVALID_SOURCE', RuntimeMessage.EXPECTED_A_SOURCE_NODE)
 }
 type DeleteCommand = Extract<ControlCommand, { method: 'asset.delete' }>
 type ImportCommand = Extract<ControlCommand, { method: 'workspace.import' }>
@@ -128,15 +151,46 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
   }
 
   async function assetsReadBundleFiles(/* 用于读取附件元数据的一致请求快照。 */ ctx: RequestContext, /* 所有节点和附件必须归属的工作区身份。 */ workspaceId: string, /* 需要收集并校验附件定位器的导出节点。 */ nodes: GraphNode[]): Promise<AssetDocument[]> {
-    // 去重收集节点引用的附件，检查附件仍可用、属于同一工作区且媒体类型一致。
-    const ids = [...new Set(nodes.flatMap(/* 导出图中的候选业务节点，仅来源或证据节点的资产定位器会被提取。 */ node => /* 仅从附件定位的来源或证据节点提取资产身份。 */ (node.data.kind === 'source' || node.data.kind === 'evidence') && node.data.locator.kind === 'asset' ? [node.data.locator.assetId] : []))]
+    // 按类型声明去重收集附件引用，检查附件仍可用且属于同一工作区。
+    const definitions = await control.definitions(ctx, workspaceId)
+    const references = assetsCollectNodeAssetReferences(definitions, nodes)
+    const ids = [...new Set(references.map(reference => reference.id))]
     const rows = ids.length ? await metadata.list({ _id: ids, workspaceId, state: 'ready' }, ctx.session) : []
-    if (rows.length !== ids.length) throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.A_REFERENCED_ASSET_IS_NOT_AVAILABLE)
-    for (const node of nodes) if ((node.data.kind === 'source' || node.data.kind === 'evidence') && node.data.locator.kind === 'asset') {
-      const locator = node.data.locator
-      if (rows.find(/* 当前与节点 locator 身份比较的 ready 资产记录。 */ asset => /* 找到该节点引用的附件以核对媒体类型。 */ asset._id === locator.assetId)?.mediaType !== locator.mediaType) throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.ASSET_MEDIA_TYPE_DOES_NOT_MATCH_ITS_REFERENCE)
+    if (rows.length !== ids.length || references.some(reference => reference.expectedMediaType !== undefined
+      && rows.find(asset => asset._id === reference.id)?.mediaType !== reference.expectedMediaType)) {
+      throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.A_REFERENCED_ASSET_IS_NOT_AVAILABLE)
     }
     return rows
+  }
+  async function assetsReadBundleDefinitions(/* 导出一致快照的授权上下文。 */ ctx: RequestContext, /* 定义所属工作区。 */ workspaceId: string, /* 决定精确包闭包的节点。 */ nodes: GraphNode[],
+    /* 导出保留的 Agent 配置，其显式绑定也必须纳入闭包。 */ editableAgents: AgentProfile[]) {
+    // 读取目录、不可变包体和历史 Agent 快照，只带出实际节点类型可达的完整依赖闭包。
+    const catalog = await control.definitions(ctx, workspaceId)
+    const agents = await control.definitionAgents(ctx, workspaceId)
+    return bundlesReadDefinitionClosure(workspaceId, nodes, catalog, async (id, ref) => await control.read(ctx, {
+      method: 'definition.get', params: { workspaceId: id, packageId: ref.id, packageVersion: ref.version },
+    }) as DefinitionView, agents, editableAgents)
+  }
+  function assetsCollectNodeAssetReferences(
+    /* 已经发布并完整校验的定义目录。 */ definitions: DefinitionCatalog,
+    /* 已解析通用信封、准备写入或删除检查的节点。 */ nodes: Array<Pick<GraphNodeInput, 'typeId' | 'typeVersion' | 'payload'>>,
+  ): Array<{ id: string; expectedMediaType?: string }> {
+    // 使用注册引用声明展开 payload；相邻 mediaType 仅在声明的定位对象确实提供时追加检查。
+    return nodes.flatMap(node => definitionsReadPayloadReferences(definitions, { id: node.typeId, version: node.typeVersion }, node.payload)
+      .filter(item => item.definition.target.kind === 'asset').map(item => {
+        const parentPath = item.definition.path.replace(/\/[^/]+$/, '')
+        const parent = assetsReadPointer(node.payload, parentPath)
+        const expectedMediaType = parent && typeof parent === 'object' && !Array.isArray(parent)
+          && typeof (parent as Record<string, unknown>).mediaType === 'string' ? String((parent as Record<string, unknown>).mediaType) : undefined
+        return { id: item.value, ...(expectedMediaType ? { expectedMediaType } : {}) }
+      }))
+  }
+  async function assetsReadNodeAssetReferences(
+    /* 读取定义目录所用的授权事务。 */ ctx: RequestContext,
+    /* 所有引用必须归属的工作区。 */ workspaceId: string,
+    /* 已解析通用信封、准备写入或删除检查的节点。 */ nodes: Array<Pick<GraphNodeInput, 'typeId' | 'typeVersion' | 'payload'>>,
+  ): Promise<Array<{ id: string; expectedMediaType?: string }>> {
+    return assetsCollectNodeAssetReferences(await control.definitions(ctx, workspaceId), nodes)
   }
   async function assetsAttachBundle<T extends MapBundle | WorkspaceBundle>(/* 已经构造但尚未附加 Base64 内容的便携数据包。 */ bundle: T, /* 数据包引用、需要读取并编码内容的资产记录。 */ files: AssetDocument[]): Promise<T> {
     // 先估算包体大小，再读入并附加 Base64 附件，最终复核完整序列化大小。
@@ -152,10 +206,10 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
   }
 
   return {
-    async readSource(/* 执行授权所属的工作区身份，用于限制资产范围。 */ workspaceId: string, /* 必须是 source 类型、准备读取正文的图节点。 */ node: GraphNode): Promise<string> {
-      // 为已由图服务授权的执行读取来源正文，校验附件范围、文本类型、大小和 UTF-8，URL 则交给注入读取器。
-      if (node.data.kind !== 'source') throw new GraphError(422, 'INVALID_SOURCE', RuntimeMessage.EXPECTED_A_SOURCE_NODE)
-      const locator = node.data.locator
+    async readSource(/* 执行授权所属的工作区身份，用于限制资产范围。 */ workspaceId: string, /* 已由 Work 输入授权的通用数据节点。 */ node: GraphNode,
+      /* 冻结 source-text 绑定指定的定位器字段。 */ path: string): Promise<string> {
+      // 按冻结字段读取受限定位器，校验附件范围、文本类型、大小和 UTF-8；URL 仍走既有网络策略。
+      const locator = assetsReadLocator(assetsReadPointer(node.payload, path))
       let bytes: Buffer
       const supported = SOURCE_MEDIA_TYPES
       if (locator.kind === 'asset') {
@@ -256,12 +310,27 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
       const document = await assetsReadDocument(ctx, assetId)
       return { asset: assetsReadView(document), stream: blobs.read(document.blobId) }
     },
-    async assertReferences(/* 必须具有目标工作区编辑权限的请求上下文。 */ ctx: RequestContext, /* 所有附件定位器必须归属的目标工作区身份。 */ workspaceId: string, /* 准备写入图、需要验证附件引用的节点数据。 */ nodes: Array<{ data: GraphNodeData }>): Promise<void> {
-      // 要求工作区编辑权限，并验证节点引用的每个附件可用、同工作区且媒体类型匹配。
+    async assertReferences(/* 必须具有目标工作区编辑权限的请求上下文。 */ ctx: RequestContext, /* 所有附件定位器必须归属的目标工作区身份。 */ workspaceId: string, /* 准备写入图、需要验证附件引用的节点数据。 */ nodes: GraphNodeInput[]): Promise<void> {
+      // 要求工作区编辑权限，并按注册定义验证每个附件引用可用且属于同一工作区。
       await control.requireRole(ctx, workspaceId, 'editor')
-      for (const node of nodes) if ((node.data.kind === 'source' || node.data.kind === 'evidence') && node.data.locator.kind === 'asset') {
-        const asset = await metadata.get(node.data.locator.assetId, ctx.session)
-        if (!asset || asset.workspaceId !== workspaceId || asset.state !== 'ready' || asset.mediaType !== node.data.locator.mediaType) throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.REFERENCE_REQUIRES_A_READY_ASSET_IN_THE_SAME_WORKSPACE_WITH_MATCHING_MEDIA)
+      for (const reference of await assetsReadNodeAssetReferences(ctx, workspaceId, nodes)) {
+        const asset = await metadata.get(reference.id, ctx.session)
+        if (!asset || asset.workspaceId !== workspaceId || asset.state !== 'ready'
+          || (reference.expectedMediaType !== undefined && asset.mediaType !== reference.expectedMediaType)) {
+          throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.REFERENCE_REQUIRES_A_READY_ASSET_IN_THE_SAME_WORKSPACE_WITH_MATCHING_MEDIA)
+        }
+      }
+    },
+    async assertInternalReferences(/* 已由工作租约授权的目标工作区。 */ workspaceId: string, /* Agent 拟发布的服务端产物。 */ nodes: GraphNodeInput[],
+      /* Run 冻结的精确定义目录，不重读可变工作区目录。 */ definitions: DefinitionCatalog,
+      /* 与图提交及工作区写栅栏共用的事务会话。 */ session?: StorageSession | null): Promise<void> {
+      // 内部产物不需要伪造用户 RequestContext，但附件仍必须 ready、同工作区且媒体类型一致。
+      for (const reference of assetsCollectNodeAssetReferences(definitions, nodes)) {
+        const asset = await metadata.get(reference.id, session)
+        if (!asset || asset.workspaceId !== workspaceId || asset.state !== 'ready'
+          || (reference.expectedMediaType !== undefined && asset.mediaType !== reference.expectedMediaType)) {
+          throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.REFERENCE_REQUIRES_A_READY_ASSET_IN_THE_SAME_WORKSPACE_WITH_MATCHING_MEDIA)
+        }
       }
     },
     async delete(/* 必须携带已授权事务和所有者身份的请求上下文。 */ ctx: RequestContext, /* 经过协议解析或待再次解析的资产删除命令。 */ input: DeleteCommand): Promise<{ data: { assetId: string; deleted: true }; replayed: boolean }> {
@@ -276,9 +345,9 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
       if (await assetsReadReceipt(ctx, key, hash)) return { data: { assetId: document._id, deleted: true }, replayed: true }
       if (document.state !== 'ready') throw new GraphError(410, 'ASSET_GONE', RuntimeMessage.ASSET_WAS_DELETED)
       if (document.sha256 !== command.params.expectedSha256) throw new GraphError(409, 'ASSET_CONFLICT', RuntimeMessage.ASSET_DIGEST_DOES_NOT_MATCH)
-      const referenced = (await graphs.list({ workspaceId: document.workspaceId, deletedAt: null }, ctx.session)).some(/* 当前检查是否引用待删除资产的未删除图记录。 */ graph => /* 检查同工作区未删除图中是否仍有节点引用待删除资产。 */
-        graph.nodes.some(/* 当前检查 locator 是否指向待删除资产的图节点。 */ node => /* 识别来源或证据节点中指向该资产的附件定位器。 */ (node.data.kind === 'source' || node.data.kind === 'evidence')
-          && node.data.locator.kind === 'asset' && node.data.locator.assetId === document._id))
+      const graphRows = await graphs.list({ workspaceId: document.workspaceId, deletedAt: null }, ctx.session)
+      const referenced = (await Promise.all(graphRows.map(async graph =>
+        (await assetsReadNodeAssetReferences(ctx, document.workspaceId, graph.nodes)).some(reference => reference.id === document._id)))).some(Boolean)
       if (referenced) throw new GraphError(409, 'ASSET_IN_USE', RuntimeMessage.ASSET_IS_REFERENCED_BY_A_MAP)
       await metadata.replace({ ...document, state: 'deleted', deletedAt: new Date().toISOString() }, ctx.session)
       const data = { assetId: document._id, deleted: true as const }
@@ -295,8 +364,9 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
         const workspace = await control.requireRole(snapshotCtx, document.workspaceId, 'viewer')
         const map = bundlesReadMapDocument(document)
         const files = await assetsReadBundleFiles(snapshotCtx, document.workspaceId, map.nodes)
-        const bundle: MapBundle = { format: 'chongming-map', version: 3, id: randomUUID(), exportedAt: new Date().toISOString(),
-          map, agents: bundlesReadAgents(workspace.agents), assets: [] }
+        const definitions = await assetsReadBundleDefinitions(snapshotCtx, document.workspaceId, map.nodes, workspace.agents)
+        const bundle: MapBundle = { format: 'chongming-map', version: 4, id: randomUUID(), exportedAt: new Date().toISOString(),
+          map, agents: bundlesReadAgents(workspace.agents, definitions.agents), definitions, assets: [] }
         return { bundle, files }
       })
       return assetsAttachBundle(bundle, files)
@@ -320,9 +390,11 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
           if (size > BUNDLE_BYTE_LIMIT) throw new GraphError(413, 'BUNDLE_LIMIT', RuntimeMessage.BUNDLE_EXCEEDS_64_MIB)
           maps.push(map)
         }
-        const files = await assetsReadBundleFiles(snapshotCtx, workspaceId, maps.flatMap(/* 当前展开其节点以收集附件引用的便携图。 */ map => /* 汇集所有导出图的节点，以统一去重检查附件引用。 */ map.nodes))
-        const bundle: WorkspaceBundle = { format: 'chongming-workspace', version: 3, id: randomUUID(), exportedAt: new Date().toISOString(),
-          workspace: { name: workspace.name, description: workspace.description, agents: bundlesReadAgents(workspace.agents) }, maps, assets: [] }
+        const nodes = maps.flatMap(/* 当前展开其节点以收集附件引用的便携图。 */ map => /* 汇集所有导出图的节点，以统一去重检查附件引用。 */ map.nodes)
+        const files = await assetsReadBundleFiles(snapshotCtx, workspaceId, nodes)
+        const definitions = await assetsReadBundleDefinitions(snapshotCtx, workspaceId, nodes, workspace.agents)
+        const bundle: WorkspaceBundle = { format: 'chongming-workspace', version: 4, id: randomUUID(), exportedAt: new Date().toISOString(),
+          workspace: { name: workspace.name, description: workspace.description, agents: bundlesReadAgents(workspace.agents, definitions.agents) }, maps, definitions, assets: [] }
         return { bundle, files }
       })
       return assetsAttachBundle(bundle, files)
@@ -345,7 +417,9 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
       const bytes = await assetsReadBytes(bundleAsset)
       let parsed: unknown
       try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) } catch { throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.BUNDLE_IS_NOT_VALID_UTF_8_JSON) }
-      const bundle = bundlesReadWorkspace(parsed)
+      // v3 必须明确经过一次业务结构转换；不在 v4 解析器中宽松接纳 data/kind。
+      const version = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>).version : undefined
+      const bundle = version === 3 ? bundlesConvertV3(parsed, await control.definitions(initial, staging)) : bundlesReadWorkspace(parsed)
       const prepared = bundlesCreateImport(bundle, command.params.id, command.params.name)
       const files: AssetDocument[] = []
       let publishing = false
@@ -365,7 +439,7 @@ export function assetsCreateService(/* 提供资产元数据、图查询、事�
             return { data: receipt.data as ImportResult, replayed: true }
           }
           await assetsReadDocument(ctx, bundleAsset._id)
-          await control.createWorkspace(ctx, prepared.workspace, prepared.agents)
+          await control.createWorkspace(ctx, prepared.workspace, prepared.agents, undefined, prepared.definitions)
           for (const file of files) await metadata.insert(file, ctx.session)
           const store = database.graph(ctx.session)
           for (const document of prepared.maps) {

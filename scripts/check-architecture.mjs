@@ -37,6 +37,7 @@ const rules = {
   'backend/ports/': ['backend/ports/', 'backend/modules/graph/graph-record.ts', 'contracts/'],
   'backend/adapters/storage/mongo/': ['backend/adapters/storage/mongo/', 'backend/modules/', 'backend/ports/', 'contracts/'],
   'backend/adapters/storage/sqlite/': ['backend/adapters/storage/sqlite/', 'backend/modules/', 'backend/ports/', 'contracts/'],
+  'backend/adapters/storage/': ['backend/adapters/storage/', 'backend/modules/', 'backend/ports/', 'contracts/'],
   'backend/adapters/messaging/': ['backend/adapters/messaging/', 'backend/modules/', 'backend/ports/', 'contracts/'],
   'backend/adapters/sources/': ['backend/adapters/sources/', 'backend/modules/shared/domain-error.ts', 'backend/ports/', 'contracts/'],
   'backend/adapters/http/': ['backend/adapters/http/', 'backend/application/', 'backend/modules/', 'backend/ports/', 'contracts/'],

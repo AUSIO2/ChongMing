@@ -1,7 +1,6 @@
 // 文件职责：提供显式新闻上下文修复和旧版单 Operation Run 的离线事务迁移。
 import { RuntimeMessage, messageFormat } from '../../../../contracts/messages'
 import type { Connection } from 'mongoose'
-import type { GraphOperation, GraphRun } from '../../../../contracts/graph'
 import { configurationRead, configurationReadSlots } from '../../../modules/workspace/agent-configuration'
 import { GraphError } from '../../../modules/shared/domain-error'
 import { inputReadArray, inputReadNames, inputReadObject, inputReadRevision, inputReadScore, inputReadString } from '../../../modules/shared/input-validation'
@@ -31,10 +30,11 @@ function repairReadTimestamp(/* 历史记录中的未经验证时间值，仅接
   if (!Number.isFinite(date.getTime())) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_VALID_TIMESTAMP, label))
   return date.toISOString()
 }
-function repairReadStatus(/* 旧 Run 或 Operation 的原始状态字段，需要限制在支持集合。 */ value: unknown): GraphRun['status'] {
+type LegacyRunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
+function repairReadStatus(/* 旧 Run 或 Operation 的原始状态字段，需要限制在支持集合。 */ value: unknown): LegacyRunStatus {
   // 把历史 Run 状态限制在当前支持的状态集合。
   if (typeof value !== 'string' || !['running', 'waiting', 'completed', 'failed', 'cancelled'].includes(value)) throw new Error(RuntimeMessage.INVALID_LEGACY_RUN_STATUS)
-  return value as GraphRun['status']
+  return value as LegacyRunStatus
 }
 
 /** Read the retired single-operation schema only at this explicit maintenance boundary. */
@@ -60,7 +60,7 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
     return { id: inputReadString(ref.id, 'inputRef.id'), revision: inputReadRevision(ref.revision, 'inputRef.revision') }
   }).sort((/* 排序比较左侧的已验证输入引用，按节点身份规范顺序。 */ a, /* 排序比较右侧的已验证输入引用，用于与左侧身份比较。 */ b) => /* 固定历史输入引用顺序，保持配置复用哈希稳定。 */  a.id.localeCompare(b.id))
   if (!inputRefs.some(/* 已验证的历史输入引用，检查其中是否包含目标节点。 */ ref => /* 确认目标节点包含在旧 Operation 的输入引用中。 */  ref.id === targetId) || new Set(inputRefs.map(/* 已验证的历史输入引用，提取身份以检测重复。 */ ref => /* 提取输入身份以检测重复引用。 */  ref.id)).size !== inputRefs.length) throw new Error(RuntimeMessage.INVALID_LEGACY_INPUT_REFERENCES)
-  let route: GraphOperation['route'] = null
+  let route: Record<string, unknown> | null = null
   if (source.route !== null) {
     const row = inputReadObject(source.route, ['revision', 'reason', 'slots', 'approved'], 'route')
     if (typeof row.approved !== 'boolean') throw new Error(RuntimeMessage.INVALID_LEGACY_ROUTE_APPROVAL)
@@ -82,13 +82,13 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
       reason: inputReadString(row.reason, 'report.reason'), createdAt: repairReadTimestamp(row.createdAt, 'report.createdAt') }
   })
   if (new Set(reports.map(/* 已验证旧报告，提取报告身份检查重复记录。 */ report => /* 提取报告身份以检查重复报告。 */  report.id)).size !== reports.length || new Set(reports.map(/* 已验证旧报告，提取槽位身份检查重复提交。 */ report => /* 提取报告槽位身份以检查同一槽位重复提交。 */  report.slotId)).size !== reports.length) throw new Error(RuntimeMessage.DUPLICATE_LEGACY_REPORTS)
-  let draft: GraphOperation['draft'] = null
+  let draft: Record<string, unknown> | null = null
   if (source.draft !== null) {
     const row = inputReadObject(source.draft, ['id', 'routeRevision', 'reportIds', 'score', 'reason'], 'draft')
     draft = { id: inputReadString(row.id, 'draft.id'), routeRevision: inputReadRevision(row.routeRevision, 'draft.routeRevision'),
       reportIds: inputReadNames(row.reportIds, 'draft.reportIds'), score: inputReadScore(row.score), reason: inputReadString(row.reason, 'draft.reason') }
   }
-  let review: GraphOperation['review'] = null
+  let review: Record<string, unknown> | null = null
   if (source.review !== null) {
     const row = inputReadObject(source.review, ['id', 'kind', 'revision', 'state', 'decision', 'createdAt', 'answeredAt'], 'review')
     if ((row.kind !== 'route' && row.kind !== 'result') || (row.state !== 'pending' && row.state !== 'answered')
@@ -100,18 +100,18 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
   const resultNodeId = source.resultNodeId === null ? null : inputReadString(source.resultNodeId, 'operation.resultNodeId')
   const output = nodes.find(/* 所属图节点摘要，匹配旧结果身份与核查类型。 */ node => /* 查找旧结果身份对应的核查节点，以恢复可复用产物引用。 */  node.id === resultNodeId && node.kind === 'verification')
   const { router, merger, agents, tools, maxSlots } = configuration
-  const operation: GraphOperation = { id: operationId, kind: 'verify', targetId, status: repairReadStatus(source.status), inputRefs,
+  const operation = { id: operationId, kind: 'verify', targetId, status: repairReadStatus(source.status), inputRefs,
     configurationHash: storeCreateInputHash({ router, merger, agents, tools, maxSlots }),
     // Legacy verify outputs were created at revision 0; later edits must invalidate reuse.
     outputRefs: output ? [{ id: output.id, revision: 0 }] : [],
     route, reports, draft, review, resultNodeId, splitReports: [], contentDraft: null }
-  let error: GraphRun['error']
+  let error: { code: string; message: string; workId: string } | undefined
   if (run.error !== undefined) {
     const row = inputReadObject(run.error, ['code', 'message', 'workId'], 'Run.error')
     error = { code: inputReadString(row.code, 'error.code'), message: inputReadString(row.message, 'error.message'), workId: inputReadString(row.workId, 'error.workId') }
   }
   const active = status === 'running' || status === 'waiting'
-  const migrated: GraphRun = { id, mode: run.mode, status, configuration, scope: { nodeIds: [targetId] }, until: 'verified',
+  const migrated = { id, mode: run.mode, status, configuration, scope: { nodeIds: [targetId] }, until: 'verified',
     paused: active, regenerate: true, operations: [operation], ...(error ? { error } : {}),
     createdAt: repairReadTimestamp(run.createdAt, 'Run.createdAt'), updatedAt: repairReadTimestamp(run.updatedAt, 'Run.updatedAt') }
   return { run: migrated, legacy: true, active }
@@ -142,7 +142,7 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
       const summary = { matchedMaps: rows.length, matchedRuns: 0, activeRuns: 0, blockedMaps: 0, modifiedMaps: 0 }
       for (const row of rows) {
         const document = row.document
-        let run: unknown, history: unknown[], revision: number
+        let runs: unknown[], history: unknown[], revision: number
         try {
           inputReadString(document._id, 'Map.id')
           revision = inputReadRevision(document.revision, 'Map.revision')
@@ -175,7 +175,8 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
             summary.activeRuns += Number(migrated.active)
             return migrated.run
           }
-          run = document.run == null ? null : migrate(document.run)
+          runs = inputReadArray(document.runs ?? [], 'Map.runs')
+          if (document.run != null) runs.unshift(migrate(document.run))
           history = inputReadArray(document.runHistory ?? [], 'Map.runHistory').map(migrate)
         } catch {
           throw new GraphError(409, 'RUN_MIGRATION_INVALID', RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
@@ -186,11 +187,11 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
         }
         if (!apply) continue
         const result = await graphs.updateOne({ _id: document._id, revision, $expr: { $not: [activeLeases] } }, [{ $set: {
-          run: { $literal: run }, runHistory: { $literal: history }, revision: { $add: ['$revision', 1] }, updatedAt: '$$NOW',
+          runs: { $literal: runs }, runHistory: { $literal: history }, revision: { $add: ['$revision', 1] }, updatedAt: '$$NOW',
           leases: { $arrayToObject: { $map: { input: leaseEntries, as: 'lease',
             in: { k: '$$lease.k', v: { $mergeObjects: ['$$lease.v', { expiresAt: '$$NOW' }] } },
           } } },
-        } }], { session })
+        } }, { $unset: 'run' }], { session })
         if (!result.matchedCount) throw new GraphError(409, 'RUN_MIGRATION_CONFLICT', RuntimeMessage.MAP_OR_LEASE_CHANGED_DURING_MIGRATION_RETRY_AFTER_STOPPING_HOSTS)
         summary.modifiedMaps++
       }
