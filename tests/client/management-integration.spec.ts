@@ -6,6 +6,7 @@ import { clientCreateGateway } from '../../client/graph-client'
 import { ClientError, type ClientGateway } from '../../contracts/client'
 import type { AgentInput, AgentProfile, Asset, ImportResult, PromptKind, WorkspaceView } from '../../contracts/control'
 import { useManagementTask } from '../../apps/ui/features/management/use-management'
+import { graphCreateRunPlan } from '../../apps/ui/features/graph/graph-layout'
 import { fixtureCreateEnvironment, type UiFixture } from './ui-fixture'
 
 let fixture: UiFixture, gateway: ClientGateway
@@ -50,7 +51,8 @@ function input(/* 已保存的只读 Agent 配置，复制可编辑字段与数�
   // 复制已保存 Agent 的可编辑字段和数组，供更新请求使用。
   return { id: profile.id, kind: profile.kind, promptPath: profile.promptPath, name: profile.name, description: profile.description,
     content: profile.content, provider: profile.provider, model: profile.model, tools: [...profile.tools], promptVars: [...profile.promptVars],
-    defaultPriority: profile.defaultPriority, claimCategory: profile.claimCategory }
+    defaultPriority: profile.defaultPriority, claimCategory: profile.claimCategory,
+    ...(profile.role ? { role: profile.role, bindings: profile.bindings?.map(binding => ({ ...binding, transition: { ...binding.transition } })) } : {}) }
 }
 const lostReply = () =>
   /* 模拟后端已提交但客户端丢失成功响应的可重试网络错误。 */
@@ -75,16 +77,24 @@ describe('Management tasks against authenticated API and file endpoints', () => 
       expect(list.items.find(/* 更新后的配置项，用原 Agent 身份核对保存结果。 */ item => /* 按原标识查找保存后的配置进行字段核对。 */ item.id === profile.id)).toMatchObject(agent)
     }
     const map = await createMap(ws), claimId = randomUUID()
-    const edited = await gateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, expectedRevision: map.revision,
-      changes: { nodes: { put: [{ id: claimId, data: { kind: 'claim', content: '管理配置冻结验收', category: null } }] } } })
-    const started = await gateway.dispatch(randomUUID(), 'run.start', { mapId: map.mapId, expectedRevision: edited.data.snapshot.revision,
-      id: randomUUID(), scope: { nodeIds: [claimId] }, until: 'verified', mode: 'human-in-loop' })
-    const frozen = started.data.snapshot.run!.configuration
+    await gateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, branch: { rootIds: [claimId], expectedVersion: null },
+      changes: { nodes: { put: [{ id: claimId, typeId: 'factcheck.claim', typeVersion: 1, payload: { content: '管理配置冻结验收', category: null } }] } } })
+    const catalog = (await gateway.read('definition.get', { workspaceId: ws.id })).catalog
+    const verify = catalog.transitions.find(item => item.id === 'factcheck.verify-claim' && item.version === 1)!
+    const runScope = await gateway.read('branch.get', { mapId: map.mapId, rootIds: [claimId] })
+    const claimed = await gateway.dispatch(randomUUID(), 'branch.claim', { mapId: map.mapId, rootIds: runScope.scope.rootIds, holderId: randomUUID() })
+    if (claimed.data.status !== 'claimed') throw new Error('Management Run branch is busy')
+    const runId = randomUUID()
+    const started = await gateway.dispatch(randomUUID(), 'run.start', { mapId: map.mapId,
+      id: runId, branch: { rootIds: runScope.scope.rootIds, expectedVersion: runScope.version },
+      lease: { leaseId: claimed.data.grant.leaseId, holderId: claimed.data.grant.holderId, fence: claimed.data.grant.fence },
+      scope: { nodeIds: [claimId] }, plan: graphCreateRunPlan(verify, [claimId]), mode: 'human-in-loop' })
+    const frozen = structuredClone(started.data.snapshot.runs.find(run => run.id === runId)!.agents)
     const currentList = await gateway.read('agent.list', { scope })
     const original = currentList.items.find(/* 当前目录中的配置项，用类型选择可更改的核查子 Agent。 */ agent => /* 选择核查子 Agent，验证后续配置变更不影响已启动运行。 */ agent.kind === 'verifySubAgent')!
     await task.command('agent.update', { scope, expectedRevision: currentList.revision, agentId: original.id,
       expectedAgentRevision: original.revision, agent: { ...input(original), content: '以后运行使用的新提示词' } })
-    expect((await gateway.read('map.get', { mapId: map.mapId })).run!.configuration).toEqual(frozen)
+    expect((await gateway.read('map.get', { mapId: map.mapId })).runs.find(run => run.id === runId)!.agents).toEqual(frozen)
     const fixed = currentList.items.find(/* 当前目录中的配置项，用不可删除标记选择固定角色。 */ agent => /* 选取不可删除的固定角色供拒绝删除断言。 */ !agent.deletable)!
     const latest = await gateway.read('agent.list', { scope })
     await expect(gateway.dispatch(randomUUID(), 'agent.delete', { scope, expectedRevision: latest.revision,
@@ -126,8 +136,21 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     expect(replaced!.data.agents.filter(/* 替换后的工作区配置，用不可删除标记统计固定角色。 */ agent => /* 统计替换后仍保留的固定角色。 */ !agent.deletable)).toHaveLength(5)
   })
 
-  it('retains the uploaded Asset across lost replies and failed Source creation, then lists and exports it', async () => {
-    // 验证上传响应丢失与来源创建冲突不会丢失资产，随后可分页查看并导出它。
+  it('publishes and reads back an immutable data definition package', async () => {
+    const ws = await workspace(), current = await gateway.read('workspace.get', { workspaceId: ws.id })
+    const packageItem = { id: 'management.notes', version: 1, title: '管理备注', schemaDialect: 'http://json-schema.org/draft-07/schema#' as const,
+      dataTypes: [{ id: 'management.note', version: 1, title: '备注', schema: { type: 'object' as const,
+        properties: { text: { type: 'string' as const } }, required: ['text'], additionalProperties: false }, successorTypes: [], references: [],
+        agentProjection: { include: ['/text'], mapEntryFilters: [] } }], transitions: [], dependencies: { packages: [], agents: [] } }
+    const published = await gateway.dispatch(randomUUID(), 'definition.publish', { workspaceId: ws.id, expectedRevision: current.revision, package: packageItem })
+    expect(published.data).toMatchObject({ workspaceId: ws.id, package: { ref: { id: packageItem.id, version: 1 }, digest: expect.any(String) } })
+    const view = await gateway.read('definition.get', { workspaceId: ws.id, packageId: packageItem.id, packageVersion: 1 })
+    expect(view.package).toEqual(packageItem)
+    expect(view.catalog.dataTypes).toContainEqual(expect.objectContaining({ id: 'management.note', version: 1 }))
+  })
+
+  it('retains the uploaded Asset across lost replies and a stale Source branch, then lists and exports it', async () => {
+    // 验证上传响应丢失、独立分支并发和来源分支冲突不会丢失资产，随后可分页查看并导出定义闭包。
     const ws = await workspace(), map = await createMap(ws), task = management()
     const original = new TextEncoder().encode('共享原稿：数据与来源必须保持一致。')
     const draft = reactive({ workspaceId: ws.id, filename: 'source.txt', mediaType: 'text/plain', bytes: original.slice() })
@@ -155,14 +178,28 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const saved = asset as unknown as Asset
     expect(saved.filename).toBe('source.txt')
     expect((await gateway.download({ kind: 'asset', id: saved.id })).bytes).toEqual(original)
-    const altered = await gateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, expectedRevision: map.revision,
-      changes: { nodes: { put: [{ id: randomUUID(), data: { kind: 'news', content: '先发生的并发修改', context: {} } }] } } })
-    const source = { id: randomUUID(), data: { kind: 'source' as const, locator: { kind: 'asset' as const, assetId: saved.id, mediaType: saved.mediaType }, label: saved.filename } }
-    expect(await task.command('graph.apply', { mapId: map.mapId, expectedRevision: map.revision, changes: { nodes: { put: [source] } } })).toBeNull()
-    expect(task.error.value?.code).toBe('REVISION_CONFLICT')
+    const newsId = randomUUID()
+    await gateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, branch: { rootIds: [newsId], expectedVersion: null },
+      changes: { nodes: { put: [{ id: newsId, typeId: 'factcheck.news', typeVersion: 1, payload: { content: '先发生的独立分支修改', context: {} } }] } } })
+    const source = { id: randomUUID(), typeId: 'factcheck.source', typeVersion: 1,
+      payload: { locator: { kind: 'asset', assetId: saved.id, mediaType: saved.mediaType }, label: saved.filename } }
+    const created = await task.command('graph.apply', { mapId: map.mapId, branch: { rootIds: [source.id], expectedVersion: null }, changes: { nodes: { put: [source] } } })
+    expect(created).not.toBeNull()
+    const initialBranch = created!.data.branch!
+    const claimedSource = await gateway.dispatch(randomUUID(), 'branch.claim', { mapId: map.mapId, rootIds: initialBranch.scope.rootIds, holderId: randomUUID() })
+    if (claimedSource.data.status !== 'claimed') throw new Error('Source branch is busy')
+    const sourceLease = { leaseId: claimedSource.data.grant.leaseId, holderId: claimedSource.data.grant.holderId, fence: claimedSource.data.grant.fence }
+    const changed = await gateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId,
+      branch: { rootIds: initialBranch.scope.rootIds, expectedVersion: initialBranch.version },
+      lease: sourceLease,
+      changes: { nodes: { put: [{ ...source, payload: { ...source.payload, label: '其他客户端已修改' } }] } } })
+    expect(await task.command('graph.apply', { mapId: map.mapId,
+      branch: { rootIds: initialBranch.scope.rootIds, expectedVersion: initialBranch.version }, lease: sourceLease, changes: { nodes: { put: [source] } } })).toBeNull()
+    expect(task.error.value?.code).toBe('BRANCH_VERSION_CONFLICT')
     expect((await gateway.read('asset.get', { assetId: saved.id })).id).toBe(saved.id)
     task.clearError()
-    expect(await task.command('graph.apply', { mapId: map.mapId, expectedRevision: altered.data.snapshot.revision, changes: { nodes: { put: [source] } } })).not.toBeNull()
+    expect(await task.command('graph.apply', { mapId: map.mapId,
+      branch: { rootIds: changed.data.branch!.scope.rootIds, expectedVersion: changed.data.branch!.version }, lease: sourceLease, changes: { nodes: { put: [source] } } })).not.toBeNull()
     expect(uploadIds).toHaveLength(2)
     for (const filename of ['second.txt', 'third.txt']) await gateway.upload(randomUUID(), { workspaceId: ws.id, filename, mediaType: 'text/plain', bytes: original })
     const page = await gateway.read('asset.list', { workspaceId: ws.id, limit: 2 })
@@ -171,7 +208,8 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     expect(new Set([...page.items, ...next.items].map(/* 分页合并后的资产条目，用身份检查没有重复或遗漏。 */ item => /* 提取跨页资产标识以检查分页去重。 */ item.id)).size).toBe(3)
     const file = await gateway.download({ kind: 'map', id: map.mapId })
     const bundle = JSON.parse(new TextDecoder().decode(file.bytes))
-    expect(bundle).toMatchObject({ format: 'chongming-map', version: 3 })
+    expect(bundle).toMatchObject({ format: 'chongming-map', version: 4,
+      definitions: { packages: expect.any(Array), agents: expect.any(Array), digests: expect.any(Array) } })
     expect(bundle.map).not.toHaveProperty('run'); expect(bundle.map).not.toHaveProperty('leases')
     expect(bundle.assets.map((/* 导出包中的资产记录，提取身份核对被引用文件已包含。 */ item: Asset) => /* 提取导出包资产标识，确认引用文件被包含。 */ item.id)).toContain(saved.id)
     expect(JSON.parse(new TextDecoder().decode((await gateway.download({ kind: 'workspace', id: ws.id })).bytes)).format).toBe('chongming-workspace')
@@ -253,8 +291,10 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     expect((await viewerGateway.download({ kind: 'map', id: map.mapId })).bytes.length).toBeGreaterThan(0)
     await expect(viewerGateway.download({ kind: 'workspace', id: ws.id })).rejects.toMatchObject({ status: 403 })
     await expect(editorGateway.dispatch(randomUUID(), 'asset.delete', { assetId: asset.id, expectedSha256: asset.sha256 })).rejects.toMatchObject({ status: 403 })
-    await editorGateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, expectedRevision: map.revision, changes: { nodes: { put: [{ id: randomUUID(),
-      data: { kind: 'source', locator: { kind: 'asset', assetId: asset.id, mediaType: asset.mediaType }, label: '编辑者来源' } }] } } })
+    const sourceId = randomUUID()
+    await editorGateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, branch: { rootIds: [sourceId], expectedVersion: null }, changes: { nodes: { put: [{ id: sourceId,
+      typeId: 'factcheck.source', typeVersion: 1,
+      payload: { locator: { kind: 'asset', assetId: asset.id, mediaType: asset.mediaType }, label: '编辑者来源' } }] } } })
     await expect(gateway.dispatch(randomUUID(), 'asset.delete', { assetId: asset.id, expectedSha256: asset.sha256 })).rejects.toMatchObject({ status: 409 })
     let unauthorized = 0, accepted = false
     const task = management(viewerGateway, () => {

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientGateway } from '../../contracts/client'
 import type { AppBootstrap, WorkspaceView } from '../../contracts/control'
+import type { DataTypeDefinition } from '../../contracts/data-definition'
 import type { GraphStreamEvent } from '../../contracts/events'
 import type { GraphSnapshot } from '../../contracts/graph'
 import { sessionCreateState } from '../../apps/ui/state/client-session'
@@ -10,6 +11,10 @@ import { verificationConfiguration } from '../backend/fixtures/verification'
 vi.mock('../../apps/ui/transport/client-gateway', () => /* 替换默认应用网关，避免会话单元测试依赖真实传输环境。 */ ({ api: {} }))
 
 const time = '2026-09-11T00:00:00.000Z'
+const claimType: DataTypeDefinition = { id: 'demo.claim', version: 1, title: 'Claim', schema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'], additionalProperties: false },
+  successorTypes: [], references: [], agentProjection: { include: ['/content'], mapEntryFilters: [] } }
+const definitions = { workspaceId: 'workspace-a', catalog: { revision: 1, packages: [], index: [], dataTypes: [claimType], transitions: [] } }
+const emptyPlan = { steps: [] }
 const error = (
   /* 模拟 HTTP 错误状态，0 表示网络或本地失败。 */ status: number,
   /* 模拟业务错误代码，同时用于 Error 的消息。 */ code: string,
@@ -36,16 +41,40 @@ function map(
   /* 测试图版本，默认 1，用于安排新旧快照顺序。 */ revision = 1
 ): GraphSnapshot {
   // 创建包含一个事实节点的指定工作区图快照。
-  return { mapId: id, workspaceId, revision, name: id, updatedAt: time, edges: [], run: null,
-    nodes: [{ id: `${id}-claim`, revision: 0, data: { kind: 'claim', content: `${id} content`, category: null }, createdAt: time, updatedAt: time }] }
+  return { mapId: id, workspaceId, revision, ownershipRevision: 0, ownerships: [], runControls: [], name: id, updatedAt: time, edges: [], runs: [],
+    nodes: [{ id: `${id}-claim`, revision: 0, typeId: claimType.id, typeVersion: claimType.version, payload: { content: `${id} content` }, createdAt: time, updatedAt: time }] }
 }
+function branch(snapshot: GraphSnapshot, rootIds: string[]) {
+  // 测试服务端按 successor 闭包返回稳定分支版本；图级 revision 不进入版本。
+  const successors = new Map<string, string[]>()
+  for (const edge of snapshot.edges) if (edge.kind === 'successor') successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to])
+  const nodes = new Set<string>(), pending = [...rootIds]
+  for (let index = 0; index < pending.length; index++) {
+    const id = pending[index]
+    if (nodes.has(id)) continue
+    nodes.add(id); pending.push(...(successors.get(id) ?? []))
+  }
+  const nodeIds = [...nodes].sort(), edgeIds = snapshot.edges.filter(edge => edge.kind === 'successor' && nodes.has(edge.from) && nodes.has(edge.to)).map(edge => edge.id).sort()
+  const versions = snapshot.nodes.filter(node => nodes.has(node.id)).map(node => `${node.id}:${node.revision}`).sort().join('|')
+  return { scope: { rootIds: [...rootIds].sort(), nodeIds, edgeIds }, version: `branch:${versions}:${edgeIds.join('|')}`, mapRevision: snapshot.revision,
+    rootRevisions: Object.fromEntries(rootIds.map(id => [id, snapshot.nodes.find(node => node.id === id)!.revision])) }
+}
+function claimed(snapshot: GraphSnapshot, rootIds: string[]) {
+  const value = branch(snapshot, rootIds)
+  return success({ status: 'claimed', grant: { leaseId: '11111111-1111-4111-8111-111111111111', kind: 'editor', rootIds: value.scope.rootIds,
+    ownerUserId: 'user-a', holderId: '22222222-2222-4222-8222-222222222222', fence: 1,
+    expiresAt: '2999-01-01T00:00:00.000Z', leaseMs: 30_000, scope: value.scope, branch: value, ownershipRevision: 1 } })
+}
+const runControl = { leaseId: '33333333-3333-4333-8333-333333333333', runId: 'run-a', ownerUserId: 'user-a',
+  holderId: '22222222-2222-4222-8222-222222222222', fence: 2, expiresAt: '2999-01-01T00:00:00.000Z', leaseMs: 30_000 }
+function controlled() { return success({ status: 'claimed', grant: { ...runControl, ownershipRevision: 1 } }) }
 function processingMap(/* 测试运行是否暂停，默认 false。 */ paused = false, /* 带运行测试图的版本，默认 2。 */ revision = 2): GraphSnapshot {
   // 创建等待结果审核的运行快照，并允许指定暂停状态和图版本。
-  return { ...map('map-a', 'workspace-a', revision), run: {
+  return { ...map('map-a', 'workspace-a', revision), ownershipRevision: 1, runControls: [{ ...runControl }], runs: [{
     id: 'run-a', scope: { nodeIds: ['map-a-claim'] }, until: 'verified', paused, regenerate: false, mode: 'human-in-loop', status: 'waiting', configuration: verificationConfiguration(),
     operations: [{ id: 'operation-a', kind: 'verify', targetId: 'map-a-claim', status: 'waiting', inputRefs: [], configurationHash: 'fixture', outputRefs: [], splitReports: [], contentDraft: null,
       route: null, reports: [], draft: null, review: { id: 'review-a', revision: 0, kind: 'result', state: 'pending', decision: null, createdAt: time, answeredAt: null }, resultNodeId: null }], createdAt: time, updatedAt: time,
-  } }
+  }] }
 }
 function workspace(/* 测试工作区身份，同时用于名称和偏好所属范围。 */ id: string): WorkspaceView {
   // 创建所有者视角的工作区与空偏好。
@@ -76,9 +105,11 @@ function fakeGateway() {
       /* 把完整图快照转换为列表摘要。 */
       ({
       id: snapshot.mapId, workspaceId: snapshot.workspaceId, revision: snapshot.revision, name: snapshot.name, nodeCount: snapshot.nodes.length,
-      claimCount: 1, updatedAt: snapshot.updatedAt,
+      typeCounts: { 'demo.claim@1': 1 }, updatedAt: snapshot.updatedAt,
     }))
+    if (method === 'definition.get') return structuredClone({ ...definitions, workspaceId: params.workspaceId })
     if (method === 'map.get') return structuredClone(snapshots.get(params.mapId))
+    if (method === 'branch.get') return structuredClone(branch(snapshots.get(params.mapId)!, params.rootIds))
     throw new Error(`Unexpected query: ${method}`)
   })
   const dispatch = vi.fn(async (
@@ -148,7 +179,54 @@ async function opened() {
 }
 
 describe('Client session state and subscriptions', () => {
+  it('uses local capabilities to edit, start and control without any client lease commands or timers', async () => {
+    const f = fakeGateway()
+    f.bootstrap.metadata.clientLeases = 'none'
+    const session = sessionCreateState(f.gateway, 100)
+    sessions.push(session)
+    await session.connect({ baseUrl: 'http://fixture', token: 'token', remember: false })
+    await session.openMap('map-a', false)
+    expect(session.clientLeasesRequired.value).toBe(false)
+    const edited = map('map-a', 'workspace-a', 2)
+    edited.nodes[0].revision++
+    edited.nodes[0].payload.content = 'Local edit'
+    f.dispatch.mockResolvedValueOnce(success({ snapshot: edited, createdNodeIds: [], createdEdgeIds: [] }))
+    expect(await session.saveNode({ branch: { rootIds: ['map-a-claim'], expectedVersion: 'branch:map-a-claim:0:' },
+      nodeId: 'map-a-claim', typeId: claimType.id, typeVersion: 1, payload: { content: 'Local edit' } })).toBe(true)
+    f.snapshots.set('map-a', edited)
+    let runId = ''
+    f.dispatch.mockImplementationOnce(async (_id, method, params) => {
+      expect(method).toBe('run.start'); expect(params).not.toHaveProperty('lease')
+      runId = params.id
+      const running = processingMap(false, 3)
+      running.nodes = edited.nodes; running.runControls = []; running.runs[0].id = runId
+      f.snapshots.set('map-a', running)
+      return success({ snapshot: running, createdNodeIds: [], createdEdgeIds: [] })
+    })
+    expect(await session.startRun({ scope: { nodeIds: ['map-a-claim'] }, plan: emptyPlan, mode: 'human-in-loop' })).toBe(true)
+    const paused = structuredClone(f.snapshots.get('map-a')!)
+    paused.revision++; paused.runs[0].paused = true
+    f.dispatch.mockResolvedValueOnce(success({ snapshot: paused, createdNodeIds: [], createdEdgeIds: [] }))
+    await session.pauseRun({ mapId: 'map-a', runId })
+    expect(f.dispatch.mock.calls.map(call => call[1])).toEqual(['graph.apply', 'run.start', 'run.pause'])
+    expect(f.dispatch.mock.calls[0][2]).not.toHaveProperty('lease')
+    expect(f.dispatch.mock.calls[2][2]).not.toHaveProperty('control')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(f.dispatch.mock.calls.some(call => call[1].startsWith('branch.') || call[1].startsWith('run.control.'))).toBe(false)
+    expect(session.selectedBranchGrant.value).toBeNull()
+    expect(session.selectedRunControl.value).toBeNull()
+  })
+
   // 覆盖会话隔离、实时流、版本仲裁、原命令重试和视图清理。
+  it('loads and refreshes the workspace definition catalog as session state', async () => {
+    const f = await opened()
+    expect(f.session.definitions.value).toMatchObject({ workspaceId: 'workspace-a', catalog: { revision: 1 } })
+    definitions.catalog.revision = 2
+    await f.session.refreshWorkspace()
+    expect(f.session.catalog.value?.revision).toBe(2)
+    expect(f.read.mock.calls.some(call => call[0] === 'definition.get' && call[1].workspaceId === 'workspace-a')).toBe(true)
+    definitions.catalog.revision = 1
+  })
   it('replaces unexpected client exceptions with a safe message and a diagnostic id', async () => {
     // 验证意外异常被替换为安全提示和诊断编号，不泄露原始私密信息。
     const f = await opened()
@@ -161,15 +239,15 @@ describe('Client session state and subscriptions', () => {
     // 验证活动摘要不修改快照版本，暂停、断流和切图会清空失效活动。
     const f = await opened()
     const next = processingMap()
-    next.run!.status = 'running'
-    next.run!.operations[0].status = 'running'
-    const activity = { mapId: next.mapId, runId: next.run!.id, operationId: 'operation-a', nodeId: 'map-a-claim', workId: 'work',
-      actor: { role: 'router' as const }, agentName: 'Router', status: 'model' as const, fence: 1, sequence: 1, updatedAt: time }
+    next.runs[0].status = 'running'
+    next.runs[0].operations[0].status = 'running'
+    const activity = { mapId: next.mapId, runId: next.runs[0].id, operationId: 'operation-a', nodeId: 'map-a-claim', workId: 'work',
+      stageId: 'route', slotId: 'route', agentName: 'Router', status: 'model' as const, fence: 1, sequence: 1, updatedAt: time }
     f.streams[0].emit({ type: 'snapshot', snapshot: next })
     f.streams[0].emit({ type: 'activity', items: [activity] })
     expect(f.session.activities.value).toEqual([activity])
     expect(f.session.snapshot.value?.revision).toBe(next.revision)
-    f.streams[0].emit({ type: 'snapshot', snapshot: { ...next, revision: 3, run: { ...next.run!, paused: true } } })
+    f.streams[0].emit({ type: 'snapshot', snapshot: { ...next, revision: 3, runs: [{ ...next.runs[0], paused: true }] } })
     f.streams[0].emit({ type: 'activity', items: [activity] })
     expect(f.session.activities.value).toEqual([])
     f.streams[0].emit({ type: 'snapshot', snapshot: { ...next, revision: 4 } })
@@ -182,8 +260,8 @@ describe('Client session state and subscriptions', () => {
     expect(f.session.activities.value).toEqual([])
   })
 
-  it('keeps paused execution locked and preserves its snapshot against a late running read', async () => {
-    // 验证暂停运行仍锁定图编辑，迟到运行中快照不会覆盖暂停与审核结果。
+  it('keeps a paused run branch protected while allowing an independent new root', async () => {
+    // 验证暂停运行仍保护自己的范围，但不会把同图中新建的独立根降级为整图锁。
     const f = await opened()
     f.snapshots.set('map-a', processingMap())
     await f.session.refresh()
@@ -192,26 +270,30 @@ describe('Client session state and subscriptions', () => {
     const poll = f.session.refresh()
     const paused = processingMap(true, 3)
     f.snapshots.set('map-a', paused)
-    f.dispatch.mockResolvedValueOnce(success({ snapshot: paused, createdNodeIds: [], createdEdgeIds: [] }))
-    await f.session.pauseRun({ mapId: 'map-a', expectedRevision: 2, runId: 'run-a' })
+    f.dispatch.mockResolvedValueOnce(controlled()).mockResolvedValueOnce(success({ snapshot: paused, createdNodeIds: [], createdEdgeIds: [] }))
+    await f.session.pauseRun({ mapId: 'map-a', runId: 'run-a' })
     late.resolve(processingMap(false, 2))
     await poll
-    expect(f.session.snapshot.value?.run?.paused).toBe(true)
+    expect(f.session.snapshot.value?.runs[0]?.paused).toBe(true)
     expect(f.session.active.value).toBe(true)
-    expect(await f.session.createSource('https://example.com', 'Blocked edit')).toBe(false)
-    await f.session.startRun({ scope: { nodeIds: ['map-a-claim'] }, until: 'verified', mode: 'auto' })
-    expect(f.dispatch).toHaveBeenCalledTimes(1)
-    const approved = processingMap(true, 4)
-    approved.run!.operations[0].review!.state = 'answered'
+    const withIndependentRoot = processingMap(true, 4)
+    f.dispatch.mockResolvedValueOnce(success({ snapshot: withIndependentRoot, createdNodeIds: ['new-root'], createdEdgeIds: [],
+      branch: { scope: { rootIds: ['new-root'], nodeIds: ['new-root'], edgeIds: [] }, version: 'new-root-v1', rootRevisions: { 'new-root': 0 }, mapRevision: 4 } }))
+    expect(await f.session.createNode(claimType, { content: 'Independent edit' })).toBe(true)
+    expect(f.dispatch.mock.calls.find(call => call[1] === 'graph.apply')?.[2]).toMatchObject({ branch: { expectedVersion: null } })
+    await f.session.startRun({ scope: { nodeIds: ['map-a-claim'] }, plan: emptyPlan, mode: 'auto' })
+    expect(f.dispatch).toHaveBeenCalledTimes(3)
+    const approved = processingMap(true, 5)
+    approved.runs[0].operations[0].review!.state = 'answered'
     f.dispatch.mockResolvedValueOnce(success({ snapshot: approved, createdNodeIds: [], createdEdgeIds: [] }))
-    await f.session.answerReview({ mapId: 'map-a', expectedRevision: 3, runId: 'run-a', operationId: 'operation-a', reviewId: 'review-a', expectedReviewRevision: 0, decision: 'approve' })
-    expect(f.session.snapshot.value?.run?.paused).toBe(true)
-    expect(f.dispatch.mock.calls[1][2]).toMatchObject({ operationId: 'operation-a' })
+    await f.session.answerReview({ mapId: 'map-a', runId: 'run-a', operationId: 'operation-a', reviewId: 'review-a', expectedReviewRevision: 0, decision: 'approve' })
+    expect(f.session.snapshot.value?.runs[0]?.paused).toBe(true)
+    expect(f.dispatch.mock.calls.find(call => call[1] === 'review.answer')?.[2]).toMatchObject({ operationId: 'operation-a', control: { leaseId: runControl.leaseId } })
     const reads = f.read.mock.calls.length
     await vi.advanceTimersByTimeAsync(100)
     expect(f.read.mock.calls).toHaveLength(reads)
     f.streams[0].emit({ type: 'snapshot', snapshot: approved })
-    expect(f.session.snapshot.value?.run?.paused).toBe(true)
+    expect(f.session.snapshot.value?.runs[0]?.paused).toBe(true)
     await f.session.closeMap('map-a')
     expect(f.dispatch.mock.calls.some(/* Vitest 记录的命令参数元组，检查是否误发取消或恢复命令。 */ call =>
       /* 检测关闭标签时是否错误发出了取消或恢复运行命令。 */
@@ -222,18 +304,94 @@ describe('Client session state and subscriptions', () => {
     // 验证新运行提交显式节点范围，恢复保留同一 Run 与审核状态，权限刷新后阻止写操作。
     const f = await opened()
     const paused = processingMap(true)
-    f.dispatch.mockResolvedValueOnce(success({ snapshot: paused, createdNodeIds: [], createdEdgeIds: [] }))
-    await f.session.startRun({ scope: { nodeIds: ['map-a-claim'] }, until: 'verified', mode: 'human-in-loop', regenerate: true })
-    expect(f.dispatch.mock.calls[0][2]).toMatchObject({ scope: { nodeIds: ['map-a-claim'] }, until: 'verified', regenerate: true })
-    expect(f.dispatch.mock.calls[0][2]).not.toHaveProperty('targetId')
+    f.dispatch.mockResolvedValueOnce(claimed(f.snapshots.get('map-a')!, ['map-a-claim']))
+      .mockResolvedValueOnce(success({ snapshot: paused, createdNodeIds: [], createdEdgeIds: [], runControl: { ...runControl, ownershipRevision: 1 } }))
+    await f.session.startRun({ scope: { nodeIds: ['map-a-claim'] }, plan: emptyPlan, mode: 'human-in-loop', regenerate: true })
+    const startCall = f.dispatch.mock.calls.find(call => call[1] === 'run.start')!
+    expect(startCall[2]).toMatchObject({ branch: { rootIds: ['map-a-claim'], expectedVersion: 'branch:map-a-claim:0:' },
+      scope: { nodeIds: ['map-a-claim'] }, plan: emptyPlan, regenerate: true })
+    expect(startCall[2]).not.toHaveProperty('targetId')
+    expect(startCall[2]).not.toHaveProperty('expectedRevision')
     const resumed = processingMap(false, 3)
     f.dispatch.mockResolvedValueOnce(success({ snapshot: resumed, createdNodeIds: [], createdEdgeIds: [] }))
-    await f.session.resumeRun({ mapId: 'map-a', expectedRevision: 2, runId: 'run-a' })
-    expect(f.session.snapshot.value?.run).toMatchObject({ id: 'run-a', paused: false, operations: [{ id: 'operation-a', review: { id: 'review-a', state: 'pending' } }] })
+    await f.session.resumeRun({ mapId: 'map-a', runId: 'run-a' })
+    expect(f.session.snapshot.value?.runs[0]).toMatchObject({ id: 'run-a', paused: false, operations: [{ id: 'operation-a', review: { id: 'review-a', state: 'pending' } }] })
     f.workspaces.get('workspace-a')!.role = 'viewer'
     await f.session.refreshWorkspace()
-    await f.session.pauseRun({ mapId: 'map-a', expectedRevision: 3, runId: 'run-a' })
-    expect(f.dispatch).toHaveBeenCalledTimes(2)
+    await f.session.pauseRun({ mapId: 'map-a', runId: 'run-a' })
+    expect(f.dispatch).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps Run controls read-only while occupied and enables them after takeover', async () => {
+    const f = await opened(), running = processingMap(false, 2)
+    f.snapshots.set('map-a', running)
+    await f.session.refresh()
+    f.dispatch.mockResolvedValueOnce(success({ status: 'busy', control: { ...runControl } }))
+    await f.session.pauseRun({ mapId: 'map-a', runId: 'run-a' })
+    expect(f.dispatch.mock.calls.map(call => call[1])).toEqual(['run.control.claim'])
+    expect(f.session.selectedRunControl.value).toBeNull()
+
+    const available = { ...running, ownershipRevision: 2, runControls: [] }
+    f.streams[0].emit({ type: 'snapshot', snapshot: available })
+    const paused = { ...processingMap(true, 3), ownershipRevision: 3 }
+    f.dispatch.mockResolvedValueOnce(controlled()).mockResolvedValueOnce(success({ snapshot: paused, createdNodeIds: [], createdEdgeIds: [] }))
+    await f.session.pauseRun({ mapId: 'map-a', runId: 'run-a' })
+    expect(f.dispatch.mock.calls.map(call => call[1])).toEqual(['run.control.claim', 'run.control.claim', 'run.pause'])
+    expect(f.dispatch.mock.calls[2][2]).toMatchObject({ control: { leaseId: runControl.leaseId, fence: runControl.fence } })
+    expect(f.session.snapshot.value?.runs[0]?.paused).toBe(true)
+  })
+
+  it('selects one of multiple Runs and releases the previous control', async () => {
+    const f = await opened(), multi = processingMap(false, 2)
+    multi.runs.push({ ...structuredClone(multi.runs[0]), id: 'run-b', scope: { nodeIds: ['map-a-claim-b'] } })
+    f.snapshots.set('map-a', multi)
+    await f.session.refresh()
+    expect(f.session.selectedRun.value?.id).toBe('run-a')
+    f.dispatch.mockResolvedValueOnce(controlled())
+      .mockResolvedValueOnce(success({ released: true, ownershipRevision: 2 }))
+    expect(await f.session.claimRunControl('run-a')).toBe(true)
+    await f.session.selectRun('run-b')
+    expect(f.session.selectedRun.value?.id).toBe('run-b')
+    expect(f.session.selectedRunControl.value).toBeNull()
+    expect(f.dispatch.mock.calls.map(call => call[1])).toEqual(['run.control.claim', 'run.control.release'])
+  })
+
+  it('creates a node with its exact registered type and generic payload', async () => {
+    const f = await opened()
+    f.dispatch.mockImplementationOnce(async (_id, method, params: any) => {
+      expect(method).toBe('graph.apply')
+      const input = params.changes.nodes.put[0]
+      expect(input).toMatchObject({ typeId: claimType.id, typeVersion: claimType.version, payload: { content: 'Registered data' } })
+      expect(input).not.toHaveProperty('data')
+      const next = map('map-a', 'workspace-a', 2)
+      next.nodes.push({ id: input.id, revision: 0, typeId: input.typeId, typeVersion: input.typeVersion, payload: input.payload, createdAt: time, updatedAt: time })
+      return success({ snapshot: next, createdNodeIds: [input.id], createdEdgeIds: [] })
+    })
+    expect(await f.session.createNode(claimType, { content: 'Registered data' })).toBe(true)
+    expect(f.session.selectedId.value).toBe(f.session.snapshot.value?.nodes[1].id)
+  })
+
+  it('reads and submits the selected branch version instead of the whole Map revision', async () => {
+    const f = await opened()
+    f.session.selectNode('map-a-claim')
+    await vi.waitFor(() => expect(f.session.selectedBranch.value).toMatchObject({
+      scope: { rootIds: ['map-a-claim'], nodeIds: ['map-a-claim'] }, version: 'branch:map-a-claim:0:', rootRevisions: { 'map-a-claim': 0 },
+    }))
+    const proof = { rootIds: ['map-a-claim'], expectedVersion: f.session.selectedBranch.value!.version }
+    f.dispatch.mockResolvedValueOnce(claimed(f.snapshots.get('map-a')!, ['map-a-claim']))
+    f.dispatch.mockImplementationOnce(async (_id, method, params: any) => {
+      expect(method).toBe('graph.apply')
+      expect(params).toMatchObject({ branch: proof })
+      expect(params).not.toHaveProperty('expectedRevision')
+      const next = map('map-a', 'workspace-a', 9)
+      next.nodes[0].revision = 1; next.nodes[0].payload = { content: 'Saved by branch' }
+      f.snapshots.set('map-a', next)
+      return success({ snapshot: next, createdNodeIds: [], createdEdgeIds: [],
+        branch: { scope: { rootIds: ['map-a-claim'], nodeIds: ['map-a-claim'], edgeIds: [] }, version: 'branch:map-a-claim:1:', rootRevisions: { 'map-a-claim': 1 }, mapRevision: 9 } })
+    })
+    expect(await f.session.saveNode({ branch: proof, nodeId: 'map-a-claim', typeId: claimType.id, typeVersion: 1,
+      payload: { content: 'Saved by branch' } })).toBe(true)
+    expect(f.session.selectedBranch.value?.version).toBe('branch:map-a-claim:1:')
   })
 
   it('ignores late Map replies after a different Map is opened and aborts the old view', async () => {
@@ -275,8 +433,9 @@ describe('Client session state and subscriptions', () => {
       method === 'map.get' ? late.promise : normalRead(method, params, signal))
     const polling = f.session.refresh()
     const newest = map('map-a', 'workspace-a', 3)
-    f.dispatch.mockResolvedValueOnce(success({ snapshot: newest, createdNodeIds: [], createdEdgeIds: [] }))
-    await f.session.saveNode({ expectedRevision: 1, nodeId: 'map-a-claim', data: { kind: 'claim', content: 'Mine', category: null } })
+    f.dispatch.mockResolvedValueOnce(claimed(f.snapshots.get('map-a')!, ['map-a-claim']))
+      .mockResolvedValueOnce(success({ snapshot: newest, createdNodeIds: [], createdEdgeIds: [] }))
+    await f.session.saveNode({ branch: { rootIds: ['map-a-claim'], expectedVersion: 'branch:map-a-claim:0:' }, nodeId: 'map-a-claim', typeId: claimType.id, typeVersion: 1, payload: { content: 'Mine' } })
     late.resolve(map('map-a', 'workspace-a', 2))
     await polling
     expect(f.session.snapshot.value?.revision).toBe(3)
@@ -431,16 +590,17 @@ describe('Client session state and subscriptions', () => {
   })
 
   it('refreshes conflicts without auto-retrying or mutating the caller draft', async () => {
-    // 验证版本冲突会刷新快照，而不会自动重试或改写调用方草稿。
+    // 验证分支版本冲突会刷新快照，而不会自动重试或改写调用方草稿。
     const f = await opened()
     const draft = { kind: 'claim' as const, content: 'Unsaved user edit', category: null }
-    f.dispatch.mockRejectedValueOnce(error(409, 'REVISION_CONFLICT'))
+    f.dispatch.mockResolvedValueOnce(claimed(f.snapshots.get('map-a')!, ['map-a-claim']))
+      .mockRejectedValueOnce(error(409, 'BRANCH_VERSION_CONFLICT'))
     f.snapshots.set('map-a', map('map-a', 'workspace-a', 5))
-    expect(await f.session.saveNode({ expectedRevision: 1, nodeId: 'map-a-claim', data: draft })).toBe(false)
+    expect(await f.session.saveNode({ branch: { rootIds: ['map-a-claim'], expectedVersion: 'branch:map-a-claim:0:' }, nodeId: 'map-a-claim', typeId: claimType.id, typeVersion: 1, payload: { content: draft.content } })).toBe(false)
     expect(f.session.snapshot.value?.revision).toBe(5)
     expect(draft.content).toBe('Unsaved user edit')
     expect(f.session.canRetry.value).toBe(false)
-    expect(f.dispatch).toHaveBeenCalledOnce()
+    expect(f.dispatch.mock.calls.filter(call => call[1] === 'graph.apply')).toHaveLength(1)
   })
 
   it('retries the exact original mutation identity and payload even if the editor draft changes', async () => {
@@ -454,12 +614,13 @@ describe('Client session state and subscriptions', () => {
       /* 会话已复制的提交内容，再独立复制保存为调用观察值。 */ params
     ) => {
       // 记录命令副本并只使首次调用网络失败，供比较重试内容。
+      if (method === 'branch.claim') return claimed(f.snapshots.get('map-a')!, params.rootIds)
       sent.push(structuredClone({ id, method, params }))
       if (!failed) { failed = true; throw error(0, 'NETWORK_ERROR', true) }
       return success({ snapshot: map('map-a', 'workspace-a', 2), createdNodeIds: [], createdEdgeIds: [] })
     })
     const data = { kind: 'claim' as const, content: 'Original submitted edit', category: null }
-    await f.session.saveNode({ expectedRevision: 1, nodeId: 'map-a-claim', data })
+    await f.session.saveNode({ branch: { rootIds: ['map-a-claim'], expectedVersion: 'branch:map-a-claim:0:' }, nodeId: 'map-a-claim', typeId: claimType.id, typeVersion: 1, payload: { content: data.content } })
     expect(f.session.canRetry.value).toBe(true)
     data.content = 'A newer unsaved draft'
     await f.session.retry()
@@ -470,13 +631,14 @@ describe('Client session state and subscriptions', () => {
   it('drops a retry belonging to a Workspace that the user has left', async () => {
     // 验证离开工作区后丢弃属于旧工作区的写入重试。
     const f = await opened()
-    f.dispatch.mockRejectedValueOnce(error(0, 'NETWORK_ERROR', true))
-    await f.session.saveNode({ expectedRevision: 1, nodeId: 'map-a-claim', data: { kind: 'claim', content: 'Edit', category: null } })
+    f.dispatch.mockResolvedValueOnce(claimed(f.snapshots.get('map-a')!, ['map-a-claim']))
+      .mockRejectedValueOnce(error(0, 'NETWORK_ERROR', true))
+    await f.session.saveNode({ branch: { rootIds: ['map-a-claim'], expectedVersion: 'branch:map-a-claim:0:' }, nodeId: 'map-a-claim', typeId: claimType.id, typeVersion: 1, payload: { content: 'Edit' } })
     expect(f.session.canRetry.value).toBe(true)
     await f.session.selectWorkspace('workspace-b')
     expect(f.session.canRetry.value).toBe(false)
     await f.session.retry()
-    expect(f.dispatch).toHaveBeenCalledOnce()
+    expect(f.dispatch.mock.calls.filter(call => call[1] === 'graph.apply')).toHaveLength(1)
   })
 
   it('persists the new Workspace preferences after an old Workspace save finishes late', async () => {
@@ -514,9 +676,9 @@ describe('Client session state and subscriptions', () => {
   it('closes a tab without cancelling its remote Run and enforces refreshed Viewer permissions', async () => {
     // 验证关闭标签不取消运行，刷新为只读角色后拒绝图修改。
     const f = await opened()
-    f.snapshots.get('map-a')!.run = { id: 'run-a', scope: { nodeIds: ['map-a-claim'] }, until: 'verified', paused: false, regenerate: false, mode: 'human-in-loop', status: 'running', configuration: verificationConfiguration(),
+    f.snapshots.get('map-a')!.runs = [{ id: 'run-a', scope: { nodeIds: ['map-a-claim'] }, until: 'verified', paused: false, regenerate: false, mode: 'human-in-loop', status: 'running', configuration: verificationConfiguration(),
       operations: [{ id: 'operation-a', kind: 'verify', targetId: 'map-a-claim', status: 'running', inputRefs: [], configurationHash: 'fixture', outputRefs: [], splitReports: [], contentDraft: null,
-        route: null, reports: [], draft: null, review: null, resultNodeId: null }], createdAt: time, updatedAt: time }
+        route: null, reports: [], draft: null, review: null, resultNodeId: null }], createdAt: time, updatedAt: time }]
     f.snapshots.get('map-a')!.revision++
     await f.session.refresh()
     expect(f.session.active.value).toBe(true)
@@ -526,7 +688,7 @@ describe('Client session state and subscriptions', () => {
     f.workspaces.get('workspace-a')!.role = 'viewer'
     await f.session.refreshWorkspace()
     expect(f.session.canEdit.value).toBe(false)
-    expect(await f.session.createNode('claim', 'No write')).toBe(false)
+    expect(await f.session.createNode(claimType, { content: 'No write' })).toBe(false)
     expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查只读与关页操作没有产生图写入或运行取消。 */ call =>
       /* 检查关闭标签或只读写入尝试是否错误发出运行取消或图变更命令。 */
       call[1] === 'run.cancel' || call[1] === 'graph.apply')).toBe(false)

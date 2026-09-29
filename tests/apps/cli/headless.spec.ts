@@ -46,6 +46,23 @@ async function cliReadResult(/* 本次子进程要执行的 CLI 参数列表。 
   } finally { clearTimeout(timer) }
 }
 
+async function createActiveRun() {
+  const workspace = await api.createWorkspace(), mapId = randomUUID(), claimId = randomUUID(), runId = randomUUID()
+  expect((await api.command('map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'CLI watch graph' })).status).toBe(201)
+  expect((await api.command('graph.apply', { mapId, branch: { rootIds: [claimId], expectedVersion: null }, changes: { nodes: { put: [{ id: claimId,
+    typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'CLI watch claim', category: null } }] } } })).status).toBe(200)
+  const definitions = await api.post('/api/v1/query', { method: 'definition.get', params: { workspaceId: workspace.id } })
+  const transition = definitions.body.data.catalog.transitions.find((item: any) => item.id === 'factcheck.verify-claim' && item.version === 1)
+  const plan = { steps: [{ id: 'verify', transitionRef: { id: transition.id, version: transition.version }, dependsOn: [],
+    input: [{ port: 'claim', source: { kind: 'scope', nodeIds: [claimId] } }],
+    context: [{ port: 'news', source: { kind: 'scope', nodeIds: [] } }], grouping: { mode: 'each' }, onEmpty: 'fail' }] }
+  const branch = await api.branch(mapId, [claimId])
+  const started = await api.command('run.start', { mapId, id: runId,
+    branch: { rootIds: branch.scope.rootIds, expectedVersion: branch.version }, scope: { nodeIds: [claimId] }, plan, mode: 'auto' })
+  expect(started.status).toBe(200)
+  return { mapId, runId }
+}
+
 describe('Headless authenticated client', () => {
   // 组织无界面客户端的离线用法、鉴权、流和文件行为回归用例。
   it('prints help without credentials or a database and rejects legacy/invalid commands before connecting', async () => {
@@ -82,14 +99,22 @@ describe('Headless authenticated client', () => {
     const forbidden = await cliReadResult(['read', 'map.get', '--input', '-'], { mapId }, token)
     expect(forbidden.code).toBe(1)
     expect([403, 404]).toContain(JSON.parse(forbidden.stderr).error.status)
+    const nodeId = randomUUID()
+    expect((await api.command('graph.apply', { mapId, branch: { rootIds: [nodeId], expectedVersion: null }, changes: { nodes: { put: [{ id: nodeId,
+      typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Original', category: null } }] } } })).status).toBe(200)
+    const original = await api.branch(mapId, [nodeId])
+    expect((await api.command('graph.apply', { mapId, branch: { rootIds: original.scope.rootIds, expectedVersion: original.version }, changes: { nodes: { put: [{ id: nodeId,
+      typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Current', category: null } }] } } })).status).toBe(200)
     const conflict = await cliReadResult(['dispatch', 'graph.apply', '--request-id', randomUUID(), '--input', '-'],
-      { mapId, expectedRevision: 99, changes: { name: 'Wrong revision' } })
-    expect(JSON.parse(conflict.stderr).error.code).toBe('REVISION_CONFLICT')
+      { mapId, branch: { rootIds: original.scope.rootIds, expectedVersion: original.version }, changes: { nodes: { put: [{ id: nodeId,
+        typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Stale overwrite', category: null } }] } } })
+    expect(conflict.code).toBe(1)
+    expect(JSON.parse(conflict.stderr).error.code).toBe('BRANCH_VERSION_CONFLICT')
   }, 20_000)
 
   it('streams a full baseline and graph updates; stopping the CLI leaves shared work running', async () => {
     // 验证订阅输出快照及更新，取消命令行不会暂停或取消共享 Run。
-    const { mapId } = await api.createRun()
+    const { mapId } = await createActiveRun()
     const child = cliCreateProcess(['watch', mapId])
     child.stdin.end()
     let stdout = ''
@@ -100,16 +125,16 @@ describe('Headless authenticated client', () => {
     try {
       await expect.poll(() => /* 读取当前输出，等待首个快照到达。 */  stdout, { timeout: 5000 }).toContain('"type":"snapshot"')
       const prior = await api.snapshot(mapId)
-      await api.command('run.pause', { mapId, runId: prior.run.id, expectedRevision: prior.revision })
+      await api.command('run.pause', { mapId, runId: prior.runs[0].id })
       await expect.poll(() => /* 读取当前输出，等待暂停状态进入事件流。 */  stdout, { timeout: 5000 }).toContain('"paused":true')
       const paused = await api.snapshot(mapId)
-      await api.command('run.resume', { mapId, runId: paused.run.id, expectedRevision: paused.revision })
+      await api.command('run.resume', { mapId, runId: paused.runs[0].id })
       await expect.poll(() => /* 检测恢复操作产生的新版本是否已出现在输出中。 */  stdout.includes('"revision":' + (paused.revision + 1)), { timeout: 5000 }).toBe(true)
       child.kill('SIGINT')
       expect(await ended).toBe(130)
-      expect((await api.snapshot(mapId)).run.status).toBe('running')
+      expect((await api.snapshot(mapId)).runs[0].status).toBe('running')
     } finally { child.kill('SIGKILL'); await ended }
-  })
+  }, 20_000)
 
   it('uploads and downloads via the shared file channel without overwriting local files', async () => {
     // 验证通过公共文件端点上传下载，并拒绝覆盖已存在的本地文件。

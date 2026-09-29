@@ -3,24 +3,27 @@
 import { ACTIVITY_LABELS, type GraphActivity } from '../../../../contracts/activity'
 import { computed } from 'vue'
 import type { CommandInputMap } from '../../../../contracts/client'
-import type { GraphSnapshot } from '../../../../contracts/graph'
+import type { GraphRun, GraphRunControlGrant, GraphSnapshot } from '../../../../contracts/graph'
 import OperationReview from './OperationReview.vue'
-import { GRAPH_OPERATION_LABELS, graphReadOperationProgress, graphReadRunProgress } from '../graph/graph-layout'
+import { graphReadOperationLabel, graphReadOperationProgress, graphReadRunProgress } from '../graph/graph-layout'
 
-const props = defineProps<{ snapshot: GraphSnapshot; activities?: GraphActivity[]; canEdit: boolean; busy: boolean }>()
+const props = defineProps<{ snapshot: GraphSnapshot; run: GraphRun | null; activities?: GraphActivity[]; canEdit: boolean; busy: boolean; control: GraphRunControlGrant | null; leasesRequired: boolean }>()
 const emit = defineEmits<{
-  update: [input: CommandInputMap['review.update']]
-  answer: [input: CommandInputMap['review.answer']]
-  cancel: [input: CommandInputMap['run.cancel']]
-  pause: [input: CommandInputMap['run.pause']]
-  resume: [input: CommandInputMap['run.resume']]
+  answer: [input: Omit<CommandInputMap['review.answer'], 'control'>]
+  cancel: [input: Omit<CommandInputMap['run.cancel'], 'control'>]
+  pause: [input: Omit<CommandInputMap['run.pause'], 'control'>]
+  resume: [input: Omit<CommandInputMap['run.resume'], 'control'>]
+  claim: []
+  release: []
 }>()
-const run = computed(() => /* 从当前图快照取得运行状态供面板展示。 */ props.snapshot.run)
+const run = computed(() => /* 使用会话明确选择的 Run。 */ props.run)
 const active = computed(() => /* 判断运行是否仍在执行或等待，暂停中的运行也保留控制入口。 */ !!run.value && ['running', 'waiting'].includes(run.value.status))
+const hasControl = computed(() => !!run.value && (!props.leasesRequired || props.control?.runId === run.value.id))
+const occupied = computed(() => !!run.value && props.snapshot.runControls.some(control => control.runId === run.value!.id))
 function reviewUpdateControl(/* 用户选择的运行控制动作，只接受暂停、恢复或取消。 */ action: 'pause' | 'resume' | 'cancel'): void {
-  // 在具备权限且运行未结束时，携带当前版本发送暂停、恢复或取消事件。
-  if (!run.value || !active.value || !props.canEdit || props.busy) return
-  const params = { mapId: props.snapshot.mapId, expectedRevision: props.snapshot.revision, runId: run.value.id }
+  // 在具备权限且运行未结束时发送暂停、恢复或取消事件。
+  if (!run.value || !active.value || !props.canEdit || !hasControl.value || props.busy) return
+  const params = { mapId: props.snapshot.mapId, runId: run.value.id }
   if (action === 'pause') emit('pause', params)
   else if (action === 'resume') emit('resume', params)
   else emit('cancel', params)
@@ -35,23 +38,26 @@ function reviewUpdateControl(/* 用户选择的运行控制动作，只接受暂
     <template v-else>
       <div class="run-summary">
         <strong role="status">{{ graphReadRunProgress(run) }}</strong>
-        <p>范围 {{ run.scope.nodeIds.length }} 个节点 · {{ { news: '生成新闻', claims: '生成事实', verified: '完成核查' }[run.until] }}</p>
+        <p>范围 {{ run.scope.nodeIds.length }} 个节点 · {{ run.plan.steps.length }} 个转换步骤</p>
         <p v-if="run.error" class="error" role="alert">{{ run.error.message }}</p>
         <p v-if="run.paused && active" class="run-note">已保存的结果和审核会保留。继续后，从未完成的工作接着处理。</p>
-        <div v-if="active && canEdit" class="run-actions">
+        <div v-if="active && canEdit && hasControl" class="run-actions">
           <button v-if="run.paused" class="primary" type="button" :disabled="busy" @click="reviewUpdateControl('resume')">继续处理</button>
           <button v-else type="button" :disabled="busy" @click="reviewUpdateControl('pause')">暂停处理</button>
           <button class="cancel" type="button" :disabled="busy" @click="reviewUpdateControl('cancel')">取消本次运行</button>
+          <button v-if="leasesRequired" type="button" :disabled="busy" @click="emit('release')">释放控制权</button>
         </div>
+        <button v-else-if="active && canEdit" type="button" :disabled="busy" @click="emit('claim')">{{ occupied ? '尝试领取运行控制权' : '领取运行控制权' }}</button>
+        <p v-if="active && occupied && !hasControl" class="run-note">另一客户端持有运行控制权，本窗口只读。</p>
       </div>
       <details v-for="operation in run.operations" :key="`${run.id}:${operation.id}`" class="operation-group" :open="operation.status !== 'completed'">
-        <summary><strong>{{ GRAPH_OPERATION_LABELS[operation.kind] }}</strong><span>{{ graphReadOperationProgress(operation) }}</span></summary>
+        <summary><strong>{{ graphReadOperationLabel(operation) }}</strong><span>{{ graphReadOperationProgress(operation) }}</span></summary>
         <ul v-if="!run.paused && activities?.some(/* 会话提供的活动摘要，用 Operation 身份匹配本行。 */ item => /* 只显示当前 Operation 的执行活动。 */ item.operationId === operation.id)" class="activity-list" aria-label="当前执行活动">
           <li v-for="item in activities.filter(/* 会话提供的活动摘要，用 Operation 身份匹配本行。 */ item => /* 只显示当前 Operation 的执行活动。 */ item.operationId === operation.id)" :key="item.workId">
             <strong>{{ item.agentName }}</strong> · {{ ACTIVITY_LABELS[item.status] }}
           </li>
         </ul>
-        <OperationReview :snapshot="snapshot" :run="run" :operation="operation" :can-edit="canEdit" :busy="busy" @update="emit('update', $event)" @answer="emit('answer', $event)" />
+        <OperationReview :snapshot="snapshot" :run="run" :operation="operation" :can-edit="canEdit" :can-control="hasControl" :busy="busy" @answer="emit('answer', $event)" />
       </details>
     </template>
   </section>

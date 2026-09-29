@@ -4,14 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientCreateApi, clientCreateGateway, clientReadBaseUrl } from '../../client/graph-client'
 import { ClientError } from '../../contracts/client'
 import type { AppBootstrap } from '../../contracts/control'
-import { verificationConfiguration } from '../backend/fixtures/verification'
 
 const bootstrap: AppBootstrap = {
   identity: { userId: 'user', displayName: 'Tester', hostAdmin: false },
   settings: { revision: 0, llm: { provider: 'fixture', model: 'fixture' }, tools: [], limits: { maxAgentSlots: 4 } },
-  metadata: { version: '056', promptKinds: ['verifyRoute'], executableKinds: ['verify'], scores: [0, 0.5, 1] },
+  metadata: { version: '056', promptKinds: ['verifyRoute'], executableKinds: ['verify'], scores: [0, 0.5, 1], variables: {}, outputs: [],
+    definitions: { queryMethod: 'definition.get', publishMethod: 'definition.publish' } },
 }
-const snapshot = { mapId: 'map', workspaceId: 'workspace', revision: 7, name: 'Map', nodes: [], edges: [], run: null, updatedAt: '' }
+const snapshot = { mapId: 'map', workspaceId: 'workspace', revision: 7, ownershipRevision: 0, ownerships: [], runControls: [], name: 'Map', nodes: [], edges: [], runs: [], updatedAt: '' }
 function success(
   /* 嵌入成功响应的测试业务数据，可故意缺失字段用于协议校验。 */ data: unknown,
   /* 响应中的关联请求身份，默认 response；可指定错误身份验证匹配检查。 */ requestId = 'response'
@@ -44,52 +44,80 @@ describe('public Fetch client', () => {
   // 验证公开 Fetch 客户端的协议校验、取消、路径和认证边界。
   it('requires the new Run scope and control state and carries both control commands', async () => {
     // 验证 Run 控制字段必须齐全，且暂停与恢复命令返回对应状态。
-    const run = { id: 'run', scope: { nodeIds: ['claim'] }, until: 'verified', paused: true, regenerate: false,
-      status: 'waiting', mode: 'human-in-loop', configuration: verificationConfiguration(), operations: [], createdAt: '', updatedAt: '' }
+    const run = { id: 'run', scope: { nodeIds: ['node'] }, plan: { steps: [] },
+      definitions: { revision: 1, packages: [], index: [], dataTypes: [], transitions: [] }, agents: [], tools: [], maxAgentSlots: 4,
+      paused: true, regenerate: false, status: 'waiting', mode: 'human-in-loop', steps: [], operations: [], createdAt: '', updatedAt: '' }
     const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(success({ ...snapshot, run: { ...run, paused: undefined } }))
-      .mockResolvedValueOnce(success({ ...snapshot, run: { ...run, operations: undefined, operation: {} } }))
-      .mockResolvedValueOnce(success({ snapshot: { ...snapshot, run }, createdNodeIds: [], createdEdgeIds: [] }, 'pause'))
-      .mockResolvedValueOnce(success({ snapshot: { ...snapshot, run: { ...run, paused: false } }, createdNodeIds: [], createdEdgeIds: [] }, 'resume'))
+      .mockResolvedValueOnce(success({ ...snapshot, runs: [{ ...run, paused: undefined }] }))
+      .mockResolvedValueOnce(success({ ...snapshot, runs: [{ ...run, operations: undefined, operation: {} }] }))
+      .mockResolvedValueOnce(success({ snapshot: { ...snapshot, runs: [run] }, createdNodeIds: [], createdEdgeIds: [] }, 'pause'))
+      .mockResolvedValueOnce(success({ snapshot: { ...snapshot, runs: [{ ...run, paused: false }] }, createdNodeIds: [], createdEdgeIds: [] }, 'resume'))
     const client = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'token', fetch: fetcher })
     await expect(client.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
     await expect(client.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
-    const params = { mapId: 'map', expectedRevision: 7, runId: 'run' }
-    expect((await client.dispatch('pause', 'run.pause', params)).data.snapshot.run?.paused).toBe(true)
-    expect((await client.dispatch('resume', 'run.resume', params)).data.snapshot.run?.paused).toBe(false)
+    const params = { mapId: 'map', runId: 'run', control: { leaseId: '11111111-1111-4111-8111-111111111111',
+      holderId: '22222222-2222-4222-8222-222222222222', fence: 1 } }
+    expect((await client.dispatch('pause', 'run.pause', params)).data.snapshot.runs[0]?.paused).toBe(true)
+    expect((await client.dispatch('resume', 'run.resume', params)).data.snapshot.runs[0]?.paused).toBe(false)
     client.close()
   })
 
   it('uses fixed API paths and preserves mutation identity, result and revision', async () => {
-    // 验证查询和命令使用固定端点，并保留请求身份、版本与返回结果。
+    // 验证查询和命令使用固定端点，并保留请求身份、分支版本与返回结果。
+    const branch = { scope: { rootIds: ['node'], nodeIds: ['node'], edgeIds: [] }, version: 'branch-version-1', rootRevisions: { node: 0 }, mapRevision: 7 }
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(success(snapshot))
+      .mockResolvedValueOnce(success(branch))
       .mockResolvedValueOnce(success({ snapshot, createdNodeIds: [], createdEdgeIds: [] }, 'request-1'))
     const client = clientCreateApi({ baseUrl: 'http://localhost:4320/', token: 'test-token', fetch: fetcher })
     expect(await client.read('map.get', { mapId: 'map' })).toEqual(snapshot)
-    const result = await client.dispatch('request-1', 'graph.apply', { mapId: 'map', expectedRevision: 6, changes: { name: 'Renamed' } })
+    expect(await client.read('branch.get', { mapId: 'map', rootIds: ['node'] })).toEqual(branch)
+    const result = await client.dispatch('request-1', 'graph.apply', { mapId: 'map', branch: { rootIds: ['node'], expectedVersion: branch.version }, changes: { name: 'Renamed' } })
     expect(result.data.snapshot.revision).toBe(7)
     expect(fetcher.mock.calls.map(/* Vitest 记录的 Fetch 参数元组，首项用于固定路径断言。 */ call =>
       /* 提取 Fetch 调用 URL，供路径断言。 */
-      String(call[0]))).toEqual(['http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/command'])
+      String(call[0]))).toEqual(['http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/command'])
     for (const [, init] of fetcher.mock.calls) expect(init).toMatchObject({ redirect: 'error', credentials: 'omit', headers: { authorization: 'Bearer test-token' } })
-    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toMatchObject({ requestId: 'request-1', params: { expectedRevision: 6 } })
+    expect(JSON.parse(String(fetcher.mock.calls[2][1]!.body))).toMatchObject({ requestId: 'request-1', params: { branch: { rootIds: ['node'], expectedVersion: 'branch-version-1' } } })
+    client.close()
+  })
+
+  it('rejects incomplete branch snapshots before exposing an edit proof', async () => {
+    const valid = { scope: { rootIds: ['node'], nodeIds: ['node'], edgeIds: [] }, version: 'branch-version', rootRevisions: { node: 0 }, mapRevision: 7 }
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(success({ ...valid, version: '' }))
+      .mockResolvedValueOnce(success({ ...valid, scope: { ...valid.scope, rootIds: [] } }))
+      .mockResolvedValueOnce(success(valid))
+    const client = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'token', fetch: fetcher })
+    await expect(client.read('branch.get', { mapId: 'map', rootIds: ['node'] })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    await expect(client.read('branch.get', { mapId: 'map', rootIds: ['node'] })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    await expect(client.read('branch.get', { mapId: 'map', rootIds: ['node'] })).resolves.toEqual(valid)
+    client.close()
+  })
+
+  it('rejects a write response that combines a current snapshot with an older committed branch proof', async () => {
+    const branch = { scope: { rootIds: ['node'], nodeIds: ['node'], edgeIds: [] }, version: 'old', rootRevisions: { node: 0 }, mapRevision: 6 }
+    const current = { ...snapshot, nodes: [{ id: 'node', revision: 0, typeId: 'demo.node', typeVersion: 1, payload: {}, createdAt: '', updatedAt: '' }] }
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(success({ snapshot: current, createdNodeIds: [], createdEdgeIds: [], branch }, 'request'))
+    const client = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'token', fetch: fetcher })
+    await expect(client.dispatch('request', 'graph.apply', { mapId: 'map', branch: { rootIds: ['node'], expectedVersion: 'base' },
+      changes: { name: 'Name' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
     client.close()
   })
 
   it('never rebases or retries a 409 and rejects missing or mismatched success results', async () => {
     // 验证 409 不会自动重试或改写版本，缺失或错配的成功响应会被拒绝。
     const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ ok: false, requestId: 'request', error: { code: 'REVISION_CONFLICT', message: 'Changed', retryable: false, currentRevision: 9 } }, { status: 409 }))
+      .mockResolvedValueOnce(Response.json({ ok: false, requestId: 'request', error: { code: 'BRANCH_VERSION_CONFLICT', message: 'Changed', retryable: false } }, { status: 409 }))
       .mockResolvedValueOnce(Response.json({ ok: true, requestId: 'response', replayed: false }))
       .mockResolvedValueOnce(success({}))
       .mockResolvedValueOnce(success({ snapshot, createdNodeIds: [], createdEdgeIds: [] }, 'wrong-request'))
       .mockResolvedValueOnce(success({ ...snapshot, nodes: null }))
     const client = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'test-token', fetch: fetcher })
-    await expect(client.dispatch('request', 'graph.apply', { mapId: 'map', expectedRevision: 1, changes: { name: 'Name' } })).rejects.toMatchObject({ code: 'REVISION_CONFLICT', status: 409, retryable: false, currentRevision: 9 })
+    await expect(client.dispatch('request', 'graph.apply', { mapId: 'map', branch: { rootIds: ['node'], expectedVersion: 'old' }, changes: { name: 'Name' } })).rejects.toMatchObject({ code: 'BRANCH_VERSION_CONFLICT', status: 409, retryable: false })
     expect(fetcher).toHaveBeenCalledTimes(1)
     await expect(client.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
     await expect(client.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
-    await expect(client.dispatch('request', 'graph.apply', { mapId: 'map', expectedRevision: 1, changes: { name: 'Name' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    await expect(client.dispatch('request', 'graph.apply', { mapId: 'map', branch: { rootIds: ['node'], expectedVersion: 'old' }, changes: { name: 'Name' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
     await expect(client.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
     expect(fetcher).toHaveBeenCalledTimes(5)
   })
@@ -118,21 +146,24 @@ describe('public Fetch client', () => {
     await expect(timed.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT', retryable: true })
   })
 
-  it('rejects a minimized News DTO before it reaches the UI and accepts an explicit empty context', async () => {
-    // 验证新闻响应必须显式包含 context，空对象合法而缺失字段无效。
+  it('rejects an incomplete generic node envelope and accepts arbitrary JSON payload fields', async () => {
+    // 客户端只验证通用信封；业务 payload 的精确 schema 由服务端注册定义保证。
     const broken = {
-      id: 'news-1', revision: 0, createdAt: '2026-09-11T00:00:00.000Z', updatedAt: '2026-09-11T00:00:00.000Z',
-      data: { kind: 'news', content: 'Stored News with missing context' },
+      id: 'node-1', revision: 0, typeId: 'demo.note', createdAt: '2026-09-11T00:00:00.000Z', updatedAt: '2026-09-11T00:00:00.000Z',
+      payload: { anyRegisteredField: 'value' },
     }
-    const valid = { ...broken, data: { ...broken.data, context: {} } }
+    const valid = { ...broken, typeVersion: 3 }
+    const definitions = { workspaceId: 'workspace', catalog: { revision: 2, packages: [], index: [], dataTypes: [], transitions: [] } }
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(success({ ...snapshot, nodes: [broken] }))
       .mockResolvedValueOnce(success({ ...snapshot, nodes: [valid] }))
+      .mockResolvedValueOnce(success(definitions))
       .mockResolvedValueOnce(success({ snapshot: { ...snapshot, nodes: [broken] }, createdNodeIds: [], createdEdgeIds: [] }, 'mutation'))
     const api = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'token', fetch: fetcher })
-    await expect(api.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ name: 'ClientError', code: 'INVALID_RESPONSE', message: expect.stringContaining('news.context') })
+    await expect(api.read('map.get', { mapId: 'map' })).rejects.toMatchObject({ name: 'ClientError', code: 'INVALID_RESPONSE' })
     expect((await api.read('map.get', { mapId: 'map' })).nodes[0]).toEqual(valid)
-    await expect(api.dispatch('mutation', 'graph.apply', { mapId: 'map', expectedRevision: 7, changes: { name: 'Map' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+    expect(await api.read('definition.get', { workspaceId: 'workspace' })).toEqual(definitions)
+    await expect(api.dispatch('mutation', 'graph.apply', { mapId: 'map', branch: { rootIds: ['node'], expectedVersion: 'version' }, changes: { name: 'Map' } })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
     api.close()
   })
 

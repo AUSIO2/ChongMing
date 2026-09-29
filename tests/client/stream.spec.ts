@@ -8,7 +8,7 @@ import type { GraphStreamEvent } from '../../contracts/events'
 const mapId = randomUUID(), workspaceId = randomUUID()
 const snapshot = (/* 测试快照的版本号，默认 1，用于观察后续实时更新。 */ revision = 1): GraphSnapshot =>
   /* 构造属于固定图与工作区、可指定版本的实时基线快照。 */
-  ({ mapId, workspaceId, revision, name: '实时图', nodes: [], edges: [], run: null, updatedAt: '' })
+  ({ mapId, workspaceId, revision, ownershipRevision: 0, ownerships: [], runControls: [], name: '实时图', nodes: [], edges: [], runs: [], updatedAt: '' })
 const encode = (/* 待编码的 SSE 测试文本，包含刻意构造的换行边界。 */ text: string) => /* 将测试帧文本编码为 UTF-8 字节。 */ new TextEncoder().encode(text)
 function stream(/* 按顺序交付的字节块数组，可逐字节拆分 UTF-8 与 CRLF。 */ parts: Uint8Array[], /* 交付全部字节后是否关闭流，默认 true；false 用于空闲和取消测试。 */ end = true) {
   // 按给定字节块构造 SSE 响应，可选择保持流不结束。

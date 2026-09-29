@@ -1,9 +1,11 @@
 <!-- 资产管理：分页浏览、上传下载、创建来源及分阶段导入工作区。 -->
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref } from 'vue'
+import { computed, onMounted, onScopeDispose, ref, shallowRef } from 'vue'
 import { CLIENT_FILE_LIMIT, type ClientDownloadInput, type ClientGateway } from '../../../../contracts/client'
-import type { AppBootstrap, Asset, ImportResult, WorkspaceView } from '../../../../contracts/control'
-import type { GraphSnapshot } from '../../../../contracts/graph'
+import type { AppBootstrap, Asset, DefinitionView, ImportResult, WorkspaceView } from '../../../../contracts/control'
+import type { DataReferenceDefinition, DataSchema, JsonValue } from '../../../../contracts/data-definition'
+import type { GraphPayload, GraphSnapshot } from '../../../../contracts/graph'
+import { payloadCreateInitial, payloadFindType, payloadReadPointer } from '../graph/data-payload'
 import { clientSaveFile } from './file-save'
 import { useManagementTask } from '../management/use-management'
 
@@ -17,13 +19,12 @@ const uploadInput = ref<HTMLInputElement | null>(null), importInput = ref<HTMLIn
 const importName = ref(''), importStage = ref<{ targetId: string; asset: Asset; result: ImportResult | null; name: string } | null>(null)
 const deleteTarget = ref<Asset | null>(null), readingFile = ref(false), localError = ref(''), message = ref('')
 const createdSources = ref<Record<string, number>>({})
+const definitions = shallowRef<DefinitionView | null>(null)
 const owner = computed(() => /* 判断当前用户是否拥有工作区管理权限。 */ props.workspace?.role === 'owner')
 const canUpload = computed(() => /* 判断当前工作区是否允许上传和新增来源。 */ !!props.workspace && props.workspace.role !== 'viewer')
 const locked = computed(() => /* 在请求执行、等待重试或读取本地文件时锁定资产操作。 */ busy.value || canRetry.value || readingFile.value)
 const currentMap = computed(() => /* 仅使用属于当前工作区的图快照作为来源添加目标。 */ props.snapshot?.workspaceId === props.workspace?.id ? props.snapshot : null)
-const mapActive = computed(() =>
-  /* 判断当前图是否有运行中或等待中的运行，暂停状态也阻止改图。 */
-  !!currentMap.value?.run && ['running', 'waiting'].includes(currentMap.value.run.status))
+const sourceType = computed(() => definitions.value?.catalog.dataTypes.find(type => type.references.some(reference => reference.target.kind === 'asset')))
 const mediaTypes: Record<string, string> = { txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', html: 'text/html', htm: 'text/html', json: 'application/json' }
 let alive = true
 onScopeDispose(() => {
@@ -96,22 +97,68 @@ function assetIsSourceReference(/* 待检查的资产记录，只用其身份查
   if (!map) return false
   const submittedRevision = createdSources.value[map.mapId + ':' + asset.id]
   return (submittedRevision !== undefined && map.revision < submittedRevision)
-    || map.nodes.some(/* 当前图中的只读节点，检查其资产定位信息。 */ node =>
-      /* 匹配通过资产定位信息引用当前文件的来源节点。 */
-      node.data.kind === 'source' && node.data.locator.kind === 'asset' && node.data.locator.assetId === asset.id)
+    || map.nodes.some(node => {
+      const type = payloadFindType(definitions.value?.catalog, node)
+      return type?.references.some(reference => reference.target.kind === 'asset'
+        && payloadReadPointer(node.payload, reference.path) === asset.id
+        && (!reference.when || payloadReadPointer(node.payload, reference.when.path) === reference.when.equals))
+    })
+}
+function assetSetPointer(/* 要更新的通用 payload。 */ payload: GraphPayload, /* 已发布定义中的 JSON Pointer。 */ pointer: string, /* 写入的 JSON 值。 */ value: JsonValue): void {
+  const parts = pointer.split('/').slice(1).map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'))
+  if (!parts.length) return
+  let target: Record<string, JsonValue> = payload
+  for (const part of parts.slice(0, -1)) {
+    const prior = target[part]
+    if (!prior || typeof prior !== 'object' || Array.isArray(prior)) target[part] = {}
+    target = target[part] as Record<string, JsonValue>
+  }
+  target[parts[parts.length - 1]] = value
+}
+function assetSchemaHasPointer(/* 根数据 schema。 */ root: DataSchema, /* 要检查的 JSON Pointer。 */ pointer: string): boolean {
+  let candidates: DataSchema[] = [root]
+  for (const part of pointer.split('/').slice(1).map(value => value.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+    candidates = candidates.flatMap(schema => {
+      const resolved = schema.$ref?.startsWith('#/definitions/') ? root.definitions?.[schema.$ref.slice('#/definitions/'.length)] ?? schema : schema
+      return (resolved.oneOf ?? [resolved]).flatMap(option => option.properties?.[part] ? [option.properties[part]] : [])
+    })
+    if (!candidates.length) return false
+  }
+  return true
+}
+function assetCreatePayload(/* 提供内容元数据的已上传资产。 */ asset: Asset, /* 类型声明中的资产引用。 */ reference: DataReferenceDefinition): GraphPayload {
+  const type = sourceType.value!
+  const initial = payloadCreateInitial(type.schema)
+  const payload: GraphPayload = initial && typeof initial === 'object' && !Array.isArray(initial) ? initial : {}
+  assetSetPointer(payload, reference.path, asset.id)
+  if (reference.when) assetSetPointer(payload, reference.when.path, reference.when.equals)
+  const parent = reference.path.split('/').slice(0, -1).join('/')
+  if (assetSchemaHasPointer(type.schema, `${parent}/mediaType`)) assetSetPointer(payload, `${parent}/mediaType`, asset.mediaType)
+  if (type.presentation?.titlePath && assetSchemaHasPointer(type.schema, type.presentation.titlePath)) assetSetPointer(payload, type.presentation.titlePath, asset.filename)
+  return payload
 }
 async function assetCreateSource(/* 用户要引用的已上传资产，其身份、媒体类型和文件名写入新来源节点。 */ asset: Asset) {
   // 在图可编辑且未引用该资产时创建来源节点，并记录服务端确认版本防止重复添加。
   const map = currentMap.value
-  if (!map || !canUpload.value || mapActive.value || assetIsSourceReference(asset)) return
+  const type = sourceType.value
+  const reference = type?.references.find(item => item.target.kind === 'asset')
+  if (!map || !type || !reference || !canUpload.value || assetIsSourceReference(asset)) return
   const nodeId = crypto.randomUUID()
-  await task.command('graph.apply', { mapId: map.mapId, expectedRevision: map.revision,
-    changes: { nodes: { put: [{ id: nodeId, data: { kind: 'source', locator: { kind: 'asset', assetId: asset.id, mediaType: asset.mediaType }, label: asset.filename } }] } } }, /* 来源节点保存成功的响应，用图版本记录刚确认的引用。 */ result => {
+  await task.command('graph.apply', { mapId: map.mapId, branch: { rootIds: [nodeId], expectedVersion: null },
+    changes: { nodes: { put: [{ id: nodeId, typeId: type.id, typeVersion: type.version, payload: assetCreatePayload(asset, reference) }] } } }, /* 来源节点保存成功的响应，用图版本记录刚确认的引用。 */ result => {
     // 记录来源新增结果对应的图版本，并通知父组件刷新。
     const confirmed = result.data.snapshot
     createdSources.value[confirmed.mapId + ':' + asset.id] = confirmed.revision
     message.value = `已将“${asset.filename}”添加到“${map.name}”。`; emit('changed')
   })
+}
+async function assetReadDefinitions() {
+  if (!props.workspace) return
+  await task.read('definition.get', { workspaceId: props.workspace.id }, value => { definitions.value = value })
+}
+async function assetRefresh() {
+  await assetReadDefinitions()
+  if (!canRetry.value) await assetReadList()
 }
 async function assetReadFile(/* 用户选择的下载对象，限定为资产、图或工作区及其身份。 */ input: ClientDownloadInput) {
   // 下载指定文件，并在成功后通过浏览器保存。
@@ -156,21 +203,25 @@ function assetResetImport() {
   // 操作空闲时清空导入阶段、文件选择、名称和本地错误。
   if (locked.value) return; importStage.value = null; importFile.value = null; importName.value = ''; localError.value = ''
 }
-onMounted(() => /* 组件挂载后加载当前工作区的资产列表。 */ assetReadList())
+onMounted(async () => {
+  // 资产引用需要精确类型定义；与列表一起加载并缓存于当前管理面板。
+  await assetReadDefinitions()
+  await assetReadList()
+})
 </script>
 
 <template>
   <!-- 按上传、列表、导出和分阶段导入组织资产操作与确认信息。 -->
   <section class="asset-management" aria-label="资产与导入导出">
-    <header class="toolbar"><div><h2>资产与文件流转</h2><p>上传文件保存在共享工作区；单个文件或包最大 64 MiB。</p></div><button :disabled="locked || !workspace" @click="assetReadList()">刷新资产</button></header>
+    <header class="toolbar"><div><h2>资产与文件流转</h2><p>上传文件保存在共享工作区；单个文件或包最大 64 MiB。</p></div><button :disabled="locked || !workspace" @click="assetRefresh">刷新资产</button></header>
     <p v-if="!workspace" class="notice">选择工作区后查看资产与导入导出。</p>
     <template v-else>
       <div v-if="error" class="notice error" role="alert"><p>{{ error.message }}</p><p v-if="canRetry">请求结果尚未确认。重试保留原请求与目标身份，已完成的阶段不会重复创建。</p><div class="actions"><button v-if="canRetry" :disabled="busy" @click="task.retry">重试同一操作</button><button :disabled="busy" @click="task.clearError">{{ canRetry ? '放弃重试' : '关闭提示' }}</button></div></div>
       <p v-if="localError" class="error notice" role="alert">{{ localError }}</p><p v-if="message" class="notice" role="status">{{ message }}</p>
-      <section v-if="canUpload" class="file-card"><h3>上传资产</h3><label>选择文件<input ref="uploadInput" type="file" :disabled="locked" aria-label="上传资产文件" @change="assetUpdateFileSelection($event)"></label><div class="actions"><span v-if="selectedFile">{{ selectedFile.name }} · {{ assetFormatSize(selectedFile.size) }}</span><button class="primary" :disabled="locked || !selectedFile" @click="assetCreateUpload()">{{ readingFile ? '读取文件…' : '上传资产' }}</button></div><div v-if="uploaded" class="upload-result"><strong>已上传：{{ uploaded.filename }}</strong><small>{{ assetFormatSize(uploaded.size) }} · {{ uploaded.mediaType }}</small><button :disabled="locked || !currentMap || mapActive || assetIsSourceReference(uploaded)" @click="assetCreateSource(uploaded)">{{ assetIsSourceReference(uploaded) ? '当前图已有此来源' : '将已上传资产添加为来源' }}</button><p>引用失败时资产仍保留；重试引用即可，无需重新上传。</p></div></section>
+      <section v-if="canUpload" class="file-card"><h3>上传资产</h3><label>选择文件<input ref="uploadInput" type="file" :disabled="locked" aria-label="上传资产文件" @change="assetUpdateFileSelection($event)"></label><div class="actions"><span v-if="selectedFile">{{ selectedFile.name }} · {{ assetFormatSize(selectedFile.size) }}</span><button class="primary" :disabled="locked || !selectedFile" @click="assetCreateUpload()">{{ readingFile ? '读取文件…' : '上传资产' }}</button></div><div v-if="uploaded" class="upload-result"><strong>已上传：{{ uploaded.filename }}</strong><small>{{ assetFormatSize(uploaded.size) }} · {{ uploaded.mediaType }}</small><button :disabled="locked || !currentMap || !sourceType || assetIsSourceReference(uploaded)" @click="assetCreateSource(uploaded)">{{ assetIsSourceReference(uploaded) ? '当前图已有此来源' : '将已上传资产添加为来源' }}</button><p>引用失败时资产仍保留；重试引用即可，无需重新上传。</p></div></section>
       <p v-if="!canUpload" class="muted">当前为只读成员，可以下载资产和导出当前图。</p>
-      <section class="asset-list"><div class="toolbar"><h3>工作区资产</h3><span>{{ assets.length }} 项已载入</span></div><p v-if="loaded && !assets.length" class="muted">还没有共享资产。</p><p v-if="mapActive" class="muted">当前图正在运行或暂停，结束或取消后可添加来源。</p><p v-else-if="!currentMap" class="muted">打开当前工作区的数据图后，可把资产添加为来源。</p><p class="muted">来源解析支持不超过 1 MiB 的 UTF-8 文本、Markdown、HTML 或 JSON；其他文件仍可作为共享资产保存。</p>
-        <article v-for="asset in assets" :key="asset.id" class="asset-row"><div class="asset-info"><strong>{{ asset.filename }}</strong><span>{{ asset.mediaType }} · {{ assetFormatSize(asset.size) }}</span><details><summary>文件详情</summary><small>资产 ID：{{ asset.id }}</small><small>SHA-256：{{ asset.sha256 }}</small></details></div><div class="actions"><button :disabled="locked" :aria-label="`下载资产 ${asset.filename}`" @click="assetReadFile({ kind: 'asset', id: asset.id })">下载</button><button v-if="canUpload" :disabled="locked || !currentMap || mapActive || assetIsSourceReference(asset)" :aria-label="`添加来源 ${asset.filename}`" @click="assetCreateSource(asset)">{{ assetIsSourceReference(asset) ? '已引用' : '添加为来源' }}</button><button v-if="owner" class="danger" :disabled="locked" :aria-label="`删除资产 ${asset.filename}`" @click="deleteTarget = asset">删除</button></div></article>
+      <section class="asset-list"><div class="toolbar"><h3>工作区资产</h3><span>{{ assets.length }} 项已载入</span></div><p v-if="loaded && !assets.length" class="muted">还没有共享资产。</p><p v-if="!currentMap" class="muted">打开当前工作区的数据图后，可把资产添加为来源。</p><p v-else-if="!sourceType" class="muted">当前定义目录没有声明资产引用的数据类型。</p><p class="muted">来源解析支持不超过 1 MiB 的 UTF-8 文本、Markdown、HTML 或 JSON；其他文件仍可作为共享资产保存。</p>
+        <article v-for="asset in assets" :key="asset.id" class="asset-row"><div class="asset-info"><strong>{{ asset.filename }}</strong><span>{{ asset.mediaType }} · {{ assetFormatSize(asset.size) }}</span><details><summary>文件详情</summary><small>资产 ID：{{ asset.id }}</small><small>SHA-256：{{ asset.sha256 }}</small></details></div><div class="actions"><button :disabled="locked" :aria-label="`下载资产 ${asset.filename}`" @click="assetReadFile({ kind: 'asset', id: asset.id })">下载</button><button v-if="canUpload" :disabled="locked || !currentMap || !sourceType || assetIsSourceReference(asset)" :aria-label="`添加来源 ${asset.filename}`" @click="assetCreateSource(asset)">{{ assetIsSourceReference(asset) ? '已引用' : '添加为来源' }}</button><button v-if="owner" class="danger" :disabled="locked" :aria-label="`删除资产 ${asset.filename}`" @click="deleteTarget = asset">删除</button></div></article>
         <button v-if="nextCursor" :disabled="locked" @click="assetReadList(true)">载入更多资产</button>
       </section>
       <div v-if="deleteTarget" class="notice confirmation" role="alertdialog" aria-label="确认删除资产"><p>删除资产“{{ deleteTarget.filename }}”（{{ assetFormatSize(deleteTarget.size) }}）。被图引用的资产会由服务端拒绝删除。</p><div class="actions"><button class="danger" :disabled="locked" @click="assetDeleteFile">确认删除此资产</button><button :disabled="busy" @click="deleteTarget = null">取消</button></div></div>

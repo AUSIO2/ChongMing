@@ -5,7 +5,6 @@ import type { ClientGateway } from '../../contracts/client'
 import { ClientError } from '../../contracts/client'
 import { useManagementTask } from '../../apps/ui/features/management/use-management'
 import { sessionCreateState } from '../../apps/ui/state/client-session'
-import { verificationConfiguration } from '../backend/fixtures/verification'
 
 vi.mock('../../apps/ui/transport/client-gateway', () => /* 替换应用默认网关，避免单元测试触发真实连接装配。 */ ({ api: {} }))
 function deferred<T>() {
@@ -135,9 +134,13 @@ async function openedManagement() {
     // 构造已登录并打开暂停运行的会话，供管理刷新测试观察图和选择是否保留。
     const time = '2026-09-12T00:00:00.000Z'
     const workspace = { id: 'workspace', name: 'Original', description: '', revision: 1, role: 'owner', mapCount: 1, updatedAt: time, agents: [], members: [], preferences: { workspaceId: 'workspace', revision: 0, openMapIds: ['map'], currentMapId: 'map', nodeSelection: { map: 'claim' } } }
-    const bootstrap = { identity: { userId: 'user', displayName: 'User', hostAdmin: true }, settings: { revision: 1, llm: { provider: 'fixture', model: 'before' }, tools: [], limits: { maxAgentSlots: 4 } }, metadata: { version: '060' } }
-    const map = { mapId: 'map', workspaceId: 'workspace', name: 'Graph', revision: 1, nodes: [{ id: 'claim', revision: 0, data: { kind: 'claim', content: 'Kept claim', category: null }, createdAt: time, updatedAt: time }], edges: [], updatedAt: time,
-      run: { id: 'run', scope: { nodeIds: ['claim'] }, until: 'verified', paused: true, regenerate: false, mode: 'auto', status: 'running', configuration: verificationConfiguration(), operations: [], createdAt: time, updatedAt: time } }
+    const bootstrap = { identity: { userId: 'user', displayName: 'User', hostAdmin: true }, settings: { revision: 1, llm: { provider: 'fixture', model: 'before' }, tools: [], limits: { maxAgentSlots: 4 } },
+      metadata: { version: '077', promptKinds: [], executableKinds: [], scores: [0, 0.5, 1], variables: {}, outputs: [], definitions: { queryMethod: 'definition.get', publishMethod: 'definition.publish' } } }
+    const definitions = { workspaceId: 'workspace', catalog: { revision: 1, packages: [], index: [], dataTypes: [], transitions: [] } }
+    const map = { mapId: 'map', workspaceId: 'workspace', name: 'Graph', revision: 1, ownershipRevision: 0, ownerships: [], runControls: [], nodes: [{ id: 'claim', revision: 0,
+      typeId: 'demo.claim', typeVersion: 1, payload: { content: 'Kept claim' }, createdAt: time, updatedAt: time }], edges: [], updatedAt: time,
+      runs: [{ id: 'run', scope: { nodeIds: ['claim'] }, plan: { steps: [] }, definitions: definitions.catalog, agents: [], tools: [], maxAgentSlots: 4,
+        paused: true, regenerate: false, mode: 'auto', status: 'running', steps: [], operations: [], createdAt: time, updatedAt: time }] }
     const dispatch = vi.fn(), disconnect = vi.fn()
     const gateway = {
       watch: vi.fn((
@@ -154,13 +157,15 @@ async function openedManagement() {
       getConnection: vi.fn(async () =>
         /* 返回已配置且不记住凭据的连接信息。 */
         ({ baseUrl: 'http://fixture', configured: true, remembered: false, canRemember: false })),
-      read: vi.fn(async (/* 公开查询方法名，选择对应的启动信息、工作区或图夹具。 */ method: string) => {
+      read: vi.fn(async (/* 公开查询方法名，选择对应的启动信息、工作区或图夹具。 */ method: string, /* 分支查询使用的目标参数。 */ params?: any) => {
         // 按查询方法返回可变夹具的独立快照，供测试模拟服务端刷新。
         if (method === 'app.bootstrap') return structuredClone(bootstrap)
         if (method === 'workspace.list') return { items: [structuredClone(workspace)], nextCursor: null }
         if (method === 'workspace.get') return structuredClone(workspace)
-        if (method === 'map.list') return [{ id: 'map', workspaceId: 'workspace', name: 'Graph', revision: 1, nodeCount: 1, claimCount: 1, updatedAt: time }]
+        if (method === 'map.list') return [{ id: 'map', workspaceId: 'workspace', name: 'Graph', revision: 1, nodeCount: 1, typeCounts: { 'demo.claim@1': 1 }, updatedAt: time }]
         if (method === 'map.get') return structuredClone(map)
+        if (method === 'branch.get') return { scope: { rootIds: [...params.rootIds], nodeIds: ['claim'], edgeIds: [] }, version: 'claim-branch-v1', rootRevisions: { claim: 0 }, mapRevision: map.revision }
+        if (method === 'definition.get') return structuredClone(definitions)
         throw new Error('Unexpected query ' + method)
       }), dispatch, disconnect,
     } as unknown as ClientGateway
@@ -211,7 +216,7 @@ describe('Management refresh preserves the current graph', () => {
     // 验证工作区与偏好版本独立推进，旧访问错误不清空当前图或选择。
     const f = await openedManagement()
     const read = f.read.getMockImplementation()!
-    const initialRun = f.session.snapshot.value!.run, oldWorkspace = structuredClone(f.workspace), late = deferred<any>()
+    const initialRun = f.session.snapshot.value!.runs[0], oldWorkspace = structuredClone(f.workspace), late = deferred<any>()
     let intercept = true
     f.read.mockImplementation(((
       /* 被拦截查询的方法名，只延迟首个工作区详情请求。 */ method: string,
@@ -243,7 +248,7 @@ describe('Management refresh preserves the current graph', () => {
     expect(f.session.workspace.value?.id).toBe('workspace')
     await f.session.loadWorkspaces()
     expect(f.session.workspaces.value[0]).toMatchObject({ revision: 4, name: 'Latest fields' })
-    expect(f.session.snapshot.value!.run).toBe(initialRun)
+    expect(f.session.snapshot.value!.runs[0]).toBe(initialRun)
     expect(f.session.selectedId.value).toBe('claim')
     expect(f.session.error.value).toBeNull()
     f.session.dispose()
@@ -252,14 +257,14 @@ describe('Management refresh preserves the current graph', () => {
   it('adopts Workspace and Settings changes without replacing a paused Run or selection', async () => {
     // 验证管理刷新接纳工作区与设置变化，同时保留暂停运行对象和节点选择。
     const { session, workspace, bootstrap, dispatch } = await openedManagement()
-    const initialRun = session.snapshot.value!.run
+    const initialRun = session.snapshot.value!.runs[0]
     workspace.name = 'Updated workspace'; workspace.revision = 2
     bootstrap.settings.llm.model = 'after'; bootstrap.settings.revision = 2
     await session.refreshManagement()
     expect(session.workspace.value?.name).toBe('Updated workspace')
     expect(session.bootstrap.value?.settings.llm.model).toBe('after')
-    expect(session.snapshot.value!.run).toBe(initialRun)
-    expect(session.snapshot.value!.run?.paused).toBe(true)
+    expect(session.snapshot.value!.runs[0]).toBe(initialRun)
+    expect(session.snapshot.value!.runs[0]?.paused).toBe(true)
     expect(session.activeMapId.value).toBe('map')
     expect(session.selectedId.value).toBe('claim')
     expect(dispatch).not.toHaveBeenCalled()

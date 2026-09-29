@@ -4,8 +4,9 @@ import type { GraphActivity } from '../../../contracts/activity'
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { ClientError, type ClientGateway, type CommandInputMap, type CommandOutputMap } from '../../../contracts/client'
-import type { AppBootstrap, Preferences, WorkspaceSummary, WorkspaceView } from '../../../contracts/control'
-import type { GraphMapSummary, GraphNodeData, GraphSnapshot, GraphSuccess, GraphCommand } from '../../../contracts/graph'
+import type { AppBootstrap, DefinitionView, Preferences, WorkspaceSummary, WorkspaceView } from '../../../contracts/control'
+import type { DataTypeDefinition } from '../../../contracts/data-definition'
+import type { GraphBranchGrant, GraphBranchLeaseProof, GraphBranchProof, GraphBranchSnapshot, GraphMapSummary, GraphPayload, GraphRunControlGrant, GraphRunControlProof, GraphSnapshot, GraphSuccess, GraphCommand } from '../../../contracts/graph'
 import { api } from '../transport/client-gateway'
 
 interface SessionProblem { message: string; code: string; status: number; retryable: boolean; errorId: string }
@@ -17,6 +18,7 @@ function sessionReadProblem(/* 任意来源的异常；只信任经类型检查�
     UNAUTHORIZED: RuntimeMessage.SESSION_UNAUTHORIZED,
     FORBIDDEN: RuntimeMessage.SESSION_FORBIDDEN,
     REVISION_CONFLICT: RuntimeMessage.SESSION_REVISION_CONFLICT,
+    BRANCH_VERSION_CONFLICT: RuntimeMessage.SESSION_REVISION_CONFLICT,
     CONFIGURATION_NOT_INITIALIZED: RuntimeMessage.SESSION_CONFIGURATION_NOT_INITIALIZED,
     CONFIGURATION_INCOMPLETE: RuntimeMessage.SESSION_CONFIGURATION_INCOMPLETE,
   }
@@ -34,12 +36,19 @@ export function sessionCreateState(
   const bootstrap = shallowRef<AppBootstrap | null>(null)
   const workspaces = shallowRef<WorkspaceSummary[]>([])
   const workspace = shallowRef<WorkspaceView | null>(null)
+  const definitions = shallowRef<DefinitionView | null>(null)
+  const catalog = computed(() => definitions.value?.catalog ?? null)
   const mapList = shallowRef<GraphMapSummary[]>([])
   const openMapIds = ref<string[]>([])
   const activeMapId = ref<string | null>(null)
   const activities = shallowRef<GraphActivity[]>([])
   const snapshot = shallowRef<GraphSnapshot | null>(null)
   const selectedId = ref<string | null>(null)
+  const selectedBranch = shallowRef<GraphBranchSnapshot | null>(null)
+  const selectedBranchGrant = shallowRef<GraphBranchGrant | null>(null)
+  const selectedRunControl = shallowRef<GraphRunControlGrant | null>(null)
+  const selectedRunId = ref<string | null>(null)
+  const branchLoading = ref(false)
   const initializing = ref(false), connecting = ref(false), loading = ref(false), busy = ref(false)
   const online = ref(false)
   const error = shallowRef<SessionProblem | null>(null)
@@ -48,9 +57,11 @@ export function sessionCreateState(
   const lastSync = ref<string | null>(null)
   const canRetry = ref(false)
   const canEdit = computed(() => /* 根据工作区角色和在线状态判断界面是否允许编辑。 */ !!workspace.value && workspace.value.role !== 'viewer' && online.value)
+  const clientLeasesRequired = computed(() => bootstrap.value?.metadata.clientLeases !== 'none')
+  const selectedRun = computed(() => snapshot.value?.runs.find(run => run.id === selectedRunId.value) ?? null)
   const active = computed(() =>
-    /* 将运行中或等待中的 Run 视为未结束，暂停状态也继续锁定图编辑。 */
-    ['running', 'waiting'].includes(snapshot.value?.run?.status ?? ''))
+    /* 任一运行中或等待中的 Run 都表示该图仍有后台工作。 */
+    snapshot.value?.runs.some(run => ['running', 'waiting'].includes(run.status)) === true)
   const selectedNode = computed(() =>
     /* 从当前图快照中解析选中节点，找不到时返回 null。 */
     snapshot.value?.nodes.find(/* 当前图快照中的只读节点，用选中身份匹配。 */ node =>
@@ -59,23 +70,32 @@ export function sessionCreateState(
   // 会话代次隔离登录身份，视图代次隔离工作区和图切换；即使底层未及时取消，迟到结果也会失效。
   let sessionEpoch = 0, viewEpoch = 0
   // 同一会话或视图内仍可能并发刷新，各类读取序号让后发请求取代先发请求。
-  let mapRead = 0, workspaceRead = 0, workspaceListRead = 0, managementRead = 0, settingsRead = 0
+  let mapRead = 0, branchRead = 0, workspaceRead = 0, workspaceListRead = 0, managementRead = 0, settingsRead = 0
   // 命令和偏好保存属于会话；图读取和订阅属于视图，切图不向服务端取消已经提交的运行。
   let sessionController = new AbortController()
   let viewController = new AbortController()
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let branchRenewTimer: ReturnType<typeof setTimeout> | undefined
+  let runControlRenewTimer: ReturnType<typeof setTimeout> | undefined
+  const branchHolderId = crypto.randomUUID()
   let preferenceTimer: ReturnType<typeof setTimeout> | undefined
   let preferencesRunning = false, preferencesDirty = false, preferencesBlocked = false
   let selections: Record<string, string | null> = {}
   let retryCommand: (() => Promise<unknown>) | null = null
+  const definitionCache = new Map<string, DefinitionView>()
 
   function stopView() {
     // 使旧视图失效，取消它的读取与订阅，清除重连定时器、执行活动和命令重试入口。
     activities.value = []
+    void releaseBranch()
+    void releaseRunControl()
+    selectedBranch.value = null; selectedBranchGrant.value = null; selectedRunId.value = null; branchLoading.value = false; branchRead++
     viewEpoch++
     viewController.abort()
     viewController = new AbortController()
     clearTimeout(reconnectTimer)
+    clearTimeout(branchRenewTimer)
+    clearTimeout(runControlRenewTimer)
     reconnectTimer = undefined
     streamState.value = 'idle'; streamError.value = ''
     retryCommand = null; canRetry.value = false
@@ -86,8 +106,8 @@ export function sessionCreateState(
     clearTimeout(preferenceTimer)
     // 正在执行的偏好保存仍持有串行写入标记，等它结束后再接续新工作区的待保存改动。
     preferencesDirty = false; preferencesBlocked = false
-    workspace.value = null; mapList.value = []; openMapIds.value = []
-    activeMapId.value = null; snapshot.value = null; activities.value = []; selectedId.value = null
+    workspace.value = null; definitions.value = null; mapList.value = []; openMapIds.value = []
+    activeMapId.value = null; snapshot.value = null; activities.value = []; selectedId.value = null; selectedBranch.value = null; selectedRunId.value = null
     loading.value = false
     selections = {}; streamError.value = ''; lastSync.value = null
   }
@@ -97,7 +117,7 @@ export function sessionCreateState(
     sessionController.abort()
     sessionController = new AbortController()
     clearWorkspace()
-    bootstrap.value = null; workspaces.value = []; online.value = false
+    bootstrap.value = null; workspaces.value = []; definitionCache.clear(); online.value = false
     error.value = null
     busy.value = false; connecting.value = false; loading.value = false; initializing.value = false
     retryCommand = null; canRetry.value = false
@@ -139,20 +159,72 @@ export function sessionCreateState(
     // 接纳当前视图中版本未倒退的图快照，同步图摘要、有效执行活动、节点选择和同步时间。
     if (epoch !== viewEpoch) return
     if (next.mapId !== activeMapId.value || next.workspaceId !== workspace.value?.id) throw new Error(RuntimeMessage.CLIENT_RETURNED_ANOTHER_MAP)
-    if (snapshot.value && next.revision < snapshot.value.revision) return
-    if (!snapshot.value || next.revision > snapshot.value.revision) snapshot.value = next
+    const currentOwnershipRevision = snapshot.value?.ownershipRevision ?? 0, nextOwnershipRevision = next.ownershipRevision ?? 0
+    if (snapshot.value && (next.revision < snapshot.value.revision
+      || next.revision === snapshot.value.revision && nextOwnershipRevision < currentOwnershipRevision)) return
+    if (!snapshot.value || next.revision > snapshot.value.revision || nextOwnershipRevision > currentOwnershipRevision) snapshot.value = next
+    if (!next.runs.some(run => run.id === selectedRunId.value)) {
+      selectedRunId.value = next.runs.find(run => ['running', 'waiting'].includes(run.status))?.id ?? next.runs[next.runs.length - 1]?.id ?? null
+    }
+    if (selectedBranchGrant.value && !(next.ownerships ?? []).some(ownership => ownership.kind === 'editor'
+      && ownership.leaseId === selectedBranchGrant.value!.leaseId && ownership.holderId === selectedBranchGrant.value!.holderId
+      && ownership.fence === selectedBranchGrant.value!.fence)) {
+      selectedBranchGrant.value = null; clearTimeout(branchRenewTimer)
+    }
+    if (selectedRunControl.value) {
+      const control = next.runControls.find(item => item.leaseId === selectedRunControl.value!.leaseId
+        && item.holderId === selectedRunControl.value!.holderId && item.fence === selectedRunControl.value!.fence)
+      if (control) selectedRunControl.value = { ...control, ownershipRevision: next.ownershipRevision }
+      else { selectedRunControl.value = null; clearTimeout(runControlRenewTimer) }
+    }
     activities.value = activities.value.filter(/* 已缓存活动条目，用当前 Run 与 Operation 状态检查有效性。 */ item =>
       /* 仅保留当前未暂停运行中、且所属 Operation 仍在执行的活动。 */
-      item.runId === next.run?.id && !next.run.paused && next.run.status === 'running'
-      && next.run.operations.some(/* 新快照中的只读 Operation，用活动关联身份和执行状态匹配。 */ operation => /* 确认活动关联的 Operation 仍处于运行状态。 */ operation.id === item.operationId && operation.status === 'running'))
+      next.runs.some(run => item.runId === run.id && !run.paused && run.status === 'running'
+        && run.operations.some(/* 新快照中的只读 Operation，用活动关联身份和执行状态匹配。 */ operation => /* 确认活动关联的 Operation 仍处于运行状态。 */ operation.id === item.operationId && operation.status === 'running')))
     mapList.value = mapList.value.map(/* 当前图列表摘要，只在同图且不比新快照更新时替换。 */ item =>
       /* 用本次快照更新同一张图的旧摘要，其余图和较新摘要保持原值。 */
       item.id === next.mapId && item.revision <= next.revision ? {
       id: next.mapId, workspaceId: next.workspaceId, revision: next.revision, name: next.name, nodeCount: next.nodes.length,
-      claimCount: next.nodes.filter(/* 新快照中的真实节点，用数据类型统计事实数量。 */ node => /* 筛选事实节点以计算图摘要中的事实数。 */ node.data.kind === 'claim').length, updatedAt: next.updatedAt,
+      typeCounts: next.nodes.reduce<Record<string, number>>((counts, node) => {
+        const key = `${node.typeId}@${node.typeVersion}`
+        counts[key] = (counts[key] ?? 0) + 1
+        return counts
+      }, {}), updatedAt: next.updatedAt,
     } : item)
-    if (selectedId.value && !next.nodes.some(/* 新快照中的真实节点，用选中身份检查选择是否仍有效。 */ node => /* 确认所选节点仍存在于新快照中。 */ node.id === selectedId.value)) selectedId.value = null
+    if (selectedId.value && !next.nodes.some(/* 新快照中的真实节点，用选中身份检查选择是否仍有效。 */ node => /* 确认所选节点仍存在于新快照中。 */ node.id === selectedId.value)) {
+      selectedId.value = null; selectedBranch.value = null; branchRead++
+    }
     online.value = true; streamError.value = ''; lastSync.value = new Date().toISOString()
+    if (selectedId.value) void refreshSelectedBranch()
+  }
+
+  async function refreshSelectedBranch(): Promise<void> {
+    // 从服务端取得所选根的闭包与稳定版本；结果按视图、图和选择身份隔离。
+    const mapId = activeMapId.value, rootId = selectedId.value, scope = sessionEpoch, epoch = viewEpoch, request = ++branchRead
+    if (!mapId || !rootId || !snapshot.value?.nodes.some(node => node.id === rootId)) {
+      selectedBranch.value = null; branchLoading.value = false; return
+    }
+    branchLoading.value = true
+    try {
+      const branch = await gateway.read('branch.get', { mapId, rootIds: [rootId] }, viewController.signal)
+      if (scope !== sessionEpoch || epoch !== viewEpoch || request !== branchRead || activeMapId.value !== mapId || selectedId.value !== rootId) return
+      if (branch.scope.rootIds.length !== 1 || branch.scope.rootIds[0] !== rootId) throw new Error(RuntimeMessage.CLIENT_RETURNED_ANOTHER_BRANCH)
+      const root = snapshot.value?.nodes.find(node => node.id === rootId)
+      if (!root || root.revision !== branch.rootRevisions[rootId] || snapshot.value?.revision !== branch.mapRevision) {
+        const latest = await gateway.read('map.get', { mapId }, viewController.signal)
+        if (scope === sessionEpoch && epoch === viewEpoch && request === branchRead) applySnapshot(latest, epoch)
+        return
+      }
+      selectedBranch.value = branch
+    } catch (cause) {
+      if (scope !== sessionEpoch || epoch !== viewEpoch || request !== branchRead) return
+      selectedBranch.value = null
+      const problem = sessionReadProblem(cause)
+      if (problem.status === 401 || problem.status === 403 || problem.status === 404) await handleFailure(cause, scope, epoch)
+      else { error.value = problem; streamError.value = '读取分支版本失败，请重试刷新。' }
+    } finally {
+      if (scope === sessionEpoch && epoch === viewEpoch && request === branchRead) branchLoading.value = false
+    }
   }
 
   async function loadWorkspaces() {
@@ -183,14 +255,17 @@ export function sessionCreateState(
     const id = workspace.value?.id, scope = sessionEpoch, epoch = viewEpoch, request = ++workspaceRead
     if (!id) return
     try {
-      const [next, maps] = await Promise.all([
+      const [next, maps, nextDefinitions] = await Promise.all([
         gateway.read('workspace.get', { workspaceId: id }, viewController.signal),
         gateway.read('map.list', { workspaceId: id }, viewController.signal),
+        gateway.read('definition.get', { workspaceId: id }, viewController.signal),
       ])
       if (scope !== sessionEpoch || epoch !== viewEpoch || request !== workspaceRead || workspace.value?.id !== id) return
       const current = workspace.value
       const preferences = next.preferences.revision >= current.preferences.revision ? next.preferences : current.preferences
       workspace.value = { ...(next.revision >= current.revision ? next : current), preferences }
+      definitionCache.set(id, nextDefinitions)
+      definitions.value = nextDefinitions
       mapList.value = maps.map(/* 本次工作区刷新返回的图摘要，接纳时保留较新本地版本。 */ item => {
         // 合并图列表时保留本地已有的较新图摘要。
         const prior = mapList.value.find(/* 先前缓存的图摘要，用相同图身份寻找版本基线。 */ current => /* 查找同一张图在现有列表中的摘要。 */ current.id === item.id)
@@ -290,7 +365,7 @@ export function sessionCreateState(
           } else if (event.type === 'activity') {
             activities.value = event.items.filter(/* 流中收到的活动摘要，只保留当前图和未暂停 Run 的活动。 */ item =>
               /* 仅展示当前图中仍运行且未暂停的 Run 所属活动。 */
-              item.mapId === id && item.runId === snapshot.value?.run?.id && !snapshot.value.run.paused && snapshot.value.run.status === 'running')
+              item.mapId === id && snapshot.value?.runs.some(run => item.runId === run.id && !run.paused && run.status === 'running'))
           } else if (event.scope === 'settings') void refreshSettings()
           else {
             void refreshWorkspace()
@@ -361,9 +436,130 @@ export function sessionCreateState(
       void persistPreferences()
     }, 250)
   }
+  function sessionReadLeaseProof(/* 当前选中分支 grant。 */ grant = selectedBranchGrant.value): GraphBranchLeaseProof | null {
+    return grant ? { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence } : null
+  }
+  function scheduleBranchRenewal(/* 刚领取或续租成功的 editor grant。 */ grant: GraphBranchGrant): void {
+    clearTimeout(branchRenewTimer)
+    branchRenewTimer = setTimeout(() => { void renewBranch(grant) }, Math.max(250, Math.floor(grant.leaseMs / 3)))
+  }
+  async function renewBranch(/* 调度时捕获的 grant，迟到响应不得复活已替换授权。 */ expected: GraphBranchGrant): Promise<void> {
+    if (selectedBranchGrant.value?.leaseId !== expected.leaseId || selectedBranchGrant.value.fence !== expected.fence || !activeMapId.value) return
+    try {
+      const result = await gateway.dispatch(crypto.randomUUID(), 'branch.renew', { mapId: activeMapId.value,
+        lease: { leaseId: expected.leaseId, holderId: expected.holderId, fence: expected.fence } }, sessionController.signal)
+      if (selectedBranchGrant.value?.leaseId !== expected.leaseId || selectedBranchGrant.value.fence !== expected.fence) return
+      selectedBranchGrant.value = result.data
+      scheduleBranchRenewal(result.data)
+    } catch (cause) {
+      if (selectedBranchGrant.value?.leaseId === expected.leaseId && selectedBranchGrant.value.fence === expected.fence) {
+        selectedBranchGrant.value = null; clearTimeout(branchRenewTimer)
+        error.value = sessionReadProblem(cause)
+      }
+    }
+  }
+  async function claimBranch(/* 可选多根；省略时领取当前选择。 */ rootIds = selectedBranch.value?.scope.rootIds ?? []): Promise<boolean> {
+    if (!clientLeasesRequired.value) return canEdit.value
+    const mapId = activeMapId.value
+    if (!mapId || !canEdit.value || !rootIds.length) return false
+    if (selectedBranchGrant.value && selectedBranchGrant.value.rootIds.length === rootIds.length
+      && selectedBranchGrant.value.rootIds.every(id => rootIds.includes(id))) return true
+    if (selectedBranchGrant.value) await releaseBranch()
+    const scope = sessionEpoch, epoch = viewEpoch
+    busy.value = true; error.value = null
+    try {
+      const result = await gateway.dispatch(crypto.randomUUID(), 'branch.claim', { mapId, rootIds: [...rootIds], holderId: branchHolderId }, sessionController.signal)
+      if (scope !== sessionEpoch || epoch !== viewEpoch || activeMapId.value !== mapId) {
+        if (result.data.status === 'claimed') void gateway.dispatch(crypto.randomUUID(), 'branch.release', { mapId,
+          lease: { leaseId: result.data.grant.leaseId, holderId: result.data.grant.holderId, fence: result.data.grant.fence } }).catch(() => {})
+        return false
+      }
+      if (result.data.status === 'busy') {
+        error.value = { code: 'BRANCH_BUSY', message: RuntimeMessage.BRANCH_IS_CURRENTLY_OWNED_BY_ANOTHER_CLIENT,
+          status: 409, retryable: false, errorId: crypto.randomUUID() }
+        return false
+      }
+      selectedBranchGrant.value = result.data.grant
+      selectedBranch.value = result.data.grant.branch
+      scheduleBranchRenewal(result.data.grant)
+      return true
+    } catch (cause) { await handleFailure(cause, scope, epoch); return false }
+    finally { if (scope === sessionEpoch) busy.value = false }
+  }
+  async function releaseBranch(): Promise<void> {
+    const grant = selectedBranchGrant.value, mapId = activeMapId.value
+    clearTimeout(branchRenewTimer); branchRenewTimer = undefined; selectedBranchGrant.value = null
+    if (!grant || !mapId) return
+    try { await gateway.dispatch(crypto.randomUUID(), 'branch.release', { mapId,
+      lease: { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence } }, sessionController.signal) }
+    catch { /* 释放失败由租期回收；切图/退出不让次级错误覆盖主流程。 */ }
+  }
+  function sessionReadRunControlProof(/* 当前 Run 控制租约。 */ grant = selectedRunControl.value): GraphRunControlProof | null {
+    return grant ? { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence } : null
+  }
+  function scheduleRunControlRenewal(/* 最近一次服务端确认的控制授权。 */ grant: GraphRunControlGrant): void {
+    clearTimeout(runControlRenewTimer)
+    runControlRenewTimer = setTimeout(() => { void renewRunControl(grant) }, Math.max(250, Math.floor(grant.leaseMs / 3)))
+  }
+  async function renewRunControl(/* 调度时捕获的 grant，迟到响应不得复活已替换授权。 */ expected: GraphRunControlGrant): Promise<void> {
+    if (selectedRunControl.value?.leaseId !== expected.leaseId || selectedRunControl.value.fence !== expected.fence || !activeMapId.value) return
+    try {
+      const result = await gateway.dispatch(crypto.randomUUID(), 'run.control.renew', { mapId: activeMapId.value, runId: expected.runId,
+        control: { leaseId: expected.leaseId, holderId: expected.holderId, fence: expected.fence } }, sessionController.signal)
+      if (selectedRunControl.value?.leaseId !== expected.leaseId || selectedRunControl.value.fence !== expected.fence) return
+      selectedRunControl.value = result.data
+      scheduleRunControlRenewal(result.data)
+    } catch (cause) {
+      if (selectedRunControl.value?.leaseId === expected.leaseId && selectedRunControl.value.fence === expected.fence) {
+        selectedRunControl.value = null; clearTimeout(runControlRenewTimer)
+        error.value = sessionReadProblem(cause)
+      }
+    }
+  }
+  async function claimRunControl(/* 目标 Run；省略时领取当前选择。 */ runId = selectedRun.value?.id): Promise<boolean> {
+    if (!clientLeasesRequired.value) return canEdit.value
+    const mapId = activeMapId.value
+    if (!mapId || !runId || !canEdit.value) return false
+    if (selectedRunControl.value?.runId === runId) return true
+    if (selectedRunControl.value) await releaseRunControl()
+    const scope = sessionEpoch, epoch = viewEpoch
+    busy.value = true; error.value = null
+    try {
+      const result = await gateway.dispatch(crypto.randomUUID(), 'run.control.claim', { mapId, runId, holderId: branchHolderId }, sessionController.signal)
+      if (scope !== sessionEpoch || epoch !== viewEpoch || activeMapId.value !== mapId) {
+        if (result.data.status === 'claimed') void gateway.dispatch(crypto.randomUUID(), 'run.control.release', { mapId, runId,
+          control: { leaseId: result.data.grant.leaseId, holderId: result.data.grant.holderId, fence: result.data.grant.fence } }).catch(() => {})
+        return false
+      }
+      if (result.data.status === 'busy') {
+        error.value = { code: 'RUN_CONTROL_BUSY', message: RuntimeMessage.RUN_CONTROL_IS_CURRENTLY_OWNED_BY_ANOTHER_CLIENT,
+          status: 409, retryable: false, errorId: crypto.randomUUID() }
+        return false
+      }
+      selectedRunControl.value = result.data.grant
+      scheduleRunControlRenewal(result.data.grant)
+      return true
+    } catch (cause) { await handleFailure(cause, scope, epoch); return false }
+    finally { if (scope === sessionEpoch) busy.value = false }
+  }
+  async function releaseRunControl(): Promise<void> {
+    const control = selectedRunControl.value, mapId = activeMapId.value
+    clearTimeout(runControlRenewTimer); runControlRenewTimer = undefined; selectedRunControl.value = null
+    if (!control || !mapId) return
+    try { await gateway.dispatch(crypto.randomUUID(), 'run.control.release', { mapId, runId: control.runId,
+      control: { leaseId: control.leaseId, holderId: control.holderId, fence: control.fence } }, sessionController.signal) }
+    catch { /* 释放失败由租期回收；离开视图不让次级错误覆盖主流程。 */ }
+  }
+  async function selectRun(/* 用户在同图多个 Run 中选择查看和控制的身份。 */ runId: string | null): Promise<void> {
+    if (runId !== selectedRunId.value) await releaseRunControl()
+    selectedRunId.value = runId && snapshot.value?.runs.some(run => run.id === runId) ? runId : null
+  }
   function selectNode(/* 用户选择的真实节点身份；null 清空选择，不在当前快照中的身份也归为空。 */ id: string | null) {
     // 仅选中当前快照中存在的节点，记住该图的选择并安排保存偏好。
+    if (selectedId.value !== id) void releaseBranch()
     selectedId.value = id && snapshot.value?.nodes.some(/* 当前快照节点，只用于验证用户所选身份存在。 */ node => /* 检查待选节点是否属于当前图快照。 */ node.id === id) ? id : null
+    selectedBranch.value = null; branchRead++
+    if (selectedId.value) void refreshSelectedBranch()
     if (activeMapId.value) selections[activeMapId.value] = selectedId.value
     queuePreferences()
   }
@@ -375,7 +571,7 @@ export function sessionCreateState(
     if (!workspace.value || !mapList.value.some(/* 当前工作区图摘要，用目标图身份检查可访问性。 */ map => /* 确认目标图在当前工作区的可访问列表中。 */ map.id === id)) return
     stopView()
     const epoch = viewEpoch
-    activeMapId.value = id; snapshot.value = null; activities.value = []; selectedId.value = selections[id] ?? null
+    activeMapId.value = id; snapshot.value = null; activities.value = []; selectedId.value = selections[id] ?? null; selectedBranch.value = null; selectedRunId.value = null
     if (!openMapIds.value.includes(id)) openMapIds.value.push(id)
     error.value = null; loading.value = true; retryCommand = null; canRetry.value = false
     await refresh()
@@ -402,15 +598,18 @@ export function sessionCreateState(
     const scope = sessionEpoch, epoch = viewEpoch
     loading.value = true; error.value = null
     try {
-      const [next, maps] = await Promise.all([
+      const cachedDefinitions = definitionCache.get(id)
+      if (cachedDefinitions) definitions.value = cachedDefinitions
+      const [next, maps, nextDefinitions] = await Promise.all([
         gateway.read('workspace.get', { workspaceId: id }, viewController.signal),
         gateway.read('map.list', { workspaceId: id }, viewController.signal),
+        gateway.read('definition.get', { workspaceId: id }, viewController.signal),
       ])
       if (scope !== sessionEpoch || epoch !== viewEpoch) return
       if (next.id !== id || maps.some(/* 新读取的图摘要，检查其工作区身份是否与请求一致。 */ map =>
         /* 检测返回图列表中是否混入其他工作区的图。 */
         map.workspaceId !== id)) throw new Error(RuntimeMessage.CLIENT_RETURNED_ANOTHER_WORKSPACE)
-      workspace.value = next; mapList.value = maps; online.value = true
+      workspace.value = next; mapList.value = maps; definitions.value = nextDefinitions; definitionCache.set(id, nextDefinitions); online.value = true
       openMapIds.value = next.preferences.openMapIds.filter(/* 服务端偏好记录的标签页图身份，恢复前核对可访问性。 */ mapId =>
         /* 恢复偏好时仅保留当前仍可访问的图标签页。 */
         maps.some(/* 最新可访问图摘要，用身份匹配偏好中的标签页。 */ map =>
@@ -541,103 +740,121 @@ export function sessionCreateState(
     return true
   }
   async function applyChanges(
-    /* 编辑草稿所依据的图版本，原值提交用于并发冲突检查。 */ expectedRevision: number,
-    /* 要提交的节点、边或图属性差量，不直接修改本地已保存快照。 */ changes: Extract<GraphCommand, { method: 'graph.apply' }>['params']['changes']
+    /* 编辑草稿所依据的分支根和稳定内容版本。 */ branch: GraphBranchProof,
+    /* 要提交的节点、边或图属性差量，不直接修改本地已保存快照。 */ changes: Extract<GraphCommand, { method: 'graph.apply' }>['params']['changes'],
+    /* 已有分支必须携带的 editor 租约；新根省略。 */ lease?: GraphBranchLeaseProof,
   ) {
-    // 在图可编辑且没有进行中的运行时按预期版本提交变更，接纳返回快照并刷新工作区。
-    if (!snapshot.value || !canEdit.value || active.value) return false
-    const result = await submit('graph.apply', { mapId: snapshot.value.mapId, expectedRevision, changes })
+    // 按分支版本提交局部变化；同图其他分支的提交不会使这份证明失效。
+    if (!snapshot.value || !canEdit.value) return false
+    const result = await submit('graph.apply', { mapId: snapshot.value.mapId, branch, ...(lease ? { lease } : {}), changes })
     if (!result) return false
     applySnapshot(result.data.snapshot, viewEpoch)
     await refreshWorkspace()
     return true
   }
-  async function createNode(
-    /* 新节点业务类型，只允许事实或新闻。 */ kind: 'claim' | 'news',
-    /* 用户输入的节点正文，作为新建数据提交。 */ content: string,
-    /* 可选事实类别，默认 null；新闻类型不使用此字段。 */ category: string | null = null
-  ) {
-    // 创建事实或新闻节点，提交图变更，并在仍处于原视图时选中新节点。
+  async function createNode(/* 新节点的精确不可变类型定义。 */ definition: DataTypeDefinition, /* 已按定义编辑的通用 payload。 */ payload: GraphPayload) {
+    // 创建精确绑定类型版本的通用数据实例，并在仍处于原视图时选中新节点。
     if (!snapshot.value) return false
     const epoch = viewEpoch
     const id = crypto.randomUUID()
-    const data: GraphNodeData = kind === 'claim' ? { kind, content, category } : { kind, content, context: {} }
-    if (!await applyChanges(snapshot.value.revision, { nodes: { put: [{ id, data }] } })) return false
+    if (!await applyChanges({ rootIds: [id], expectedVersion: null }, { nodes: { put: [{ id, typeId: definition.id, typeVersion: definition.version, payload }] } })) return false
     if (epoch === viewEpoch) selectNode(id)
     return true
   }
-  async function createSource(/* 用户输入的来源地址，作为 URL 定位信息交给服务端验证。 */ url: string, /* 用户输入的来源标签，去空白后为空时保存为 null。 */ label: string) {
-    // 创建带 URL 定位信息的来源节点，将空标签存为 null，并在原视图中选中新节点。
-    if (!snapshot.value) return false
-    const epoch = viewEpoch, id = crypto.randomUUID()
-    if (!await applyChanges(snapshot.value.revision, { nodes: { put: [{ id, data: { kind: 'source', locator: { kind: 'url', url }, label: label.trim() || null } }] } })) return false
-    if (epoch === viewEpoch) selectNode(id)
-    return true
+  async function saveNode(/* 包含节点身份、精确类型、payload 和草稿分支证明的保存请求。 */ input: { branch: GraphBranchProof; nodeId: string; typeId: string; typeVersion: number; payload: GraphPayload }) {
+    // 按调用者开始编辑时取得的分支版本保存指定数据实例。
+    if (clientLeasesRequired.value && !sessionReadLeaseProof() && !await claimBranch(input.branch.rootIds)) return false
+    const lease = clientLeasesRequired.value ? sessionReadLeaseProof() : undefined
+    if (clientLeasesRequired.value && !lease) return false
+    return applyChanges(input.branch, { nodes: { put: [{ id: input.nodeId, typeId: input.typeId, typeVersion: input.typeVersion, payload: input.payload }] } }, lease ?? undefined)
   }
-  async function saveNode(/* 包含节点身份、编辑数据和草稿图版本的保存请求，原对象不被修改。 */ input: { expectedRevision: number; nodeId: string; data: GraphNodeData }) {
-    // 按调用者提供的预期版本保存指定节点的数据，并复用图变更的权限检查和快照更新。
-    return applyChanges(input.expectedRevision, { nodes: { put: [{ id: input.nodeId, data: input.data }] } })
+  async function removeNode(/* 包含要删除的节点身份与草稿分支证明的请求。 */ input: { branch: GraphBranchProof; nodeId: string }) {
+    // 按调用者开始编辑时取得的分支版本提交节点删除。
+    if (clientLeasesRequired.value && !sessionReadLeaseProof() && !await claimBranch(input.branch.rootIds)) return false
+    const lease = clientLeasesRequired.value ? sessionReadLeaseProof() : undefined
+    if (clientLeasesRequired.value && !lease) return false
+    return applyChanges(input.branch, { nodes: { remove: [input.nodeId] } }, lease ?? undefined)
   }
-  async function removeNode(/* 包含要删除的节点身份与草稿图版本的请求。 */ input: { expectedRevision: number; nodeId: string }) {
-    // 按调用者提供的预期版本提交节点删除，并复用图变更的权限检查和快照更新。
-    return applyChanges(input.expectedRevision, { nodes: { remove: [input.nodeId] } })
-  }
-  async function linkSources(/* 事实身份、期望图版本和目标新闻身份集合，用于计算引用边增删。 */ input: { expectedRevision: number; claimId: string; newsIds: string[] }) {
-    // 将指定事实的新闻引用边调整为所选集合，仅提交需要新增和移除的 mentions 边。
-    if (!snapshot.value) return false
-    const edges = snapshot.value.edges.filter(/* 当前图真实边，筛出指向目标事实的新闻引用。 */ edge => /* 收集当前指向该事实的新闻引用边。 */ edge.kind === 'mentions' && edge.to === input.claimId)
-    const put = input.newsIds
-      .filter(/* 用户选中的新闻身份，检查是否已有对应引用边。 */ id =>
-        /* 筛选尚未与事实建立引用关系的新闻。 */
-        !edges.some(/* 该事实已有引用边，用其来源新闻身份匹配。 */ edge =>
-          /* 判断这条引用边是否来自待关联新闻。 */
-          edge.from === id))
-      .map(/* 需要新建引用的新闻身份，作为新边起点。 */ id =>
-        /* 为新增新闻引用生成唯一边标识并指向目标事实。 */
-        ({ id: crypto.randomUUID(), kind: 'mentions' as const, from: id, to: input.claimId }))
-    const remove = edges
-      .filter(/* 该事实原有引用边，检查来源是否已不在用户选择中。 */ edge =>
-        /* 找出来源新闻已不在所选集合中的引用边。 */
-        !input.newsIds.includes(edge.from))
-      .map(/* 确定要删除的引用边，提取持久化边身份。 */ edge => /* 提取待移除引用边的标识。 */ edge.id)
-    if (!put.length && !remove.length) return true
-    return applyChanges(input.expectedRevision, { edges: { put, remove } })
-  }
-  async function startRun(/* 用户选择的节点范围、处理终点、运行模式及可选重新生成标记。 */ input: Pick<CommandInputMap['run.start'], 'scope' | 'until' | 'mode' | 'regenerate'>) {
-    // 在图可编辑且无进行中运行时提交指定范围和模式的新运行，并接纳服务端返回的快照。
-    if (!snapshot.value || !canEdit.value || active.value) return
-    const result = await submit('run.start', { mapId: snapshot.value.mapId, expectedRevision: snapshot.value.revision, id: crypto.randomUUID(), ...input })
-    if (result) applySnapshot(result.data.snapshot, viewEpoch)
+  async function startRun(/* 用户选择的节点范围、有限计划、运行模式及可选重新生成标记。 */ input: Pick<CommandInputMap['run.start'], 'scope' | 'plan' | 'mode' | 'regenerate'>) {
+    // 先读取整个运行根集合的同一分支版本，再由 run.start 原子核对，避免静默采用选择后的变化。
+    if (!snapshot.value || !canEdit.value || busy.value) return false
+    const mapId = snapshot.value.mapId, roots = [...input.scope.nodeIds], scope = sessionEpoch, epoch = viewEpoch
+    busy.value = true; error.value = null; canRetry.value = false; retryCommand = null
+    let branch: GraphBranchSnapshot
+    try {
+      branch = await gateway.read('branch.get', { mapId, rootIds: roots }, viewController.signal)
+      if (scope !== sessionEpoch || epoch !== viewEpoch || snapshot.value?.mapId !== mapId) return false
+      if (branch.scope.rootIds.length !== roots.length || roots.some(id => !branch.scope.rootIds.includes(id))) {
+        throw new Error(RuntimeMessage.CLIENT_RETURNED_ANOTHER_BRANCH)
+      }
+      if (snapshot.value?.revision !== branch.mapRevision
+        || roots.some(id => snapshot.value?.nodes.find(node => node.id === id)?.revision !== branch.rootRevisions[id])) {
+        const latest = await gateway.read('map.get', { mapId }, viewController.signal)
+        if (scope === sessionEpoch && epoch === viewEpoch) applySnapshot(latest, epoch)
+        throw new Error(RuntimeMessage.BRANCH_VERSION_CHANGED)
+      }
+    } catch (cause) {
+      if (scope === sessionEpoch && epoch === viewEpoch) await handleFailure(cause, scope, epoch)
+      return false
+    } finally {
+      if (scope === sessionEpoch && epoch === viewEpoch) busy.value = false
+    }
+    if (scope !== sessionEpoch || epoch !== viewEpoch || snapshot.value?.mapId !== mapId) return false
+    await releaseRunControl()
+    if (clientLeasesRequired.value && !await claimBranch(branch.scope.rootIds)) return false
+    const lease = clientLeasesRequired.value ? sessionReadLeaseProof() : undefined
+    if (clientLeasesRequired.value && !lease) return false
+    const runId = crypto.randomUUID()
+    const result = await submit('run.start', { mapId, id: runId, branch: {
+      rootIds: [...branch.scope.rootIds], expectedVersion: branch.version,
+    }, ...(lease ? { lease } : {}), ...input })
+    if (result) {
+      selectedBranchGrant.value = null; clearTimeout(branchRenewTimer)
+      selectedRunControl.value = result.data.runControl ?? null
+      selectedRunId.value = result.data.snapshot.runs.find(run => run.id === runId)?.id ?? null
+      if (selectedRunControl.value) scheduleRunControlRenewal(selectedRunControl.value)
+      applySnapshot(result.data.snapshot, viewEpoch)
+      const startedRun = result.data.snapshot.runs.find(run => run.id === selectedRunId.value)
+      if (clientLeasesRequired.value && !selectedRunControl.value && startedRun && ['running', 'waiting'].includes(startedRun.status)) {
+        void claimRunControl(startedRun.id)
+      }
+    }
     return !!result
   }
-  async function updateReview(/* 含图、Run、Operation、审核身份及预期版本的路由草稿更新请求。 */ params: CommandInputMap['review.update']) {
-    // 有编辑权限时提交审核草稿更新，并用返回快照更新当前图。
-    if (!canEdit.value) return
-    const result = await submit('review.update', params)
-    if (result) applySnapshot(result.data.snapshot, viewEpoch)
-  }
-  async function answerReview(/* 含当前审核身份、预期版本和批准或拒绝决定的请求。 */ params: CommandInputMap['review.answer']) {
+  async function answerReview(/* 含当前审核身份、预期版本和批准或拒绝决定的请求。 */ params: Omit<CommandInputMap['review.answer'], 'control'>) {
     // 有编辑权限时提交审核决定，并用返回快照展示审核后的运行状态。
     if (!canEdit.value) return
-    const result = await submit('review.answer', params)
+    if (clientLeasesRequired.value && !sessionReadRunControlProof() && !await claimRunControl(params.runId)) return
+    const control = clientLeasesRequired.value ? sessionReadRunControlProof() : undefined
+    if (clientLeasesRequired.value && !control) return
+    const result = await submit('review.answer', { ...params, ...(control ? { control } : {}) })
     if (result) applySnapshot(result.data.snapshot, viewEpoch)
   }
-  async function cancelRun(/* 含目标图、Run 身份和预期图版本的取消请求。 */ params: CommandInputMap['run.cancel']) {
+  async function cancelRun(/* 含目标图与 Run 身份的取消请求。 */ params: Omit<CommandInputMap['run.cancel'], 'control'>) {
     // 有编辑权限时向服务端取消指定运行，并接纳返回的图快照。
     if (!canEdit.value) return
-    const result = await submit('run.cancel', params)
+    if (clientLeasesRequired.value && !sessionReadRunControlProof() && !await claimRunControl(params.runId)) return
+    const control = clientLeasesRequired.value ? sessionReadRunControlProof() : undefined
+    if (clientLeasesRequired.value && !control) return
+    const result = await submit('run.cancel', { ...params, ...(control ? { control } : {}) })
     if (result) applySnapshot(result.data.snapshot, viewEpoch)
   }
-  async function pauseRun(/* 含目标图、Run 身份和预期图版本的暂停请求。 */ params: CommandInputMap['run.pause']) {
+  async function pauseRun(/* 含目标图与 Run 身份的暂停请求。 */ params: Omit<CommandInputMap['run.pause'], 'control'>) {
     // 有编辑权限时向服务端暂停指定运行，并接纳返回的图快照。
     if (!canEdit.value) return
-    const result = await submit('run.pause', params)
+    if (clientLeasesRequired.value && !sessionReadRunControlProof() && !await claimRunControl(params.runId)) return
+    const control = clientLeasesRequired.value ? sessionReadRunControlProof() : undefined
+    if (clientLeasesRequired.value && !control) return
+    const result = await submit('run.pause', { ...params, ...(control ? { control } : {}) })
     if (result) applySnapshot(result.data.snapshot, viewEpoch)
   }
-  async function resumeRun(/* 含目标图、Run 身份和预期图版本的恢复请求。 */ params: CommandInputMap['run.resume']) {
+  async function resumeRun(/* 含目标图与 Run 身份的恢复请求。 */ params: Omit<CommandInputMap['run.resume'], 'control'>) {
     // 有编辑权限时向服务端恢复指定运行，并接纳返回的图快照。
     if (!canEdit.value) return
-    const result = await submit('run.resume', params)
+    if (clientLeasesRequired.value && !sessionReadRunControlProof() && !await claimRunControl(params.runId)) return
+    const control = clientLeasesRequired.value ? sessionReadRunControlProof() : undefined
+    if (clientLeasesRequired.value && !control) return
+    const result = await submit('run.resume', { ...params, ...(control ? { control } : {}) })
     if (result) applySnapshot(result.data.snapshot, viewEpoch)
   }
   function dispose() {
@@ -645,11 +862,11 @@ export function sessionCreateState(
     clearSession()
   }
   return {
-    connection, bootstrap, workspaces, workspace, mapList, openMapIds, activeMapId, snapshot, activities, selectedId, selectedNode,
-    initializing, connecting, loading, busy, online, error, streamError, streamState, lastSync, canRetry, canEdit, active,
+    connection, bootstrap, workspaces, workspace, definitions, catalog, mapList, openMapIds, activeMapId, snapshot, activities, selectedId, selectedNode, selectedBranch, selectedBranchGrant, selectedRunId, selectedRun, selectedRunControl,
+    initializing, connecting, loading, busy, branchLoading, online, error, streamError, streamState, lastSync, canRetry, canEdit, clientLeasesRequired, active,
     initialize, connect, connectLocal, disconnect, loadWorkspaces, selectWorkspace, createWorkspace, createMap,
-    openMap, closeMap, selectNode, refresh, refreshWorkspace, refreshManagement, retry, createNode, createSource, saveNode, removeNode, linkSources,
-    startRun, updateReview, answerReview, cancelRun, pauseRun, resumeRun, dispose,
+    openMap, closeMap, selectNode, selectRun, refresh, refreshWorkspace, refreshManagement, retry, createNode, saveNode, removeNode, claimBranch, releaseBranch, claimRunControl, releaseRunControl,
+    startRun, answerReview, cancelRun, pauseRun, resumeRun, dispose,
     clearError() {
       // 清除当前错误提示，同时丢弃其命令重试入口。
       error.value = null; canRetry.value = false; retryCommand = null

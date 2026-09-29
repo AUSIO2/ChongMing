@@ -10,10 +10,11 @@ import type { GraphSuccess } from '../contracts/graph'
 import type { GraphStreamEvent } from '../contracts/events'
 export { ClientError } from '../contracts/client'
 
-export const CLIENT_QUERY_METHODS = ['map.list', 'map.get', 'run.get', 'app.bootstrap', 'workspace.list', 'workspace.get', 'agent.list', 'asset.get', 'asset.list'] as const
+export const CLIENT_QUERY_METHODS = ['map.list', 'map.get', 'branch.get', 'run.get', 'app.bootstrap', 'workspace.list', 'workspace.get', 'agent.list', 'definition.get', 'asset.get', 'asset.list'] as const
 export const CLIENT_COMMAND_METHODS = ['map.create', 'map.delete', 'graph.apply', 'run.start', 'run.cancel', 'run.pause', 'run.resume', 'review.update', 'review.answer',
+  'branch.claim', 'branch.renew', 'branch.release', 'run.control.claim', 'run.control.renew', 'run.control.release',
   'workspace.create', 'workspace.update', 'workspace.delete', 'member.set', 'preferences.set', 'agent.create', 'agent.update', 'agent.delete',
-  'agent.copy', 'settings.update', 'asset.delete', 'workspace.import'] as const
+  'agent.copy', 'definition.publish', 'settings.update', 'asset.delete', 'workspace.import'] as const
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 function clientAssertFileId(/* 外部传入的文件资源或上传请求标识，在使用前验证为 UUID。 */ value: unknown): asserts value is string {
@@ -79,47 +80,26 @@ function clientIsObject(/* 需要在协议边界判断为普通对象的未知�
 function clientIsStrings(/* 需要验证为字符串数组的未知值。 */ value: unknown): value is string[] {
   // 判断输入是否为全由字符串组成的数组。
    return Array.isArray(value) && value.every(/* 已确认数组中的当前成员，逐项检查是否为字符串。 */ item => /* 确认数组当前成员为字符串。 */  typeof item === 'string') }
-function clientIsScore(/* 服务端返回的待检查评分，只允许零、半分或一分。 */ value: unknown): boolean {
-  // 只接受核验协议规定的三个评分值。
-   return value === 0 || value === 0.5 || value === 1 }
-function clientIsLocator(/* 服务端返回的未知来源定位器，按 asset/url 分支检查字段。 */ value: unknown): boolean {
-  // 验证定位器是带资产编号和媒体类型的资产引用，或带字符串地址的 URL 引用。
-  return clientIsObject(value) && (value.kind === 'asset'
-    ? typeof value.assetId === 'string' && !!value.assetId && typeof value.mediaType === 'string'
-    : value.kind === 'url' && typeof value.url === 'string')
+function clientIsJson(/* 来自远端 payload、定义或执行结果的未知值。 */ value: unknown, /* 当前递归深度，防止畸形响应制造无界遍历。 */ depth = 0): boolean {
+  // 只接受有界、可序列化 JSON；具体 payload 字段约束由服务端的精确定义版本保证。
+  if (depth > 32) return false
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (Array.isArray(value)) return value.length <= 4096 && value.every(item => clientIsJson(item, depth + 1))
+  return clientIsObject(value) && Object.keys(value).length <= 4096
+    && Object.values(value).every(item => clientIsJson(item, depth + 1))
 }
 function clientAssertNode(/* 响应节点数组中的未验证节点，不修改原对象。 */ value: unknown, /* 该节点在响应数组中的零基位置，用于指明错误路径。 */ index: number): void {
-  // 按节点种类验证快照中的业务数据，错误中保留节点所在数组位置。
+  // 验证通用数据实例信封；客户端不按业务类型猜测 payload 结构。
   const clientCreateNodeError = () => /* 为当前节点位置生成协议响应错误。 */  clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RETURNED_INVALID_NODE_DATA_AT_NODES_VALUE, index))
   if (!clientIsObject(value) || typeof value.id !== 'string' || !value.id
     || typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 0
-    || typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string' || !clientIsObject(value.data)) throw clientCreateNodeError()
-  const data = value.data
-  let valid = false
-  switch (data.kind) {
-    case 'news':
-      if (!clientIsObject(data.context)) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RETURNED_MISSING_OR_INVALID_NEWS_CONTEXT_AT_NODES_VALUE, index))
-      valid = typeof data.content === 'string' && Object.values(data.context).every(/* 新闻 context 中的未知字段对象，必须包含文本值和可见性。 */ field => /* 校验新闻上下文字段同时具有字符串值和可见性开关。 */
-        clientIsObject(field) && typeof field.value === 'string' && typeof field.visibleToAI === 'boolean')
-      break
-    case 'claim':
-      valid = typeof data.content === 'string' && (data.category === null || typeof data.category === 'string')
-      break
-    case 'source':
-      valid = clientIsLocator(data.locator) && (data.label === null || typeof data.label === 'string')
-      break
-    case 'evidence':
-      valid = typeof data.content === 'string' && clientIsLocator(data.locator) && typeof data.capturedAt === 'string'
-      break
-    case 'verification':
-      valid = clientIsScore(data.score) && typeof data.reason === 'string' && clientIsStrings(data.reportIds)
-        && Array.isArray(data.opinions) && data.opinions.every(/* 核验节点中的未知意见对象，逐项检查角色元信息及评分。 */ opinion => /* 验证核验意见中的身份、路由版本、评分和工具列表结构。 */  clientIsObject(opinion)
-          && ['id', 'slotId', 'agentId', 'agentName', 'angle', 'reason', 'createdAt'].every(/* 意见协议要求的字符串字段名，用于读取当前意见对应值。 */ key => /* 要求意见中的指定元信息字段为字符串。 */  typeof opinion[key] === 'string')
-          && typeof opinion.routeRevision === 'number' && Number.isSafeInteger(opinion.routeRevision) && opinion.routeRevision >= 0
-          && clientIsScore(opinion.score) && clientIsStrings(opinion.tools))
-      break
-  }
-  if (!valid) throw clientCreateNodeError()
+    || typeof value.typeId !== 'string' || !value.typeId
+    || typeof value.typeVersion !== 'number' || !Number.isSafeInteger(value.typeVersion) || value.typeVersion < 1
+    || typeof value.createdAt !== 'string' || Number.isNaN(Date.parse(value.createdAt))
+    || typeof value.updatedAt !== 'string' || Number.isNaN(Date.parse(value.updatedAt))
+    || !clientIsObject(value.payload) || !clientIsJson(value.payload)) throw clientCreateNodeError()
+  if (value.validity !== undefined && !['current', 'stale'].includes(String(value.validity))) throw clientCreateNodeError()
 }
 export function clientReadError(/* 任意调用失败值，只有 ClientError 可保留公开字段，其他值脱敏。 */ error: unknown): ClientErrorData {
   // 将已知客户端异常投影为可序列化错误，未知异常隐藏细节并生成本地诊断编号。
@@ -140,17 +120,26 @@ export function clientReadBaseUrl(/* 用户或存储提供的服务地址，验�
 function clientAssertData(/* 原请求的公共方法名，决定响应必须包含哪些业务字段。 */ method: string, /* 服务端 JSON 的未验证业务值，递归检查必要结构。 */ data: unknown): void {
   // 按公开方法检查必要字段和关键业务结构，并递归验证快照、Run 和资产列表。
   const fields: Record<string, string[]> = {
-    'app.bootstrap': ['identity', 'settings', 'metadata'], 'map.get': ['mapId', 'workspaceId', 'name', 'revision', 'nodes', 'edges', 'run', 'updatedAt'],
-    'run.get': ['id', 'scope', 'until', 'paused', 'regenerate', 'mode', 'status', 'configuration', 'operations', 'createdAt', 'updatedAt'],
+    'app.bootstrap': ['identity', 'settings', 'metadata'], 'map.get': ['mapId', 'workspaceId', 'name', 'revision', 'nodes', 'edges', 'runs', 'ownershipRevision', 'ownerships', 'runControls', 'updatedAt'],
+    'branch.get': ['scope', 'version'],
+    'run.get': ['id', 'scope', 'plan', 'definitions', 'paused', 'regenerate', 'mode', 'status', 'operations', 'createdAt', 'updatedAt'],
     'asset.list': ['items', 'nextCursor'], 'workspace.list': ['items', 'nextCursor'], 'workspace.get': ['id', 'revision', 'agents', 'members', 'preferences'],
     'agent.list': ['scope', 'revision', 'items'], 'asset.get': ['id', 'workspaceId', 'filename', 'mediaType', 'size', 'sha256'],
+    'definition.get': ['workspaceId', 'catalog'],
     'workspace.create': ['id', 'revision', 'agents', 'members'], 'workspace.update': ['id', 'revision', 'agents', 'members'],
     'workspace.delete': ['workspaceId', 'deleted'], 'member.set': ['userId', 'member', 'workspaceRevision'],
     'preferences.set': ['workspaceId', 'revision', 'openMapIds', 'currentMapId', 'nodeSelection'],
     'agent.create': ['scope', 'revision', 'items'], 'agent.update': ['scope', 'revision', 'items'], 'agent.delete': ['scope', 'revision', 'items'],
-    'agent.copy': ['id', 'revision', 'agents'], 'settings.update': ['revision', 'llm', 'tools', 'limits'],
+    'agent.copy': ['id', 'revision', 'agents'], 'definition.publish': ['workspaceId', 'workspaceRevision', 'package'], 'settings.update': ['revision', 'llm', 'tools', 'limits'],
     'asset.delete': ['assetId', 'deleted'], 'workspace.import': ['workspaceId', 'mapIds', 'assetIds'],
     'map.delete': ['mapId', 'deleted'],
+    'branch.claim': ['status'], 'branch.ownership': ['leaseId', 'kind', 'rootIds', 'ownerUserId', 'holderId', 'fence', 'expiresAt', 'leaseMs', 'scope'],
+    'branch.renew': ['leaseId', 'rootIds', 'holderId', 'fence', 'expiresAt', 'leaseMs', 'branch', 'ownershipRevision'],
+    'branch.release': ['released', 'ownershipRevision'],
+    'run.control.claim': ['status'],
+    'run.control': ['leaseId', 'runId', 'ownerUserId', 'holderId', 'fence', 'expiresAt', 'leaseMs'],
+    'run.control.renew': ['leaseId', 'runId', 'ownerUserId', 'holderId', 'fence', 'expiresAt', 'leaseMs', 'ownershipRevision'],
+    'run.control.release': ['released', 'ownershipRevision'],
   }
   if (method === 'map.list') {
     if (!Array.isArray(data)) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.MAP_LIST_IS_MISSING)
@@ -158,33 +147,89 @@ function clientAssertData(/* 原请求的公共方法名，决定响应必须包
   }
   const required = fields[method] ?? ['snapshot', 'createdNodeIds', 'createdEdgeIds']
   if (!clientIsObject(data) || required.some(/* 当前方法要求的字段名，检测缺失或 undefined。 */ key => /* 找出响应中缺少或明确为 undefined 的必要字段。 */  !Object.prototype.hasOwnProperty.call(data, key) || data[key] === undefined)) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_IS_INCOMPLETE_FOR_VALUE, method))
-  for (const key of ['nodes', 'edges', 'items', 'members', 'agents', 'tools', 'operations', 'createdNodeIds', 'createdEdgeIds', 'openMapIds', 'mapIds', 'assetIds']) {
+  for (const key of ['nodes', 'edges', 'runs', 'items', 'members', 'agents', 'tools', 'operations', 'ownerships', 'runControls', 'createdNodeIds', 'createdEdgeIds', 'openMapIds', 'mapIds', 'assetIds']) {
     if (key in data && !Array.isArray(data[key])) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, key))
   }
-  for (const key of ['revision', 'workspaceRevision', 'size']) {
+  for (const key of ['revision', 'workspaceRevision', 'ownershipRevision', 'size', 'fence']) {
     if (key in data && (typeof data[key] !== 'number' || !Number.isSafeInteger(data[key]) || data[key] < 0)) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, key))
   }
   for (const key of ['id', 'mapId', 'workspaceId', 'assetId']) {
     if (key in data && (typeof data[key] !== 'string' || !data[key])) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, key))
   }
-  for (const key of ['identity', 'settings', 'metadata', 'preferences', 'nodeSelection', 'scope', 'llm', 'limits', 'configuration']) {
+  for (const key of ['identity', 'settings', 'metadata', 'preferences', 'nodeSelection', 'scope', 'llm', 'limits', 'plan', 'definitions']) {
     if (key in data && !clientIsObject(data[key])) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, key))
   }
   if ('deleted' in data && data.deleted !== true) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_DID_NOT_CONFIRM_DELETION)
-  if ('run' in data && data.run !== null && !clientIsObject(data.run)) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_AN_INVALID_RUN)
-  if ('run' in data && data.run !== null) clientAssertData('run.get', data.run)
+  if ('runs' in data) for (const run of data.runs as unknown[]) clientAssertData('run.get', run)
   if (method === 'run.get' && (typeof data.paused !== 'boolean' || typeof data.regenerate !== 'boolean'
     || !clientIsObject(data.scope) || !clientIsStrings(data.scope.nodeIds)
-    || !['news', 'claims', 'verified'].includes(String(data.until)))) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_RUN_CONTROLS)
+    || !clientIsObject(data.plan) || !Array.isArray(data.plan.steps)
+    || !clientIsObject(data.definitions) || !Array.isArray(data.definitions.dataTypes)
+    || !Array.isArray(data.definitions.transitions))) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_RUN_CONTROLS)
   if (method === 'app.bootstrap' && (!clientIsObject(data.identity) || typeof data.identity.userId !== 'string'
     || typeof data.identity.displayName !== 'string' || typeof data.identity.hostAdmin !== 'boolean'
     || !clientIsObject(data.settings) || !clientIsObject(data.metadata))) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_DID_NOT_RETURN_AN_AUTHENTICATED_APPLICATION_IDENTITY)
-  if (method === 'app.bootstrap') clientAssertData('settings.update', data.settings)
+  if (method === 'app.bootstrap') {
+    clientAssertData('settings.update', data.settings)
+    if (clientIsObject(data.metadata) && data.metadata.clientLeases !== undefined
+      && !['required', 'none'].includes(String(data.metadata.clientLeases))) {
+      throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'clientLeases'))
+    }
+  }
   if (method === 'map.get') {
     (data.nodes as unknown[]).forEach(clientAssertNode)
     for (const edge of data.edges as unknown[]) {
       if (!clientIsObject(edge) || !['id', 'from', 'to'].every(/* 图边身份字段名，要求其值为非空字符串。 */ key => /* 验证图边的编号和两端节点标识均为非空字符串。 */  typeof edge[key] === 'string' && !!edge[key])
-        || !['derived-from', 'mentions', 'verifies', 'related-to'].includes(String(edge.kind))) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_GRAPH_EDGE_DATA)
+        || !['successor', 'reference'].includes(String(edge.kind))) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_GRAPH_EDGE_DATA)
+    }
+    for (const ownership of data.ownerships as unknown[]) clientAssertData('branch.ownership', ownership)
+    for (const control of data.runControls as unknown[]) clientAssertData('run.control', control)
+  }
+  if (method === 'branch.ownership') {
+    if (!clientIsStrings(data.rootIds) || !clientIsObject(data.scope) || !clientIsStrings(data.scope.rootIds)
+      || !clientIsStrings(data.scope.nodeIds) || !clientIsStrings(data.scope.edgeIds)
+      || !['editor', 'run'].includes(String(data.kind)) || typeof data.ownerUserId !== 'string' || typeof data.holderId !== 'string'
+      || (data.expiresAt !== null && typeof data.expiresAt !== 'string')
+      || (data.kind === 'editor' ? !Number.isSafeInteger(data.leaseMs) || Number(data.leaseMs) < 1 : data.leaseMs !== null)) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_RUN_CONTROLS)
+  }
+  if (method === 'branch.claim') {
+    if (data.status === 'claimed') clientAssertData('branch.renew', data.grant)
+    else if (data.status === 'busy') clientAssertData('branch.ownership', data.ownership)
+    else throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'branch claim'))
+  }
+  if (method === 'branch.renew') {
+    if (!Number.isSafeInteger(data.leaseMs) || Number(data.leaseMs) < 1) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'leaseMs'))
+    clientAssertData('branch.ownership', data)
+    clientAssertData('branch.get', data.branch)
+  }
+  if (method === 'run.control') {
+    if (typeof data.runId !== 'string' || !data.runId || typeof data.ownerUserId !== 'string' || !data.ownerUserId
+      || typeof data.holderId !== 'string' || !data.holderId || typeof data.expiresAt !== 'string' || Number.isNaN(Date.parse(data.expiresAt))
+      || !Number.isSafeInteger(data.leaseMs) || Number(data.leaseMs) < 1 || !Number.isSafeInteger(data.fence) || Number(data.fence) < 1) {
+      throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_RUN_CONTROLS)
+    }
+  }
+  if (method === 'run.control.claim') {
+    if (data.status === 'claimed') clientAssertData('run.control.renew', data.grant)
+    else if (data.status === 'busy') clientAssertData('run.control', data.control)
+    else throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'run control claim'))
+  }
+  if (method === 'run.control.renew') clientAssertData('run.control', data)
+  if (method === 'branch.get') {
+    const scope = data.scope
+    if (!clientIsObject(scope) || !clientIsStrings(scope.rootIds) || !clientIsStrings(scope.nodeIds) || !clientIsStrings(scope.edgeIds)
+      || !clientIsObject(data.rootRevisions)) {
+      throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'branch'))
+    }
+    const { rootIds, nodeIds, edgeIds } = scope
+    const rootRevisions = data.rootRevisions
+    if (!rootIds.length || [...rootIds, ...nodeIds, ...edgeIds].some(id => !id.trim())
+      || new Set(rootIds).size !== rootIds.length || new Set(nodeIds).size !== nodeIds.length || new Set(edgeIds).size !== edgeIds.length
+      || rootIds.some(id => !nodeIds.includes(id)) || Object.keys(rootRevisions).length !== rootIds.length
+      || rootIds.some(id => !Number.isSafeInteger(rootRevisions[id]) || Number(rootRevisions[id]) < 0)
+      || !Number.isSafeInteger(data.mapRevision) || Number(data.mapRevision) < 0
+      || typeof data.version !== 'string' || !data.version.trim()) {
+      throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'branch'))
     }
   }
   if (method === 'asset.list') {
@@ -192,6 +237,19 @@ function clientAssertData(/* 原请求的公共方法名，决定响应必须包
     if (data.nextCursor !== null && typeof data.nextCursor !== 'string') throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.INVALID_ASSET_CURSOR)
   }
   if ('snapshot' in data) clientAssertData('map.get', data.snapshot)
+  if ('branch' in data && data.branch !== undefined) clientAssertData('branch.get', data.branch)
+  if ('runControl' in data && data.runControl !== undefined) clientAssertData('run.control.renew', data.runControl)
+  if ('snapshot' in data && clientIsObject(data.snapshot) && 'branch' in data && clientIsObject(data.branch)) {
+    const snapshot = data.snapshot, branch = data.branch, scope = branch.scope
+    const rootIds = clientIsObject(scope) && clientIsStrings(scope.rootIds) ? scope.rootIds : []
+    const nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : []
+    const rootRevisions = clientIsObject(branch.rootRevisions) ? branch.rootRevisions : {}
+    if (!clientIsObject(scope) || branch.mapRevision !== snapshot.revision || !Array.isArray(snapshot.nodes)
+      || rootIds.some(id => {
+        const node = nodes.find((value: unknown) => clientIsObject(value) && value.id === id)
+        return !clientIsObject(node) || node.revision !== rootRevisions[id]
+      })) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'branch snapshot'))
+  }
 }
 async function clientReadJson(/* 待读取的 HTTP 响应，本函数消耗其正文并按字节限制 UTF-8 JSON 体积。 */ response: Response): Promise<unknown> {
   // 按 16 MiB 上限流式解码 UTF-8 响应并解析 JSON，读取结束或失败时释放流锁。

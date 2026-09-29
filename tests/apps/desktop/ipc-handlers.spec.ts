@@ -146,7 +146,8 @@ describe('desktop client IPC authority', () => {
   it('dispatches persistent pause and resume through the public command channel', async () => {
     // 验证暂停和恢复通过公开写命令通道传给网关。
     const f = fixture()
-    const params = { mapId: 'map', expectedRevision: 2, runId: 'run' }
+    const params = { mapId: 'map', runId: 'run', control: { leaseId: callId,
+      holderId: '22222222-2222-4222-8222-222222222222', fence: 1 } }
     for (const method of ['run.pause', 'run.resume']) {
       const result = await f.handlers.get(CLIENT_CHANNELS.dispatch)!(f.event, callId, callId, method, params)
       expect(result.ok).toBe(true)
@@ -258,7 +259,7 @@ describe('Renderer bridge adapter', () => {
       // 在 watch 调用期间立即发布首帧，验证适配器不会漏掉同步到达的消息。
       expect(listeners.size).toBeGreaterThan(0)
       ids.push(watchId)
-      const event: GraphStreamEvent = { type: 'snapshot', snapshot: { mapId, workspaceId: 'workspace', revision: 1, name: mapId, nodes: [], edges: [], run: null, updatedAt: '' } }
+      const event: GraphStreamEvent = { type: 'snapshot', snapshot: { mapId, workspaceId: 'workspace', revision: 1, name: mapId, nodes: [], edges: [], runs: [], ownershipRevision: 0, ownerships: [], runControls: [], updatedAt: '' } }
       for (const listener of listeners) listener({ watchId, sequence: 1, event })
       return new Promise<ClientBridgeResult<null>>(/* 手动结束当前桥接订阅并返回空成功值的函数。 */ resolve => /* 保存手动完成订阅的函数，使测试能分别结束两条流。 */  finish.push(() => /* 将该条模拟订阅标记为正常完成。 */  resolve({ ok: true, value: null })))
     })
