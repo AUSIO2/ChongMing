@@ -1,6 +1,6 @@
 # 重明 ChongMing
 
-围绕事实、来源和核查结论构建数据图的桌面应用。
+围绕可注册数据类型和 Agent 转换构建可追溯数据图的桌面应用；仓库自带事实核查定义包。
 
 模块职责、依赖方向与部署入口见 [架构说明](./ARCHITECTURE.md)。
 
@@ -24,7 +24,15 @@
 
 两种模式共用数据图、身份/配置/资产、Run和Review规则。独立本机不连接其他重明实例，模型和工具仍正常联网；不需要MongoDB或RabbitMQ。协作模式中多个Host领取不同工作、使用独立DSH目录。前端只提交业务命令、读取状态，不负责智能体调度。
 
-059 已接通：用户登录 → 工作区/图 → 选择一个或多个 Source/News/Claim → 解析、拆分、核查 → 各操作独立审核 → 产物入图并推进后继。一个 Run 以 scope/until 保存范围和终点，多个 Host 可同时处理不同新闻、事实和核查角度。自定义 Agent 与工具来自冻结的工作区配置；拆分保留路由、多 Agent 提取和汇总选择。关闭图或退出客户端不停止后端 Run。
+本地用户无需领取编辑权、领取 Run 控制权或续租：编辑/启动携带分支内容版本，暂停、继续、取消、审核直接指定 Run。服务端保留版本冲突检查和活跃 Run 范围保护。`app.bootstrap.metadata.clientLeases` 返回 `none`（本机）或 `required`（协作）；以下客户端租约说明适用于协作模式。内部 Agent Work 的授权由 Host 自动维护。
+
+077 已落地通用数据与 Agent 级执行主链：节点使用 `id/revision/typeId/typeVersion/payload`，工作区发布不可变数据类型和转换定义，Run 保存有限 `plan` 与冻结 `ExecutionSpec`。一个转换可产生多个按阶段和槽位区分的 Agent Work；同一 Host 的可配置执行槽与多个 Host 使用相同领取、续租、围栏和幂等提交协议。默认事实核查包提供来源解析、事实拆分、并行核查与汇总，但核心图、DSH 合同和 UI 不再按这些业务名称分支。关闭图或退出客户端不停止后端 Run。
+
+人工编辑使用分支内容版本和独占编辑租约。客户端以 `branch.get(mapId, rootIds)` 取得服务端计算的实际 successor 闭包及不透明版本，再以 `branch.claim` 领取该实际范围；父子分支、共享后继或多根范围发生交集时只有一个客户端能取得编辑权，互不相交的分支可以并行。`graph.apply` 同时携带 `GraphBranchProof { rootIds, expectedVersion }` 与 `GraphBranchLeaseProof { leaseId, holderId, fence }`，最终存储条件会检查内容版本、所有权代次和过期时间。版本同时覆盖结构边和类型声明中的 payload 节点引用；reference 不扩展闭包，但会影响两端版本。分支读取还返回根节点 revision 与 mapRevision，供客户端确认它和当前展示快照属于同一时点；并发裁决只比较不透明的 branch version。
+
+租约状态使用独立 `ownershipRevision`，领取、续租和释放不增加内容 revision；SSE 即使在内容 revision 不变时也会推送新的完整占有基线。每个窗口使用独立 holder 并按租期续租，未持有编辑权时界面只读。`run.start` 会验证并消费编辑租约，把范围转换为不随浏览器断线过期的 Run 占有；Work 读取、领取、提案和失败处理继续核对该占有，Run 终态释放范围。创建完全独立的新根仍可用 `expectedVersion: null`，不需要先领取不存在的分支。
+
+图快照和持久记录使用 `runs[]`。不相交分支可以在同一张图上同时启动 Run；每个 Run 独立保存 branchState、范围占有、控制租约、Operation 和 Work。重叠范围仍由实际 successor 闭包拒绝。启动者原子取得该 Run 的控制权，暂停、继续、取消和审核校验 owner、holder、fence 与存储时间；暂停只撤销所属 Run 的 Work 租约，其他 Run 继续执行。界面可以选择具体 Run 查看、领取控制和审核。整图 `revision` 只承担内部 CAS 和快照排序，服务层在无关分支、其他 Run 或租约续租抢先提交后会从最新图重新验证并重放业务动作。
 
 默认桌面入口为 `apps/desktop/main.ts` 和 `apps/ui/views/WorkspacePage.vue`，不加载旧 Mapper、数据库或 AgentLoop。支持运行暂停/继续：暂停持久化并撤销执行租约，恢复保留已保存产物和审核，未完成工作使用新 DSH 会话重跑。060 的「管理工作台」已接入成员、七类 Agent 配置与共享库复制、非秘密模型/工具设置、资产上传下载和数据包导入导出。061 使用RabbitMQ分发工作通知，Host不再空闲扫图；客户端通过认证SSE接收完整快照与管理刷新，保留初始读取/手动刷新，无定时图快照轮询。062 恢复各阶段树状展开：来源、解析、新闻、拆分分支、事实、核查意见与结论按子树排列，支持阶段定位并保留实时更新时的视口。063 已接入DSH固定活动摘要，树卡与进度面板实时显示模型/工具执行状态，暂停和断流清除临时活动。064 已删除旧Mapper/AgentLoop及其依赖，CLI也使用认证API；065 已提供SQLite与进程内通知的独立服务入口；066 已将Node 24和服务资源随桌面打包，支持本机一键连接、记住模式及退出排空。
 
@@ -69,6 +77,8 @@ npm run graph:serve
 npm run host:serve -- --host-id host-a --dsh-home /absolute/path/to/host-a
 ```
 
+每个 Host 的容量默认为 1，可用 `--concurrency 1..64` 或 `CHONGMING_HOST_CONCURRENCY` 设置；本机服务也接受同一参数。容量表示同时执行的 Agent Work 数量，不是固定 Agent 数量。
+
 再启动桌面客户端，在登录页填写图服务地址（默认 `http://127.0.0.1:4320`）和用户 token：
 
 ```bash
@@ -89,7 +99,7 @@ CHONGMING_GRAPH_API=http://127.0.0.1:4320 npm run dev:web
 
 ## 命令行客户端
 
-`npm run headless -- --help` 可离线查看命令。设置用户级 `CHONGMING_USER_TOKEN` 和 `CHONGMING_GRAPH_API` 后，使用 `read` 查询、`dispatch` 写入、`watch` 订阅，以及 `upload/download` 传输文件。写入必须提供稳定的 `--request-id`；Ctrl+C 只断开客户端，不取消共享任务。CLI不会连接数据库或启动执行器。详情见 [064 CLI使用说明](./develop-docs/064-CLI使用说明.md)。
+`npm run headless -- --help` 可离线查看命令。设置用户级 `CHONGMING_USER_TOKEN` 和 `CHONGMING_GRAPH_API` 后，使用 `read` 查询、`dispatch` 写入、`watch` 订阅，以及 `upload/download` 传输文件。写入必须提供稳定的 `--request-id`；Ctrl+C 只断开客户端，不取消共享任务。CLI不会连接数据库或启动执行器。按目标操作的完整示例见 [CLI 使用手册（19 个 UC）](./develop-docs/077-CLI使用手册.md)，包含分支租约、多 Run、运行控制与审核、资产和导入导出。
 
 ## 验证与打包
 
@@ -102,6 +112,7 @@ npm run build:check
 npm run test:desktop-runtime
 node develop-docs/052-校验契约.mjs
 node develop-docs/064-校验入口.mjs
+node develop-docs/077-校验数据定义.mjs
 ```
 
 `npm test` 会自动启动一个临时RabbitMQ Docker容器，供真实消息集成测试共享，结束时清理。仅有本地Docker引擎或配置好的测试broker才运行这些集成，不静默跳过。也可设置 `CHONGMING_TEST_BROKER_FILE` 指向权限受限、含amqpUrl字段的测试配置文件；每个fixture使用独立随机namespace并清理自己的资源。只跑不涉及MQ的纯单元测试可直接使用Vitest。
@@ -118,11 +129,11 @@ node --import tsx tests/client/ui-fixture.ts
 
 ## 数据与文档
 
-058 及之前的单 operation Run 需在升级时显式迁移。先停止 Host 并等待其租约过期，运行 `npm run admin -- data.migrate-node-runs` 查看统计；确认后用内容为 `{"apply":true}` 的本地 JSON，通过 `--input /absolute/path/to/migration.json` 执行。迁移保留图、原 Run/Review/报告/收据身份，未结束的旧 Run 以暂停状态保留；新客户端中继续。命令默认不写入，已有新结构不重复迁移；有有效租约或不支持的数据结构时明确拒绝。
+旧固定 `data.kind` 图以及此前使用单个 `run` 字段的通用图必须显式迁移。协作存储先停止 Host 并等待 Work 租约过期，运行 `npm run admin -- data.migrate-branches` dry-run；确认后用内容为 `{"apply":true}` 的本地 JSON 通过 `--input` 执行。SQLite 使用 `npm run local:serve -- --directory /absolute/path --migrate-branches` dry-run，加 `--apply` 写入。迁移不在正常启动时自动执行；有有效 Work、版本竞争或无法识别的数据时保持原记录并报告。单 Run 文档会转换为 `runs[]`，执行身份、历史、范围占有和仍有效的控制状态按原记录保留。
 
 现有工作区配置不会自动覆盖。首次初始化包含新的 parse/split 默认配置；已有工作区的 Owner 可进入「管理工作台 → 智能体配置」，编辑解析、拆分路由/汇总并新增拆分 Agent，或预览后从共享库复制。旧占位提示词应按实际需求更新；缺少所需角色时返回配置错误。修改配置只影响以后启动的 Run。
 
-「资产与导入导出」支持 64 MiB 以内文件上传、下载、添加为 Source、资产删除，以及图/工作区 v3 包导出与导入新工作区。上传或导入遇到不确定结果时，用“重试同一操作”保留原身份；来源创建冲突不要求重新上传。Viewer 可下载资产并导出当前图，整个工作区导出和导入需 Owner；导入不携带可执行 Run。文件实际解析仍遵守上方的 1 MiB/文本媒体限制。
+「资产与导入导出」支持 64 MiB 以内文件上传、下载、按注册资产引用类型添加数据、资产删除，以及图/工作区 v4 包导出与导入新工作区。v4 包携带精确类型包、依赖闭包、Agent 快照与摘要，不携带可执行 Run、租约或凭据；旧 v3 包只经显式兼容转换导入。上传或导入遇到不确定结果时，用“重试同一操作”保留原身份。Viewer 可下载资产并导出当前图，整个工作区导出和导入需 Owner；文件实际解析仍遵守上方的 1 MiB/文本媒体限制。
 
 成员添加使用管理员提供的已注册用户 ID，系统不会自动创建账户或发送邀请。共享库和全局设置由 HostAdmin 修改；工具声明不安装 Host 插件，模型密钥仍在 Host 本机配置，Renderer 不取得密钥或任意文件路径权限。
 
@@ -135,6 +146,9 @@ node --import tsx tests/client/ui-fixture.ts
 - [067 模块边界拆分](./develop-docs/067-implement-模块边界与运行入口拆分.md)
 - [068 异常处理与故障恢复设计](./develop-docs/068-异常处理与故障恢复体系.md)
 - [068 实施与验收](./develop-docs/068-implement-异常处理与故障恢复体系.md)
+- [077 分支编辑保护与 Agent 级分布式执行](./develop-docs/077-分支独占与分布式协作.md)
+- [077 实施状态与后续清单](./develop-docs/077-implement-分支独占与分布式协作.md)
+- [077 数据定义协议](./develop-docs/077-数据定义协议.md)
 - [066 桌面本机模式](./develop-docs/066-桌面本机模式说明.md)
 - [066 实施与验收](./develop-docs/066-implement-Electron本机服务托管.md)
 - [065 独立本机运行](./develop-docs/065-本机运行说明.md)

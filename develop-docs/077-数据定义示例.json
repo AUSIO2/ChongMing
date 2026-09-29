@@ -1,0 +1,2724 @@
+{
+  "protocolExampleVersion": 1,
+  "notice": "本文件仅用于 077 字段、引用、基数与样例图一致性检查，不是生产实现或完整注册协议；不验证数据库租约、权限事务、消息投递、审核状态机或真实 DSH。fixtures.agents 是独立的外部 Agent 定义目录，仅示意身份。",
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "semantics": {
+    "definitionRef": "全部类型、后继、转换和 Agent 引用均为确切的 {id, version}；不得隐式引用 latest。",
+    "cardinality": "只计算结构输入 ports.input 与发布的 outputs；context 是读取依赖，不计结构基数。N/M 表示由 count 明确约束的多值能力，允许零必须显式写 min:0。",
+    "successors": "successorTypes 是许可，不是自动生成任务。输出仅向 successorOf 许可的结构输入实例连边，context 不自动变成后继。",
+    "groups": "示例组是显式且封闭的成员清单；completed:true 表示样例输入已就绪。生产环境必须从可信持久状态验证，不接受客户端布尔值充当执行资格。空输出成功不是未完成。",
+    "stages": "有限的命名 Agent 阶段只支持显式无环依赖和 all-dependencies。fixtures.limits 仅是本样例校验预算，不是生产架构的槽数或阶段数上限。每份 stageResults 绑定一个示意 Work；同一阶段模板展开多个槽时，各槽必须使用不同 workId。outputs 提交候选，selection 只能引用依赖 Work 的候选；中间阶段按自己的 outputPorts.count 校验，只有 resultStage 按 Operation 总基数发布。",
+    "review": "required 表示结果须经审核后才发布；样例输出表示已批准后的状态，校验器不模拟审核权限或运行状态机。",
+    "provenance": "实际生成记录须保留包括 context 在内的全部输入版本、输出版本和转换引用；N→M 由一条生成记录表达，不能仅靠若干边推断。",
+    "projection": "agentProjection.include 是白名单；mapEntryFilters 再排除 visibleWhen 字段不为 true 的条目。所有规则都受业务权限约束。",
+    "nodeIdentity": "samples.invocations[].published 映射候选到示意正式节点 ID；生产 ID 必须由服务端与幂等收据稳定映射。本样例不实现 ID 分配或发布事务。",
+    "proposal": "outputs 使用 {key,port,typeRef,payload}；本样例未启用逐产物来源选择，省略 sourceKeys 并使用 successorOf 对应端口的全部结构输入。selection 使用 {workId,key}。stageId 仅标识阶段模板，不是候选的全局身份；key 在 Work 内唯一。这些样例结果不包含生产 data_propose 的授权信封。"
+  },
+  "fixtures": {
+    "agents": [
+      {
+        "id": "fixture.assessor",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.editor",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.extractor-a",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.extractor-b",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.merger",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.parser",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.researcher",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.selector",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      },
+      {
+        "id": "fixture.summarizer",
+        "version": 1,
+        "fixtureOnly": true,
+        "description": "仅用于引用校验，不含模型、凭据或可执行实现。"
+      }
+    ],
+    "assets": [
+      {
+        "id": "fixture-article",
+        "fixtureOnly": true
+      }
+    ],
+    "limits": {
+      "maxStages": 8,
+      "maxOneOfVariants": 8,
+      "maxSchemaReferenceDepth": 32
+    }
+  },
+  "dataTypes": [
+    {
+      "id": "factcheck.source",
+      "version": 1,
+      "title": "来源",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "locator": {
+            "$ref": "#/definitions/locator"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "locator",
+          "label"
+        ],
+        "additionalProperties": false,
+        "definitions": {
+          "locator": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "asset"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "mediaType": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "assetId",
+                  "mediaType"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "url"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "successorTypes": [
+        {
+          "id": "factcheck.news",
+          "version": 1
+        }
+      ],
+      "references": [
+        {
+          "path": "/locator/assetId",
+          "target": {
+            "kind": "asset"
+          },
+          "when": {
+            "path": "/locator/kind",
+            "equals": "asset"
+          }
+        }
+      ],
+      "agentProjection": {
+        "include": [
+          "/locator",
+          "/label"
+        ],
+        "mapEntryFilters": []
+      }
+    },
+    {
+      "id": "factcheck.news",
+      "version": 1,
+      "title": "新闻",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/contextField"
+            }
+          }
+        },
+        "required": [
+          "content",
+          "context"
+        ],
+        "additionalProperties": false,
+        "definitions": {
+          "contextField": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string"
+              },
+              "visibleToAI": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "visibleToAI"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "successorTypes": [
+        {
+          "id": "factcheck.claim",
+          "version": 1
+        }
+      ],
+      "references": [],
+      "agentProjection": {
+        "include": [
+          "/content",
+          "/context"
+        ],
+        "mapEntryFilters": [
+          {
+            "path": "/context",
+            "visibleWhen": "visibleToAI"
+          }
+        ]
+      }
+    },
+    {
+      "id": "factcheck.claim",
+      "version": 1,
+      "title": "事实",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "content",
+          "category"
+        ],
+        "additionalProperties": false
+      },
+      "successorTypes": [
+        {
+          "id": "factcheck.opinion",
+          "version": 1
+        },
+        {
+          "id": "factcheck.evidence",
+          "version": 1
+        }
+      ],
+      "references": [],
+      "agentProjection": {
+        "include": [
+          "/content",
+          "/category"
+        ],
+        "mapEntryFilters": []
+      }
+    },
+    {
+      "id": "factcheck.opinion",
+      "version": 1,
+      "title": "核查意见",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "number",
+            "enum": [
+              0,
+              0.5,
+              1
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0,
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "score",
+          "reason",
+          "evidenceIds"
+        ],
+        "additionalProperties": false
+      },
+      "successorTypes": [
+        {
+          "id": "factcheck.verification",
+          "version": 1
+        }
+      ],
+      "references": [
+        {
+          "path": "/evidenceIds/*",
+          "target": {
+            "kind": "node",
+            "types": [
+              {
+                "id": "factcheck.evidence",
+                "version": 1
+              }
+            ]
+          }
+        }
+      ],
+      "agentProjection": {
+        "include": [
+          "/score",
+          "/reason",
+          "/evidenceIds"
+        ],
+        "mapEntryFilters": []
+      }
+    },
+    {
+      "id": "factcheck.verification",
+      "version": 1,
+      "title": "核查结论",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "number",
+            "enum": [
+              0,
+              0.5,
+              1
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "opinionIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 2,
+            "maxItems": 8,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "score",
+          "reason",
+          "opinionIds"
+        ],
+        "additionalProperties": false
+      },
+      "successorTypes": [],
+      "references": [
+        {
+          "path": "/opinionIds/*",
+          "target": {
+            "kind": "node",
+            "types": [
+              {
+                "id": "factcheck.opinion",
+                "version": 1
+              }
+            ]
+          }
+        }
+      ],
+      "agentProjection": {
+        "include": [
+          "/score",
+          "/reason",
+          "/opinionIds"
+        ],
+        "mapEntryFilters": []
+      }
+    },
+    {
+      "id": "factcheck.evidence",
+      "version": 1,
+      "title": "证据",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "$ref": "#/definitions/locator"
+          },
+          "capturedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "content",
+          "locator",
+          "capturedAt"
+        ],
+        "additionalProperties": false,
+        "definitions": {
+          "locator": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "asset"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "mediaType": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "assetId",
+                  "mediaType"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "url"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "successorTypes": [],
+      "references": [
+        {
+          "path": "/locator/assetId",
+          "target": {
+            "kind": "asset"
+          },
+          "when": {
+            "path": "/locator/kind",
+            "equals": "asset"
+          }
+        }
+      ],
+      "agentProjection": {
+        "include": [
+          "/content",
+          "/locator",
+          "/capturedAt"
+        ],
+        "mapEntryFilters": []
+      }
+    },
+    {
+      "id": "writing.document",
+      "version": 1,
+      "title": "文稿",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "zh",
+              "en"
+            ]
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "language"
+        ],
+        "additionalProperties": false
+      },
+      "successorTypes": [
+        {
+          "id": "writing.summary",
+          "version": 1
+        }
+      ],
+      "references": [],
+      "agentProjection": {
+        "include": [
+          "/title",
+          "/body",
+          "/language"
+        ],
+        "mapEntryFilters": []
+      }
+    },
+    {
+      "id": "writing.summary",
+      "version": 1,
+      "title": "摘要",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bullets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 8
+          }
+        },
+        "required": [
+          "title",
+          "bullets"
+        ],
+        "additionalProperties": false
+      },
+      "successorTypes": [],
+      "references": [],
+      "agentProjection": {
+        "include": [
+          "/title",
+          "/bullets"
+        ],
+        "mapEntryFilters": []
+      }
+    }
+  ],
+  "transitions": [
+    {
+      "id": "factcheck.parse-source",
+      "version": 1,
+      "title": "来源解析",
+      "ports": {
+        "input": [
+          {
+            "name": "source",
+            "inputType": {
+              "id": "factcheck.source",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ],
+        "context": [],
+        "output": [
+          {
+            "name": "news",
+            "outputType": {
+              "id": "factcheck.news",
+              "version": 1
+            },
+            "count": {
+              "min": 0,
+              "max": 8
+            },
+            "successorOf": [
+              "source"
+            ]
+          }
+        ]
+      },
+      "cardinality": "1:N",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "parse",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.parser",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "news",
+                "count": {
+                  "min": 0,
+                  "max": 8
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "parse"
+      },
+      "review": {
+        "mode": "none",
+        "at": "result",
+        "onReject": "fail"
+      }
+    },
+    {
+      "id": "factcheck.split-news",
+      "version": 1,
+      "title": "提取事实",
+      "ports": {
+        "input": [
+          {
+            "name": "news",
+            "inputType": {
+              "id": "factcheck.news",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ],
+        "context": [],
+        "output": [
+          {
+            "name": "claims",
+            "outputType": {
+              "id": "factcheck.claim",
+              "version": 1
+            },
+            "count": {
+              "min": 0,
+              "max": 8
+            },
+            "successorOf": [
+              "news"
+            ]
+          }
+        ]
+      },
+      "cardinality": "1:N",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "candidate-a",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.extractor-a",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "claims",
+                "count": {
+                  "min": 0,
+                  "max": 4
+                }
+              }
+            ]
+          },
+          {
+            "id": "candidate-b",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.extractor-b",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "claims",
+                "count": {
+                  "min": 0,
+                  "max": 4
+                }
+              }
+            ]
+          },
+          {
+            "id": "select",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.selector",
+              "version": 1
+            },
+            "dependsOn": [
+              "candidate-a",
+              "candidate-b"
+            ],
+            "ready": "all-dependencies",
+            "resultMode": "selection",
+            "outputPorts": [
+              {
+                "port": "claims",
+                "count": {
+                  "min": 0,
+                  "max": 8
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "select"
+      },
+      "review": {
+        "mode": "required",
+        "at": "result",
+        "onReject": "fail"
+      }
+    },
+    {
+      "id": "factcheck.collect-evidence",
+      "version": 1,
+      "title": "搜集证据",
+      "ports": {
+        "input": [
+          {
+            "name": "claim",
+            "inputType": {
+              "id": "factcheck.claim",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ],
+        "context": [],
+        "output": [
+          {
+            "name": "evidence",
+            "outputType": {
+              "id": "factcheck.evidence",
+              "version": 1
+            },
+            "count": {
+              "min": 0,
+              "max": 8
+            },
+            "successorOf": [
+              "claim"
+            ]
+          }
+        ]
+      },
+      "cardinality": "1:N",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "research",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.researcher",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "evidence",
+                "count": {
+                  "min": 0,
+                  "max": 8
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "research"
+      },
+      "review": {
+        "mode": "none",
+        "at": "result",
+        "onReject": "fail"
+      }
+    },
+    {
+      "id": "factcheck.form-opinion",
+      "version": 1,
+      "title": "生成意见",
+      "ports": {
+        "input": [
+          {
+            "name": "claim",
+            "inputType": {
+              "id": "factcheck.claim",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ],
+        "context": [
+          {
+            "name": "evidence",
+            "inputType": {
+              "id": "factcheck.evidence",
+              "version": 1
+            },
+            "count": {
+              "min": 0,
+              "max": 8
+            }
+          },
+          {
+            "name": "news",
+            "inputType": {
+              "id": "factcheck.news",
+              "version": 1
+            },
+            "count": {
+              "min": 0,
+              "max": 8
+            }
+          }
+        ],
+        "output": [
+          {
+            "name": "opinion",
+            "outputType": {
+              "id": "factcheck.opinion",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            },
+            "successorOf": [
+              "claim"
+            ]
+          }
+        ]
+      },
+      "cardinality": "1:1",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "opinion-a",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.assessor",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "opinion",
+                "count": {
+                  "min": 0,
+                  "max": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "opinion-b",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.researcher",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "opinion",
+                "count": {
+                  "min": 0,
+                  "max": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "assemble",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.selector",
+              "version": 1
+            },
+            "dependsOn": [
+              "opinion-a",
+              "opinion-b"
+            ],
+            "ready": "all-dependencies",
+            "resultMode": "selection",
+            "outputPorts": [
+              {
+                "port": "opinion",
+                "count": {
+                  "min": 1,
+                  "max": 1
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "assemble"
+      },
+      "review": {
+        "mode": "none",
+        "at": "result",
+        "onReject": "fail"
+      }
+    },
+    {
+      "id": "factcheck.merge-opinions",
+      "version": 1,
+      "title": "汇总意见",
+      "ports": {
+        "input": [
+          {
+            "name": "opinions",
+            "inputType": {
+              "id": "factcheck.opinion",
+              "version": 1
+            },
+            "count": {
+              "min": 2,
+              "max": 8
+            }
+          }
+        ],
+        "context": [
+          {
+            "name": "claim",
+            "inputType": {
+              "id": "factcheck.claim",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ],
+        "output": [
+          {
+            "name": "verification",
+            "outputType": {
+              "id": "factcheck.verification",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            },
+            "successorOf": [
+              "opinions"
+            ]
+          }
+        ]
+      },
+      "cardinality": "N:1",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "merge",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.merger",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "verification",
+                "count": {
+                  "min": 1,
+                  "max": 1
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "merge"
+      },
+      "review": {
+        "mode": "required",
+        "at": "result",
+        "onReject": "fail"
+      }
+    },
+    {
+      "id": "writing.summarize",
+      "version": 1,
+      "title": "文稿摘要",
+      "ports": {
+        "input": [
+          {
+            "name": "document",
+            "inputType": {
+              "id": "writing.document",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            }
+          }
+        ],
+        "context": [],
+        "output": [
+          {
+            "name": "summary",
+            "outputType": {
+              "id": "writing.summary",
+              "version": 1
+            },
+            "count": {
+              "min": 1,
+              "max": 1
+            },
+            "successorOf": [
+              "document"
+            ]
+          }
+        ]
+      },
+      "cardinality": "1:1",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "summarize",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.summarizer",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "summary",
+                "count": {
+                  "min": 1,
+                  "max": 1
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "summarize"
+      },
+      "review": {
+        "mode": "none",
+        "at": "result",
+        "onReject": "fail"
+      }
+    },
+    {
+      "id": "writing.batch-summarize",
+      "version": 1,
+      "title": "多文稿生成多主题摘要",
+      "ports": {
+        "input": [
+          {
+            "name": "documents",
+            "inputType": {
+              "id": "writing.document",
+              "version": 1
+            },
+            "count": {
+              "min": 2,
+              "max": 8
+            }
+          }
+        ],
+        "context": [],
+        "output": [
+          {
+            "name": "summaries",
+            "outputType": {
+              "id": "writing.summary",
+              "version": 1
+            },
+            "count": {
+              "min": 2,
+              "max": 8
+            },
+            "successorOf": [
+              "documents"
+            ]
+          }
+        ]
+      },
+      "cardinality": "N:M",
+      "group": {
+        "mode": "explicit-members",
+        "ready": "sealed-all-required"
+      },
+      "execution": {
+        "stages": [
+          {
+            "id": "draft-a",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.summarizer",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "summaries",
+                "count": {
+                  "min": 0,
+                  "max": 4
+                }
+              }
+            ]
+          },
+          {
+            "id": "draft-b",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.editor",
+              "version": 1
+            },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [
+              {
+                "port": "summaries",
+                "count": {
+                  "min": 0,
+                  "max": 4
+                }
+              }
+            ]
+          },
+          {
+            "id": "assemble",
+            "kind": "agent",
+            "agentRef": {
+              "id": "fixture.editor",
+              "version": 1
+            },
+            "dependsOn": [
+              "draft-a",
+              "draft-b"
+            ],
+            "ready": "all-dependencies",
+            "resultMode": "selection",
+            "outputPorts": [
+              {
+                "port": "summaries",
+                "count": {
+                  "min": 2,
+                  "max": 8
+                }
+              }
+            ]
+          }
+        ],
+        "resultStage": "assemble"
+      },
+      "review": {
+        "mode": "none",
+        "at": "result",
+        "onReject": "fail"
+      }
+    }
+  ],
+  "samples": {
+    "nodes": [
+      {
+        "id": "source-1",
+        "revision": 0,
+        "typeId": "factcheck.source",
+        "typeVersion": 1,
+        "payload": {
+          "locator": {
+            "kind": "asset",
+            "assetId": "fixture-article",
+            "mediaType": "text/plain"
+          },
+          "label": null
+        }
+      },
+      {
+        "id": "news-1",
+        "revision": 0,
+        "typeId": "factcheck.news",
+        "typeVersion": 1,
+        "payload": {
+          "content": "示例新闻：项目完成了两项测试。",
+          "context": {
+            "public": {
+              "value": "公开新闻背景",
+              "visibleToAI": true
+            },
+            "private": {
+              "value": "这段备注不得进入 Agent 输入。",
+              "visibleToAI": false
+            }
+          }
+        }
+      },
+      {
+        "id": "news-empty",
+        "revision": 0,
+        "typeId": "factcheck.news",
+        "typeVersion": 1,
+        "payload": {
+          "content": "一段没有可提取事实的文案。",
+          "context": {}
+        }
+      },
+      {
+        "id": "claim-1",
+        "revision": 0,
+        "typeId": "factcheck.claim",
+        "typeVersion": 1,
+        "payload": {
+          "content": "项目完成测试甲。",
+          "category": "data"
+        }
+      },
+      {
+        "id": "claim-2",
+        "revision": 0,
+        "typeId": "factcheck.claim",
+        "typeVersion": 1,
+        "payload": {
+          "content": "项目完成测试乙。",
+          "category": null
+        }
+      },
+      {
+        "id": "evidence-1",
+        "revision": 0,
+        "typeId": "factcheck.evidence",
+        "typeVersion": 1,
+        "payload": {
+          "content": "示意证据：测试记录显示甲通过。",
+          "locator": {
+            "kind": "url",
+            "url": "https://example.org/evidence"
+          },
+          "capturedAt": "2026-09-28T00:00:00Z"
+        }
+      },
+      {
+        "id": "opinion-1",
+        "revision": 0,
+        "typeId": "factcheck.opinion",
+        "typeVersion": 1,
+        "payload": {
+          "score": 1,
+          "reason": "记录支持事实。",
+          "evidenceIds": [
+            "evidence-1"
+          ]
+        }
+      },
+      {
+        "id": "opinion-2",
+        "revision": 0,
+        "typeId": "factcheck.opinion",
+        "typeVersion": 1,
+        "payload": {
+          "score": 0.5,
+          "reason": "尚需补充独立证据。",
+          "evidenceIds": [
+            "evidence-1"
+          ]
+        }
+      },
+      {
+        "id": "verification-1",
+        "revision": 0,
+        "typeId": "factcheck.verification",
+        "typeVersion": 1,
+        "payload": {
+          "score": 0.5,
+          "reason": "汇总两份意见后仍有不确定性。",
+          "opinionIds": [
+            "opinion-1",
+            "opinion-2"
+          ]
+        }
+      },
+      {
+        "id": "document-1",
+        "revision": 0,
+        "typeId": "writing.document",
+        "typeVersion": 1,
+        "payload": {
+          "title": "春季计划",
+          "body": "整理资料，完成原型。",
+          "language": "zh"
+        }
+      },
+      {
+        "id": "document-2",
+        "revision": 0,
+        "typeId": "writing.document",
+        "typeVersion": 1,
+        "payload": {
+          "title": "夏季计划",
+          "body": "开展试点，收集反馈。",
+          "language": "zh"
+        }
+      },
+      {
+        "id": "summary-1",
+        "revision": 0,
+        "typeId": "writing.summary",
+        "typeVersion": 1,
+        "payload": {
+          "title": "春季计划摘要",
+          "bullets": [
+            "整理资料",
+            "完成原型"
+          ]
+        }
+      },
+      {
+        "id": "summary-2",
+        "revision": 0,
+        "typeId": "writing.summary",
+        "typeVersion": 1,
+        "payload": {
+          "title": "准备工作",
+          "bullets": [
+            "资料与原型属于准备阶段。"
+          ]
+        }
+      },
+      {
+        "id": "summary-3",
+        "revision": 0,
+        "typeId": "writing.summary",
+        "typeVersion": 1,
+        "payload": {
+          "title": "验证工作",
+          "bullets": [
+            "试点与反馈属于验证阶段。"
+          ]
+        }
+      }
+    ],
+    "invocations": [
+      {
+        "id": "parse-1",
+        "transitionRef": {
+          "id": "factcheck.parse-source",
+          "version": 1
+        },
+        "inputs": {
+          "source": [
+            "source-1"
+          ]
+        },
+        "context": {},
+        "outputs": {
+          "news": [
+            "news-1"
+          ]
+        },
+        "group": {
+          "id": "group-parse-1",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "source": [
+              "source-1"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "news-1": [
+            "source-1"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "parse",
+            "outputs": [
+              {
+                "key": "news-1",
+                "port": "news",
+                "typeRef": {
+                  "id": "factcheck.news",
+                  "version": 1
+                },
+                "payload": {
+                  "content": "示例新闻：项目完成了两项测试。",
+                  "context": {
+                    "public": {
+                      "value": "公开新闻背景",
+                      "visibleToAI": true
+                    },
+                    "private": {
+                      "value": "这段备注不得进入 Agent 输入。",
+                      "visibleToAI": false
+                    }
+                  }
+                }
+              }
+            ],
+            "workId": "fixture-work-parse-1-parse"
+          }
+        ],
+        "published": [
+          {
+            "port": "news",
+            "candidate": {
+              "workId": "fixture-work-parse-1-parse",
+              "key": "news-1"
+            },
+            "nodeId": "news-1"
+          }
+        ]
+      },
+      {
+        "id": "split-1",
+        "transitionRef": {
+          "id": "factcheck.split-news",
+          "version": 1
+        },
+        "inputs": {
+          "news": [
+            "news-1"
+          ]
+        },
+        "context": {},
+        "outputs": {
+          "claims": [
+            "claim-1",
+            "claim-2"
+          ]
+        },
+        "group": {
+          "id": "group-split-1",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "news": [
+              "news-1"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "claim-1": [
+            "news-1"
+          ],
+          "claim-2": [
+            "news-1"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "candidate-a",
+            "outputs": [
+              {
+                "key": "claims-1",
+                "port": "claims",
+                "typeRef": {
+                  "id": "factcheck.claim",
+                  "version": 1
+                },
+                "payload": {
+                  "content": "项目完成测试甲。",
+                  "category": "data"
+                }
+              }
+            ],
+            "workId": "fixture-work-split-1-candidate-a"
+          },
+          {
+            "stageId": "candidate-b",
+            "outputs": [
+              {
+                "key": "claims-2",
+                "port": "claims",
+                "typeRef": {
+                  "id": "factcheck.claim",
+                  "version": 1
+                },
+                "payload": {
+                  "content": "项目完成测试乙。",
+                  "category": null
+                }
+              }
+            ],
+            "workId": "fixture-work-split-1-candidate-b"
+          },
+          {
+            "stageId": "select",
+            "selection": [
+              {
+                "workId": "fixture-work-split-1-candidate-a",
+                "key": "claims-1"
+              },
+              {
+                "workId": "fixture-work-split-1-candidate-b",
+                "key": "claims-2"
+              }
+            ],
+            "workId": "fixture-work-split-1-select"
+          }
+        ],
+        "published": [
+          {
+            "port": "claims",
+            "candidate": {
+              "workId": "fixture-work-split-1-candidate-a",
+              "key": "claims-1"
+            },
+            "nodeId": "claim-1"
+          },
+          {
+            "port": "claims",
+            "candidate": {
+              "workId": "fixture-work-split-1-candidate-b",
+              "key": "claims-2"
+            },
+            "nodeId": "claim-2"
+          }
+        ]
+      },
+      {
+        "id": "split-empty",
+        "transitionRef": {
+          "id": "factcheck.split-news",
+          "version": 1
+        },
+        "inputs": {
+          "news": [
+            "news-empty"
+          ]
+        },
+        "context": {},
+        "outputs": {
+          "claims": []
+        },
+        "group": {
+          "id": "group-split-empty",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "news": [
+              "news-empty"
+            ]
+          }
+        },
+        "outputAnchors": {},
+        "stageResults": [
+          {
+            "stageId": "candidate-a",
+            "outputs": [],
+            "workId": "fixture-work-split-empty-candidate-a"
+          },
+          {
+            "stageId": "candidate-b",
+            "outputs": [],
+            "workId": "fixture-work-split-empty-candidate-b"
+          },
+          {
+            "stageId": "select",
+            "selection": [],
+            "workId": "fixture-work-split-empty-select"
+          }
+        ],
+        "published": []
+      },
+      {
+        "id": "research-1",
+        "transitionRef": {
+          "id": "factcheck.collect-evidence",
+          "version": 1
+        },
+        "inputs": {
+          "claim": [
+            "claim-1"
+          ]
+        },
+        "context": {},
+        "outputs": {
+          "evidence": [
+            "evidence-1"
+          ]
+        },
+        "group": {
+          "id": "group-research-1",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "claim": [
+              "claim-1"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "evidence-1": [
+            "claim-1"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "research",
+            "outputs": [
+              {
+                "key": "evidence-1",
+                "port": "evidence",
+                "typeRef": {
+                  "id": "factcheck.evidence",
+                  "version": 1
+                },
+                "payload": {
+                  "content": "示意证据：测试记录显示甲通过。",
+                  "locator": {
+                    "kind": "url",
+                    "url": "https://example.org/evidence"
+                  },
+                  "capturedAt": "2026-09-28T00:00:00Z"
+                }
+              }
+            ],
+            "workId": "fixture-work-research-1-research"
+          }
+        ],
+        "published": [
+          {
+            "port": "evidence",
+            "candidate": {
+              "workId": "fixture-work-research-1-research",
+              "key": "evidence-1"
+            },
+            "nodeId": "evidence-1"
+          }
+        ]
+      },
+      {
+        "id": "opinion-a",
+        "transitionRef": {
+          "id": "factcheck.form-opinion",
+          "version": 1
+        },
+        "inputs": {
+          "claim": [
+            "claim-1"
+          ]
+        },
+        "context": {
+          "evidence": [
+            "evidence-1"
+          ],
+          "news": [
+            "news-1"
+          ]
+        },
+        "outputs": {
+          "opinion": [
+            "opinion-1"
+          ]
+        },
+        "group": {
+          "id": "group-opinion-a",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "claim": [
+              "claim-1"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "opinion-1": [
+            "claim-1"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "opinion-a",
+            "outputs": [
+              {
+                "key": "opinion-1",
+                "port": "opinion",
+                "typeRef": {
+                  "id": "factcheck.opinion",
+                  "version": 1
+                },
+                "payload": {
+                  "score": 1,
+                  "reason": "记录支持事实。",
+                  "evidenceIds": [
+                    "evidence-1"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-opinion-a-opinion-a"
+          },
+          {
+            "stageId": "opinion-b",
+            "outputs": [
+              {
+                "key": "opinion-unselected",
+                "port": "opinion",
+                "typeRef": {
+                  "id": "factcheck.opinion",
+                  "version": 1
+                },
+                "payload": {
+                  "score": 1,
+                  "reason": "另一 Agent 的未采用意见候选。",
+                  "evidenceIds": [
+                    "evidence-1"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-opinion-a-opinion-b"
+          },
+          {
+            "stageId": "assemble",
+            "selection": [
+              {
+                "workId": "fixture-work-opinion-a-opinion-a",
+                "key": "opinion-1"
+              }
+            ],
+            "workId": "fixture-work-opinion-a-assemble"
+          }
+        ],
+        "published": [
+          {
+            "port": "opinion",
+            "candidate": {
+              "workId": "fixture-work-opinion-a-opinion-a",
+              "key": "opinion-1"
+            },
+            "nodeId": "opinion-1"
+          }
+        ]
+      },
+      {
+        "id": "opinion-b",
+        "transitionRef": {
+          "id": "factcheck.form-opinion",
+          "version": 1
+        },
+        "inputs": {
+          "claim": [
+            "claim-1"
+          ]
+        },
+        "context": {
+          "evidence": [
+            "evidence-1"
+          ],
+          "news": [
+            "news-1"
+          ]
+        },
+        "outputs": {
+          "opinion": [
+            "opinion-2"
+          ]
+        },
+        "group": {
+          "id": "group-opinion-b",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "claim": [
+              "claim-1"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "opinion-2": [
+            "claim-1"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "opinion-a",
+            "outputs": [
+              {
+                "key": "opinion-unselected",
+                "port": "opinion",
+                "typeRef": {
+                  "id": "factcheck.opinion",
+                  "version": 1
+                },
+                "payload": {
+                  "score": 0.5,
+                  "reason": "另一 Agent 的未采用意见候选。",
+                  "evidenceIds": [
+                    "evidence-1"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-opinion-b-opinion-a"
+          },
+          {
+            "stageId": "opinion-b",
+            "outputs": [
+              {
+                "key": "opinion-1",
+                "port": "opinion",
+                "typeRef": {
+                  "id": "factcheck.opinion",
+                  "version": 1
+                },
+                "payload": {
+                  "score": 0.5,
+                  "reason": "尚需补充独立证据。",
+                  "evidenceIds": [
+                    "evidence-1"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-opinion-b-opinion-b"
+          },
+          {
+            "stageId": "assemble",
+            "selection": [
+              {
+                "workId": "fixture-work-opinion-b-opinion-b",
+                "key": "opinion-1"
+              }
+            ],
+            "workId": "fixture-work-opinion-b-assemble"
+          }
+        ],
+        "published": [
+          {
+            "port": "opinion",
+            "candidate": {
+              "workId": "fixture-work-opinion-b-opinion-b",
+              "key": "opinion-1"
+            },
+            "nodeId": "opinion-2"
+          }
+        ]
+      },
+      {
+        "id": "merge-1",
+        "transitionRef": {
+          "id": "factcheck.merge-opinions",
+          "version": 1
+        },
+        "inputs": {
+          "opinions": [
+            "opinion-1",
+            "opinion-2"
+          ]
+        },
+        "context": {
+          "claim": [
+            "claim-1"
+          ]
+        },
+        "outputs": {
+          "verification": [
+            "verification-1"
+          ]
+        },
+        "group": {
+          "id": "group-merge-1",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "opinions": [
+              "opinion-1",
+              "opinion-2"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "verification-1": [
+            "opinion-1",
+            "opinion-2"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "merge",
+            "outputs": [
+              {
+                "key": "verification-1",
+                "port": "verification",
+                "typeRef": {
+                  "id": "factcheck.verification",
+                  "version": 1
+                },
+                "payload": {
+                  "score": 0.5,
+                  "reason": "汇总两份意见后仍有不确定性。",
+                  "opinionIds": [
+                    "opinion-1",
+                    "opinion-2"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-merge-1-merge"
+          }
+        ],
+        "published": [
+          {
+            "port": "verification",
+            "candidate": {
+              "workId": "fixture-work-merge-1-merge",
+              "key": "verification-1"
+            },
+            "nodeId": "verification-1"
+          }
+        ]
+      },
+      {
+        "id": "summarize-1",
+        "transitionRef": {
+          "id": "writing.summarize",
+          "version": 1
+        },
+        "inputs": {
+          "document": [
+            "document-1"
+          ]
+        },
+        "context": {},
+        "outputs": {
+          "summary": [
+            "summary-1"
+          ]
+        },
+        "group": {
+          "id": "group-summarize-1",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "document": [
+              "document-1"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "summary-1": [
+            "document-1"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "summarize",
+            "outputs": [
+              {
+                "key": "summary-1",
+                "port": "summary",
+                "typeRef": {
+                  "id": "writing.summary",
+                  "version": 1
+                },
+                "payload": {
+                  "title": "春季计划摘要",
+                  "bullets": [
+                    "整理资料",
+                    "完成原型"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-summarize-1-summarize"
+          }
+        ],
+        "published": [
+          {
+            "port": "summary",
+            "candidate": {
+              "workId": "fixture-work-summarize-1-summarize",
+              "key": "summary-1"
+            },
+            "nodeId": "summary-1"
+          }
+        ]
+      },
+      {
+        "id": "batch-1",
+        "transitionRef": {
+          "id": "writing.batch-summarize",
+          "version": 1
+        },
+        "inputs": {
+          "documents": [
+            "document-1",
+            "document-2"
+          ]
+        },
+        "context": {},
+        "outputs": {
+          "summaries": [
+            "summary-2",
+            "summary-3"
+          ]
+        },
+        "group": {
+          "id": "group-batch-1",
+          "sealed": true,
+          "completed": true,
+          "expectedInputs": {
+            "documents": [
+              "document-1",
+              "document-2"
+            ]
+          }
+        },
+        "outputAnchors": {
+          "summary-2": [
+            "document-1",
+            "document-2"
+          ],
+          "summary-3": [
+            "document-1",
+            "document-2"
+          ]
+        },
+        "stageResults": [
+          {
+            "stageId": "draft-a",
+            "outputs": [
+              {
+                "key": "summaries-1",
+                "port": "summaries",
+                "typeRef": {
+                  "id": "writing.summary",
+                  "version": 1
+                },
+                "payload": {
+                  "title": "准备工作",
+                  "bullets": [
+                    "资料与原型属于准备阶段。"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-batch-1-draft-a"
+          },
+          {
+            "stageId": "draft-b",
+            "outputs": [
+              {
+                "key": "summaries-2",
+                "port": "summaries",
+                "typeRef": {
+                  "id": "writing.summary",
+                  "version": 1
+                },
+                "payload": {
+                  "title": "验证工作",
+                  "bullets": [
+                    "试点与反馈属于验证阶段。"
+                  ]
+                }
+              }
+            ],
+            "workId": "fixture-work-batch-1-draft-b"
+          },
+          {
+            "stageId": "assemble",
+            "selection": [
+              {
+                "workId": "fixture-work-batch-1-draft-a",
+                "key": "summaries-1"
+              },
+              {
+                "workId": "fixture-work-batch-1-draft-b",
+                "key": "summaries-2"
+              }
+            ],
+            "workId": "fixture-work-batch-1-assemble"
+          }
+        ],
+        "published": [
+          {
+            "port": "summaries",
+            "candidate": {
+              "workId": "fixture-work-batch-1-draft-a",
+              "key": "summaries-1"
+            },
+            "nodeId": "summary-2"
+          },
+          {
+            "port": "summaries",
+            "candidate": {
+              "workId": "fixture-work-batch-1-draft-b",
+              "key": "summaries-2"
+            },
+            "nodeId": "summary-3"
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-1",
+        "revision": 0,
+        "role": "successor",
+        "from": "source-1",
+        "to": "news-1",
+        "derivationId": "derivation-parse-1"
+      },
+      {
+        "id": "edge-2",
+        "revision": 0,
+        "role": "successor",
+        "from": "news-1",
+        "to": "claim-1",
+        "derivationId": "derivation-split-1"
+      },
+      {
+        "id": "edge-3",
+        "revision": 0,
+        "role": "successor",
+        "from": "news-1",
+        "to": "claim-2",
+        "derivationId": "derivation-split-1"
+      },
+      {
+        "id": "edge-4",
+        "revision": 0,
+        "role": "successor",
+        "from": "claim-1",
+        "to": "evidence-1",
+        "derivationId": "derivation-research-1"
+      },
+      {
+        "id": "edge-5",
+        "revision": 0,
+        "role": "successor",
+        "from": "claim-1",
+        "to": "opinion-1",
+        "derivationId": "derivation-opinion-a"
+      },
+      {
+        "id": "edge-6",
+        "revision": 0,
+        "role": "reference",
+        "from": "evidence-1",
+        "to": "opinion-1",
+        "derivationId": "derivation-opinion-a"
+      },
+      {
+        "id": "edge-7",
+        "revision": 0,
+        "role": "reference",
+        "from": "news-1",
+        "to": "opinion-1",
+        "derivationId": "derivation-opinion-a"
+      },
+      {
+        "id": "edge-8",
+        "revision": 0,
+        "role": "successor",
+        "from": "claim-1",
+        "to": "opinion-2",
+        "derivationId": "derivation-opinion-b"
+      },
+      {
+        "id": "edge-9",
+        "revision": 0,
+        "role": "reference",
+        "from": "evidence-1",
+        "to": "opinion-2",
+        "derivationId": "derivation-opinion-b"
+      },
+      {
+        "id": "edge-10",
+        "revision": 0,
+        "role": "reference",
+        "from": "news-1",
+        "to": "opinion-2",
+        "derivationId": "derivation-opinion-b"
+      },
+      {
+        "id": "edge-11",
+        "revision": 0,
+        "role": "successor",
+        "from": "opinion-1",
+        "to": "verification-1",
+        "derivationId": "derivation-merge-1"
+      },
+      {
+        "id": "edge-12",
+        "revision": 0,
+        "role": "successor",
+        "from": "opinion-2",
+        "to": "verification-1",
+        "derivationId": "derivation-merge-1"
+      },
+      {
+        "id": "edge-13",
+        "revision": 0,
+        "role": "reference",
+        "from": "claim-1",
+        "to": "verification-1",
+        "derivationId": "derivation-merge-1"
+      },
+      {
+        "id": "edge-14",
+        "revision": 0,
+        "role": "successor",
+        "from": "document-1",
+        "to": "summary-1",
+        "derivationId": "derivation-summarize-1"
+      },
+      {
+        "id": "edge-15",
+        "revision": 0,
+        "role": "successor",
+        "from": "document-1",
+        "to": "summary-2",
+        "derivationId": "derivation-batch-1"
+      },
+      {
+        "id": "edge-16",
+        "revision": 0,
+        "role": "successor",
+        "from": "document-2",
+        "to": "summary-2",
+        "derivationId": "derivation-batch-1"
+      },
+      {
+        "id": "edge-17",
+        "revision": 0,
+        "role": "successor",
+        "from": "document-1",
+        "to": "summary-3",
+        "derivationId": "derivation-batch-1"
+      },
+      {
+        "id": "edge-18",
+        "revision": 0,
+        "role": "successor",
+        "from": "document-2",
+        "to": "summary-3",
+        "derivationId": "derivation-batch-1"
+      }
+    ],
+    "derivations": [
+      {
+        "id": "derivation-parse-1",
+        "invocationId": "parse-1",
+        "transitionRef": {
+          "id": "factcheck.parse-source",
+          "version": 1
+        },
+        "inputRefs": {
+          "source": [
+            {
+              "id": "source-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.source",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {},
+        "outputRefs": {
+          "news": [
+            {
+              "id": "news-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.news",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-split-1",
+        "invocationId": "split-1",
+        "transitionRef": {
+          "id": "factcheck.split-news",
+          "version": 1
+        },
+        "inputRefs": {
+          "news": [
+            {
+              "id": "news-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.news",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {},
+        "outputRefs": {
+          "claims": [
+            {
+              "id": "claim-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.claim",
+                "version": 1
+              }
+            },
+            {
+              "id": "claim-2",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.claim",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-split-empty",
+        "invocationId": "split-empty",
+        "transitionRef": {
+          "id": "factcheck.split-news",
+          "version": 1
+        },
+        "inputRefs": {
+          "news": [
+            {
+              "id": "news-empty",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.news",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {},
+        "outputRefs": {
+          "claims": []
+        }
+      },
+      {
+        "id": "derivation-research-1",
+        "invocationId": "research-1",
+        "transitionRef": {
+          "id": "factcheck.collect-evidence",
+          "version": 1
+        },
+        "inputRefs": {
+          "claim": [
+            {
+              "id": "claim-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.claim",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {},
+        "outputRefs": {
+          "evidence": [
+            {
+              "id": "evidence-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.evidence",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-opinion-a",
+        "invocationId": "opinion-a",
+        "transitionRef": {
+          "id": "factcheck.form-opinion",
+          "version": 1
+        },
+        "inputRefs": {
+          "claim": [
+            {
+              "id": "claim-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.claim",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {
+          "evidence": [
+            {
+              "id": "evidence-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.evidence",
+                "version": 1
+              }
+            }
+          ],
+          "news": [
+            {
+              "id": "news-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.news",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "outputRefs": {
+          "opinion": [
+            {
+              "id": "opinion-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.opinion",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-opinion-b",
+        "invocationId": "opinion-b",
+        "transitionRef": {
+          "id": "factcheck.form-opinion",
+          "version": 1
+        },
+        "inputRefs": {
+          "claim": [
+            {
+              "id": "claim-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.claim",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {
+          "evidence": [
+            {
+              "id": "evidence-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.evidence",
+                "version": 1
+              }
+            }
+          ],
+          "news": [
+            {
+              "id": "news-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.news",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "outputRefs": {
+          "opinion": [
+            {
+              "id": "opinion-2",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.opinion",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-merge-1",
+        "invocationId": "merge-1",
+        "transitionRef": {
+          "id": "factcheck.merge-opinions",
+          "version": 1
+        },
+        "inputRefs": {
+          "opinions": [
+            {
+              "id": "opinion-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.opinion",
+                "version": 1
+              }
+            },
+            {
+              "id": "opinion-2",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.opinion",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {
+          "claim": [
+            {
+              "id": "claim-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.claim",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "outputRefs": {
+          "verification": [
+            {
+              "id": "verification-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "factcheck.verification",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-summarize-1",
+        "invocationId": "summarize-1",
+        "transitionRef": {
+          "id": "writing.summarize",
+          "version": 1
+        },
+        "inputRefs": {
+          "document": [
+            {
+              "id": "document-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "writing.document",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {},
+        "outputRefs": {
+          "summary": [
+            {
+              "id": "summary-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "writing.summary",
+                "version": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "derivation-batch-1",
+        "invocationId": "batch-1",
+        "transitionRef": {
+          "id": "writing.batch-summarize",
+          "version": 1
+        },
+        "inputRefs": {
+          "documents": [
+            {
+              "id": "document-1",
+              "revision": 0,
+              "typeRef": {
+                "id": "writing.document",
+                "version": 1
+              }
+            },
+            {
+              "id": "document-2",
+              "revision": 0,
+              "typeRef": {
+                "id": "writing.document",
+                "version": 1
+              }
+            }
+          ]
+        },
+        "contextRefs": {},
+        "outputRefs": {
+          "summaries": [
+            {
+              "id": "summary-2",
+              "revision": 0,
+              "typeRef": {
+                "id": "writing.summary",
+                "version": 1
+              }
+            },
+            {
+              "id": "summary-3",
+              "revision": 0,
+              "typeRef": {
+                "id": "writing.summary",
+                "version": 1
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
