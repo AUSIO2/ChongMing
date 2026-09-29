@@ -1,5 +1,14 @@
 // 提供自定义核查 Agent、工具目录和槽位，避免测试依赖部署默认提示词。
-import type { GraphAgentProfile, GraphRouteSlot, GraphRunConfiguration } from '../../../contracts/graph'
+import type { GraphAgentProfile, GraphRunConfiguration } from '../../../contracts/graph'
+
+export interface VerificationSlot {
+  id: string
+  agentId: string
+  angle: string
+  priority: 'high' | 'medium' | 'low'
+  hint: string
+  tools: string[]
+}
 
 export function verificationConfiguration(/* 测试配置允许建立的最大路由槽位数。 */ maxSlots = 6): GraphRunConfiguration {
   // 生成带三种独立核查角度和自定义工具的配置，槽位上限可由用例覆盖。
@@ -24,7 +33,7 @@ export function verificationConfiguration(/* 测试配置允许建立的最大�
   }
 }
 
-export function verificationSlots(/* 需要生成的确定性路由槽位数量。 */ count: number): GraphRouteSlot[] {
+export function verificationSlots(/* 需要生成的确定性路由槽位数量。 */ count: number): VerificationSlot[] {
   // 按数量生成不同角度和优先级的槽位，循环绑定三种测试 Agent。
   const agents = ['archive-expert', 'ledger-expert', 'counterexample-expert']
   const tools = [['archive_lookup'], ['ledger_query'], []]
@@ -36,7 +45,7 @@ export function verificationSlots(/* 需要生成的确定性路由槽位数量�
   }))
 }
 
-export function configuredSlots(/* 包含工作区实际 Agent 身份的冻结运行配置。 */ configuration: GraphRunConfiguration, /* 需要映射到实际 Agent 身份的槽位数量。 */ count: number): GraphRouteSlot[] {
+export function configuredSlots(/* 包含工作区实际 Agent 身份的冻结运行配置。 */ configuration: GraphRunConfiguration, /* 需要映射到实际 Agent 身份的槽位数量。 */ count: number): VerificationSlot[] {
   // 把固定槽位的逻辑 Agent 名称转换为目标工作区实际配置身份。
   return verificationSlots(count).map(/* 当前替换逻辑 Agent 身份的测试槽位。 */ slot => {
     // 在工作区配置中找到相同名称的 Agent，并替换槽位中的旧测试身份。

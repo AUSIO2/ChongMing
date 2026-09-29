@@ -168,12 +168,13 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
     expect((await publish({ mapId, status: 'tool', sequence: 3 }, grant.fence, api.userToken)).status).toBe(401)
     const cached = await peer.application.readActivities(api.userToken, mapId)
     expect(cached).toHaveLength(1)
-    expect(cached[0]).toMatchObject({ status: 'tool', sequence: 2, nodeId: document.run!.operations[0].targetId })
+    expect(cached[0]).toMatchObject({ status: 'tool', sequence: 2, nodeId: document.runs[0].operations[0].group.inputRefs[0].id,
+      stageId: work.stageId, slotId: work.slotId })
     const reconnect = await messagingWatch(mapId, served.url)
     await reconnect.event(/* 重连订阅收到的事件，检查是否补齐唯一缓存活动。 */ event => /* 确认重新订阅时收到已有活动缓存。 */  event.type === 'activity' && event.items.length === 1)
     stream.state.events.length = 0
-    expect(await api.command('run.pause', { mapId, expectedRevision: document.revision, runId: document.run!.id })).toMatchObject({ status: 200 })
-    await stream.event(/* 暂停后推送的事件，检查持久快照中的 paused 标志。 */ event => /* 等待暂停状态的持久化快照。 */  event.type === 'snapshot' && event.snapshot.run?.paused === true)
+    expect(await api.command('run.pause', { mapId, runId: document.runs[0].id })).toMatchObject({ status: 200 })
+    await stream.event(/* 暂停后推送的事件，检查持久快照中的 paused 标志。 */ event => /* 等待暂停状态的持久化快照。 */  event.type === 'snapshot' && event.snapshot.runs[0]?.paused === true)
     await stream.event(/* 暂停后推送的事件，检查活动集合已经清空。 */ event => /* 等待暂停后的空活动集合。 */  event.type === 'activity' && event.items.length === 0)
     expect((await publish({ mapId, status: 'model', sequence: 4 })).status).toBe(409)
     expect(await peer.application.readActivities(api.userToken, mapId)).toEqual([])
@@ -189,10 +190,16 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
     expect(await api.command('map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: otherId, name: 'Peer Map' })).toMatchObject({ status: 201 })
     await stream.event(/* 其他图创建后收到的事件，等待工作区列表刷新。 */ event => /* 等待其他图创建导致的工作区刷新。 */  event.type === 'refresh' && event.scope === 'workspace')
     stream.state.events.length = 0
-    expect(await api.command('graph.apply', { mapId: otherId, expectedRevision: 0, changes: { name: 'Peer renamed' } })).toMatchObject({ status: 200 })
+    const rootId = randomUUID()
+    expect(await api.command('graph.apply', { mapId: otherId, branch: { rootIds: [rootId], expectedVersion: null }, changes: { nodes: { put: [{
+      id: rootId, typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Peer root', category: null },
+    }] } } })).toMatchObject({ status: 200 })
+    await stream.event(event => event.type === 'refresh' && event.scope === 'workspace')
+    stream.state.events.length = 0
+    expect(await api.apply(otherId, [rootId], { name: 'Peer renamed' })).toMatchObject({ status: 200 })
     await stream.event(/* 其他图改名后收到的事件，等待工作区列表刷新。 */ event => /* 等待其他图改名导致的工作区刷新。 */  event.type === 'refresh' && event.scope === 'workspace')
     stream.state.events.length = 0
-    expect(await api.command('map.delete', { mapId: otherId, expectedRevision: 1 })).toMatchObject({ status: 200 })
+    expect(await api.command('map.delete', { mapId: otherId, expectedRevision: 2 })).toMatchObject({ status: 200 })
     await stream.event(/* 其他图删除后收到的事件，等待工作区列表刷新。 */ event => /* 等待其他图删除导致的工作区刷新。 */  event.type === 'refresh' && event.scope === 'workspace')
     expect(stream.state.events.some(/* 当前订阅事件，检测是否混入其他图的快照。 */ event => /* 检测是否错误接收了不属于当前订阅图的快照。 */  event.type === 'snapshot' && event.snapshot.mapId !== mapId)).toBe(false)
   })
@@ -226,13 +233,13 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
     const { application, connection } = await messagingCreatePeer(true)
     const now = new Date().toISOString(), mapId = randomUUID()
     const document: GraphDocument = { id: mapId, workspaceId: randomUUID(), revision: 0, name: 'Before publish',
-      nodes: [], edges: [], run: null, runHistory: [], leases: {}, receipts: [], createdAt: now, updatedAt: now }
+      nodes: [], edges: [], runs: [], runHistory: [], leases: {}, receipts: [], createdAt: now, updatedAt: now }
     expect(await application.store.create(document)).toBe(true)
     const pending = []
     for await (const item of application.store.readDispatch()) pending.push(item)
     expect(pending).toMatchObject([{ id: mapId, revision: 0, dispatchVersion: 0 }])
-    await application.graph.dispatch({ requestId: randomUUID(), method: 'graph.apply',
-      params: { mapId, expectedRevision: 0, changes: { name: 'Committed during publish' } } })
+    expect(await application.store.commit({ ...document, name: 'Committed during publish' }, 0,
+      { requestId: randomUUID(), method: 'fixture.commit', inputHash: 'hash', createdNodeIds: [], createdEdgeIds: [], createdAt: now })).toBe(true)
     expect(await application.store.clearDispatch(mapId, pending[0].dispatchVersion)).toBe(false)
     const graphs = connection.collection(GRAPH_COLLECTION)
     expect(await graphs.findOne({ _id: mapId } as never)).toMatchObject({ revision: 1,
@@ -276,11 +283,10 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
     if (busy.status === 'busy') expect(busy.retryAfterMs).toBeGreaterThan(0)
     expect((await api.work('claim', input)).body.data).toEqual(claimed)
     expect((await api.work('claim', { ...input, workId: randomUUID() })).body.data).toEqual({ status: 'obsolete' })
-    const before = await api.snapshot(mapId)
-    expect(await api.command('run.pause', { mapId, runId, expectedRevision: before.revision })).toMatchObject({ status: 200 })
+    expect(await api.command('run.pause', { mapId, runId })).toMatchObject({ status: 200 })
     expect((await api.work('claim', { ...input, holderId: randomUUID() })).body.data).toEqual({ status: 'obsolete' })
-    const paused = await api.snapshot(mapId), beforeResume = notices.filter(/* 恢复前收到的通知，筛选目标图以建立重发数量基线。 */ message => /* 统计恢复前目标图已经发布的通知数量。 */  message.mapId === mapId).length
-    expect(await api.command('run.resume', { mapId, runId, expectedRevision: paused.revision })).toMatchObject({ status: 200 })
+    const beforeResume = notices.filter(/* 恢复前收到的通知，筛选目标图以建立重发数量基线。 */ message => /* 统计恢复前目标图已经发布的通知数量。 */  message.mapId === mapId).length
+    expect(await api.command('run.resume', { mapId, runId })).toMatchObject({ status: 200 })
     await expect.poll(() => /* 轮询目标图通知数量以确认恢复触发新发布。 */  notices.filter(/* 恢复后收到的通知，筛选目标图并与恢复前数量比较。 */ message => /* 只统计目标图的恢复通知。 */  message.mapId === mapId).length, { timeout: 8000 }).toBeGreaterThan(beforeResume)
     expect(notices.filter(/* 目标图通知候选，用于检查最后一条仍指向同一工作。 */ message => /* 筛选目标图通知以检查最后重发工作的身份。 */  message.mapId === mapId).at(-1)?.workId).toBe(notice.workId)
     const resumed = (await api.work('claim', { ...input, holderId: randomUUID() })).body.data as GraphClaimResult
@@ -298,8 +304,10 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
     for (const stream of [first, second]) {
       expect(await stream.event(/* 任一 API 连接收到的事件，选择完整初始快照。 */ event => /* 取得每个连接的初始快照。 */  event.type === 'snapshot')).toEqual({ type: 'snapshot', snapshot: baseline })
     }
-    const updated = await api.command('graph.apply', { mapId, expectedRevision: baseline.revision,
-      changes: { nodes: { put: [{ id: randomUUID(), data: { kind: 'claim', content: '广播更新', category: 'data' } }] } } })
+    const updateId = randomUUID()
+    const updated = await api.command('graph.apply', { mapId, branch: { rootIds: [updateId], expectedVersion: null },
+      changes: { nodes: { put: [{ id: updateId, typeId: 'factcheck.claim', typeVersion: 1,
+        payload: { content: '广播更新', category: 'data' } }] } } })
     expect(updated.status).toBe(200)
     for (const stream of [first, second]) {
       expect(await stream.event(/* 业务修改后收到的事件，要求快照版本比基线增加一。 */ event => /* 等待提交后递增版本的快照。 */  event.type === 'snapshot' && event.snapshot.revision === baseline.revision + 1))
@@ -343,7 +351,10 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
        release(); const stream = await pending; stream.stop.abort(); await stream.done })
     await reading
     changes.length = 0
-    const updated = await api.command('graph.apply', { mapId, expectedRevision: 0, changes: { name: 'Changed during baseline' } })
+    const updateId = randomUUID()
+    const updated = await api.command('graph.apply', { mapId, branch: { rootIds: [updateId], expectedVersion: null }, changes: { nodes: { put: [{
+      id: updateId, typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Changed during baseline', category: null },
+    }] } } })
     expect(updated.status).toBe(200)
     await expect.poll(() => /* 等待基线被阻塞期间的新图消息已抵达应用。 */  changes.some(/* 阻塞基线期间收到的变更提示，检查是否属于目标图。 */ message => /* 识别该竞争用例目标图的变更通知。 */  message.kind === 'graph' && message.mapId === mapId), { timeout: 8000 }).toBe(true)
     release()
@@ -465,15 +476,15 @@ describe('RabbitMQ outbox and authenticated graph streams', () => {
     if (!binding || typeof binding === 'string') throw new Error('AMQP transport did not bind')
     address.hostname = '127.0.0.1'; address.port = String(binding.port)
     const { application, connection } = await messagingCreatePeer(true, { ...api.queue, url: address.toString() })
+    await application.control.seed()
     const owner = await application.auth.createUser({ id: randomUUID(), displayName: 'Reconnect owner', hostAdmin: true })
     const { token } = await application.auth.createToken(owner.userId)
     const workspace = await application.auth.transact(token, /* 隔离部署用户的已认证事务上下文，用来创建测试工作区。 */ ctx => /* 在隔离部署内建立恢复用例工作区。 */  application.control.createWorkspace(ctx, {
-      id: randomUUID(), name: 'Reconnect workspace', description: '', agentSource: 'empty',
+      id: randomUUID(), name: 'Reconnect workspace', description: '', agentSource: 'library',
     }))
     const { mapId } = await api.createRun()
     const source = (await api.store.read(mapId))!
     expect(await application.store.create({ ...source, workspaceId: workspace.id })).toBe(true)
-    await application.control.seed(source.run!.configuration)
     const workId = workReadItems(source)[0].workId
     const observer = await messagingOpenLink(application), notices: QueueWork[] = [], stop = new AbortController()
     let barrier = false

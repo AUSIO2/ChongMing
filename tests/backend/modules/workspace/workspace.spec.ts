@@ -4,14 +4,15 @@ import { randomUUID } from 'node:crypto'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import type { Connection } from 'mongoose'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { AgentInput, AgentList, AgentProfile, AppBootstrap, ControlCommand, ControlQuery, Preferences, WorkspaceView } from '../../../../contracts/control'
+import type { AgentInput, AgentList, AgentProfile, AppBootstrap, ControlCommand, ControlQuery, DefinitionPublishResult, DefinitionView, Preferences, WorkspaceView } from '../../../../contracts/control'
+import type { DefinitionPackage } from '../../../../contracts/data-definition'
 import { authCreateService, type AuthService } from '../../../../backend/modules/identity/identity-service'
 import { controlCreateService, type ControlService, type WorkspaceDocument } from '../../../../backend/modules/workspace/workspace-service'
 import { controlReadAgent, controlReadCommand } from '../../../../backend/modules/workspace/workspace-input'
 import { GRAPH_COLLECTION } from '../../../../backend/modules/graph/graph-record'
 import { storeCreateConnection } from '../../../../backend/adapters/storage/mongo/connection'
 import { verificationConfiguration } from '../../fixtures/verification'
-import { DEFAULT_RUN_CONFIGURATION } from '../../../../apps/config/default-prompts'
+import { DEFAULT_DEFINITION_PACKAGE, DEFAULT_RUN_CONFIGURATION } from '../../../../apps/config/default-prompts'
 
 let replica: MongoMemoryReplSet
 let connection: Connection
@@ -43,7 +44,7 @@ async function controlTestLibrary(): Promise<AgentList> {
 
 beforeAll(async () => {
   // 启动隔离 Mongo 副本集并初始化身份、共享配置与四种测试用户令牌。
-  replica = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
+  replica = await MongoMemoryReplSet.create({ instanceOpts: [{ launchTimeout: 30_000 }], replSet: { count: 1, storageEngine: 'wiredTiger' } })
   connection = await storeCreateConnection(replica.getUri(`control_${randomUUID().replace(/-/g, '')}`))
   auth = authCreateService(persistenceCreateMongo(connection))
   control = controlCreateService(persistenceCreateMongo(connection), DEFAULT_RUN_CONFIGURATION)
@@ -111,10 +112,10 @@ describe('Shared Control transactions', () => {
     const renamed = await controlTestCommand(ownerToken, 'workspace.update', { workspaceId: id, expectedRevision: 1, name: 'Renamed', description: '' })
     expect(renamed.data).toMatchObject({ revision: 2, name: 'Renamed' })
     const mapId = randomUUID()
-    await connection.db!.collection(GRAPH_COLLECTION).insertOne({ _id: mapId, workspaceId: id, nodes: [], run: { status: 'running' } })
+    await connection.db!.collection(GRAPH_COLLECTION).insertOne({ _id: mapId, workspaceId: id, nodes: [], runs: [{ status: 'running' }] })
     await expect(controlTestCommand(ownerToken, 'workspace.delete', { workspaceId: id, expectedRevision: 2 }))
       .rejects.toMatchObject({ code: 'RUN_ACTIVE' })
-    await connection.db!.collection(GRAPH_COLLECTION).updateOne({ _id: mapId }, { $set: { 'run.status': 'completed' } })
+    await connection.db!.collection(GRAPH_COLLECTION).updateOne({ _id: mapId }, { $set: { 'runs.0.status': 'completed' } })
     const deletionId = randomUUID()
     expect(await controlTestCommand(ownerToken, 'workspace.delete', { workspaceId: id, expectedRevision: 2 }, deletionId))
       .toMatchObject({ data: { workspaceId: id, deleted: true }, replayed: false })
@@ -122,6 +123,39 @@ describe('Shared Control transactions', () => {
       .toMatchObject({ data: { workspaceId: id, deleted: true }, replayed: true })
     await expect(controlTestRead(ownerToken, { method: 'workspace.get', params: { workspaceId: id } })).rejects.toMatchObject({ status: 404 })
     await expect(controlTestCommand(ownerToken, 'workspace.create', params)).rejects.toMatchObject({ status: 410 })
+  })
+
+  it('copies the default definition catalog and publishes immutable packages with workspace CAS', async () => {
+    // 验证新工作区取得已重绑 Agent 的默认目录，并按 Owner、版本和幂等收据发布新包。
+    const workspace = await controlTestWorkspace()
+    const defaults = await controlTestRead(ownerToken, { method: 'definition.get', params: { workspaceId: workspace.id } }) as DefinitionView
+    expect(defaults.catalog).toMatchObject({ revision: 0 })
+    expect(defaults.catalog.dataTypes).toHaveLength(DEFAULT_DEFINITION_PACKAGE.dataTypes.length)
+    expect(defaults.catalog.transitions).toHaveLength(DEFAULT_DEFINITION_PACKAGE.transitions.length)
+    const exact = await controlTestRead(ownerToken, { method: 'definition.get', params: {
+      workspaceId: workspace.id, packageId: DEFAULT_DEFINITION_PACKAGE.id, packageVersion: DEFAULT_DEFINITION_PACKAGE.version,
+    } }) as DefinitionView
+    expect(exact.package).toMatchObject({ id: DEFAULT_DEFINITION_PACKAGE.id, version: DEFAULT_DEFINITION_PACKAGE.version })
+    const packageItem: DefinitionPackage = {
+      id: 'example.notes', version: 1, title: 'Notes', schemaDialect: 'http://json-schema.org/draft-07/schema#',
+      dataTypes: [{
+        id: 'example.note', version: 1, title: 'Note', schema: { type: 'object', properties: { text: { type: 'string', minLength: 1 } }, required: ['text'], additionalProperties: false },
+        successorTypes: [], references: [], agentProjection: { include: ['/text'], mapEntryFilters: [] },
+      }], transitions: [], dependencies: { packages: [], agents: [] },
+    }
+    const requestId = randomUUID()
+    const published = await controlTestCommand(ownerToken, 'definition.publish', { workspaceId: workspace.id, expectedRevision: 0, package: packageItem }, requestId)
+    expect(published).toMatchObject({ replayed: false, data: { workspaceId: workspace.id, workspaceRevision: 1,
+      package: { ref: { id: packageItem.id, version: packageItem.version } } } })
+    expect(await controlTestCommand(ownerToken, 'definition.publish', { workspaceId: workspace.id, expectedRevision: 0, package: packageItem }, requestId))
+      .toMatchObject({ replayed: true, data: published.data as DefinitionPublishResult })
+    const changed = structuredClone(packageItem); changed.title = 'Changed'
+    await expect(controlTestCommand(ownerToken, 'definition.publish', { workspaceId: workspace.id, expectedRevision: 1, package: changed }))
+      .rejects.toMatchObject({ code: 'DEFINITION_VERSION_CONFLICT' })
+    await expect(controlTestRead(otherToken, { method: 'definition.get', params: { workspaceId: workspace.id } }))
+      .rejects.toMatchObject({ status: 404 })
+    const current = await controlTestRead(ownerToken, { method: 'definition.get', params: { workspaceId: workspace.id } }) as DefinitionView
+    expect(current.catalog.dataTypes.some(/* 当前判断目录中是否包含刚发布类型。 */ type => /* 按精确类型身份确认发布结果可读。 */ type.id === 'example.note' && type.version === 1)).toBe(true)
   })
 
   it('prevents the last Owner downgrade and serializes two concurrent Owner changes', async () => {

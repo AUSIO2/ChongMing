@@ -56,10 +56,8 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
     connected = true
     // Establish the change-stream cursor before reconciliation; commits during the scan stay queued.
     const stream = connection.db!.watch([{ $match: { $or: [
-      { 'ns.coll': GRAPH_COLLECTION, $or: [
-        { operationType: { $in: ['insert', 'replace'] } },
-        { 'updateDescription.updatedFields.dispatch': { $exists: true } },
-      ] },
+      // Mongo change streams encode dotted update paths as literal keys inside updatedFields; observe every graph update and let readDispatch filter pending work.
+      { 'ns.coll': GRAPH_COLLECTION, operationType: { $in: ['insert', 'replace', 'update'] } },
       { 'ns.coll': { $in: ['control_workspaces', 'control_settings', 'control_library'] }, $or: [
         { operationType: { $in: ['insert', 'replace', 'delete'] } },
         { 'updateDescription.updatedFields.revision': { $exists: true } },

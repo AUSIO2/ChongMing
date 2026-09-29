@@ -23,16 +23,29 @@ function as(/* 发送公共请求时使用的用户令牌。 */ token: string, /
   // 以指定用户令牌调用公共查询或命令，保留 HTTP 结果。
   return api.rawPost(`/api/v1/${path}`, body, { authorization: `Bearer ${token}` })
 }
+async function editLease(token: string, mapId: string, rootIds: string[]) {
+  const claimed = await as(token, 'command', { requestId: randomUUID(), method: 'branch.claim', params: { mapId, rootIds, holderId: randomUUID() } })
+  if (claimed.body.data?.status !== 'claimed') throw new Error('Identity fixture branch is busy')
+  const grant = claimed.body.data.grant
+  return { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence }
+}
 
 async function makeMap() {
   // 创建包含一个事实的私有图，供跨用户读写权限用例复用。
   const workspace = await api.createWorkspace()
   const mapId = randomUUID(), claimId = randomUUID()
   expect((await api.command('map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Private graph' })).status).toBe(201)
-  expect((await api.command('graph.apply', { mapId, expectedRevision: 0,
-    changes: { nodes: { put: [{ id: claimId, data: { kind: 'claim', content: 'Private claim', category: null } }] } },
+  expect((await api.command('graph.apply', { mapId, branch: { rootIds: [claimId], expectedVersion: null },
+    changes: { nodes: { put: [{ id: claimId, typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Private claim', category: null } }] } },
   })).status).toBe(200)
-  return { workspaceId: workspace.id, mapId, claimId }
+  const definitions = await api.post('/api/v1/query', { method: 'definition.get', params: { workspaceId: workspace.id } })
+  expect(definitions.status).toBe(200)
+  const transition = definitions.body.data.catalog.transitions.find((item: any) => item.id === 'factcheck.verify-claim' && item.version === 1)
+  const plan = { steps: [{ id: 'verify', transitionRef: { id: transition.id, version: transition.version }, dependsOn: [],
+    input: [{ port: transition.ports.input[0].name, source: { kind: 'scope', nodeIds: [claimId] } }],
+    context: transition.ports.context.map((port: any) => ({ port: port.name, source: { kind: 'scope', nodeIds: [] } })),
+    grouping: { mode: 'each' }, onEmpty: 'fail' }] }
+  return { workspaceId: workspace.id, mapId, claimId, plan }
 }
 
 async function member(/* 要修改成员列表的工作区身份。 */ workspaceId: string, /* 要新增、改权或移除的用户身份。 */ userId: string, /* 目标成员角色；null 表示移除成员。 */ role: 'editor' | 'viewer' | null) {
@@ -79,12 +92,14 @@ describe('Authenticated public Graph API', () => {
       authorization: `Bearer ${api.userToken}`,
     })).status).toBe(401)
     const context = await makeMap()
+    const branch = await api.branch(context.mapId, [context.claimId])
     expect((await as(api.userToken, 'command', { requestId: randomUUID(), method: 'run.start', params: {
-      mapId: context.mapId, expectedRevision: 1, id: randomUUID(), scope: { nodeIds: [context.claimId] }, until: 'verified', regenerate: true, mode: 'auto',
+      mapId: context.mapId, id: randomUUID(), branch: { rootIds: branch.scope.rootIds, expectedVersion: branch.version },
+      scope: { nodeIds: [context.claimId] }, plan: context.plan, regenerate: true, mode: 'auto',
       configuration: { agents: [] },
     } })).status).toBe(400)
     expect((await as(api.userToken, 'command', { requestId: randomUUID(), method: 'graph.apply', actorId: api.owner.userId,
-      params: { mapId: context.mapId, expectedRevision: 1, changes: { name: 'Spoofed actor' } },
+      params: { mapId: context.mapId, branch: { rootIds: branch.scope.rootIds, expectedVersion: branch.version }, changes: { name: 'Spoofed actor' } },
     })).status).toBe(400)
   })
 
@@ -95,14 +110,16 @@ describe('Authenticated public Graph API', () => {
     await member(context.workspaceId, editor.userId, 'editor')
     await member(context.workspaceId, viewer.userId, 'viewer')
     const query = { method: 'map.get', params: { mapId: context.mapId } }
+    const branch = await api.branch(context.mapId, [context.claimId])
     expect((await as(viewer.token, 'query', query)).status).toBe(200)
     expect((await as(outsider.token, 'query', query)).status).toBe(404)
     expect((await as(outsider.token, 'query', { method: 'map.list', params: { workspaceId: context.workspaceId } })).status).toBe(404)
     expect((await as(viewer.token, 'command', { requestId: randomUUID(), method: 'graph.apply',
-      params: { mapId: context.mapId, expectedRevision: 1, changes: { name: 'Viewer cannot edit' } },
+      params: { mapId: context.mapId, branch: { rootIds: branch.scope.rootIds, expectedVersion: branch.version }, changes: { name: 'Viewer cannot edit' } },
     })).status).toBe(403)
+    const editorLease = await editLease(editor.token, context.mapId, branch.scope.rootIds)
     expect((await as(editor.token, 'command', { requestId: randomUUID(), method: 'graph.apply',
-      params: { mapId: context.mapId, expectedRevision: 1, changes: { name: 'Editor can edit' } },
+      params: { mapId: context.mapId, branch: { rootIds: branch.scope.rootIds, expectedVersion: branch.version }, lease: editorLease, changes: { name: 'Editor can edit' } },
     })).status).toBe(200)
     const workspace = (await api.post('/api/v1/query', { method: 'workspace.get', params: { workspaceId: context.workspaceId } })).body.data
     expect((await as(editor.token, 'command', { requestId: randomUUID(), method: 'workspace.update',
@@ -111,8 +128,11 @@ describe('Authenticated public Graph API', () => {
     expect((await as(editor.token, 'command', { requestId: randomUUID(), method: 'member.set',
       params: { workspaceId: context.workspaceId, expectedRevision: workspace.revision, userId: outsider.userId, role: 'owner' },
     })).status).toBe(403)
+    const runBranch = await api.branch(context.mapId, [context.claimId])
     const run = { requestId: randomUUID(), method: 'run.start', params: {
-      mapId: context.mapId, expectedRevision: 2, id: randomUUID(), scope: { nodeIds: [context.claimId] }, until: 'verified', regenerate: true, mode: 'human-in-loop',
+      mapId: context.mapId, id: randomUUID(), branch: { rootIds: runBranch.scope.rootIds, expectedVersion: runBranch.version },
+      lease: editorLease,
+      scope: { nodeIds: [context.claimId] }, plan: context.plan, regenerate: true, mode: 'human-in-loop',
     } }
     expect((await as(viewer.token, 'command', run)).status).toBe(403)
     expect((await as(editor.token, 'command', run)).status).toBe(200)
@@ -162,9 +182,10 @@ describe('Authenticated public Graph API', () => {
       : kind === 'user' ? pauseAuthorizationRead('control_users', editor.userId)
         : pauseAuthorizationRead('control_workspaces', context.workspaceId)
     const before = await api.snapshot(context.mapId)
+    const branch = await api.branch(context.mapId, [context.claimId])
     try {
       const pending = as(editor.token, 'command', { requestId: randomUUID(), method: 'graph.apply',
-        params: { mapId: context.mapId, expectedRevision: before.revision, changes: { name: 'Revoked transaction must not commit' } },
+        params: { mapId: context.mapId, branch: { rootIds: branch.scope.rootIds, expectedVersion: branch.version }, changes: { name: 'Revoked transaction must not commit' } },
       })
       await pause.entered
       if (kind === 'token') await api.auth.revokeToken(editor.tokenId)
@@ -183,11 +204,14 @@ describe('Authenticated public Graph API', () => {
     const editor = await user('Receipt editor')
     await member(context.workspaceId, editor.userId, 'editor')
     const requestId = randomUUID()
+    const initial = await api.branch(context.mapId, [context.claimId])
+    const ownerLease = await editLease(api.userToken, context.mapId, initial.scope.rootIds)
     const ownerCommand = { requestId, method: 'graph.apply', params: { mapId: context.mapId,
-      expectedRevision: 1, changes: { name: 'Owner write' } } }
+      branch: { rootIds: initial.scope.rootIds, expectedVersion: initial.version }, lease: ownerLease, changes: { name: 'Owner write' } } }
     expect((await as(api.userToken, 'command', ownerCommand)).status).toBe(200)
-    expect((await as(editor.token, 'command', ownerCommand)).status).toBe(409)
-    const editorCommand = { ...ownerCommand, params: { ...ownerCommand.params, expectedRevision: 2, changes: { name: 'Editor write' } } }
+    await as(api.userToken, 'command', { requestId: randomUUID(), method: 'branch.release', params: { mapId: context.mapId, lease: ownerLease } })
+    const editorLease = await editLease(editor.token, context.mapId, initial.scope.rootIds)
+    const editorCommand = { ...ownerCommand, params: { ...ownerCommand.params, lease: editorLease } }
     expect(await as(editor.token, 'command', editorCommand)).toMatchObject({ status: 200, body: { replayed: false } })
     expect(await as(editor.token, 'command', editorCommand)).toMatchObject({ status: 200, body: { replayed: true } })
     await member(context.workspaceId, editor.userId, null)

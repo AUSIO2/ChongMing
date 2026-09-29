@@ -1,30 +1,38 @@
 // 管理工作区成员、Agent 库、共享配置与个人偏好，统一角色授权、版本和幂等收据。
-import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
 import { randomUUID } from 'node:crypto'
-import type { Persistence } from '../../ports/persistence'
-import type { AgentInput, AgentList, AgentProfile, AgentScope, AppBootstrap, ClusterSettings, ControlCommand, ControlQuery, Page, Preferences, PromptKind, Role, WorkspaceSummary, WorkspaceView } from '../../../contracts/control'
+
+import type { DefinitionCatalog, DefinitionPackage, DefinitionRef, ExecutionAgentDefinition, ExecutionCatalog } from '../../../contracts/data-definition'
+import type { AgentInput, AgentList, AgentProfile, AgentScope, AppBootstrap, ClusterSettings, ControlCommand, ControlQuery, DefinitionPublishResult, DefinitionView, Page, Preferences, PromptKind, Role, WorkspaceSummary, WorkspaceView } from '../../../contracts/control'
 import type { GraphAgentProfile, GraphRunConfiguration } from '../../../contracts/graph'
+import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
+import type { Persistence, StorageSession } from '../../ports/persistence'
+import { GRAPH_COLLECTION, storeCreateInputHash } from '../graph/graph-record'
 import type { RequestContext } from '../identity/identity-service'
-import { configurationRead, configurationReadSeed, type GraphSeedConfiguration } from './agent-configuration'
-import { CONTROL_PROMPT_KINDS, CONTROL_PROMPT_VARIABLES, controlReadAgent, controlReadCommand, controlReadQuery } from './workspace-input'
+import { definitionsDigest, definitionsReadPackage, definitionsReadTransition, definitionsValidateCatalog } from '../shared/data-definition'
 import { GraphError } from '../shared/domain-error'
 import { inputReadId, inputReadString } from '../shared/input-validation'
-import { GRAPH_COLLECTION, storeCreateInputHash } from '../graph/graph-record'
+import { configurationRead, configurationReadSeed, type GraphSeedConfiguration } from './agent-configuration'
+import { CONTROL_PROMPT_KINDS, CONTROL_PROMPT_VARIABLES, controlReadAgent, controlReadCommand, controlReadQuery } from './workspace-input'
 
 interface ControlReceipt { userId: string; requestId: string; method: string; hash: string; resourceId?: string }
 export interface WorkspaceDocument {
   _id: string; name: string; description: string; revision: number
   members: Array<{ userId: string; role: Role }>; agents: AgentProfile[]; receipts: ControlReceipt[]
+  definitionPackages?: DefinitionPackage[]; definitionAgents?: ExecutionAgentDefinition[]
   writeFence: number; createdAt: string; updatedAt: string; deletedAt: string | null
 }
-interface LibraryDocument { _id: string; revision: number; agents: AgentProfile[]; receipts: ControlReceipt[]; writeFence: number; updatedAt: string }
+interface LibraryDocument {
+  _id: string; revision: number; agents: AgentProfile[]; receipts: ControlReceipt[]; writeFence: number; updatedAt: string
+  definitionPackages?: DefinitionPackage[]; definitionAgents?: ExecutionAgentDefinition[]
+}
 interface SettingsDocument extends ClusterSettings { _id: string; receipts: ControlReceipt[]; writeFence: number; updatedAt: string }
 interface PreferencesDocument extends Preferences { _id: string; userId: string; receipts: ControlReceipt[] }
 interface UserDocument { _id: string; displayName: string; disabled: boolean }
-interface GraphRecord { _id: string; workspaceId: string; nodes: Array<{ id: string }>; run?: { status: string } | null; deletedAt?: string | Date | null }
+interface GraphRecord { _id: string; workspaceId: string; nodes: Array<{ id: string }>; runs: Array<{ status: string }>
+  branchOwnerships?: Record<string, { kind: 'editor' | 'run' | 'control'; expiresAt: string | null }>; deletedAt?: string | Date | null }
 type WorkspaceCreateInput = Extract<ControlCommand, { method: 'workspace.create' }>['params']
-type ControlReadResult = AppBootstrap | Page<WorkspaceSummary> | WorkspaceView | AgentList
-type ControlWriteResult = WorkspaceView | AgentList | ClusterSettings | Preferences
+type ControlReadResult = AppBootstrap | Page<WorkspaceSummary> | WorkspaceView | AgentList | DefinitionView
+type ControlWriteResult = WorkspaceView | AgentList | ClusterSettings | Preferences | DefinitionPublishResult
   | { workspaceId: string; deleted: true }
   | { userId: string; member: { userId: string; displayName: string; role: Role } | null; workspaceRevision: number }
 
@@ -64,27 +72,122 @@ function controlReadReplay(/* 当前资源已提交的管理收据集合。 */ r
 }
 function controlReadProfile(/* 经过边界解析、准备持久化的 Agent 输入。 */ agent: AgentInput, /* 该 Agent 的初始或更新后版本；省略时从零开始。 */ revision = 0): AgentProfile {
   // 校验 Agent 配置并附加版本、可删除性和更新时间。
-  const { id, name, description, content, tools, provider, model, promptPath, kind, promptVars, defaultPriority, claimCategory } = agent
-  return { ...controlReadAgent({ id, name, description, content, tools, provider, model, promptPath, kind, promptVars, defaultPriority, claimCategory }),
-    revision, deletable: controlIsWorker(agent.kind), updatedAt: new Date().toISOString() }
+  const { id, name, description, content, tools, provider, model, promptPath, kind, promptVars, defaultPriority, claimCategory, role, bindings } = agent
+  return { ...controlReadAgent({ id, name, description, content, tools, provider, model, promptPath, kind, promptVars, defaultPriority, claimCategory,
+    ...(role === undefined ? {} : { role }), ...(bindings === undefined ? {} : { bindings }) }),
+    revision, deletable: bindings !== undefined || controlIsWorker(agent.kind), updatedAt: new Date().toISOString() }
 }
 function controlValidateProfiles(/* 同一库或工作区内需要共同验证唯一性和固定角色的 Agent 配置。 */ agents: AgentProfile[]): void {
   // 确保同一作用域内 Agent 身份和提示词路径唯一，固定角色每类至多一个。
   if (new Set(agents.map(/* 当前提取身份以检查重复项的 Agent。 */ agent => /* 提取 Agent 身份以检查重复配置。 */ agent.id)).size !== agents.length || new Set(agents.map(/* 当前提取提示词路径以检查冲突的 Agent。 */ agent => /* 提取提示词路径以检查路径占用冲突。 */ agent.promptPath)).size !== agents.length) {
     throw new GraphError(409, 'AGENT_EXISTS', RuntimeMessage.AGENT_ID_AND_PROMPTPATH_MUST_BE_UNIQUE_WITHIN_THEIR_SCOPE)
   }
-  const fixed = agents.filter(/* 当前判断是否属于固定角色的 Agent。 */ agent => /* 筛选每阶段仅允许一个的固定角色。 */ !controlIsWorker(agent.kind))
+  const fixed = agents.filter(/* 当前判断是否属于旧固定角色的 Agent。 */ agent => /* 注册绑定 Agent 的唯一性由转换阶段检查，旧配置仍按 kind 限制。 */ !agent.bindings && !controlIsWorker(agent.kind))
   if (new Set(fixed.map(/* 当前提取固定角色类型以检查重复阶段的 Agent。 */ agent => /* 提取固定角色类型以检测同阶段重复定义。 */ agent.kind)).size !== fixed.length) throw new GraphError(409, 'AGENT_EXISTS', RuntimeMessage.ONLY_ONE_PROFILE_IS_ALLOWED_FOR_EACH_FIXED_ROLE)
 }
 
-export function controlCreateService(/* 提供所有管理记录、事务和图摘要的持久化入口。 */ database: Persistence, /* 部署默认的完整解析、拆分和核查配置，仅用于显式初始化。 */ seedDefaults: GraphSeedConfiguration) {
+function controlResolveExecutionAgent(/* 需要冻结为执行内容的已保存 Agent。 */ agent: AgentProfile, /* 发布时生效的共享模型和工具设置。 */ settings: ClusterSettings): ExecutionAgentDefinition {
+  // 把可继承模型的管理配置解析为精确 Agent 版本和独立执行快照。
+  return { ref: { id: agent.id, version: agent.revision }, profile: {
+    id: agent.id, name: agent.name, description: agent.description, content: agent.content, tools: [...agent.tools],
+    provider: agent.provider ?? settings.llm.provider, model: agent.model ?? settings.llm.model,
+    promptVars: [...agent.promptVars], defaultPriority: agent.defaultPriority, claimCategory: agent.claimCategory,
+  } }
+}
+
+function controlRemapDefinitionPackage(/* 需要绑定到另一组 Agent 身份的定义包。 */ source: DefinitionPackage, /* 原 Agent 精确引用到目标引用的映射。 */ references: ReadonlyMap<string, DefinitionRef>, /* 可选路由候选组，用完整目标组替换模板候选。 */ candidateGroups: ReadonlyArray<{ sourceIds: ReadonlySet<string>; targets: DefinitionRef[] }> = []): DefinitionPackage {
+  // 重写默认包或工作区副本中的 Agent 引用，并重建精确依赖列表。
+  const packageCopy = structuredClone(source)
+  const readTarget = (/* 定义包中准备改写的旧 Agent 引用。 */ ref: DefinitionRef): DefinitionRef => {
+    // 读取预先建立的精确引用映射，缺失表示装配配置与默认包不一致。
+    const target = references.get(`${ref.id}\u0000${ref.version}`)
+    if (!target) throw new GraphError(500, 'DEFAULT_CONFIGURATION_INVALID', messageFormat(RuntimeMessage.DEFINITION_INVALID_VALUE, `Agent mapping is missing for ${ref.id}@${ref.version}`))
+    return structuredClone(target)
+  }
+  const dependencies = new Map<string, DefinitionRef>()
+  for (const transition of packageCopy.transitions) for (const stage of transition.execution.stages) {
+    stage.agentRef = readTarget(stage.agentRef)
+    dependencies.set(`${stage.agentRef.id}\u0000${stage.agentRef.version}`, stage.agentRef)
+    if (stage.plan) {
+      const original = stage.plan.agentRefs
+      const group = candidateGroups.find(/* 当前候选组是否完整覆盖原模板计划的 Agent 身份。 */ candidate => /* 用原身份集合判断该计划属于哪个可扩展 Agent 组。 */ original.length > 0 && original.every(/* 当前计划中的 Agent 引用。 */ ref => /* 要求候选组包含计划引用身份。 */ candidate.sourceIds.has(ref.id)))
+      stage.plan.agentRefs = group ? structuredClone(group.targets) : original.map(readTarget)
+      for (const ref of stage.plan.agentRefs) dependencies.set(`${ref.id}\u0000${ref.version}`, ref)
+    }
+  }
+  packageCopy.dependencies.agents = [...dependencies.values()]
+  return packageCopy
+}
+
+function controlReadDefinitionAgents(/* 当前工作区已归档的定义 Agent 快照。 */ archived: readonly ExecutionAgentDefinition[], /* 当前可管理 Agent 配置。 */ agents: readonly AgentProfile[], /* 用于解析当前 Agent 共享模型默认值的设置。 */ settings: ClusterSettings): ExecutionAgentDefinition[] {
+  // 合并历史精确快照与当前 Agent 版本，同一引用只保留原先冻结的内容。
+  const result = new Map<string, ExecutionAgentDefinition>()
+  for (const agent of archived) result.set(`${agent.ref.id}\u0000${agent.ref.version}`, structuredClone(agent))
+  for (const agent of agents) {
+    const current = controlResolveExecutionAgent(agent, settings)
+    const key = `${current.ref.id}\u0000${current.ref.version}`
+    if (!result.has(key)) result.set(key, current)
+  }
+  return [...result.values()]
+}
+
+function controlValidateAgentBindings(/* 已通过完整发布校验的工作区定义目录。 */ catalog: DefinitionCatalog, /* 准备保存到同一作用域的 Agent 集合。 */ agents: readonly AgentProfile[]): void {
+  // 核对通用 Agent 的转换阶段、结果职责和提示词变量，不按事实核查 kind 推断能力。
+  for (const agent of agents) for (const binding of agent.bindings ?? []) {
+    const transition = definitionsReadTransition(catalog, binding.transition)
+    const stage = transition.execution.stages.find(/* 当前与 Agent 绑定身份比较的转换阶段。 */ item => /* 定位 Agent 声明参与的阶段。 */ item.id === binding.stageId)
+    if (!stage) throw new GraphError(422, 'DEFINITION_INVALID', messageFormat(RuntimeMessage.DEFINITION_INVALID_VALUE, `Agent ${agent.id} binds unknown stage ${binding.stageId}`))
+    const role = stage.resultMode === 'plan' ? 'planner' : stage.resultMode === 'selection' ? 'selector' : 'producer'
+    if (agent.role !== role) throw new GraphError(422, 'DEFINITION_INVALID', messageFormat(RuntimeMessage.DEFINITION_INVALID_VALUE, `Agent ${agent.id} role does not match stage ${binding.stageId}`))
+    const variables = new Set(Object.keys(stage.promptBindings ?? {}))
+    if (agent.promptVars.some(/* 当前检查是否由绑定阶段声明的 Agent 提示词变量。 */ name => /* 拒绝读取阶段未授予的提示词变量。 */ !variables.has(name))) throw new GraphError(422, 'DEFINITION_INVALID', messageFormat(RuntimeMessage.DEFINITION_INVALID_VALUE, `Agent ${agent.id} uses an undeclared prompt variable`))
+  }
+}
+
+export function controlCreateService(/* 提供所有管理记录、事务和图摘要的持久化入口。 */ database: Persistence, /* 部署默认的完整解析、拆分和核查配置，仅用于显式初始化。 */ seedDefaults: GraphSeedConfiguration,
+  /* 本机无需客户端租约；协作默认要求。 */ clientLeases: 'required' | 'none' = 'required') {
   // 组装工作区、配置库、共享设置和偏好服务，并集中管理角色授权与版本提交。
+  const deploymentDefaults = configurationReadSeed(seedDefaults)
   const workspaces = database.records<WorkspaceDocument>('control_workspaces')
   const library = database.records<LibraryDocument>('control_library')
   const settings = database.records<SettingsDocument>('control_settings')
   const preferences = database.records<PreferencesDocument>('control_preferences')
   const users = database.records<UserDocument>('control_users')
   const graphs = database.records<GraphRecord>(GRAPH_COLLECTION)
+
+  function controlCreateDefaultDefinitions(/* 新工作区已经保存身份和版本的 Agent 配置。 */ profiles: readonly AgentProfile[]): DefinitionPackage {
+    // 将部署默认包绑定到工作区现有的旧角色 Agent，并移除缺少完整 Agent 依赖的转换。
+    const references = new Map<string, DefinitionRef>()
+    const bind = (/* 默认配置中声明的模板 Agent。 */ source: GraphAgentProfile, /* 工作区中承担同一兼容角色的 Agent。 */ target: AgentProfile | undefined): void => {
+      // 在工作区存在相应角色时建立模板到精确配置版本的引用。
+      if (target) references.set(`${source.id}\u0000${0}`, { id: target.id, version: target.revision })
+    }
+    const splitAgents = profiles.filter(/* 当前判断是否为旧拆分候选角色的工作区 Agent。 */ agent => /* 收集可供默认拆分计划使用的 Agent。 */ agent.kind === 'splitSubAgent')
+    const verifyAgents = profiles.filter(/* 当前判断是否为旧核查候选角色的工作区 Agent。 */ agent => /* 收集可供默认核查计划使用的 Agent。 */ agent.kind === 'verifySubAgent')
+    bind(deploymentDefaults.parse, profiles.find(/* 当前定位默认解析角色的工作区 Agent。 */ agent => /* 按旧兼容 kind 查找解析 Agent。 */ agent.kind === 'parseExtract'))
+    bind(deploymentDefaults.split.router, profiles.find(/* 当前定位默认拆分路由角色的工作区 Agent。 */ agent => /* 按旧兼容 kind 查找拆分路由。 */ agent.kind === 'splitRoute'))
+    bind(deploymentDefaults.split.merger, profiles.find(/* 当前定位默认拆分汇总角色的工作区 Agent。 */ agent => /* 按旧兼容 kind 查找拆分汇总。 */ agent.kind === 'splitMerge'))
+    for (const [index, source] of deploymentDefaults.split.agents.entries()) bind(source, splitAgents[index % splitAgents.length])
+    bind(deploymentDefaults.router, profiles.find(/* 当前定位默认核查路由角色的工作区 Agent。 */ agent => /* 按旧兼容 kind 查找核查路由。 */ agent.kind === 'verifyRoute'))
+    bind(deploymentDefaults.merger, profiles.find(/* 当前定位默认核查汇总角色的工作区 Agent。 */ agent => /* 按旧兼容 kind 查找核查汇总。 */ agent.kind === 'verifyMerge'))
+    for (const [index, source] of deploymentDefaults.agents.entries()) bind(source, verifyAgents[index % verifyAgents.length])
+    const candidateGroups = [
+      { sourceIds: new Set(deploymentDefaults.split.agents.map(/* 默认拆分候选 Agent。 */ agent => /* 提取模板身份以识别计划组。 */ agent.id)),
+        targets: splitAgents.map(/* 工作区拆分候选 Agent。 */ agent => /* 转换为精确配置引用。 */ ({ id: agent.id, version: agent.revision })) },
+      { sourceIds: new Set(deploymentDefaults.agents.map(/* 默认核查候选 Agent。 */ agent => /* 提取模板身份以识别计划组。 */ agent.id)),
+        targets: verifyAgents.map(/* 工作区核查候选 Agent。 */ agent => /* 转换为精确配置引用。 */ ({ id: agent.id, version: agent.revision })) },
+    ]
+    const source = structuredClone(deploymentDefaults.definitionPackage)
+    source.transitions = source.transitions.filter(/* 当前判断是否具备全部固定 Agent 和候选组的默认转换。 */ transition => /* 只保留当前工作区可以完整绑定的转换。 */ transition.execution.stages.every(/* 转换中当前需要验证绑定能力的阶段。 */ stage => {
+      // 固定 Agent 必须可映射；计划阶段还需要至少一个完整候选组。
+      if (!references.has(`${stage.agentRef.id}\u0000${stage.agentRef.version}`)) return false
+      const plan = stage.plan
+      if (!plan) return true
+      const group = candidateGroups.find(/* 当前候选组是否覆盖计划模板身份。 */ candidate => /* 识别计划使用的候选组。 */ plan.agentRefs.every(/* 计划中的模板 Agent 引用。 */ ref => /* 要求组包含该模板身份。 */ candidate.sourceIds.has(ref.id)))
+      return group ? group.targets.length > 0 : plan.agentRefs.every(/* 当前计划 Agent 是否有单独映射。 */ ref => /* 确认精确模板引用可映射。 */ references.has(`${ref.id}\u0000${ref.version}`))
+    }))
+    return controlRemapDefinitionPackage(source, references, candidateGroups)
+  }
 
 
   async function controlReadSettings(/* 限定共享设置读取事务和用户身份的请求上下文。 */ ctx: RequestContext): Promise<ClusterSettings> {
@@ -151,26 +254,51 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
     const touched = await settings.change('global', /* 准备在版本仍匹配时推进共享设置栅栏的记录。 */ doc => /* 仅在目录版本未变时推进栅栏，把新引用与工具删除纳入事务冲突。 */ doc.revision === current.revision ? { ...doc, writeFence: doc.writeFence + 1 } : null, ctx.session)
     if (!touched) throw new GraphError(409, 'REVISION_CONFLICT', RuntimeMessage.TOOL_CATALOG_CHANGED)
   }
-  async function controlCommitWorkspace(/* 携带授权写事务的请求上下文。 */ ctx: RequestContext, /* 业务变更所依据的当前工作区记录。 */ workspace: WorkspaceDocument, /* 需要合并到工作区的名称、成员、Agent 或删除状态。 */ changes: Partial<Pick<WorkspaceDocument, 'name' | 'description' | 'members' | 'agents' | 'deletedAt'>>, /* 必须与状态变更一起追加的用户作用域幂等收据。 */ receipt: ControlReceipt): Promise<WorkspaceDocument> {
+  async function controlCommitWorkspace(/* 携带授权写事务的请求上下文。 */ ctx: RequestContext, /* 业务变更所依据的当前工作区记录。 */ workspace: WorkspaceDocument, /* 需要合并到工作区的名称、成员、Agent、定义或删除状态。 */ changes: Partial<Pick<WorkspaceDocument, 'name' | 'description' | 'members' | 'agents' | 'definitionPackages' | 'definitionAgents' | 'deletedAt'>>, /* 必须与状态变更一起追加的用户作用域幂等收据。 */ receipt: ControlReceipt): Promise<WorkspaceDocument> {
     // 在授权会话中按原版本更新未删除工作区，一起推进版本并追加请求收据。
     const updated = await workspaces.change(workspace._id, /* 最终写入前重新检查版本和删除状态的工作区记录。 */ doc => /* 只有版本和存在状态仍匹配时才应用变更与收据。 */ doc.revision === workspace.revision && !doc.deletedAt
       ? { ...doc, ...changes, updatedAt: new Date().toISOString(), revision: doc.revision + 1, receipts: [...doc.receipts, receipt] } : null, ctx.session)
     if (!updated) throw new GraphError(409, 'REVISION_CONFLICT', RuntimeMessage.WORKSPACE_CHANGED)
     return updated
   }
-  async function createWorkspace(/* 必须属于授权写事务且将成为工作区所有者的请求上下文。 */ ctx: RequestContext, /* 新工作区身份、名称、说明和 Agent 来源。 */ input: WorkspaceCreateInput, /* 导入时显式提供的可选 Agent 配置；省略则按 agentSource 决定。 */ agents?: AgentInput[], /* 需要随工作区创建保存的可选幂等收据。 */ receipt?: ControlReceipt): Promise<WorkspaceView> {
+  async function createWorkspace(/* 必须属于授权写事务且将成为工作区所有者的请求上下文。 */ ctx: RequestContext, /* 新工作区身份、名称、说明和 Agent 来源。 */ input: WorkspaceCreateInput, /* 导入时显式提供的可选 Agent 配置；省略则按 agentSource 决定。 */ agents?: AgentInput[], /* 需要随工作区创建保存的可选幂等收据。 */ receipt?: ControlReceipt,
+    /* v4 导入提供的精确定义闭包及历史 Agent 快照；省略时使用复制或默认目录。 */ definitions?: { packages: DefinitionPackage[]; agents?: ExecutionAgentDefinition[] }): Promise<WorkspaceView> {
     // 在授权事务中创建工作区及所有者，可使用提供的 Agent 或从锁定版本的全局库复制。
     controlRequireMutation(ctx)
     const id = inputReadId(input.id, 'workspace.id')
     if (typeof input.description !== 'string' || !['empty', 'library'].includes(input.agentSource)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.INVALID_WORKSPACE_INPUT)
     if (await workspaces.get(id, ctx.session)) throw new GraphError(409, 'WORKSPACE_EXISTS', RuntimeMessage.WORKSPACE_ID_ALREADY_EXISTS)
-    const profiles = agents !== undefined ? agents.map(/* 导入方提供、需要转换为持久化配置的 Agent。 */ agent => /* 校验外部提供的 Agent 并建立初始配置版本。 */ controlReadProfile(agent))
-      : input.agentSource === 'library' ? (await controlReadCopyLibrary(ctx)).agents.map(/* 从全局库复制、需要新工作区独立身份的 Agent。 */ agent => /* 复制库配置但生成独立工作区 Agent 身份，避免共享可变配置。 */ controlReadProfile({ ...agent, id: randomUUID() })) : []
+    let profiles: AgentProfile[] = [], definitionPackages: DefinitionPackage[] = []
+    if (agents !== undefined) profiles = agents.map(/* 导入方提供、需要转换为持久化配置的 Agent。 */ agent => /* 校验外部提供的 Agent 并建立初始配置版本。 */ controlReadProfile(agent))
+    else if (input.agentSource === 'library') {
+      const source = await controlReadCopyLibrary(ctx)
+      const references = new Map<string, DefinitionRef>()
+      const targetBySourceId = new Map<string, DefinitionRef>()
+      profiles = source.agents.map(/* 从全局库复制、需要新工作区独立身份的 Agent。 */ agent => {
+        // 为工作区生成独立 Agent 身份，并记录定义包引用的精确重映射。
+        const profile = controlReadProfile({ ...agent, id: randomUUID() })
+        const target = { id: profile.id, version: profile.revision }
+        references.set(`${agent.id}\u0000${agent.revision}`, target)
+        targetBySourceId.set(agent.id, target)
+        return profile
+      })
+      for (const archived of source.definitionAgents ?? []) {
+        const target = targetBySourceId.get(archived.ref.id)
+        if (target) references.set(`${archived.ref.id}\u0000${archived.ref.version}`, target)
+      }
+      definitionPackages = (source.definitionPackages ?? []).map(/* 全局库中需要改写 Agent 引用的定义包。 */ packageItem => /* 将包绑定到工作区的独立 Agent 身份。 */ controlRemapDefinitionPackage(packageItem, references))
+    }
+    if (definitions) definitionPackages = structuredClone(definitions.packages)
+    if (!definitions && !definitionPackages.length) definitionPackages = [controlCreateDefaultDefinitions(profiles)]
     controlValidateProfiles(profiles)
     if (profiles.length) await controlValidateTools(ctx, profiles)
+    const currentSettings = await controlReadSettings(ctx)
+    const definitionAgents = controlReadDefinitionAgents(definitions?.agents ?? [], profiles, currentSettings)
+    if (definitionPackages.length) definitionsValidateCatalog(definitionPackages, definitionAgents, 0)
     const now = new Date().toISOString()
     const doc: WorkspaceDocument = { _id: id, name: inputReadString(input.name, 'name').trim(), description: input.description,
       revision: 0, members: [{ userId: ctx.actor.userId, role: 'owner' }], agents: profiles, receipts: receipt ? [receipt] : [],
+      definitionPackages, definitionAgents,
       writeFence: 0, createdAt: now, updatedAt: now, deletedAt: null }
     await workspaces.insert(doc, ctx.session)
     return controlReadWorkspace(ctx, doc)
@@ -185,6 +313,35 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
     // 返回作用域、当前集合版本和 Agent 列表供管理界面使用。
     return { scope, revision: doc.revision, items: doc.agents }
   }
+  async function controlBuildDefinitionCatalog(/* 提供共享设置读取事务的请求上下文。 */ ctx: RequestContext, /* 已通过角色检查的工作区记录。 */ workspace: WorkspaceDocument): Promise<DefinitionCatalog> {
+    // 用已归档 Agent 快照和当前精确版本校验工作区全部定义，返回与工作区版本绑定的目录。
+    const current = await controlReadSettings(ctx)
+    const agents = controlReadDefinitionAgents(workspace.definitionAgents ?? [], workspace.agents, current)
+    return definitionsValidateCatalog(workspace.definitionPackages ?? [], agents, workspace.revision)
+  }
+  async function controlBuildExecutionCatalog(/* 提供共享设置读取事务的请求上下文。 */ ctx: RequestContext, /* 已通过角色检查的工作区记录。 */ workspace: WorkspaceDocument): Promise<ExecutionCatalog> {
+    // 组合精确定义、冻结 Agent 快照、共享工具目录和槽位预算，供 Run 一次性冻结执行规格。
+    const current = await controlReadSettings(ctx)
+    const agents = controlReadDefinitionAgents(workspace.definitionAgents ?? [], workspace.agents, current)
+    return { definitions: definitionsValidateCatalog(workspace.definitionPackages ?? [], agents, workspace.revision), agents,
+      tools: structuredClone(current.tools), maxSlots: current.limits.maxAgentSlots }
+  }
+  async function controlReadDefinitions(/* 提供用户身份和读取事务的请求上下文。 */ ctx: RequestContext, /* 需要读取定义目录的工作区身份。 */ workspaceId: string, /* 可选需要返回完整内容的精确包引用。 */ packageRef?: DefinitionRef): Promise<DefinitionView> {
+    // 检查工作区查看权限，返回目录和可选精确包，不向未授权用户泄露定义内容。
+    const workspace = await requireRole(ctx, workspaceId, 'viewer')
+    const catalog = await controlBuildDefinitionCatalog(ctx, workspace)
+    if (!packageRef) return { workspaceId, catalog }
+    const packageItem = (workspace.definitionPackages ?? []).find(/* 当前与查询精确引用比较的已发布包。 */ item => /* 同时匹配包身份和版本，不回落到其他版本。 */ item.id === packageRef.id && item.version === packageRef.version)
+    if (!packageItem) throw new GraphError(404, 'DEFINITION_NOT_FOUND', messageFormat(RuntimeMessage.DEFINITION_NOT_FOUND_VALUE, packageRef.id, packageRef.version))
+    return { workspaceId, catalog, package: structuredClone(packageItem) }
+  }
+  function controlReadDefinitionPublishResult(/* 已提交定义包的工作区。 */ workspace: WorkspaceDocument, /* 需要投影发布摘要的精确包引用。 */ packageRef: DefinitionRef): DefinitionPublishResult {
+    // 从已提交工作区读取精确包并返回摘要和新工作区版本。
+    const packageItem = (workspace.definitionPackages ?? []).find(/* 当前与发布结果引用比较的已发布包。 */ item => /* 定位本次发布的精确包。 */ item.id === packageRef.id && item.version === packageRef.version)
+    if (!packageItem) throw new GraphError(500, 'DEFINITION_NOT_FOUND', messageFormat(RuntimeMessage.DEFINITION_NOT_FOUND_VALUE, packageRef.id, packageRef.version))
+    return { workspaceId: workspace._id, workspaceRevision: workspace.revision,
+      package: { ref: { id: packageItem.id, version: packageItem.version }, digest: definitionsDigest(packageItem) } }
+  }
 
   return {
     async initialize(): Promise<void> {
@@ -196,8 +353,11 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
     },
     async seed(/* 可选显式运行配置；缺少的解析或拆分阶段从部署默认补齐，完全省略时播种 Agent 的模型设为继承。 */ configuration?: GraphRunConfiguration): Promise<void> {
       // 仅在全局库或设置缺失时写入显式种子配置，兼容只提供核查配置的初始化输入。
-      const defaults = configurationReadSeed(seedDefaults)
-      const config = configuration === undefined ? defaults : configurationRead(configuration)
+      const defaults = deploymentDefaults
+      const config = configuration === undefined ? defaults : configurationRead({
+        parse: configuration.parse, split: configuration.split, router: configuration.router, merger: configuration.merger,
+        agents: configuration.agents, tools: configuration.tools, maxSlots: configuration.maxSlots,
+      })
       const seedProfile = (/* 需要转换为可管理配置的执行期 Agent。 */ agent: GraphAgentProfile, /* 该 Agent 在管理库中的提示词角色。 */ kind: PromptKind, /* 与角色对应、可稳定定位提示词文件的路径。 */ promptPath: string): AgentProfile => /* 把执行配置转换为可管理 Agent，补齐阶段变量与默认优先级。 */ controlReadProfile({
         ...agent, provider: configuration === undefined ? null : agent.provider, model: configuration === undefined ? null : agent.model,
         kind, promptPath, promptVars: agent.promptVars ?? CONTROL_PROMPT_VARIABLES[kind],
@@ -218,10 +378,40 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
         ...config.agents.map(/* 当前转换为核查子 Agent 管理配置的执行 Agent。 */ agent => /* 按核查子 Agent 的身份生成稳定提示词路径并创建种子配置。 */ seedProfile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`)),
       ]
       controlValidateProfiles(agents)
+      const targetById = new Map(agents.map(/* 当前要按执行身份定位的种子 Agent。 */ agent => /* 将 Agent 原始执行身份映射到保存后的配置。 */ [agent.id, agent]))
+      const references = new Map<string, DefinitionRef>()
+      const bind = (/* 默认包中使用的模板 Agent。 */ source: GraphAgentProfile, /* 本次种子配置中取代模板的 Agent。 */ target: GraphAgentProfile): void => {
+        // 把默认提示词身份绑定到实际种子 Agent 的初始配置版本。
+        const profile = targetById.get(target.id)
+        if (!profile) throw new GraphError(500, 'DEFAULT_CONFIGURATION_INVALID', messageFormat(RuntimeMessage.DEFINITION_INVALID_VALUE, `Seed Agent is missing: ${target.id}`))
+        references.set(`${source.id}\u0000${0}`, { id: profile.id, version: profile.revision })
+      }
+      bind(defaults.parse, parse); bind(defaults.split.router, split.router); bind(defaults.split.merger, split.merger)
+      for (const [index, source] of defaults.split.agents.entries()) bind(source, split.agents[index % split.agents.length])
+      bind(defaults.router, config.router); bind(defaults.merger, config.merger)
+      for (const [index, source] of defaults.agents.entries()) bind(source, config.agents[index % config.agents.length])
+      const readRefs = (/* 需要转换为精确已保存引用的执行 Agent 集合。 */ items: readonly GraphAgentProfile[]): DefinitionRef[] => {
+        // 把本次种子配置的 Agent 身份转换为初始版本引用。
+        return items.map(/* 当前需要查找已保存版本的执行 Agent。 */ item => {
+          // 定位该执行 Agent 对应的管理配置并返回精确引用。
+          const profile = targetById.get(item.id)
+          if (!profile) throw new GraphError(500, 'DEFAULT_CONFIGURATION_INVALID', messageFormat(RuntimeMessage.DEFINITION_INVALID_VALUE, `Seed Agent is missing: ${item.id}`))
+          return { id: profile.id, version: profile.revision }
+        })
+      }
+      const definitionPackage = controlRemapDefinitionPackage(defaults.definitionPackage, references, [
+        { sourceIds: new Set(defaults.split.agents.map(/* 默认拆分候选 Agent。 */ agent => /* 提取候选身份以识别计划组。 */ agent.id)), targets: readRefs(split.agents) },
+        { sourceIds: new Set(defaults.agents.map(/* 默认核查候选 Agent。 */ agent => /* 提取候选身份以识别计划组。 */ agent.id)), targets: readRefs(config.agents) },
+      ])
+      const seedSettings: ClusterSettings = { revision: 0, llm: { provider: config.router.provider, model: config.router.model },
+        tools: config.tools, limits: { maxAgentSlots: config.maxSlots } }
+      const definitionAgents = controlReadDefinitionAgents([], agents, seedSettings)
+      definitionsValidateCatalog([definitionPackage], definitionAgents, 0)
       await database.transaction(async /* 只在缺失时创建全局库和设置的初始化事务。 */ session => {
         // 在同一事务中只创建缺失的库和设置，避免重启覆盖已编辑配置。
         const now = new Date().toISOString()
-        if (!await library.get('global', session)) await library.insert({ _id: 'global', revision: 0, agents, receipts: [], writeFence: 0, updatedAt: now }, session)
+        if (!await library.get('global', session)) await library.insert({ _id: 'global', revision: 0, agents, receipts: [], writeFence: 0, updatedAt: now,
+          definitionPackages: [definitionPackage], definitionAgents }, session)
         if (!await settings.get('global', session)) await settings.insert({ _id: 'global', revision: 0,
           llm: { provider: config.router.provider, model: config.router.model }, tools: config.tools,
           limits: { maxAgentSlots: config.maxSlots }, receipts: [], writeFence: 0, updatedAt: now }, session)
@@ -229,6 +419,28 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
     },
     requireRole,
     createWorkspace,
+    async fenceExecutionWrite(/* 内部 Work 结果提交使用的共享事务会话。 */ session: StorageSession, /* Work 所属工作区。 */ workspaceId: string): Promise<void> {
+      // 与用户写权限检查共用 writeFence，防止 Agent 新增资产引用和并发资产删除形成写偏差。
+      const current = await workspaces.get(workspaceId, session)
+      if (!current || current.deletedAt) throw new GraphError(409, 'WORKSPACE_GONE', RuntimeMessage.WORKSPACE_WAS_DELETED)
+      const touched = await workspaces.change(workspaceId, doc => !doc.deletedAt && doc.writeFence === current.writeFence
+        ? { ...doc, writeFence: doc.writeFence + 1 } : null, session)
+      if (!touched) throw new GraphError(409, 'REVISION_CONFLICT', RuntimeMessage.WORKSPACE_CHANGED)
+    },
+    async definitions(/* 需要读取执行定义的授权请求上下文。 */ ctx: RequestContext, /* 定义目录所属工作区身份。 */ workspaceId: string): Promise<DefinitionCatalog> {
+      // 校验工作区查看权限并返回经过完整引用检查的定义目录，供 Run 启动冻结规格。
+      return (await controlReadDefinitions(ctx, workspaceId)).catalog
+    },
+    async definitionAgents(/* 需要导出精确定义依赖的授权请求上下文。 */ ctx: RequestContext, /* 定义及历史 Agent 快照所属工作区。 */ workspaceId: string): Promise<ExecutionAgentDefinition[]> {
+      // Viewer 已能导出工作区 Agent 内容；这里返回当前及历史精确快照，供数据包验证不可变定义依赖。
+      const workspace = await requireRole(ctx, workspaceId, 'viewer')
+      const current = await controlReadSettings(ctx)
+      return structuredClone(controlReadDefinitionAgents(workspace.definitionAgents ?? [], workspace.agents, current))
+    },
+    async executionCatalog(/* 需要启动 Run 的授权请求上下文。 */ ctx: RequestContext, /* 执行目录所属工作区身份。 */ workspaceId: string): Promise<ExecutionCatalog> {
+      // 检查工作区编辑权限并返回定义、Agent、工具和预算的同一读取快照。
+      return controlBuildExecutionCatalog(ctx, await requireRole(ctx, workspaceId, 'editor'))
+    },
     async configuration(/* 必须具有工作区编辑权限的请求上下文。 */ ctx: RequestContext, /* 需要解析并冻结运行配置的工作区身份。 */ workspaceId: string): Promise<GraphRunConfiguration> {
       // 要求编辑权限，解析工作区 Agent 与共享默认值，生成经过完整校验的运行配置。
       const workspace = await requireRole(ctx, workspaceId, 'editor')
@@ -254,7 +466,7 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
       // 解析管理查询并按权限返回启动信息、工作区详情、Agent 列表或用户绑定的工作区分页。
       const query = controlReadQuery(input)
       if (query.method === 'app.bootstrap') return { identity: ctx.actor, settings: await controlReadSettings(ctx),
-        metadata: { version: '061-v1', promptKinds: [...CONTROL_PROMPT_KINDS], executableKinds: ['parse', 'split', 'verify'], scores: [0, 0.5, 1],
+        metadata: { clientLeases, version: '061-v1', promptKinds: [...CONTROL_PROMPT_KINDS], executableKinds: ['parse', 'split', 'verify'], scores: [0, 0.5, 1],
           variables: structuredClone(CONTROL_PROMPT_VARIABLES), outputs: [
             { kind: 'parseExtract', content: JSON.stringify({ proposal: { kind: 'parse', reason: '整理原稿', news: [{ content: '新闻正文', context: {} }] } }) },
             { kind: 'splitRoute', content: JSON.stringify({ proposal: { kind: 'route', reason: '拆分角度', slots: [
@@ -267,8 +479,10 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
             ] } }) },
             { kind: 'verifySubAgent', content: JSON.stringify({ proposal: { kind: 'report', score: 0.5, reason: '核查依据' } }) },
             { kind: 'verifyMerge', content: JSON.stringify({ proposal: { kind: 'merge', reportIds: ['report-id'], score: 0.5, reason: '汇总理由' } }) },
-          ] } }
+          ], definitions: { queryMethod: 'definition.get', publishMethod: 'definition.publish' } } }
       if (query.method === 'workspace.get') return controlReadWorkspace(ctx, await requireRole(ctx, query.params.workspaceId, 'viewer'))
+      if (query.method === 'definition.get') return controlReadDefinitions(ctx, query.params.workspaceId,
+        query.params.packageId === undefined || query.params.packageVersion === undefined ? undefined : { id: query.params.packageId, version: query.params.packageVersion })
       if (query.method === 'agent.list') {
         const doc = await controlReadAgentScope(ctx, query.params.scope, false)
         return { ...controlReadAgentList(query.params.scope, doc), items: doc.agents.filter(/* 当前按可选提示词类型筛选的 Agent 配置。 */ agent => /* 按可选提示词类型筛选当前作用域 Agent。 */ !query.params.kind || agent.kind === query.params.kind) }
@@ -318,7 +532,9 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
         const allowed = command.params.tools.map(/* 新共享目录中当前提取允许名称的工具。 */ tool => /* 收集新共享工具目录的名称，作为删除检测的允许集合。 */ tool.name)
         const removed = doc.tools.filter(/* 旧共享目录中当前判断是否被移除的工具。 */ tool => /* 找出旧目录中此次更新要删除的工具。 */ !allowed.includes(tool.name)).map(/* 当前提取名称以查询现有 Agent 引用的被移除工具。 */ tool => /* 提取被删除工具的名称以查询现存 Agent 引用。 */ tool.name)
         if (removed.length && ((await library.list({ 'agents.tools': removed }, ctx.session)).length
-          || (await workspaces.list({ deletedAt: null, 'agents.tools': removed }, ctx.session)).length)) throw new GraphError(409, 'TOOL_IN_USE', RuntimeMessage.AN_AGENT_STILL_USES_A_REMOVED_TOOL)
+          || (await library.list({ 'definitionAgents.profile.tools': removed }, ctx.session)).length
+          || (await workspaces.list({ deletedAt: null, 'agents.tools': removed }, ctx.session)).length
+          || (await workspaces.list({ deletedAt: null, 'definitionAgents.profile.tools': removed }, ctx.session)).length)) throw new GraphError(409, 'TOOL_IN_USE', RuntimeMessage.AN_AGENT_STILL_USES_A_REMOVED_TOOL)
         const updated = await settings.change('global', /* 最终保存前重新比较版本的共享设置记录。 */ current => /* 按共享设置原版本保存新配置，并同时推进版本及写入收据。 */ current.revision === doc.revision ? { ...current,
           llm: command.params.llm, tools: command.params.tools, limits: command.params.limits, updatedAt: new Date().toISOString(),
           revision: current.revision + 1, receipts: [...current.receipts, receipt] } : null, ctx.session)
@@ -332,7 +548,7 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
         controlRequireRevision(doc.revision, command.params.expectedRevision)
         let agents = [...doc.agents]
         if (command.method === 'agent.create') {
-          if (!controlIsWorker(command.params.agent.kind)) throw new GraphError(422, 'FIXED_ROLE', RuntimeMessage.ONLY_SUBAGENT_PROFILES_MAY_BE_CREATED)
+          if (!command.params.agent.bindings && !controlIsWorker(command.params.agent.kind)) throw new GraphError(422, 'FIXED_ROLE', RuntimeMessage.ONLY_SUBAGENT_PROFILES_MAY_BE_CREATED)
           if (doc.receipts.some(/* 当前检查目标 Agent 身份是否有历史删除收据的记录。 */ item => /* 检查该 Agent 身份是否已有删除记录，阻止删除后复用身份。 */ item.method === 'agent.delete' && item.resourceId === command.params.agent.id)) throw new GraphError(409, 'AGENT_ID_REUSED', RuntimeMessage.DELETED_AGENT_IDS_CANNOT_BE_REUSED)
           agents.push(controlReadProfile(command.params.agent))
         } else {
@@ -350,6 +566,12 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
         }
         controlValidateProfiles(agents)
         await controlValidateTools(ctx, agents)
+        if (agents.some(/* 当前检查本次保存是否包含注册转换绑定。 */ agent => /* 仅在存在通用绑定时构建并校验定义目录。 */ !!agent.bindings?.length)) {
+          const current = await controlReadSettings(ctx)
+          const definitionAgents = controlReadDefinitionAgents(doc.definitionAgents ?? [], agents, current)
+          const catalog = definitionsValidateCatalog(doc.definitionPackages ?? [], definitionAgents, doc.revision)
+          controlValidateAgentBindings(catalog, agents)
+        }
         if (scope.kind === 'workspace') {
           const updated = await controlCommitWorkspace(ctx, doc as WorkspaceDocument, { agents }, receipt)
           return { data: controlReadAgentList(scope, updated), replayed: false }
@@ -389,6 +611,7 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
         return { data: await controlReadPreferences(ctx, workspace._id), replayed: false }
       }
       if (controlReadReplay(workspace.receipts, receipt)) {
+        if (command.method === 'definition.publish') return { data: controlReadDefinitionPublishResult(workspace, command.params.package), replayed: true }
         if (command.method === 'member.set') {
           const member = workspace.members.find(/* 重放成员设置时当前与目标用户匹配的成员记录。 */ member => /* 读取成员设置请求对应的当前成员，作为重放响应。 */ member.userId === command.params.userId)
           const user = member && await users.get(member.userId, ctx.session)
@@ -397,9 +620,26 @@ export function controlCreateService(/* 提供所有管理记录、事务和图�
         return { data: await controlReadWorkspace(ctx, workspace), replayed: true }
       }
       controlRequireRevision(workspace.revision, command.params.expectedRevision)
+      if (command.method === 'definition.publish') {
+        const packageItem = definitionsReadPackage(command.params.package)
+        const packages = [...(workspace.definitionPackages ?? [])]
+        const existing = packages.find(/* 当前与待发布包精确身份比较的已发布包。 */ item => /* 定位同一 package id/version 以检查不可变内容。 */ item.id === packageItem.id && item.version === packageItem.version)
+        if (!existing) packages.push(packageItem)
+        else if (definitionsDigest(existing) !== definitionsDigest(packageItem)) throw new GraphError(409, 'DEFINITION_VERSION_CONFLICT', messageFormat(RuntimeMessage.DEFINITION_VERSION_CONFLICT_VALUE, packageItem.id, packageItem.version))
+        const current = await controlReadSettings(ctx)
+        const definitionAgents = controlReadDefinitionAgents(workspace.definitionAgents ?? [], workspace.agents, current)
+        definitionsValidateCatalog(packages, definitionAgents, workspace.revision + 1)
+        const updated = await controlCommitWorkspace(ctx, workspace, { definitionPackages: packages, definitionAgents }, receipt)
+        return { data: controlReadDefinitionPublishResult(updated, packageItem), replayed: false }
+      }
       if (command.method === 'workspace.update') return { data: await controlReadWorkspace(ctx, await controlCommitWorkspace(ctx, workspace, { name: command.params.name, description: command.params.description }, receipt)), replayed: false }
       if (command.method === 'workspace.delete') {
-        if ((await graphs.list({ workspaceId: workspace._id, deletedAt: null, 'run.status': ['accepted', 'running', 'waiting'] }, ctx.session)).length) throw new GraphError(409, 'RUN_ACTIVE', RuntimeMessage.CANCEL_ACTIVE_RUNS_BEFORE_DELETING_THE_WORKSPACE)
+        const now = await database.now(), graphRows = await graphs.list({ workspaceId: workspace._id, deletedAt: null }, ctx.session)
+        if (graphRows.some(graph => graph.runs.some(run => ['accepted', 'running', 'waiting'].includes(run.status))
+          || Object.values(graph.branchOwnerships ?? {}).some(ownership => ownership.kind === 'run'
+            || clientLeases === 'required' && ownership.expiresAt !== null && Date.parse(ownership.expiresAt) > now))) {
+          throw new GraphError(409, 'RUN_ACTIVE', RuntimeMessage.CANCEL_ACTIVE_RUNS_BEFORE_DELETING_THE_WORKSPACE)
+        }
         await controlCommitWorkspace(ctx, workspace, { deletedAt: new Date().toISOString() }, receipt)
         return { data: { workspaceId: workspace._id, deleted: true }, replayed: false }
       }

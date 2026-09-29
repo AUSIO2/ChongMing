@@ -1,426 +1,602 @@
-// 协调图命令、幂等收据、版本提交和工作租约，将草稿更新提交到存储。
+// 协调通用数据图命令、有限 Run、幂等收据和逐 Work 租约，将合法局部变化原子提交到存储。
 import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
+import { randomUUID } from 'node:crypto'
+import type { DefinitionCatalog, DefinitionRef } from '../../../contracts/data-definition'
 import type {
-  GraphChanges,
-  GraphCommand,
-  GraphDataProposal,
-  GraphDataRead,
-  GraphEdge,
-  GraphMapSummary,
-  GraphNode,
-  GraphQuery,
-  GraphSnapshot,
-  GraphWriteResult,
-  GraphRunConfiguration,
-  GraphRun,
-  GraphWorkCommand,
-  GraphWorkProof,
+  GraphBranchClaimResult, GraphBranchGrant, GraphBranchLeaseProof, GraphBranchSnapshot, GraphChanges, GraphCommand, GraphDataProposal, GraphDataRead, GraphEdge, GraphMapSummary, GraphNode,
+  GraphQuery, GraphRun, GraphRunControl, GraphRunControlClaimResult, GraphRunControlGrant, GraphRunControlProof, GraphSnapshot, GraphWorkCommand, GraphWorkGrant, GraphWorkProof, GraphWriteResult,
 } from '../../../contracts/graph'
-import { GraphError } from '../shared/domain-error'
 import type { GraphClaimResult } from '../../../contracts/events'
+import type { GraphCommitGuard, GraphStore } from '../../ports/graph-store'
+import { definitionsReadPayloadReferences, definitionsReadType, definitionsValidatePayload } from '../shared/data-definition'
+import { GraphError } from '../shared/domain-error'
 import {
-  runAnswerReview,
-  runCancelRun,
-  runCreateRun,
-  runReadData,
-  runUpdateProposal,
-  runUpdateReview,
-  runUpdatePause,
-  runReadOperation,
+  runAnswerReview, runCancelRun, runCreateRun, runReadData, runReadOperation, runReadRun, runUpdatePause, runUpdateProposal,
+  type GraphRunStartContext,
 } from './run-state'
-import type { GraphDocument, GraphReceipt } from './graph-record'
-import type { GraphStore } from '../../ports/graph-store'
-import { storeCreateInputHash } from './graph-record'
+import { storeCreateInputHash, type GraphBranchOwnershipRecord, type GraphDocument, type GraphOwnershipReceipt, type GraphReceipt, type GraphRunControlRecord } from './graph-record'
 import { workReadGrant, workReadItems } from './work-state'
+import { branchFindOwnershipConflict, branchPruneOwnerships, branchReadOwnerships, branchReadSnapshot, branchValidateMutation, branchValidateNewRoots } from './branch-state'
+import { graphReadPayloadReferenceIndex, graphRefreshPayloadReferenceIndexes } from '../shared/data-reference-index'
 
-export function graphReadSnapshot(/* 包含当前图、运行历史和产物关系的持久化文档。 */ document: GraphDocument): GraphSnapshot {
-  // 从当前与历史 Run 还原解析、拆分节点的产出来源，生成不含租约和收据的公开图快照。
-  const producers = new Map<string, NonNullable<GraphNode['producer']>>()
-  for (const run of [...document.runHistory, ...(document.run ? [document.run] : [])]) {
-    for (const operation of run.operations) {
-      if (operation.kind === 'verify') continue
-      for (const output of operation.outputRefs) {
-        if (!document.edges.some(/* 当前检查是否仍把某个历史产物连接到其输入的关系。 */ edge => /* 只为仍保留来源关系的产物标注生成者。 */ edge.kind === 'derived-from' && edge.from === output.id && edge.to === operation.targetId)) continue
-        const report = operation.splitReports.find(/* 当前与产物记录的报告身份匹配的拆分报告。 */ report => /* 找到该产物对应的拆分报告及 Agent 身份。 */ report.id === output.reportId)
-        const agent = operation.kind === 'parse' ? run.configuration.parse : report
-        if (!agent) continue
-        producers.set(output.id, { operationId: operation.id, kind: operation.kind, inputId: operation.targetId,
-          agentId: 'agentId' in agent ? agent.agentId : agent.id, agentName: 'agentName' in agent ? agent.agentName : agent.name,
-          ...(report ? { slotId: report.slotId, angle: report.angle } : {}) })
-      }
-    }
-  }
-  return {
-    mapId: document.id,
-    workspaceId: document.workspaceId,
-    revision: document.revision,
-    name: document.name,
-    nodes: document.nodes.map(/* 准备投影为公开快照并按需补充生产者信息的节点。 */ node => /* 仅为可追溯到生成操作的节点补充 producer，不修改原节点。 */ producers.has(node.id) ? { ...node, producer: producers.get(node.id)! } : node),
-    edges: document.edges,
-    run: document.run,
-    updatedAt: document.updatedAt,
-  }
+export function graphReadSnapshot(/* 包含通用节点、关系和当前运行状态的持久化图。 */ document: GraphDocument, /* 用于过滤过期 editor 的当前时间。 */ now = Date.now(),
+  /* 本机不展示此前存储的客户端租约。 */ clientLeasesRequired = true): GraphSnapshot {
+  // 租约、内部收据和历史 Run 不进入公开快照；节点已经保存可信 producer 投影。
+  return { mapId: document.id, workspaceId: document.workspaceId, revision: document.revision, name: document.name,
+    nodes: structuredClone(document.nodes), edges: structuredClone(document.edges), runs: structuredClone(document.runs),
+    ownershipRevision: document.ownershipRevision ?? 0, ownerships: branchReadOwnerships(document, now).filter(item => clientLeasesRequired || item.kind === 'run'),
+    runControls: clientLeasesRequired ? graphReadRunControls(document, now) : [], updatedAt: document.updatedAt }
 }
 
-function graphReadReceipt(
-  /* 包含待查幂等收据的当前图文档。 */ document: GraphDocument,
-  /* 当前收据幂等键；公共命令按用户隔离，内部提案和失败记录使用相应工作键。 */ requestId: string,
-  /* 这次请求声明的命令或内部提交方法。 */ method: string,
-  /* 按当前操作规则计算的稳定摘要；公共命令使用方法与参数，内部提案或失败使用各自业务输入。 */ inputHash: string,
-): GraphReceipt | null {
-  // 查找已提交请求；相同请求 ID 只有方法和输入摘要均相同才允许重放。
-  const receipt = document.receipts.find(/* 当前与目标请求身份比较的已提交收据。 */ item => /* 定位该请求已经持久化的收据。 */ item.requestId === requestId)
+function graphReadRunControls(/* 当前图。 */ document: GraphDocument, /* 存储端当前时间。 */ now: number): GraphRunControl[] {
+  return Object.values(document.branchOwnerships ?? {}).filter((item): item is GraphRunControlRecord => item.kind === 'control'
+    && Date.parse(item.expiresAt) > now && document.runs.some(run => run.id === item.runId && ['running', 'waiting'].includes(run.status)))
+    .map(item => { const { kind: _kind, ...control } = structuredClone(item); return control })
+}
+
+function graphReadReceipt(/* 当前图及其已接受收据。 */ document: GraphDocument, /* 幂等身份。 */ requestId: string,
+  /* 公共命令或内部动作。 */ method: string, /* 当前输入的稳定摘要。 */ inputHash: string): GraphReceipt | null {
+  // 相同身份只有方法和输入摘要也相同才可重放，避免将新意图误认为旧成功。
+  const receipt = document.receipts.find(item => item.requestId === requestId)
   if (!receipt) return null
-  if (receipt.method !== method || receipt.inputHash !== inputHash) {
-    throw new GraphError(409, 'IDEMPOTENCY_CONFLICT', RuntimeMessage.REQUESTID_WAS_ALREADY_USED_WITH_DIFFERENT_INPUT)
-  }
+  if (receipt.method !== method || receipt.inputHash !== inputHash) throw new GraphError(409, 'IDEMPOTENCY_CONFLICT', RuntimeMessage.REQUESTID_WAS_ALREADY_USED_WITH_DIFFERENT_INPUT)
   return receipt
 }
 
-function graphCreateWriteResult(/* 提交或重放后用于生成当前公开快照的图文档。 */ document: GraphDocument, /* 记录此次请求实际创建对象身份的已接纳收据。 */ receipt: GraphReceipt): GraphWriteResult {
-  // 将当前快照与原收据中的新建 ID 组合返回；重放不会还原提交当时的整个快照。
-  return {
-    snapshot: graphReadSnapshot(document),
-    createdNodeIds: receipt.createdNodeIds,
-    createdEdgeIds: receipt.createdEdgeIds,
+function graphCreateReceipt(/* 业务动作的幂等身份。 */ requestId: string, /* 收据动作。 */ method: string,
+  /* 输入摘要。 */ inputHash: string, /* 服务端时间。 */ now: string, /* 新建节点。 */ createdNodeIds: string[] = [],
+  /* 新建关系。 */ createdEdgeIds: string[] = [], /* 分支写入成功时固定的提交后范围与版本。 */ branch?: GraphBranchSnapshot): GraphReceipt {
+  // 收据与业务状态同次提交，响应丢失后可返回同一组正式身份。
+  return { requestId, method, inputHash, createdNodeIds, createdEdgeIds, ...(branch ? { branch: structuredClone(branch) } : {}), createdAt: now }
+}
+
+function graphCreateWriteResult(/* 提交或重放后的当前图。 */ document: GraphDocument, /* 对应已接受收据。 */ receipt: GraphReceipt,
+  /* run.start 同次取得的控制权。 */ runControl?: GraphRunControlGrant,
+  /* 服务端客户端租约策略。 */ clientLeasesRequired = true): GraphWriteResult {
+  // 当前快照反映最新状态；只有仍与该快照同次的分支证明才返回，避免把旧 receipt proof 拼到新快照上。
+  let branch: GraphBranchSnapshot | undefined
+  if (receipt.branch && receipt.branch.mapRevision === document.revision) {
+    try {
+      const current = branchReadSnapshot(document, receipt.branch.scope.rootIds)
+      if (current.version === receipt.branch.version) branch = receipt.branch
+    } catch { /* 分支根后来消失时只重放原创建身份，不返回不可用于当前快照的 proof。 */ }
+  }
+  return { snapshot: graphReadSnapshot(document, Date.now(), clientLeasesRequired), createdNodeIds: receipt.createdNodeIds, createdEdgeIds: receipt.createdEdgeIds,
+    ...(branch ? { branch: structuredClone(branch) } : {}), ...(runControl ? { runControl: structuredClone(runControl) } : {}) }
+}
+
+function graphReadUnique(/* 待拒绝重复的身份。 */ values: string[], /* 错误字段名。 */ label: string): Set<string> {
+  // 同一补丁中的重复身份含义不清，必须在修改图前拒绝。
+  const ids = new Set(values)
+  if (ids.size !== values.length) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTAINS_DUPLICATE_IDS, label))
+  return ids
+}
+
+function graphRef(/* 数据实例的精确类型。 */ node: Pick<GraphNode, 'typeId' | 'typeVersion'>): DefinitionRef {
+  // 将实例字段组合成目录引用。
+  return { id: node.typeId, version: node.typeVersion }
+}
+
+function graphValidateSuccessor(/* 精确定义目录。 */ definitions: DefinitionCatalog, /* 上游数据。 */ from: GraphNode, /* 正式产物。 */ to: GraphNode): void {
+  // successor 必须被上游精确类型版本许可；reference 不进入此规则。
+  const definition = definitionsReadType(definitions, graphRef(from))
+  if (!definition.successorTypes.some(ref => ref.id === to.typeId && ref.version === to.typeVersion)) {
+    throw new GraphError(422, 'TRANSITION_NOT_ALLOWED', RuntimeMessage.GRAPH_SUCCESSOR_TYPE_IS_NOT_ALLOWED)
   }
 }
 
-function graphCreateReceipt(
-  /* 需要在图内唯一标识一次请求或工作结果的身份。 */ requestId: string,
-  /* 收据绑定的公共命令或内部提交方法。 */ method: string,
-  /* 请求业务输入的稳定摘要。 */ inputHash: string,
-  /* 创建该收据及业务变更的 ISO 时间。 */ now: string,
-  /* 本次提交新建的节点身份；没有节点时保持空数组。 */ createdNodeIds: string[] = [],
-  /* 本次提交新建的关系身份；没有关系时保持空数组。 */ createdEdgeIds: string[] = [],
-): GraphReceipt {
-  // 记录请求身份、输入摘要及新建对象 ID，供原子提交和后续幂等重放使用。
-  return { requestId, method, inputHash, createdNodeIds, createdEdgeIds, createdAt: now }
+function graphValidateSuccessorAcyclic(/* 修改后的节点索引。 */ nodes: Map<string, GraphNode>, /* 修改后的关系索引。 */ edges: Map<string, GraphEdge>): void {
+  // successor 定义结构分支并保持无环；reference 允许普通关系环。
+  const outgoing = new Map<string, string[]>()
+  for (const edge of edges.values()) if (edge.kind === 'successor') {
+    if (!nodes.has(edge.from) || !nodes.has(edge.to)) throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.EDGE_REFERENCES_A_MISSING_NODE)
+    const children = outgoing.get(edge.from) ?? []
+    children.push(edge.to); outgoing.set(edge.from, children)
+  }
+  const visiting = new Set<string>(), visited = new Set<string>()
+  const visit = (id: string) => {
+    if (visiting.has(id)) throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.SUCCESSOR_RELATIONS_MUST_NOT_CONTAIN_A_CYCLE)
+    if (visited.has(id)) return
+    visiting.add(id)
+    for (const child of outgoing.get(id) ?? []) visit(child)
+    visiting.delete(id); visited.add(id)
+  }
+  for (const id of nodes.keys()) visit(id)
 }
 
-function graphReadUnique(/* 需要拒绝重复项并转换为集合的身份列表。 */ values: string[], /* 写入重复值错误信息的输入字段名称。 */ label: string): Set<string> {
-  // 拒绝同一批变更中的重复 ID，并返回供冲突检查使用的集合。
-  const result = new Set(values)
-  if (result.size !== values.length) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTAINS_DUPLICATE_IDS, label))
-  }
-  return result
-}
-
-function graphUpdateChanges(/* 应用编辑前的当前图文档。 */ document: GraphDocument, /* 已经过协议解析、待应用的名称和节点关系变更。 */ changes: GraphChanges): {
-  document: GraphDocument
-  createdNodeIds: string[]
-  createdEdgeIds: string[]
-} {
-  // 在新的节点和边集合中应用人工编辑，校验关系与类型约束，并返回待提交文档及新建 ID。
-  const now = new Date().toISOString()
-  const nodePuts = changes.nodes?.put ?? []
-  const nodeRemoves = graphReadUnique(changes.nodes?.remove ?? [], 'nodes.remove')
-  const edgePuts = changes.edges?.put ?? []
-  const edgeRemoves = graphReadUnique(changes.edges?.remove ?? [], 'edges.remove')
-  graphReadUnique(nodePuts.map(/* 节点写入列表中当前用于唯一性检查的项。 */ item => /* 提取本批新增或更新节点的 ID。 */ item.id), 'nodes.put')
-  graphReadUnique(edgePuts.map(/* 关系写入列表中当前用于唯一性检查的项。 */ item => /* 提取本批新增或更新关系的 ID。 */ item.id), 'edges.put')
-  if (nodePuts.some(/* 当前检查是否同时出现在节点删除集合的写入项。 */ item => /* 检查节点是否同时出现在写入和删除列表。 */ nodeRemoves.has(item.id))) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.A_NODE_CANNOT_BE_PUT_AND_REMOVED_TOGETHER)
-  }
-  if (edgePuts.some(/* 当前检查是否同时出现在关系删除集合的写入项。 */ item => /* 检查关系是否同时出现在写入和删除列表。 */ edgeRemoves.has(item.id))) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.AN_EDGE_CANNOT_BE_PUT_AND_REMOVED_TOGETHER)
-  }
-  if (
-    changes.name === undefined
-    && nodePuts.length === 0
-    && nodeRemoves.size === 0
-    && edgePuts.length === 0
-    && edgeRemoves.size === 0
-  ) {
-    throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.GRAPH_APPLY_CONTAINS_NO_CHANGES)
-  }
-
-  const nodes = new Map(document.nodes.map(/* 当前加入可变节点索引的原节点。 */ node => /* 建立可独立增删的节点索引，保留未编辑节点。 */ [node.id, node]))
-  const edges = new Map(document.edges.map(/* 当前加入可变关系索引的原关系。 */ edge => /* 建立可独立增删的关系索引，保留未编辑关系。 */ [edge.id, edge]))
-  for (const nodeId of nodeRemoves) {
-    if (!nodes.delete(nodeId)) throw new GraphError(404, 'NODE_NOT_FOUND', messageFormat(RuntimeMessage.NODE_NOT_FOUND_VALUE, nodeId))
-    for (const [edgeId, edge] of edges) {
-      if (edge.from === nodeId || edge.to === nodeId) edges.delete(edgeId)
+function graphValidateNodeReferences(/* 修改后的完整节点索引。 */ nodes: Map<string, GraphNode>, /* 精确类型目录。 */ definitions: DefinitionCatalog): void {
+  // 用户修改或删除节点后，所有声明的节点引用都必须仍存在且匹配允许类型版本。
+  for (const node of nodes.values()) for (const reference of definitionsReadPayloadReferences(definitions, graphRef(node), node.payload)) {
+    if (reference.definition.target.kind !== 'node') continue
+    const target = nodes.get(reference.value)
+    if (!target || !reference.definition.target.types.some(type => type.id === target.typeId && type.version === target.typeVersion)) {
+      throw new GraphError(422, 'OUTPUT_REFERENCE_INVALID', RuntimeMessage.GRAPH_NODE_REFERENCE_IS_NOT_VALID)
     }
   }
+}
 
+function graphUpdateChanges(/* 修改前的当前图。 */ document: GraphDocument, /* 局部补丁。 */ changes: GraphChanges,
+  /* 当前工作区定义目录。 */ definitions: DefinitionCatalog): { document: GraphDocument; createdNodeIds: string[]; createdEdgeIds: string[] } {
+  // 应用局部变化，按定义验证 payload/后继及结构无环，返回待提交草稿。
+  const now = new Date().toISOString()
+  const nodePuts = changes.nodes?.put ?? [], nodeRemoves = graphReadUnique(changes.nodes?.remove ?? [], 'nodes.remove')
+  const edgePuts = changes.edges?.put ?? [], edgeRemoves = graphReadUnique(changes.edges?.remove ?? [], 'edges.remove')
+  graphReadUnique(nodePuts.map(item => item.id), 'nodes.put'); graphReadUnique(edgePuts.map(item => item.id), 'edges.put')
+  if (nodePuts.some(item => nodeRemoves.has(item.id))) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.A_NODE_CANNOT_BE_PUT_AND_REMOVED_TOGETHER)
+  if (edgePuts.some(item => edgeRemoves.has(item.id))) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.AN_EDGE_CANNOT_BE_PUT_AND_REMOVED_TOGETHER)
+  if (changes.name === undefined && !nodePuts.length && !nodeRemoves.size && !edgePuts.length && !edgeRemoves.size) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.GRAPH_APPLY_CONTAINS_NO_CHANGES)
+  const nodes = new Map(document.nodes.map(node => [node.id, structuredClone(node)])), edges = new Map(document.edges.map(edge => [edge.id, structuredClone(edge)]))
+  const retiredNodeIds = new Set(document.retiredNodeIds ?? []), retiredEdgeIds = new Set(document.retiredEdgeIds ?? [])
+  for (const id of nodeRemoves) {
+    if (!nodes.delete(id)) throw new GraphError(404, 'NODE_NOT_FOUND', messageFormat(RuntimeMessage.NODE_NOT_FOUND_VALUE, id))
+    retiredNodeIds.add(id)
+    for (const [edgeId, edge] of edges) if (edge.from === id || edge.to === id) { edges.delete(edgeId); retiredEdgeIds.add(edgeId) }
+  }
   const createdNodeIds: string[] = []
   for (const input of nodePuts) {
     const existing = nodes.get(input.id)
-    if (existing && existing.data.kind !== input.data.kind) {
-      throw new GraphError(422, 'NODE_KIND_CHANGED', messageFormat(RuntimeMessage.NODE_KIND_CANNOT_CHANGE_VALUE, input.id))
-    }
-    const node: GraphNode = {
-      ...existing,
-      id: input.id,
-      revision: existing ? existing.revision + 1 : 0,
-      data: input.data,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    }
-    nodes.set(node.id, node)
-    if (!existing) createdNodeIds.push(node.id)
+    if (!existing && retiredNodeIds.has(input.id)) throw new GraphError(409, 'NODE_ID_REUSED', RuntimeMessage.DELETED_NODE_IDS_CANNOT_BE_REUSED)
+    if (existing && (existing.typeId !== input.typeId || existing.typeVersion !== input.typeVersion)) throw new GraphError(422, 'NODE_TYPE_CHANGED', RuntimeMessage.NODE_TYPE_CHANGE_REQUIRES_AN_EXPLICIT_TRANSITION)
+    const payload = definitionsValidatePayload(definitions, { id: input.typeId, version: input.typeVersion }, input.payload)
+    nodes.set(input.id, { ...existing, id: input.id, revision: existing ? existing.revision + 1 : 0, typeId: input.typeId,
+      typeVersion: input.typeVersion, payload: payload as GraphNode['payload'],
+      payloadReferences: graphReadPayloadReferenceIndex(definitions, { id: input.typeId, version: input.typeVersion }, payload as GraphNode['payload']),
+      createdAt: existing?.createdAt ?? now, updatedAt: now })
+    if (!existing) createdNodeIds.push(input.id)
   }
-
-  for (const edgeId of edgeRemoves) {
-    if (!edges.delete(edgeId)) throw new GraphError(404, 'EDGE_NOT_FOUND', messageFormat(RuntimeMessage.EDGE_NOT_FOUND_VALUE, edgeId))
+  for (const id of edgeRemoves) {
+    if (!edges.delete(id)) throw new GraphError(404, 'EDGE_NOT_FOUND', messageFormat(RuntimeMessage.EDGE_NOT_FOUND_VALUE, id))
+    retiredEdgeIds.add(id)
   }
   const createdEdgeIds: string[] = []
   for (const input of edgePuts) {
-    const from = nodes.get(input.from)
-    const to = nodes.get(input.to)
-    if (!from || !to) {
-      throw new GraphError(422, 'INVALID_RELATION', messageFormat(RuntimeMessage.EDGE_REFERENCES_A_MISSING_NODE_VALUE, input.id))
-    }
-    if (input.from === input.to) {
-      throw new GraphError(422, 'INVALID_RELATION', messageFormat(RuntimeMessage.SELF_EDGE_IS_NOT_ALLOWED_VALUE, input.id))
-    }
-    if (input.kind === 'mentions' && (from.data.kind !== 'news' || to.data.kind !== 'claim')) {
-      throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.MENTIONS_MUST_POINT_FROM_NEWS_TO_CLAIM)
-    }
-    if (input.kind === 'verifies' && (from.data.kind !== 'verification' || to.data.kind !== 'claim')) {
-      throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.VERIFIES_MUST_POINT_FROM_VERIFICATION_TO_CLAIM)
-    }
-    if (input.kind === 'derived-from' && !((from.data.kind === 'news' && to.data.kind === 'source')
-      || (from.data.kind === 'claim' && to.data.kind === 'news'))) {
-      throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.DERIVED_FROM_MUST_LINK_NEWS_TO_SOURCE_OR_CLAIM_TO_NEWS)
-    }
+    const from = nodes.get(input.from), to = nodes.get(input.to)
+    if (!from || !to) throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.EDGE_REFERENCES_A_MISSING_NODE)
+    if (input.from === input.to) throw new GraphError(422, 'INVALID_RELATION', messageFormat(RuntimeMessage.SELF_EDGE_IS_NOT_ALLOWED_VALUE, input.id))
+    if (input.kind === 'successor') graphValidateSuccessor(definitions, from, to)
     const existing = edges.get(input.id)
-    const edge: GraphEdge = {
-      ...input,
-      revision: existing ? existing.revision + 1 : 0,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-    }
-    edges.set(edge.id, edge)
-    if (!existing) createdEdgeIds.push(edge.id)
+    if (!existing && retiredEdgeIds.has(input.id)) throw new GraphError(409, 'EDGE_ID_REUSED', RuntimeMessage.DELETED_EDGE_IDS_CANNOT_BE_REUSED)
+    edges.set(input.id, { ...input, revision: existing ? existing.revision + 1 : 0, createdAt: existing?.createdAt ?? now, updatedAt: now })
+    if (!existing) createdEdgeIds.push(input.id)
   }
-
-  return {
-    document: {
-      ...document,
-      name: changes.name?.trim() || document.name,
-      nodes: [...nodes.values()],
-      edges: [...edges.values()],
-      updatedAt: now,
-    },
-    createdNodeIds,
-    createdEdgeIds,
-  }
+  graphValidateNodeReferences(nodes, definitions)
+  graphValidateSuccessorAcyclic(nodes, edges)
+  return { document: { ...document, name: changes.name?.trim() || document.name, nodes: [...nodes.values()], edges: [...edges.values()],
+    retiredNodeIds: [...retiredNodeIds].sort(), retiredEdgeIds: [...retiredEdgeIds].sort(), updatedAt: now }, createdNodeIds, createdEdgeIds }
 }
 
-export interface GraphServiceOptions { leaseMs?: number; readSource?: (/* 来源节点所属工作区，用于限制资产引用归属；URL 网络访问策略由读取器实施。 */ workspaceId: string, /* 需要读取并冻结正文的来源节点。 */ node: GraphNode) => Promise<string> }
-export function graphCreateService(/* 负责最终版本、租约和收据原子条件的图存储。 */ store: GraphStore, /* 可选租约毫秒数和来源正文读取器；租约缺省为 15000，允许范围为 100 至 300000。 */ options: GraphServiceOptions = {}) {
-  // 绑定图存储和租约时长，统一处理图命令、工作授权、执行输入与提案提交；用户鉴权由应用层负责。
+export interface GraphServiceOptions {
+  clientLeases?: 'required' | 'none'
+  leaseMs?: number
+  branchLeaseMs?: number
+  runControlLeaseMs?: number
+  now?: () => Promise<number>
+  readSource?: (workspaceId: string, node: GraphNode, path: string) => Promise<string>
+  assertOutputReferences?: (workspaceId: string, nodes: import('../../../contracts/graph').GraphNodeInput[], definitions: DefinitionCatalog) => Promise<void>
+}
+export interface GraphDispatchContext { definitions: DefinitionCatalog; run?: GraphRunStartContext; actorUserId?: string }
+
+export function graphCreateService(/* 图状态及最终写入条件。 */ store: GraphStore, /* 租期和受限来源读取器。 */ options: GraphServiceOptions = {}) {
+  // 用户命令和 Work 复用同一图状态与最终裁决，队列只提供唤醒。
   const leaseMs = options.leaseMs ?? 15_000
+  const branchLeaseMs = options.branchLeaseMs ?? 30_000
+  const runControlLeaseMs = options.runControlLeaseMs ?? 30_000
+  const readNow = options.now ?? (async () => Date.now())
+  const clientLeasesRequired = options.clientLeases !== 'none'
+  function graphWriteResult(/* 当前图。 */ document: GraphDocument, /* 写入收据。 */ receipt: GraphReceipt,
+    /* 协作模式启动时授予的控制权。 */ runControl?: GraphRunControlGrant): GraphWriteResult {
+    return graphCreateWriteResult(document, receipt, runControl, clientLeasesRequired)
+  }
   if (!Number.isSafeInteger(leaseMs) || leaseMs < 100 || leaseMs > 300_000) throw new Error(RuntimeMessage.LEASEMS_MUST_BE_BETWEEN_100_AND_300000)
-  async function graphReadMap(/* 需要读取且不能处于逻辑删除状态的图身份。 */ mapId: string): Promise<GraphDocument> {
-    // 读取仍存在的图，将缺失和逻辑删除统一视为不可访问。
+  if (!Number.isSafeInteger(branchLeaseMs) || branchLeaseMs < 1_000 || branchLeaseMs > 300_000) throw new Error(RuntimeMessage.BRANCH_LEASEMS_MUST_BE_BETWEEN_1000_AND_300000)
+  if (!Number.isSafeInteger(runControlLeaseMs) || runControlLeaseMs < 1_000 || runControlLeaseMs > 300_000) throw new Error(RuntimeMessage.RUN_CONTROL_LEASEMS_MUST_BE_BETWEEN_1000_AND_300000)
+  async function graphReadMap(/* 未删除图身份。 */ mapId: string): Promise<GraphDocument> {
     const document = await store.read(mapId)
-    if (!document || document.deletedAt) {
-      throw new GraphError(404, 'MAP_NOT_FOUND', messageFormat(RuntimeMessage.MAP_NOT_FOUND_VALUE, mapId))
-    }
+    if (!document || document.deletedAt) throw new GraphError(404, 'MAP_NOT_FOUND', messageFormat(RuntimeMessage.MAP_NOT_FOUND_VALUE, mapId))
+    if (!clientLeasesRequired) document.branchOwnerships = Object.fromEntries(
+      Object.entries(document.branchOwnerships ?? {}).filter(([, item]) => item.kind === 'run'))
     return document
   }
-
-  async function graphCommit(
-    /* 调用方据以计算业务变更的原图快照。 */ original: GraphDocument,
-    /* 应用业务变化但尚未推进持久化版本的图草稿。 */ updated: GraphDocument,
-    /* 必须与图状态一起提交的请求收据。 */ receipt: GraphReceipt,
-  ): Promise<{ document: GraphDocument; replayed: boolean }> {
-    // 按原版本原子提交变更与收据；提交未匹配时，查最新收据区分并发重复请求与版本冲突。
-    if (await store.commit(updated, original.revision, receipt)) {
+  async function graphCommit(/* 原状态。 */ original: GraphDocument, /* 业务草稿。 */ updated: GraphDocument, /* 同次收据。 */ receipt: GraphReceipt,
+    /* 可选最终 Work 授权。 */ grant?: GraphWorkGrant, /* 最终分支占有条件。 */ guard?: GraphCommitGuard): Promise<{ document: GraphDocument; receipt: GraphReceipt; replayed: boolean }> {
+    // CAS 未命中后先查收据，区分响应丢失和真实竞争。
+    if (await store.commit(updated, original.revision, receipt, grant, guard ?? { ownershipRevision: original.ownershipRevision ?? 0 })) {
       const committed = await store.read(updated.id)
       if (!committed) throw new Error(messageFormat(RuntimeMessage.COMMITTED_MAP_DISAPPEARED_VALUE, updated.id))
-      return { document: committed, replayed: false }
+      return { document: committed, receipt, replayed: false }
     }
     const latest = await store.read(updated.id)
     if (!latest) throw new GraphError(404, 'MAP_NOT_FOUND', messageFormat(RuntimeMessage.MAP_NOT_FOUND_VALUE, updated.id))
     const replay = graphReadReceipt(latest, receipt.requestId, receipt.method, receipt.inputHash)
-    if (replay) return { document: latest, replayed: true }
-    throw new GraphError(
-      409,
-      'REVISION_CONFLICT',
-      messageFormat(RuntimeMessage.MAP_REVISION_CHANGED_VALUE, updated.id),
-      latest.revision,
-    )
+    if (replay) return { document: latest, receipt: replay, replayed: true }
+    throw new GraphError(409, 'REVISION_CONFLICT', messageFormat(RuntimeMessage.MAP_REVISION_CHANGED_VALUE, updated.id), latest.revision)
+  }
+
+  function graphReadOwnershipReceipt(/* 当前图。 */ document: GraphDocument, /* 用户身份。 */ actorUserId: string,
+    /* 请求身份。 */ requestId: string, /* 方法。 */ method: GraphOwnershipReceipt['method'], /* 输入摘要。 */ inputHash: string): GraphOwnershipReceipt | null {
+    const receipt = (document.ownershipReceipts ?? []).find(item => item.actorUserId === actorUserId && item.requestId === requestId)
+    if (!receipt) return null
+    if (receipt.method !== method || receipt.inputHash !== inputHash) throw new GraphError(409, 'IDEMPOTENCY_CONFLICT', RuntimeMessage.REQUESTID_WAS_ALREADY_USED_WITH_DIFFERENT_INPUT)
+    return receipt
+  }
+
+  function graphReadEditorOwnership(/* 当前图。 */ document: GraphDocument, /* 用户身份。 */ actorUserId: string,
+    /* 客户端租约 proof。 */ proof: GraphBranchLeaseProof, /* 存储端当前时间。 */ now: number): GraphBranchOwnershipRecord {
+    const ownership = document.branchOwnerships?.[proof.leaseId]
+    if (!ownership || ownership.kind !== 'editor' || ownership.ownerUserId !== actorUserId || ownership.holderId !== proof.holderId
+      || ownership.fence !== proof.fence || ownership.expiresAt === null || Date.parse(ownership.expiresAt) <= now) {
+      throw new GraphError(409, 'BRANCH_LEASE_LOST', RuntimeMessage.BRANCH_EDIT_LEASE_WAS_LOST)
+    }
+    return ownership
+  }
+
+  function graphSameRoots(/* 一侧根集合。 */ left: readonly string[], /* 另一侧根集合。 */ right: readonly string[]): boolean {
+    return left.length === right.length && [...left].sort().every((id, index) => id === [...right].sort()[index])
+  }
+
+  function graphReadBranchGrant(/* 已提交占有后的图状态。 */ document: GraphDocument, /* editor 占有。 */ ownership: GraphBranchOwnershipRecord): GraphBranchGrant {
+    const branch = branchReadSnapshot(document, ownership.rootIds)
+    return { ...structuredClone(ownership), kind: 'editor', expiresAt: ownership.expiresAt!, leaseMs: ownership.leaseMs!,
+      scope: branch.scope, branch, ownershipRevision: document.ownershipRevision ?? 0 }
+  }
+  function graphReadRunControl(/* 当前图。 */ document: GraphDocument, /* 用户身份。 */ actorUserId: string, /* Run 身份。 */ runId: string,
+    /* 客户端控制 proof。 */ proof: GraphRunControlProof, /* 存储端当前时间。 */ now: number): GraphRunControlRecord {
+    if (!proof) throw new GraphError(409, 'RUN_CONTROL_LEASE_REQUIRED', RuntimeMessage.A_VALID_RUN_CONTROL_LEASE_IS_REQUIRED)
+    const control = document.branchOwnerships?.[proof.leaseId]
+    if (!control || control.kind !== 'control' || control.runId !== runId || control.ownerUserId !== actorUserId
+      || control.holderId !== proof.holderId || control.fence !== proof.fence || Date.parse(control.expiresAt) <= now) {
+      throw new GraphError(409, 'RUN_CONTROL_LEASE_LOST', RuntimeMessage.RUN_CONTROL_LEASE_WAS_LOST)
+    }
+    return control
+  }
+  function graphReadRunControlGrant(/* 已提交协调状态。 */ document: GraphDocument, /* 控制租约。 */ control: GraphRunControlRecord): GraphRunControlGrant {
+    const { kind: _kind, ...grant } = structuredClone(control)
+    return { ...grant, ownershipRevision: document.ownershipRevision ?? 0 }
+  }
+  function graphReleaseRunOwnerships(/* 待提交文档。 */ document: GraphDocument, /* 终态 Run。 */ runId: string): boolean {
+    let changed = false
+    for (const [id, ownership] of Object.entries(document.branchOwnerships ?? {})) {
+      if ((ownership.kind === 'run' || ownership.kind === 'control') && ownership.runId === runId) {
+        delete document.branchOwnerships![id]; changed = true
+      }
+    }
+    return changed
+  }
+  function graphRequireRunOwnership(/* 当前图。 */ document: GraphDocument, /* Work 所属 Run。 */ runId: string): void {
+    const ownership = document.branchOwnerships?.[runId]
+    if (!ownership || ownership.kind !== 'run' || ownership.runId !== runId) {
+      throw new GraphError(409, 'RUN_OWNERSHIP_LOST', RuntimeMessage.RUN_BRANCH_OWNERSHIP_IS_MISSING)
+    }
+  }
+
+  async function graphDispatchOwnership(
+    /* 已解析的领取、续租或释放命令。 */ command: Extract<GraphCommand, { method: 'branch.claim' | 'branch.renew' | 'branch.release' }>,
+    /* 由认证事务绑定的用户身份。 */ actorUserId: string,
+    /* 稳定输入摘要。 */ inputHash: string,
+  ): Promise<{ data: GraphBranchClaimResult | GraphBranchGrant | { released: boolean; ownershipRevision: number }; replayed: boolean }> {
+    for (let attempt = 0; attempt < 64; attempt++) {
+      const document = await graphReadMap(command.params.mapId), replay = graphReadOwnershipReceipt(document, actorUserId,
+        command.requestId, command.method, inputHash)
+      if (replay) return { data: structuredClone(replay.result) as GraphBranchClaimResult | GraphBranchGrant | { released: boolean; ownershipRevision: number }, replayed: true }
+      const now = await readNow(), ownerships = branchPruneOwnerships(document.branchOwnerships, now)
+      let result: GraphBranchClaimResult | GraphBranchGrant | { released: boolean; ownershipRevision: number }
+      let leaseId: string
+      if (command.method === 'branch.claim') {
+        const branch = branchReadSnapshot(document, command.params.rootIds)
+        const existing = Object.values(ownerships).find((item): item is GraphBranchOwnershipRecord => item.kind === 'editor' && item.ownerUserId === actorUserId
+          && item.holderId === command.params.holderId && JSON.stringify([...item.rootIds].sort()) === JSON.stringify([...branch.scope.rootIds].sort()))
+        const conflict = branchFindOwnershipConflict({ ...document, branchOwnerships: ownerships }, branch.scope, now, existing?.leaseId)
+        if (conflict) return { data: { status: 'busy', ownership: conflict }, replayed: false }
+        leaseId = existing?.leaseId ?? randomUUID()
+        const editor: GraphBranchOwnershipRecord = existing ?? { leaseId, kind: 'editor', rootIds: [...branch.scope.rootIds], ownerUserId: actorUserId,
+          holderId: command.params.holderId, fence: (document.ownershipRevision ?? 0) + 1,
+          expiresAt: new Date(now + branchLeaseMs).toISOString(), leaseMs: branchLeaseMs }
+        editor.expiresAt = new Date(now + branchLeaseMs).toISOString()
+        ownerships[leaseId] = editor
+        const nextDocument = { ...document, branchOwnerships: ownerships, ownershipRevision: (document.ownershipRevision ?? 0) + 1 }
+        result = { status: 'claimed', grant: graphReadBranchGrant(nextDocument, editor) }
+      } else if (command.method === 'branch.renew') {
+        const ownership = graphReadEditorOwnership({ ...document, branchOwnerships: ownerships }, actorUserId, command.params.lease, now)
+        leaseId = ownership.leaseId
+        ownership.expiresAt = new Date(now + ownership.leaseMs!).toISOString()
+        const nextDocument = { ...document, branchOwnerships: ownerships, ownershipRevision: (document.ownershipRevision ?? 0) + 1 }
+        result = graphReadBranchGrant(nextDocument, ownership)
+      } else {
+        const ownership = graphReadEditorOwnership({ ...document, branchOwnerships: ownerships }, actorUserId, command.params.lease, now)
+        leaseId = ownership.leaseId
+        delete ownerships[leaseId]
+        result = { released: true, ownershipRevision: (document.ownershipRevision ?? 0) + 1 }
+      }
+      const receipt: GraphOwnershipReceipt = { actorUserId, requestId: command.requestId, method: command.method, inputHash,
+        leaseId, result: structuredClone(result), createdAt: new Date(now).toISOString() }
+      if (await store.commitOwnership(document.id, document.revision, document.ownershipRevision ?? 0, ownerships, receipt)) {
+        return { data: result, replayed: false }
+      }
+    }
+    throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_BRANCH_OWNERSHIP_AFTER_CONCURRENT_UPDATES_SETTLE)
+  }
+
+  async function graphDispatchRunControl(
+    /* 控制权领取、续租或释放。 */ command: Extract<GraphCommand, { method: 'run.control.claim' | 'run.control.renew' | 'run.control.release' }>,
+    /* 认证用户。 */ actorUserId: string, /* 稳定输入摘要。 */ inputHash: string,
+  ): Promise<{ data: GraphRunControlClaimResult | GraphRunControlGrant | { released: boolean; ownershipRevision: number }; replayed: boolean }> {
+    for (let attempt = 0; attempt < 64; attempt++) {
+      const document = await graphReadMap(command.params.mapId), replay = graphReadOwnershipReceipt(document, actorUserId,
+        command.requestId, command.method, inputHash)
+      if (replay) return { data: structuredClone(replay.result) as GraphRunControlClaimResult | GraphRunControlGrant | { released: boolean; ownershipRevision: number }, replayed: true }
+      const run = document.runs.find(item => item.id === command.params.runId)
+      if (!run) throw new GraphError(404, 'RUN_NOT_FOUND', RuntimeMessage.RUN_NOT_FOUND)
+      if (!['running', 'waiting'].includes(run.status)) throw new GraphError(409, 'RUN_NOT_ACTIVE', RuntimeMessage.RUN_IS_TERMINAL)
+      const now = await readNow(), ownerships = branchPruneOwnerships(document.branchOwnerships, now)
+      let result: GraphRunControlClaimResult | GraphRunControlGrant | { released: boolean; ownershipRevision: number }
+      let leaseId: string
+      if (command.method === 'run.control.claim') {
+        const current = Object.values(ownerships).find((item): item is GraphRunControlRecord => item.kind === 'control' && item.runId === run.id)
+        if (current && (current.ownerUserId !== actorUserId || current.holderId !== command.params.holderId)) {
+          const { kind: _kind, ...control } = structuredClone(current)
+          return { data: { status: 'busy', control }, replayed: false }
+        }
+        leaseId = current?.leaseId ?? randomUUID()
+        const control: GraphRunControlRecord = current ?? { leaseId, kind: 'control', runId: run.id, ownerUserId: actorUserId,
+          holderId: command.params.holderId, fence: (document.ownershipRevision ?? 0) + 1,
+          expiresAt: new Date(now + runControlLeaseMs).toISOString(), leaseMs: runControlLeaseMs }
+        control.expiresAt = new Date(now + runControlLeaseMs).toISOString()
+        ownerships[leaseId] = control
+        result = { status: 'claimed', grant: graphReadRunControlGrant({ ...document,
+          ownershipRevision: (document.ownershipRevision ?? 0) + 1 }, control) }
+      } else if (command.method === 'run.control.renew') {
+        const control = graphReadRunControl({ ...document, branchOwnerships: ownerships }, actorUserId, run.id, command.params.control, now)
+        leaseId = control.leaseId
+        control.expiresAt = new Date(now + control.leaseMs).toISOString()
+        result = graphReadRunControlGrant({ ...document, ownershipRevision: (document.ownershipRevision ?? 0) + 1 }, control)
+      } else {
+        const control = graphReadRunControl({ ...document, branchOwnerships: ownerships }, actorUserId, run.id, command.params.control, now)
+        leaseId = control.leaseId
+        delete ownerships[leaseId]
+        result = { released: true, ownershipRevision: (document.ownershipRevision ?? 0) + 1 }
+      }
+      const receipt: GraphOwnershipReceipt = { actorUserId, requestId: command.requestId, method: command.method, inputHash,
+        leaseId, result: structuredClone(result), createdAt: new Date(now).toISOString() }
+      if (await store.commitOwnership(document.id, document.revision, document.ownershipRevision ?? 0, ownerships, receipt)) {
+        return { data: result, replayed: false }
+      }
+    }
+    throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_BRANCH_OWNERSHIP_AFTER_CONCURRENT_UPDATES_SETTLE)
   }
 
   return {
-    async read(/* 已经过应用层授权解析的图查询。 */ query: GraphQuery): Promise<GraphSnapshot | GraphMapSummary[] | GraphRun> {
-      // 返回工作区图列表、公开快照或指定的当前/历史 Run；不存在的图和 Run 会报错。
+    async read(/* 已授权图查询。 */ query: GraphQuery, /* branch.get 可用的当前工作区定义，用于兼容重建派生引用索引。 */ definitions?: DefinitionCatalog): Promise<GraphSnapshot | GraphMapSummary[] | GraphRun | GraphBranchSnapshot> {
       if (query.method === 'map.list') return store.list(query.params.workspaceId)
-      const document = await graphReadMap(query.params.mapId)
+      const stored = await graphReadMap(query.params.mapId)
+      const document = query.method === 'branch.get' && definitions
+        ? { ...stored, nodes: graphRefreshPayloadReferenceIndexes(definitions, stored.nodes) } : stored
+      if (query.method === 'branch.get') return branchReadSnapshot(document, query.params.rootIds)
       if (query.method === 'run.get') {
-        const run = document.run?.id === query.params.runId ? document.run : document.runHistory.find(/* 当前与指定历史运行身份比较的 Run。 */ run => /* 当前 Run 不匹配时，从历史中寻找指定运行。 */ run.id === query.params.runId)
+        const run = document.runs.find(item => item.id === query.params.runId) ?? document.runHistory.find(item => item.id === query.params.runId)
         if (!run) throw new GraphError(404, 'RUN_NOT_FOUND', RuntimeMessage.RUN_NOT_FOUND)
-        return run
+        return structuredClone(run)
       }
-      return graphReadSnapshot(document)
+      return graphReadSnapshot(document, await readNow(), clientLeasesRequired)
     },
 
-    async dispatch(/* 已经过协议和用户作用域处理的图命令。 */ command: GraphCommand, /* 启动 Run 时由工作区解析并冻结的可选执行配置。 */ configuration?: GraphRunConfiguration): Promise<{
-      data: GraphWriteResult | { mapId: string; deleted: true }
-      replayed: boolean
+    async dispatch(/* 用户级幂等图命令。 */ command: GraphCommand, /* 定义及可选冻结 Run 上下文。 */ context?: GraphDispatchContext): Promise<{
+      data: GraphWriteResult | { mapId: string; deleted: true } | GraphBranchClaimResult | GraphBranchGrant | GraphRunControlClaimResult | GraphRunControlGrant
+        | { released: boolean; ownershipRevision: number }; replayed: boolean
     }> {
-      // 重放已完成命令，或在版本校验后提交图、Run 与审核变更；收据和状态由存储层一起写入。
-      // 摘要包含 expectedRevision；网络重试必须原样重发，不能只保留 requestId 而改写版本。
-      const inputHash = storeCreateInputHash({ method: command.method, params: command.params })
-      const now = new Date().toISOString()
-
+      const inputHash = storeCreateInputHash({ method: command.method, params: command.params }), now = new Date().toISOString()
       if (command.method === 'map.create') {
-        // 重复插入会中止 Mongo 事务，因此先读取已有收据，确认是否可以直接重放。
         const prior = await store.read(command.params.id)
         if (prior) {
           const replay = graphReadReceipt(prior, command.requestId, command.method, inputHash)
           if (!replay || prior.deletedAt) throw new GraphError(409, 'MAP_EXISTS', messageFormat(RuntimeMessage.MAP_ALREADY_EXISTS_VALUE, prior.id))
-          return { data: graphCreateWriteResult(prior, replay), replayed: true }
+          return { data: graphWriteResult(prior, replay), replayed: true }
         }
-        const receipt: GraphReceipt = {
-          requestId: command.requestId,
-          method: command.method,
-          inputHash,
-          createdNodeIds: [],
-          createdEdgeIds: [],
-          createdAt: now,
-        }
-        const document: GraphDocument = {
-          id: command.params.id,
-          workspaceId: command.params.workspaceId,
-          revision: 0,
-          name: command.params.name.trim(),
-          nodes: [],
-          edges: [],
-          run: null,
-          runHistory: [],
-          leases: {},
-          receipts: [receipt],
-          createdAt: now,
-          updatedAt: now,
-        }
+        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
+        const document: GraphDocument = { id: command.params.id, workspaceId: command.params.workspaceId, revision: 0, name: command.params.name.trim(),
+          nodes: [], edges: [], retiredNodeIds: [], retiredEdgeIds: [], ownershipRevision: 0, branchOwnerships: {}, ownershipReceipts: [],
+          runs: [], runHistory: [], leases: {}, receipts: [receipt], createdAt: now, updatedAt: now }
         if (!document.name) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.MAP_NAME_MUST_NOT_BE_EMPTY)
-        if (await store.create(document)) {
-          return { data: graphCreateWriteResult(document, receipt), replayed: false }
-        }
+        if (await store.create(document)) return { data: graphWriteResult(document, receipt), replayed: false }
         const existing = await store.read(document.id)
         if (!existing) throw new Error(messageFormat(RuntimeMessage.DUPLICATE_MAP_DISAPPEARED_VALUE, document.id))
         const replay = graphReadReceipt(existing, command.requestId, command.method, inputHash)
-        if (!replay || existing.deletedAt) {
-          throw new GraphError(409, 'MAP_EXISTS', messageFormat(RuntimeMessage.MAP_ALREADY_EXISTS_VALUE, document.id))
-        }
-        return { data: graphCreateWriteResult(existing, replay), replayed: true }
+        if (!replay || existing.deletedAt) throw new GraphError(409, 'MAP_EXISTS', messageFormat(RuntimeMessage.MAP_ALREADY_EXISTS_VALUE, document.id))
+        return { data: graphWriteResult(existing, replay), replayed: true }
       }
-
-      const document = await store.read(command.params.mapId)
-      if (!document) throw new GraphError(404, 'MAP_NOT_FOUND', messageFormat(RuntimeMessage.MAP_NOT_FOUND_VALUE, command.params.mapId))
-      // 收据优先于当前版本检查，避免成功请求因后续写入改变 revision 而重试失败。
-      const priorReceipt = graphReadReceipt(document, command.requestId, command.method, inputHash)
-      if (priorReceipt) {
-        if (command.method === 'map.delete') {
-          return { data: { mapId: document.id, deleted: true }, replayed: true }
-        }
-        if (document.deletedAt) throw new GraphError(410, 'MAP_GONE', messageFormat(RuntimeMessage.MAP_WAS_DELETED_VALUE, document.id))
-        return { data: graphCreateWriteResult(document, priorReceipt), replayed: true }
+      if (command.method === 'branch.claim' || command.method === 'branch.renew' || command.method === 'branch.release') {
+        if (!clientLeasesRequired) throw new GraphError(409, 'CLIENT_LEASES_DISABLED', RuntimeMessage.LOCAL_MODE_DOES_NOT_USE_CLIENT_LEASES)
+        if (!context?.actorUserId) throw new GraphError(403, 'FORBIDDEN', RuntimeMessage.WORKSPACE_PERMISSION_IS_INSUFFICIENT)
+        return graphDispatchOwnership(command, context.actorUserId, inputHash)
       }
-      if (document.deletedAt) throw new GraphError(410, 'MAP_GONE', messageFormat(RuntimeMessage.MAP_WAS_DELETED_VALUE, document.id))
-      if (document.revision !== command.params.expectedRevision) {
-        throw new GraphError(409, 'REVISION_CONFLICT',
-          messageFormat(RuntimeMessage.EXPECTED_REVISION_VALUE_FOUND_VALUE, command.params.expectedRevision, document.revision), document.revision)
+      if (command.method === 'run.control.claim' || command.method === 'run.control.renew' || command.method === 'run.control.release') {
+        if (!clientLeasesRequired) throw new GraphError(409, 'CLIENT_LEASES_DISABLED', RuntimeMessage.LOCAL_MODE_DOES_NOT_USE_CLIENT_LEASES)
+        if (!context?.actorUserId) throw new GraphError(403, 'FORBIDDEN', RuntimeMessage.WORKSPACE_PERMISSION_IS_INSUFFICIENT)
+        return graphDispatchRunControl(command, context.actorUserId, inputHash)
       }
-
+      const document = await graphReadMap(command.params.mapId), prior = graphReadReceipt(document, command.requestId, command.method, inputHash)
+      if (prior) return command.method === 'map.delete' ? { data: { mapId: document.id, deleted: true }, replayed: true }
+        : { data: graphWriteResult(document, prior), replayed: true }
       if (command.method === 'map.delete') {
-        if (document.run && ['running', 'waiting'].includes(document.run.status)) {
-          throw new GraphError(409, 'RUN_ACTIVE', RuntimeMessage.ACTIVE_RUN_MUST_BE_CANCELLED_BEFORE_DELETING_MAP)
-        }
-        const receipt: GraphReceipt = {
-          requestId: command.requestId,
-          method: command.method,
-          inputHash,
-          createdNodeIds: [],
-          createdEdgeIds: [],
-          createdAt: now,
-        }
+        if (document.runs.some(run => ['running', 'waiting'].includes(run.status))) throw new GraphError(409, 'RUN_ACTIVE', RuntimeMessage.ACTIVE_RUN_MUST_BE_CANCELLED_BEFORE_DELETING_MAP)
+        if (branchReadOwnerships(document, await readNow()).length) throw new GraphError(409, 'BRANCH_BUSY', RuntimeMessage.RELEASE_ACTIVE_BRANCHES_BEFORE_DELETING_MAP)
+        if (document.revision !== command.params.expectedRevision) throw new GraphError(409, 'REVISION_CONFLICT', RuntimeMessage.MAP_REVISION_CHANGED, document.revision)
+        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
         const result = await graphCommit(document, { ...document, deletedAt: now, updatedAt: now }, receipt)
         return { data: { mapId: result.document.id, deleted: true }, replayed: result.replayed }
       }
-
+      if (!context) throw new GraphError(409, 'DEFINITION_NOT_FOUND', RuntimeMessage.GRAPH_WRITE_REQUIRES_A_DEFINITION_CATALOG)
+      if (command.method === 'graph.apply') {
+        // Map revision 只负责物理串行化；无关分支抢先提交时从最新图重放同一局部补丁。
+        for (let attempt = 0; attempt < 64; attempt++) {
+          const stored = attempt === 0 ? document : await graphReadMap(command.params.mapId)
+          const current = { ...stored, nodes: graphRefreshPayloadReferenceIndexes(context.definitions, stored.nodes) }
+          const replay = graphReadReceipt(current, command.requestId, command.method, inputHash)
+          if (replay) return { data: graphWriteResult(current, replay), replayed: true }
+          const proof = command.params.branch
+          const before = proof.expectedVersion === null ? undefined : branchReadSnapshot(current, proof.rootIds)
+          if (before && before.version !== proof.expectedVersion) {
+            throw new GraphError(409, 'BRANCH_VERSION_CONFLICT', RuntimeMessage.BRANCH_VERSION_CHANGED)
+          }
+          const nowMs = await readNow(), activeOwnerships = branchPruneOwnerships(current.branchOwnerships, nowMs)
+          let editor: GraphBranchOwnershipRecord | undefined
+          if (before && clientLeasesRequired) {
+            if (!context.actorUserId || !command.params.lease) throw new GraphError(409, 'BRANCH_LEASE_REQUIRED', RuntimeMessage.A_VALID_BRANCH_EDIT_LEASE_IS_REQUIRED)
+            editor = graphReadEditorOwnership({ ...current, branchOwnerships: activeOwnerships }, context.actorUserId, command.params.lease, nowMs)
+            if (!graphSameRoots(editor.rootIds, proof.rootIds)) throw new GraphError(409, 'BRANCH_LEASE_SCOPE_CONFLICT', RuntimeMessage.BRANCH_EDIT_LEASE_DOES_NOT_COVER_THE_REQUESTED_ROOTS)
+          }
+          // 删除整个根也必须先检查旧 scope，不能因修改后没有分支而绕过运行占有。
+          if (before && branchFindOwnershipConflict({ ...current, branchOwnerships: activeOwnerships }, before.scope, nowMs, editor?.leaseId)) {
+            throw new GraphError(409, 'BRANCH_BUSY', RuntimeMessage.BRANCH_OVERLAPS_ANOTHER_ACTIVE_OWNERSHIP)
+          }
+          const change = graphUpdateChanges(structuredClone(current), command.params.changes, context.definitions)
+          const branch = proof.expectedVersion === null
+            ? branchValidateNewRoots(current, change.document, proof.rootIds, command.params.changes)
+            : branchValidateMutation(current, change.document, command.params.changes, before!.scope)
+          if (branch) {
+            const conflict = branchFindOwnershipConflict({ ...change.document, branchOwnerships: activeOwnerships }, branch.scope, nowMs, editor?.leaseId)
+            if (conflict) throw new GraphError(409, 'BRANCH_BUSY', RuntimeMessage.BRANCH_OVERLAPS_ANOTHER_ACTIVE_OWNERSHIP)
+          }
+          change.document.branchOwnerships = activeOwnerships
+          change.document.ownershipReceipts = current.ownershipReceipts ?? []
+          change.document.ownershipRevision = current.ownershipRevision ?? 0
+          if (editor && !branch) {
+            delete activeOwnerships[editor.leaseId]
+            change.document.ownershipRevision++
+          } else if (editor && branch && before && JSON.stringify(before.scope.nodeIds) !== JSON.stringify(branch.scope.nodeIds)) {
+            change.document.ownershipRevision++
+          }
+          if (options.assertOutputReferences && change.createdNodeIds.length) {
+            const ids = new Set(change.createdNodeIds)
+            await options.assertOutputReferences(current.workspaceId, change.document.nodes.filter(node => ids.has(node.id)).map(node => ({
+              id: node.id, typeId: node.typeId, typeVersion: node.typeVersion, payload: node.payload,
+            })), context.definitions)
+          }
+          const committedBranch = branch ? { ...branch, mapRevision: current.revision + 1 } : undefined
+          const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now,
+            change.createdNodeIds, change.createdEdgeIds, committedBranch)
+          try {
+            const guard: GraphCommitGuard = { ownershipRevision: current.ownershipRevision ?? 0,
+              ...(editor && command.params.lease && context.actorUserId ? { editor: { ...command.params.lease, ownerUserId: context.actorUserId } } : {}) }
+            const result = await graphCommit(current, change.document, receipt, undefined, guard)
+            return { data: graphWriteResult(result.document, result.receipt), replayed: result.replayed }
+          } catch (error) {
+            if (!(error instanceof GraphError) || error.code !== 'REVISION_CONFLICT') throw error
+          }
+        }
+        throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_GRAPH_CHANGE_AFTER_CONCURRENT_UPDATES_SETTLE)
+      }
       if (command.method === 'run.start') {
-        if (!configuration) throw new GraphError(422, 'CONFIGURATION_REQUIRED', RuntimeMessage.RUN_REQUIRES_A_RESOLVED_WORKSPACE_CONFIGURATION)
-        const updated = runCreateRun(structuredClone(document), command.params, configuration, now)
-        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
-        const result = await graphCommit(document, updated, receipt)
-        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
+        if (!context.run) throw new GraphError(409, 'DEFINITION_NOT_FOUND', RuntimeMessage.RUN_START_REQUIRES_A_FROZEN_EXECUTION_CATALOG)
+        for (let attempt = 0; attempt < 64; attempt++) {
+          const stored = attempt === 0 ? document : await graphReadMap(command.params.mapId)
+          const current = { ...stored, nodes: graphRefreshPayloadReferenceIndexes(context.definitions, stored.nodes) }
+          const replay = graphReadReceipt(current, command.requestId, command.method, inputHash)
+          if (replay) return { data: graphWriteResult(current, replay), replayed: true }
+          const branch = branchReadSnapshot(current, command.params.branch.rootIds)
+          if (branch.version !== command.params.branch.expectedVersion) {
+            throw new GraphError(409, 'BRANCH_VERSION_CONFLICT', RuntimeMessage.BRANCH_VERSION_CHANGED)
+          }
+          const members = new Set(branch.scope.nodeIds)
+          if (command.params.scope.nodeIds.some(id => !members.has(id))) {
+            throw new GraphError(409, 'BRANCH_SCOPE_CONFLICT', RuntimeMessage.RUN_SCOPE_MUST_BE_INSIDE_THE_VERSIONED_BRANCH)
+          }
+          if (!context.actorUserId) throw new GraphError(403, 'FORBIDDEN', RuntimeMessage.WORKSPACE_PERMISSION_IS_INSUFFICIENT)
+          const nowMs = await readNow(), activeOwnerships = branchPruneOwnerships(current.branchOwnerships, nowMs)
+          let editor: GraphBranchOwnershipRecord | undefined
+          if (clientLeasesRequired) {
+            if (!command.params.lease) throw new GraphError(409, 'BRANCH_LEASE_REQUIRED', RuntimeMessage.A_VALID_BRANCH_EDIT_LEASE_IS_REQUIRED)
+            editor = graphReadEditorOwnership({ ...current, branchOwnerships: activeOwnerships }, context.actorUserId, command.params.lease, nowMs)
+            if (!graphSameRoots(editor.rootIds, command.params.branch.rootIds)) throw new GraphError(409, 'BRANCH_LEASE_SCOPE_CONFLICT', RuntimeMessage.BRANCH_EDIT_LEASE_DOES_NOT_COVER_THE_REQUESTED_ROOTS)
+          }
+          if (branchFindOwnershipConflict({ ...current, branchOwnerships: activeOwnerships }, branch.scope, nowMs, editor?.leaseId)) {
+            throw new GraphError(409, 'BRANCH_BUSY', RuntimeMessage.BRANCH_OVERLAPS_ANOTHER_ACTIVE_OWNERSHIP)
+          }
+          const updated = runCreateRun(structuredClone(current), command.params, context.run, now)
+          const startedRun = runReadRun(updated, command.params.id)
+          if (editor) delete activeOwnerships[editor.leaseId]
+          let controlLeaseId: string | undefined
+          if (['running', 'waiting'].includes(startedRun.status)) {
+            activeOwnerships[startedRun.id] = { leaseId: startedRun.id, kind: 'run', rootIds: [...branch.scope.rootIds],
+              ownerUserId: context.actorUserId, holderId: editor?.holderId ?? context.actorUserId, fence: (current.ownershipRevision ?? 0) + 1,
+              expiresAt: null, leaseMs: null, runId: startedRun.id }
+            if (editor) {
+              controlLeaseId = randomUUID()
+              activeOwnerships[controlLeaseId] = { leaseId: controlLeaseId, kind: 'control', runId: startedRun.id,
+                ownerUserId: context.actorUserId, holderId: editor.holderId, fence: (current.ownershipRevision ?? 0) + 1,
+                expiresAt: new Date(nowMs + runControlLeaseMs).toISOString(), leaseMs: runControlLeaseMs }
+            }
+          }
+          updated.branchOwnerships = activeOwnerships
+          updated.ownershipReceipts = current.ownershipReceipts ?? []
+          updated.ownershipRevision = (current.ownershipRevision ?? 0) + 1
+          const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now, [], [], { ...branch, mapRevision: current.revision + 1 })
+          try {
+            const result = await graphCommit(current, updated, receipt, undefined, { ownershipRevision: current.ownershipRevision ?? 0,
+              ...(editor ? { editor: { leaseId: editor.leaseId, holderId: editor.holderId, fence: editor.fence, ownerUserId: context.actorUserId } } : {}) })
+            const control = controlLeaseId ? result.document.branchOwnerships?.[controlLeaseId] : undefined
+            return { data: graphWriteResult(result.document, result.receipt,
+              control?.kind === 'control' ? graphReadRunControlGrant(result.document, control) : undefined), replayed: result.replayed }
+          } catch (error) {
+            if (!(error instanceof GraphError) || error.code !== 'REVISION_CONFLICT') throw error
+          }
+        }
+        throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_GRAPH_CHANGE_AFTER_CONCURRENT_UPDATES_SETTLE)
       }
-
-      if (command.method === 'run.cancel') {
-        const updated = runCancelRun(structuredClone(document), command.params.runId, now)
-        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
-        const result = await graphCommit(document, updated, receipt)
-        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
+      if (!context.actorUserId) throw new GraphError(403, 'FORBIDDEN', RuntimeMessage.WORKSPACE_PERMISSION_IS_INSUFFICIENT)
+      for (let attempt = 0; attempt < 64; attempt++) {
+        const current = attempt === 0 ? document : await graphReadMap(command.params.mapId)
+        const replay = graphReadReceipt(current, command.requestId, command.method, inputHash)
+        if (replay) return { data: graphWriteResult(current, replay), replayed: true }
+        const controlNow = await readNow(), activeOwnerships = branchPruneOwnerships(current.branchOwnerships, controlNow)
+        if (clientLeasesRequired && !command.params.control) throw new GraphError(409, 'RUN_CONTROL_LEASE_REQUIRED', RuntimeMessage.A_VALID_RUN_CONTROL_LEASE_IS_REQUIRED)
+        const control = clientLeasesRequired ? graphReadRunControl({ ...current, branchOwnerships: activeOwnerships }, context.actorUserId,
+          command.params.runId, command.params.control!, controlNow) : undefined
+        let updated: GraphDocument, createdNodeIds: string[] = [], createdEdgeIds: string[] = []
+        if (command.method === 'run.cancel') updated = runCancelRun(structuredClone(current), command.params.runId, now)
+        else if (command.method === 'run.pause') updated = runUpdatePause(structuredClone(current), command.params.runId, true, now)
+        else if (command.method === 'run.resume') updated = runUpdatePause(structuredClone(current), command.params.runId, false, now)
+        else if (command.method === 'review.answer') {
+          const answer = runAnswerReview(structuredClone(current), command.params, now)
+          updated = answer.document; createdNodeIds = answer.nodeIds; createdEdgeIds = answer.edgeIds
+        } else throw new GraphError(400, 'UNKNOWN_METHOD', RuntimeMessage.UNKNOWN_PUBLIC_COMMAND)
+        const runId = command.params.runId, runOwnership = current.branchOwnerships?.[runId]
+        if (!runOwnership || runOwnership.kind !== 'run' || runOwnership.runId !== runId) {
+          throw new GraphError(409, 'RUN_OWNERSHIP_LOST', RuntimeMessage.RUN_BRANCH_OWNERSHIP_IS_MISSING)
+        }
+        updated.branchOwnerships = activeOwnerships
+        updated.ownershipReceipts = structuredClone(current.ownershipReceipts ?? [])
+        updated.ownershipRevision = current.ownershipRevision ?? 0
+        const targetRun = runReadRun(updated, runId)
+        if (['completed', 'failed', 'cancelled'].includes(targetRun.status)) {
+          if (graphReleaseRunOwnerships(updated, runId)) updated.ownershipRevision++
+        } else if (targetRun.branchState) {
+          const conflict = branchFindOwnershipConflict(updated, targetRun.branchState.scope, controlNow, runId)
+          if (conflict) throw new GraphError(409, 'BRANCH_BUSY', RuntimeMessage.BRANCH_OVERLAPS_ANOTHER_ACTIVE_OWNERSHIP)
+        }
+        if (options.assertOutputReferences && createdNodeIds.length) {
+          const ids = new Set(createdNodeIds)
+          await options.assertOutputReferences(current.workspaceId, updated.nodes.filter(node => ids.has(node.id)).map(node => ({
+            id: node.id, typeId: node.typeId, typeVersion: node.typeVersion, payload: node.payload,
+          })), context.definitions)
+        }
+        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now, createdNodeIds, createdEdgeIds)
+        try {
+          const result = await graphCommit(current, updated, receipt, undefined, { ownershipRevision: current.ownershipRevision ?? 0, runId,
+            ...(control ? { control: { leaseId: control.leaseId, holderId: control.holderId, fence: control.fence, ownerUserId: context.actorUserId, runId } } : {}) })
+          return { data: graphWriteResult(result.document, result.receipt), replayed: result.replayed }
+        } catch (error) { if (!(error instanceof GraphError) || error.code !== 'REVISION_CONFLICT') throw error }
       }
-
-      if (command.method === 'run.pause' || command.method === 'run.resume') {
-        const updated = runUpdatePause(structuredClone(document), command.params.runId, command.method === 'run.pause', now)
-        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
-        const result = await graphCommit(document, updated, receipt)
-        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
-      }
-
-      if (command.method === 'review.answer') {
-        const update = runAnswerReview(structuredClone(document), command.params, now)
-        const receipt = graphCreateReceipt(
-          command.requestId,
-          command.method,
-          inputHash,
-          now,
-          update.nodeIds,
-          update.edgeIds,
-        )
-        const result = await graphCommit(document, update.document, receipt)
-        const acceptedReceipt = result.document.receipts.find(/* 提交后的图中当前与审核请求身份匹配的实际收据。 */ item => /* 使用实际提交者记录的产物 ID，兼容并发重放。 */ item.requestId === command.requestId)!
-        return { data: graphCreateWriteResult(result.document, acceptedReceipt), replayed: result.replayed }
-      }
-
-      if (command.method === 'review.update') {
-        const updated = runUpdateReview(structuredClone(document), command.params, now)
-        const receipt = graphCreateReceipt(command.requestId, command.method, inputHash, now)
-        const result = await graphCommit(document, updated, receipt)
-        return { data: graphCreateWriteResult(result.document, receipt), replayed: result.replayed }
-      }
-
-      if (document.run && ['running', 'waiting'].includes(document.run.status)) {
-        throw new GraphError(409, 'RUN_ACTIVE', RuntimeMessage.GRAPH_CANNOT_BE_EDITED_WHILE_A_RUN_IS_ACTIVE)
-      }
-
-      const change = graphUpdateChanges(document, command.params.changes)
-      const receipt: GraphReceipt = {
-        requestId: command.requestId,
-        method: command.method,
-        inputHash,
-        createdNodeIds: change.createdNodeIds,
-        createdEdgeIds: change.createdEdgeIds,
-        createdAt: now,
-      }
-      const result = await graphCommit(document, change.document, receipt)
-      const acceptedReceipt = result.document.receipts.find(/* 提交后的图中当前与图编辑请求身份匹配的实际收据。 */ item => /* 从提交后的文档取得本次请求最终接纳的收据。 */ item.requestId === command.requestId)
-      if (!acceptedReceipt) throw new Error(messageFormat(RuntimeMessage.COMMITTED_RECEIPT_DISAPPEARED_VALUE, command.requestId))
-      return {
-        data: graphCreateWriteResult(result.document, acceptedReceipt),
-        replayed: result.replayed,
-      }
+      throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_GRAPH_CHANGE_AFTER_CONCURRENT_UPDATES_SETTLE)
     },
 
-    async dispatchWork(/* 来自内部工作 API 的领取、续租、读取、释放或失败命令。 */ command: GraphWorkCommand) {
-      // 处理 Work 的领取、续租、结果状态查询、释放和失败提交，以存储层租约条件仲裁并发执行。
+    async dispatchWork(/* 内部 Host 工作命令。 */ command: GraphWorkCommand) {
       if (command.method === 'claim') {
         const input = command.params
         for (let attempt = 0; attempt < 64; attempt++) {
           const document = await store.read(input.mapId)
           if (!document || document.deletedAt) return { status: 'obsolete' } satisfies GraphClaimResult
-          // 队列消息只提供工作线索；每次领取都根据当前图重新确认工作是否仍可执行。
-          const work = workReadItems(document).find(/* 当前与队列通知身份匹配的可执行工作。 */ item => /* 匹配通知中指定的、当前可执行的工作。 */ item.workId === input.workId)
-          if (!work || document.receipts.some(/* 当前判断是否已有成功结果的工作收据。 */ receipt => /* 已接纳结果的工作不再重复领取。 */ receipt.requestId === input.workId)) return { status: 'obsolete' } satisfies GraphClaimResult
+          const work = workReadItems(document).find(item => item.workId === input.workId)
+          if (!work || !document.branchOwnerships?.[work.runId] || document.receipts.some(receipt => receipt.requestId === input.workId)) return { status: 'obsolete' } satisfies GraphClaimResult
           const prior = document.leases[input.workId]
           if (prior && prior.holderId === input.holderId && prior.hostId === input.hostId) {
             const current = await store.readLease(document.id, prior)
@@ -434,118 +610,131 @@ export function graphCreateService(/* 负责最终版本、租约和收据原子
         throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_CLAIM_AFTER_CONCURRENT_UPDATES_SETTLE)
       }
       if (command.method === 'renew') {
+        const document = await graphReadMap(command.params.mapId), grantBefore = workReadGrant(document, command.params)
+        graphRequireRunOwnership(document, grantBefore.runId)
         const grant = await store.renew(command.params.mapId, command.params)
         if (!grant) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_EXPIRED_WAS_CANCELLED_OR_WAS_SUPERSEDED)
         return grant
       }
       if (command.method === 'read') {
-        const input = command.params
-        const document = await graphReadMap(input.mapId)
-        // 提交后租约可能已经到期；此处先确认结果是否已接纳，再判断未完成工作是否仍持有有效租约。
-        if (document.leases[input.workId] && document.receipts.some(/* 当前判断工作读取是否已被接纳的成功收据。 */ receipt => /* 检查工作结果是否已形成成功收据。 */ receipt.requestId === input.workId)) {
-          return { workId: input.workId, status: 'accepted' as const }
-        }
-        workReadGrant(document, input)
+        const input = command.params, document = await graphReadMap(input.mapId)
+        if (document.leases[input.workId] && document.receipts.some(receipt => receipt.requestId === input.workId)) return { workId: input.workId, status: 'accepted' as const }
+        const grant = workReadGrant(document, input)
+        graphRequireRunOwnership(document, grant.runId)
         if (!await store.readLease(input.mapId, input)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
         return { workId: input.workId, status: 'ready' as const }
       }
       if (command.method === 'release') return { released: await store.release(command.params.mapId, command.params) }
-      const failure = command.params
-      const failureId = `${failure.workId}:failure:${failure.fence}`
+      const failure = command.params, failureId = `${failure.workId}:failure:${failure.fence}`
       const failureHash = storeCreateInputHash({ workId: failure.workId, message: failure.message })
       for (let attempt = 0; attempt < 64; attempt++) {
-        const document = await graphReadMap(failure.mapId)
-        const grant = workReadGrant(document, failure)
+        const document = await graphReadMap(failure.mapId), grant = workReadGrant(document, failure)
         if (graphReadReceipt(document, failureId, 'work.fail', failureHash)) return { failed: true }
-        if (document.receipts.some(/* 当前判断迟到失败是否会覆盖成功结果的收据。 */ receipt => /* 已成功的工作不能被迟到的失败报告覆盖。 */ receipt.requestId === failure.workId)) return { failed: false }
-        if (!await store.readLease(document.id, failure)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.CANNOT_FAIL_WORK_WITHOUT_ITS_LEASE)
-        if (!workReadItems(document).some(/* 当前与失败上报工作身份比较的可执行工作。 */ work => /* 仅允许把仍可执行的工作标记为失败。 */ work.workId === failure.workId)) return { failed: false }
-        const updated = structuredClone(document)
-        updated.run!.status = 'failed'
-        runReadOperation(updated.run!, grant.operationId).status = 'failed'
-        updated.run!.error = { code: 'EXECUTION_FAILED', message: failure.message, workId: failure.workId }
-        updated.updatedAt = updated.run!.updatedAt = new Date().toISOString()
-        const receipt = graphCreateReceipt(failureId, 'work.fail', failureHash, updated.updatedAt)
-        if (await store.commit(updated, document.revision, receipt, grant)) return { failed: true }
+        if (document.receipts.some(receipt => receipt.requestId === failure.workId)) return { failed: false }
+        if (!await store.readLease(failure.mapId, grant)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
+        const updated = structuredClone(document), run = updated.runs.find(item => item.id === grant.runId)
+        if (!run) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_NO_LONGER_BELONGS_TO_THE_ACTIVE_RUN)
+        graphRequireRunOwnership(document, grant.runId)
+        const operation = runReadOperation(run, grant.operationId)
+        operation.status = 'failed'; run.status = 'failed'; run.error = { code: 'WORK_FAILED', message: failure.message, workId: failure.workId }
+        run.updatedAt = new Date().toISOString(); updated.updatedAt = run.updatedAt
+        updated.ownershipRevision = document.ownershipRevision ?? 0
+        if (graphReleaseRunOwnerships(updated, grant.runId)) updated.ownershipRevision++
+        const receipt = graphCreateReceipt(failureId, 'work.fail', failureHash, run.updatedAt)
+        try { await graphCommit(document, updated, receipt, grant, { ownershipRevision: document.ownershipRevision ?? 0, runId: grant.runId }); return { failed: true } }
+        catch (error) { if (!(error instanceof GraphError) || error.code !== 'REVISION_CONFLICT') throw error }
       }
-      throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_WORK_FAILURE_AFTER_CONCURRENT_UPDATES_SETTLE)
+      throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_CLAIM_AFTER_CONCURRENT_UPDATES_SETTLE)
     },
 
-    async readData(/* 需要读取执行输入的图身份。 */ mapId: string, /* 授权限定的 Operation 身份。 */ operationId: string, /* 读取者的 work、holder 和 fence 证明。 */ proof: GraphWorkProof): Promise<GraphDataRead> {
-      // 按工作角色投影执行输入；首次解析来源时还会读取正文并持久化到 Operation，冻结本轮输入。
-      let document = await graphReadMap(mapId)
-      const grant = workReadGrant(document, proof)
-      if (grant.operationId !== operationId) throw new GraphError(403, 'WORK_SCOPE_MISMATCH', RuntimeMessage.GRANT_BELONGS_TO_ANOTHER_OPERATION)
-      // 已接纳工作仍需匹配 holder/fence，但读取既有输入时不再要求租约尚未到期。
-      const accepted = document.receipts.some(/* 当前判断工作结果是否已接纳、可放宽时效检查的收据。 */ receipt => /* 区分结果确认与仍需租约保护的执行读取。 */ receipt.requestId === proof.workId)
-      if (!accepted) {
-        const leased = await store.readLease(mapId, proof)
-        if (!leased) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
-        document = leased
-      }
-      const operation = runReadOperation(document.run!, operationId)
-      if (operation.kind === 'parse' && operation.rawContent === undefined) {
-        if (!options.readSource) throw new GraphError(503, 'SOURCE_UNAVAILABLE', RuntimeMessage.SOURCE_READER_IS_NOT_CONFIGURED)
-        const data = runReadData(document, operationId, grant.actor)
-        // 本次调用中的慢来源读取只做一次；提交竞争时重读图，优先使用其他请求已保存的正文。
-        const rawContent = await options.readSource(document.workspaceId, data.target)
-        for (let attempt = 0; attempt < 64; attempt++) {
-          document = await graphReadMap(mapId)
-          const current = runReadOperation(document.run!, operationId)
-          if (current.rawContent !== undefined) break
-          runReadData(document, operationId, grant.actor)
-          const updated = structuredClone(document)
-          runReadOperation(updated.run!, operationId).rawContent = rawContent
-          updated.updatedAt = new Date().toISOString()
-          const receipt = graphCreateReceipt(operationId + ':input', 'source.read', storeCreateInputHash({ rawContent, inputRefs: current.inputRefs }), updated.updatedAt)
-          if (await store.commit(updated, document.revision, receipt, grant)) { document = await graphReadMap(mapId); break }
-          if (!await store.readLease(mapId, proof)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.SOURCE_READ_LOST_ITS_WORK_LEASE)
-          if (attempt === 63) throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_SOURCE_READ_AFTER_CONCURRENT_UPDATES_SETTLE)
-        }
-        if (!await store.readLease(mapId, proof)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.SOURCE_READ_LOST_ITS_WORK_LEASE)
-      }
-      return { ...runReadData(document, operationId, grant.actor),
-        work: { id: grant.workId, actor: grant.actor, routeRevision: grant.routeRevision,
-          status: document.receipts.some(/* 最终图中当前判断执行输入工作是否已接纳的收据。 */ receipt => /* 根据最终文档标记工作结果是否已接纳。 */ receipt.requestId === proof.workId) ? 'accepted' : 'ready' },
-      }
-    },
-
-    async propose(/* DSH 提交且尚未接纳或确认重放的结构化业务提案。 */ proposal: GraphDataProposal, /* 提案提交者的 work、holder 和 fence 证明。 */ proof: GraphWorkProof): Promise<GraphSnapshot> {
-      // 核对工作角色与提案身份，重放已接纳结果，或在有效租约下原子写入产物并推进 Run。
-      const method = `proposal.${proposal.kind}`
-      // 不同槽位报告可同时提交；竞争失败后只重新校验和应用同一提案，不重新调用模型。
+    async readData(/* 内部 data_read 参数。 */ mapId: string, /* Operation 身份。 */ operationId: string, /* 当前 Work 凭证。 */ proof: GraphWorkProof): Promise<GraphDataRead> {
+      // 来源正文只在缺失时通过受限读取器获取，并在返回模型前持久化到 Operation。
+      const fetched = new Map<string, string>()
       for (let attempt = 0; attempt < 64; attempt++) {
-        const document = await graphReadMap(proposal.mapId)
-        const grant = document.leases[proof.workId]
-        if (!grant) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_GRANT_DOES_NOT_EXIST)
-        const actor = grant.actor
-        if (proposal.id !== grant.workId || proposal.operationId !== grant.operationId
-          || (proposal.kind === 'parse' && actor.role !== 'parse')
-          || (proposal.kind === 'route' && actor.role !== 'router')
-          || ((proposal.kind === 'merge' || proposal.kind === 'split-merge') && actor.role !== 'merge')
-          || ((proposal.kind === 'report' || proposal.kind === 'split-report') && (actor.role !== 'worker' || actor.slotId !== proposal.slotId))) {
-          throw new GraphError(403, 'WORK_SCOPE_MISMATCH', RuntimeMessage.PROPOSAL_DOES_NOT_BELONG_TO_THIS_WORK_GRANT)
+        let document = await graphReadMap(mapId), grant = workReadGrant(document, proof)
+        if (!await store.readLease(mapId, grant)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
+        const run = document.runs.find(item => item.id === grant.runId)
+        if (!run) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_NO_LONGER_BELONGS_TO_THE_ACTIVE_RUN)
+        graphRequireRunOwnership(document, grant.runId)
+        const operation = runReadOperation(run, operationId), stage = operation.executionSpec.stages.find(item => item.id === grant.stageId)
+        if (!stage) throw new GraphError(409, 'WORK_STOPPED', RuntimeMessage.STAGE_WORK_IS_NOT_READY)
+        const sourceBindings = Object.entries(stage.promptBindings).flatMap(([name, binding]) => {
+          if (binding.source !== 'source-text') return []
+          const refs = [...operation.group.inputRefs, ...operation.group.contextRefs].filter(item => item.port === binding.port)
+          if (!refs.length) throw new GraphError(409, 'INPUT_STALE', RuntimeMessage.OPERATION_TARGET_IS_MISSING)
+          return refs.map(ref => ({ name, binding, ref,
+            cacheKey: storeCreateInputHash({ stageId: stage.id, name, port: binding.port, path: binding.path, id: ref.id, revision: ref.revision }) }))
+        })
+        const missing = sourceBindings.filter(item => operation.externalInputs[item.cacheKey] === undefined)
+        for (const item of missing) {
+          if (!options.readSource) throw new GraphError(422, 'SOURCE_UNREADABLE', RuntimeMessage.SOURCE_READER_IS_NOT_CONFIGURED)
+          const node = document.nodes.find(node => node.id === item.ref.id && node.revision === item.ref.revision)
+          if (!node) throw new GraphError(409, 'INPUT_STALE', messageFormat(RuntimeMessage.OPERATION_INPUT_CHANGED_VALUE, item.ref.id))
+          if (!fetched.has(item.cacheKey)) fetched.set(item.cacheKey, await options.readSource(document.workspaceId, node, item.binding.path))
         }
-        const inputHash = storeCreateInputHash({ proposal, actor })
-        // grant 和提案角色仍须匹配；已有成功收据则可在租约到期或换持有者后确认原结果。
-        const priorReceipt = graphReadReceipt(document, proposal.id, method, inputHash)
-        if (priorReceipt) return graphReadSnapshot(document)
-        workReadGrant(document, proof)
-        if (!await store.readLease(proposal.mapId, proof)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
-        const view = runReadData(document, proposal.operationId, actor)
-        if (view.proposalId !== proposal.id) throw new GraphError(409, 'PROPOSAL_CONFLICT', RuntimeMessage.STALE_PROPOSAL_IDENTITY)
-        const now = new Date().toISOString()
-        const update = runUpdateProposal(structuredClone(document), proposal, actor, now)
-        const receipt = graphCreateReceipt(proposal.id, method, inputHash, now,
-          update.nodeIds, update.edgeIds)
-        // 前面的读检查不足以抵御并发接管；最终写入仍必须同时匹配图版本和有效租约。
-        if (await store.commit(update.document, document.revision, receipt, grant)) {
-          return graphReadSnapshot(await graphReadMap(document.id))
+        if (missing.length) {
+          const updated = structuredClone(document), nextRun = runReadRun(updated, grant.runId), nextOperation = runReadOperation(nextRun, operationId)
+          for (const item of missing) nextOperation.externalInputs[item.cacheKey] = fetched.get(item.cacheKey)!
+          updated.updatedAt = new Date().toISOString(); nextRun.updatedAt = updated.updatedAt
+          const values = Object.fromEntries(missing.map(item => [item.cacheKey, fetched.get(item.cacheKey)!]))
+          const keys = Object.keys(values).sort()
+          // 同一冻结来源集合以首次成功提交的正文为准；并发读取动态 URL 即使返回不同正文，也重放赢家而不是形成幂等冲突。
+          const hash = storeCreateInputHash({ operationId, keys })
+          const receipt = graphCreateReceipt(`${operationId}:source:${storeCreateInputHash(keys)}`, 'source.read', hash, updated.updatedAt)
+          try { document = (await graphCommit(document, updated, receipt, grant,
+            { ownershipRevision: document.ownershipRevision ?? 0, runId: grant.runId })).document }
+          catch (error) { if (error instanceof GraphError && error.code === 'REVISION_CONFLICT') continue; throw error }
+          grant = workReadGrant(document, proof)
         }
+        const stored = runReadOperation(runReadRun(document, grant.runId), operationId).externalInputs
+        const sourceText = Object.fromEntries(Object.entries(stage.promptBindings).flatMap(([name, binding]) => {
+          if (binding.source !== 'source-text') return []
+          const values = sourceBindings.filter(item => item.name === name).map(item => stored[item.cacheKey]).filter((value): value is string => value !== undefined)
+          return [[name, values.join('\n\n')]]
+        }))
+        const data = runReadData(document, operationId, grant, sourceText)
+        return { ...data, work: { id: grant.workId, stageId: grant.stageId, slotId: grant.slotId, specHash: grant.specHash, status: 'ready' } }
       }
-      throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_THE_SAME_PROPOSAL_AFTER_CONCURRENT_UPDATES_SETTLE)
+      throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_CLAIM_AFTER_CONCURRENT_UPDATES_SETTLE)
+    },
+
+    async propose(/* 图身份。 */ mapId: string, /* Operation 身份。 */ operationId: string, /* 通用阶段提案。 */ proposal: GraphDataProposal,
+      /* 当前 Work 凭证。 */ proof: GraphWorkProof): Promise<GraphWriteResult> {
+      // 按冻结定义、输入版本和最终租约复验；合法 CAS 竞争重放同一提案，不重跑模型。
+      if (proposal.operationId !== operationId) throw new GraphError(409, 'PROPOSAL_CONFLICT', RuntimeMessage.PROPOSAL_DOES_NOT_BELONG_TO_THIS_WORK_GRANT)
+      const inputHash = storeCreateInputHash(proposal)
+      for (let attempt = 0; attempt < 64; attempt++) {
+        const document = await graphReadMap(mapId), grant = workReadGrant(document, proof)
+        const replay = graphReadReceipt(document, proposal.id, 'data.propose', inputHash)
+        if (replay) return graphWriteResult(document, replay)
+        if (!await store.readLease(mapId, grant)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
+        graphRequireRunOwnership(document, grant.runId)
+        const result = runUpdateProposal(structuredClone(document), proposal, grant, new Date().toISOString())
+        result.document.branchOwnerships = structuredClone(document.branchOwnerships ?? {})
+        result.document.ownershipReceipts = structuredClone(document.ownershipReceipts ?? [])
+        result.document.ownershipRevision = document.ownershipRevision ?? 0
+        const run = runReadRun(result.document, grant.runId)
+        if (['completed', 'failed', 'cancelled'].includes(run.status)) {
+          if (graphReleaseRunOwnerships(result.document, run.id)) result.document.ownershipRevision++
+        } else if (run?.branchState) {
+          const conflict = branchFindOwnershipConflict(result.document, run.branchState.scope, await readNow(), run.id)
+          if (conflict) throw new GraphError(409, 'BRANCH_BUSY', RuntimeMessage.BRANCH_OVERLAPS_ANOTHER_ACTIVE_OWNERSHIP)
+        }
+        if (options.assertOutputReferences && result.nodeIds.length) {
+          const ids = new Set(result.nodeIds)
+          await options.assertOutputReferences(document.workspaceId, result.document.nodes.filter(node => ids.has(node.id)).map(node => ({
+            id: node.id, typeId: node.typeId, typeVersion: node.typeVersion, payload: node.payload,
+          })), run.definitions)
+        }
+        const receipt = graphCreateReceipt(proposal.id, 'data.propose', inputHash, result.document.updatedAt, result.nodeIds, result.edgeIds)
+        try {
+          const committed = await graphCommit(document, result.document, receipt, grant,
+            { ownershipRevision: document.ownershipRevision ?? 0, runId: grant.runId })
+          return graphWriteResult(committed.document, committed.receipt)
+        }
+        catch (error) { if (!(error instanceof GraphError) || error.code !== 'REVISION_CONFLICT') throw error }
+      }
+      throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_PROPOSAL_AFTER_CONCURRENT_UPDATES_SETTLE)
     },
   }
 }
-
-export type GraphService = ReturnType<typeof graphCreateService>

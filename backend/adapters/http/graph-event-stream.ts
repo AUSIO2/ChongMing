@@ -19,7 +19,7 @@ export async function eventsOpen(/* 提供授权快照、活动读取及变更�
   let unsubscribe = () => {
     // 消息订阅建立前没有监听需要解除。
   }, timer: ReturnType<typeof setInterval> | undefined
-  let activity = true, graph = false, heartbeat = false, access = false, running = true, revision = -1, workspaceId: string | undefined
+  let activity = true, graph = false, heartbeat = false, access = false, running = true, revision = -1, ownershipRevision = -1, workspaceId: string | undefined
   const scopes = new Set<'workspace' | 'settings'>(['workspace', 'settings'])
     function eventsClose() {
       // 幂等取消监听和心跳，销毁响应并通知订阅结束。
@@ -64,9 +64,10 @@ export async function eventsOpen(/* 提供授权快照、活动读取及变更�
         if (readGraph) {
           const snapshot = await application.readSnapshot(token, mapId)
           await application.authorizeMap(token, mapId)
-          if (snapshot.revision > revision) {
+          if (snapshot.revision > revision || snapshot.ownershipRevision > ownershipRevision) {
             await eventsWrite({ type: 'snapshot', snapshot })
             revision = snapshot.revision
+            ownershipRevision = snapshot.ownershipRevision
           }
         } else await application.authorizeMap(token, mapId)
         if (writeActivity) {
@@ -110,6 +111,7 @@ export async function eventsOpen(/* 提供授权快照、活动读取及变更�
     response.flushHeaders()
     await eventsWrite({ type: 'snapshot', snapshot })
     revision = snapshot.revision
+    ownershipRevision = snapshot.ownershipRevision
     running = false
     timer = setInterval(() => {
       // 周期性安排心跳及授权复核，让空闲连接也能感知失效。

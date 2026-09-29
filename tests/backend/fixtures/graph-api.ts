@@ -1,10 +1,10 @@
-// 组装隔离 Mongo、RabbitMQ 与真实 HTTP 图服务，提供带身份和租约的测试操作。
+// 组装隔离 Mongo、RabbitMQ 与真实 HTTP 图服务，并提供通用数据/阶段执行测试操作。
 import { randomUUID } from 'node:crypto'
 import { apiCreateServer } from '../../../backend/adapters/http/graph-http-server'
 import { applicationCreateService } from '../../../apps/graph-server/application'
 import { storeCreateConnection } from '../../../backend/adapters/storage/mongo/connection'
 import { workReadItems } from '../../../backend/modules/graph/work-state'
-import type { ContextField, GraphNodeData, GraphRunConfiguration, GraphWorkGrant } from '../../../contracts/graph'
+import type { GraphBranchGrant, GraphBranchSnapshot, GraphChanges, GraphDataProposal, GraphPlanSlot, GraphProposedOutput, GraphRunConfiguration, GraphRunControlGrant, GraphRunPlan, GraphWorkGrant } from '../../../contracts/graph'
 import type { AgentInput, PromptKind } from '../../../contracts/control'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import { expect } from 'vitest'
@@ -12,174 +12,237 @@ import { verificationConfiguration } from './verification'
 import { rabbitCreateFixture } from './rabbitmq'
 import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 
-export function grantHeaders(/* 需要转换为内部数据 API 身份请求头的工作授权。 */ grant: GraphWorkGrant) {
-  // 将领取授权转换为内部数据 API 要求的工作身份、持有者和 fence 请求头。
+export const FACT_TYPES = {
+  source: { id: 'factcheck.source', version: 1 }, news: { id: 'factcheck.news', version: 1 },
+  claim: { id: 'factcheck.claim', version: 1 }, opinion: { id: 'factcheck.opinion', version: 1 },
+  verification: { id: 'factcheck.verification', version: 1 },
+} as const
+
+export function verificationPlan(/* 核查输入事实。 */ claimIds: string[], /* 可选新闻上下文。 */ newsIds: string[] = []): GraphRunPlan {
+  return { steps: [{ id: 'verify', transitionRef: { id: 'factcheck.verify-claim', version: 1 }, dependsOn: [],
+    input: [{ port: 'claim', source: { kind: 'scope', nodeIds: claimIds } }],
+    context: [{ port: 'news', source: { kind: 'scope', nodeIds: newsIds } }], grouping: { mode: 'each' }, onEmpty: 'fail' }] }
+}
+
+export function sourceFactCheckPlan(/* 来源节点身份。 */ sourceIds: string[]): GraphRunPlan {
+  return { steps: [
+    { id: 'parse', transitionRef: { id: 'factcheck.parse-source', version: 1 }, dependsOn: [],
+      input: [{ port: 'source', source: { kind: 'scope', nodeIds: sourceIds } }], context: [], grouping: { mode: 'each' }, onEmpty: 'fail' },
+    { id: 'split', transitionRef: { id: 'factcheck.split-news', version: 1 }, dependsOn: ['parse'],
+      input: [{ port: 'news', source: { kind: 'step', stepId: 'parse', port: 'news' } }], context: [], grouping: { mode: 'each' }, onEmpty: 'fail' },
+    { id: 'verify', transitionRef: { id: 'factcheck.verify-claim', version: 1 }, dependsOn: ['parse', 'split'],
+      input: [{ port: 'claim', source: { kind: 'step', stepId: 'split', port: 'claims' } }],
+      context: [{ port: 'news', source: { kind: 'step', stepId: 'parse', port: 'news' } }], grouping: { mode: 'each' }, onEmpty: 'fail' },
+  ] }
+}
+
+export function grantHeaders(/* 完整授权。 */ grant: GraphWorkGrant) {
   return { 'x-work-id': grant.workId, 'x-work-holder': grant.holderId, 'x-work-fence': String(grant.fence) }
 }
 
-export async function createGraphApi(/* 测试工作租约的有效毫秒数；默认一分钟避免普通用例意外过期。 */ leaseMs = 60_000, /* 首次初始化全局库与设置使用的完整 Agent 配置。 */ seedConfiguration = verificationConfiguration(), /* 可选诊断收集器，用于故障边界用例观察内部事件。 */ reporter?: DiagnosticReporter) {
-  // 启动带独立数据库与队列的真实图 API，初始化测试管理员及配置，返回请求和资源清理入口。
-  const broker = await rabbitCreateFixture()
-  const queue = broker.queue
-  const token = 'test-work-token'
-  const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
-  const uri = mongo.getUri('chongming_work_test')
-  const connection = await storeCreateConnection(uri)
+export async function createGraphApi(/* 租约毫秒。 */ leaseMs = 60_000, /* 初始 Agent 配置。 */ seedConfiguration = verificationConfiguration(), /* 可选诊断器。 */ reporter?: DiagnosticReporter) {
+  const broker = await rabbitCreateFixture(), queue = broker.queue, token = 'test-work-token'
+  const mongo = await MongoMemoryReplSet.create({ instanceOpts: [{ launchTimeout: 30_000 }], replSet: { count: 1, storageEngine: 'wiredTiger' } })
+  const uri = mongo.getUri('chongming_work_test'), connection = await storeCreateConnection(uri)
   const application = applicationCreateService(connection, { leaseMs, allowPrivateSources: true, messaging: queue, reporter })
-  await application.initialize()
-  await application.startMessaging()
+  await application.initialize(); await application.startMessaging()
   const { store, auth, control } = application
   await control.seed(seedConfiguration)
   const owner = await auth.createUser({ id: randomUUID(), displayName: 'Fixture Owner', hostAdmin: true })
   const { token: userToken } = await auth.createToken(owner.userId)
   const server = apiCreateServer(application, { internalToken: token, reporter })
-  await new Promise<void>(/* HTTP 服务器开始监听后完成启动等待的回调。 */ resolve => /* 绑定回环地址的随机端口，等待服务就绪后再执行测试请求。 */ server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Test Graph API did not bind')
   const url = `http://127.0.0.1:${address.port}`
+  const controls = new Map<string, GraphRunControlGrant>(), controlHolderId = randomUUID()
 
-  async function rawPost(/* 相对于测试服务器地址的请求路径。 */ path: string, /* 按 JSON 序列化发送的任意测试请求体。 */ body: unknown, /* 可选附加请求头，省略时为空；同名字段可覆盖默认的 JSON content-type。 */ headers: Record<string, string> = {}) {
-    // 发送原始 JSON POST 并保留状态码与响应体，允许测试自行验证失败结果。
-    const response = await fetch(`${url}${path}`, {
-      method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
-    })
+  async function rawPost(/* API 路径。 */ path: string, /* JSON 请求体。 */ body: unknown, /* 附加请求头。 */ headers: Record<string, string> = {}) {
+    const response = await fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
     return { status: response.status, body: await response.json() as Record<string, any> }
   }
-  function post(/* 相对于测试服务器地址的公共或内部请求路径。 */ path: string, /* 按 JSON 序列化发送的任意测试请求体。 */ body: unknown, /* 显式请求头；公共路径会在其前加入用户身份。 */ headers: Record<string, string> = {}) {
-    // 给公共 API 默认添加测试用户令牌，内部请求由调用者显式提供身份。
+  function post(/* API 路径。 */ path: string, /* JSON 请求体。 */ body: unknown, /* 附加请求头。 */ headers: Record<string, string> = {}) {
     return rawPost(path, body, { ...(path.startsWith('/api/v1/') ? { authorization: `Bearer ${userToken}` } : {}), ...headers })
   }
-  function command(/* 准备调用的公共写命令方法。 */ method: string, /* 该命令未经静态收窄的测试参数。 */ params: unknown, /* 用于测试重放的稳定请求身份；省略时生成新身份。 */ requestId = randomUUID()) {
-    // 用可指定的稳定请求 ID 调用公共写命令，支持测试幂等重放。
-    return post('/api/v1/command', { requestId, method, params })
+  async function command(/* 命令名。 */ method: string, /* 命令参数。 */ params: any, /* 幂等身份。 */ requestId = randomUUID()) {
+    // 绝大多数业务测试只关心内容；为已有分支自动领取并在普通编辑后释放，独占协议专项使用 post 发送原始命令。
+    let input = params, claimed: GraphBranchGrant | undefined
+    if ((method === 'graph.apply' && params.branch?.expectedVersion !== null || method === 'run.start') && !params.lease) {
+      const response = await post('/api/v1/command', { requestId: randomUUID(), method: 'branch.claim', params: {
+        mapId: params.mapId, rootIds: params.branch.rootIds, holderId: randomUUID(),
+      } })
+      if (response.body.data?.status !== 'claimed') throw new Error('Fixture branch is busy')
+      claimed = response.body.data.grant
+      input = { ...params, lease: { leaseId: claimed!.leaseId, holderId: claimed!.holderId, fence: claimed!.fence } }
+    }
+    if (['run.cancel', 'run.pause', 'run.resume', 'review.answer'].includes(method) && !params.control) {
+      const key = `${params.mapId}:${params.runId}`
+      let control = controls.get(key)
+      if (!control) {
+        const response = await post('/api/v1/command', { requestId: randomUUID(), method: 'run.control.claim', params: {
+          mapId: params.mapId, runId: params.runId, holderId: controlHolderId,
+        } })
+        if (response.body.data?.status !== 'claimed') throw new Error('Fixture Run control is busy')
+        control = response.body.data.grant; controls.set(key, control!)
+      }
+      input = { ...input, control: { leaseId: control!.leaseId, holderId: control!.holderId, fence: control!.fence } }
+    }
+    const result = await post('/api/v1/command', { requestId, method, params: input })
+    if (method === 'run.start' && result.body.data?.runControl) controls.set(`${params.mapId}:${params.id}`, result.body.data.runControl)
+    const targetRun = result.body.data?.snapshot?.runs?.find((run: { id: string }) => run.id === (params.runId ?? params.id))
+    if (targetRun && ['completed', 'failed', 'cancelled'].includes(targetRun.status)) {
+      controls.delete(`${params.mapId}:${targetRun.id}`)
+    }
+    if (claimed && method === 'graph.apply') await post('/api/v1/command', { requestId: randomUUID(), method: 'branch.release', params: {
+      mapId: params.mapId, lease: { leaseId: claimed.leaseId, holderId: claimed.holderId, fence: claimed.fence },
+    } })
+    return result
   }
-  async function snapshot(/* 需要读取并断言成功的图身份。 */ mapId: string) {
-    // 读取图快照并断言查询成功，简化后续状态比较。
+  async function snapshot(/* 图身份。 */ mapId: string) {
     const result = await post('/api/v1/query', { method: 'map.get', params: { mapId } })
     expect(result).toMatchObject({ status: 200, body: { ok: true } })
     return result.body.data
   }
-  function work(/* 准备调用的内部工作命令方法。 */ method: string, /* 领取、续租、释放或失败命令参数。 */ params: unknown) {
-    // 使用测试 Host 令牌发送工作领取、续租或状态命令。
+  async function branch(/* 图身份。 */ mapId: string, /* 共同构成授权范围的真实根。 */ rootIds: string[]): Promise<GraphBranchSnapshot> {
+    const result = await post('/api/v1/query', { method: 'branch.get', params: { mapId, rootIds } })
+    expect(result).toMatchObject({ status: 200, body: { ok: true } })
+    return result.body.data
+  }
+  async function apply(/* 图身份。 */ mapId: string, /* 分支根；新根和既有根均须真实列出。 */ rootIds: string[], /* 局部修改。 */ changes: GraphChanges,
+    /* true 表示这些根尚不存在。 */ create = false, /* 可复用请求身份。 */ requestId = randomUUID()) {
+    const expectedVersion = create ? null : (await branch(mapId, rootIds)).version
+    return command('graph.apply', { mapId, branch: { rootIds, expectedVersion }, changes }, requestId)
+  }
+  function work(/* 工作命令。 */ method: string, /* 工作参数。 */ params: unknown) {
     return post('/internal/v1/work', { method, params }, { authorization: `Bearer ${token}` })
   }
-  async function claim(/* 需要从当前可执行状态领取工作的图身份。 */ mapId: string, /* 领取授权应绑定的测试 Host 身份。 */ hostId = 'test-host', /* 区分同一 Host 并发领取尝试的持有者身份。 */ holderId = randomUUID()): Promise<GraphWorkGrant | null> {
-    // 从当前可执行工作中依次尝试领取，返回第一份授权或表示暂时无工作的 null。
+  async function claim(/* 图身份。 */ mapId: string, /* Host 身份。 */ hostId = 'test-host', /* 持有者身份。 */ holderId = randomUUID(),
+    /* 可选阶段过滤。 */ stageId?: string): Promise<GraphWorkGrant | null> {
     const document = await store.read(mapId)
     if (!document) return null
-    for (const item of workReadItems(document)) {
-      const result = await work('claim', { mapId, workId: item.workId, hostId, holderId,
-        deploymentId: application.messaging().deploymentId })
+    for (const item of workReadItems(document).filter(work => !stageId || work.stageId === stageId)) {
+      const result = await work('claim', { mapId, workId: item.workId, hostId, holderId, deploymentId: application.messaging().deploymentId })
       expect(result).toMatchObject({ status: 200, body: { ok: true } })
       if (result.body.data.status === 'claimed') return result.body.data.grant
     }
     return null
   }
-  async function read(/* 用于请求执行输入的完整工作授权。 */ grant: GraphWorkGrant) {
-    // 携带精确工作授权读取输入，并要求内部数据 API 返回成功。
+  async function read(/* 完整授权。 */ grant: GraphWorkGrant) {
     const result = await post('/internal/v1/data/read', { mapId: grant.mapId, operationId: grant.operationId }, {
       authorization: `Bearer ${token}`, ...grantHeaders(grant),
     })
     expect(result).toMatchObject({ status: 200, body: { ok: true } })
     return result.body.data
   }
-  function propose(/* 提交提案时提供内部身份请求头的工作授权。 */ grant: GraphWorkGrant, /* 需要由服务端验证结构和工作范围的提案输入。 */ proposal: unknown) {
-    // 带当前授权请求头提交提案，保留响应供测试核对接纳或拒绝。
+  function propose(/* 完整授权。 */ grant: GraphWorkGrant, /* 通用提案。 */ proposal: unknown) {
     return post('/internal/v1/data/propose', proposal, { authorization: `Bearer ${token}`, ...grantHeaders(grant) })
   }
-  async function proposal(/* 决定提案身份、路由版本和槽位的工作授权。 */ grant: GraphWorkGrant, /* 测试只提供的业务提案字段。 */ input: Record<string, unknown>) {
-    // 根据最新工作输入补齐提案身份、路由版本和槽位，使测试只需提供业务产物。
+  async function proposal(/* 完整授权。 */ grant: GraphWorkGrant, /* kind 及业务字段。 */ input: Record<string, unknown>) {
     const data = await read(grant)
-    return {
-      mapId: grant.mapId, operationId: grant.operationId, id: data.proposalId,
-      ...(['route', 'parse'].includes(String(input.kind)) ? {} : { routeRevision: data.route.revision }),
-      ...(['report', 'split-report'].includes(String(input.kind)) && grant.actor.role === 'worker' ? { slotId: grant.actor.slotId } : {}),
-      ...input,
-    }
+    return { mapId: grant.mapId, operationId: grant.operationId, id: data.proposalId, specHash: data.specHash, ...input }
   }
-  async function createWorkspace(/* 需要写入共享设置和新工作区的完整运行配置。 */ configuration: GraphRunConfiguration = verificationConfiguration()) {
-    // 用指定执行配置更新测试共享设置，并创建含独立 Agent 身份的工作区。
-    const profile = (/* 准备转换为管理端 Agent 的执行配置。 */ input: GraphRunConfiguration['router'], /* 该 Agent 在管理端对应的提示词角色。 */ kind: PromptKind, /* 该 Agent 在工作区内使用的稳定提示词路径。 */ promptPath: string): AgentInput => /* 将测试执行配置转换为管理端 Agent，生成新身份并补齐阶段元数据。 */ ({
-      ...input, id: randomUUID(), kind, promptPath, promptVars: input.promptVars ?? [],
-      defaultPriority: input.defaultPriority ?? 'medium', claimCategory: input.claimCategory ?? null,
-    })
+  async function planSlots(/* Planner 授权。 */ grant: GraphWorkGrant, /* 槽位数。 */ count: number): Promise<GraphPlanSlot[]> {
+    const document = await store.read(grant.mapId), operation = document?.runs.find(run => run.id === grant.runId)?.operations.find(item => item.id === grant.operationId)
+    const planner = operation?.executionSpec.stages.find(item => item.id === grant.stageId)
+    if (!planner?.plan || count < 1 || count > planner.plan.maxSlots || count > planner.plan.agents.length) throw new Error('Planner candidates are missing')
+    const stageId = planner.plan.stageIds[0]
+    return planner.plan.agents.slice(0, count).map((agent, index) => ({ id: `angle-${index + 1}`, stageId,
+      agentRef: structuredClone(agent.ref), angle: `independent-angle-${index + 1}`, hint: `Follow evidence chain ${index + 1}`,
+      priority: (['high', 'medium', 'low'] as const)[index % 3], tools: [...agent.profile.tools] }))
+  }
+  async function plan(/* Planner 授权。 */ grant: GraphWorkGrant, /* 槽位数。 */ count: number) {
+    const slots = await planSlots(grant, count)
+    return { slots, proposal: await proposal(grant, { kind: 'plan', reason: 'Select independent Agent work', slots }) }
+  }
+  async function output(/* 输出阶段授权。 */ grant: GraphWorkGrant, /* 候选产物。 */ outputs: GraphProposedOutput[], /* 理由。 */ reason = 'Fixture output') {
+    return proposal(grant, { kind: 'outputs', reason, outputs })
+  }
+  async function opinion(/* assess 授权。 */ grant: GraphWorkGrant, /* 结果序号。 */ index = 0) {
+    return output(grant, [{ key: `opinion-${grant.slotId}`, port: 'opinions', typeRef: FACT_TYPES.opinion,
+      payload: { score: index % 2 ? 0 : 1, reason: `Evidence from ${grant.slotId}`, evidenceIds: [] } }], 'Independent opinion')
+  }
+  async function verification(/* merge 授权。 */ grant: GraphWorkGrant, /* 汇总评分。 */ score: 0 | 0.5 | 1 = 0.5) {
+    const data = await read(grant)
+    const opinionIds = (data.priorStageResults as Array<Record<string, any>>).flatMap(result => result.mode === 'outputs'
+      ? result.outputs.filter((item: GraphProposedOutput) => item.port === 'opinions').map((item: GraphProposedOutput) => ({ candidate: { workId: result.workId, key: item.key } })) : [])
+    return proposal(grant, { kind: 'outputs', reason: 'Independent merger conclusion', outputs: [{ key: 'verification', port: 'verification',
+      typeRef: FACT_TYPES.verification, payload: { score, reason: 'Independent merger conclusion', opinionIds } }] })
+  }
+  async function selection(/* selection 授权。 */ grant: GraphWorkGrant) {
+    const data = await read(grant)
+    const selected = (data.priorStageResults as Array<Record<string, any>>).flatMap(result => result.mode === 'outputs'
+      ? result.outputs.map((item: GraphProposedOutput) => ({ workId: result.workId, key: item.key })) : [])
+    return proposal(grant, { kind: 'selection', reason: 'Select all distinct candidates', selection: selected })
+  }
+  async function createWorkspace(/* 工作区 Agent 配置。 */ configuration: GraphRunConfiguration = verificationConfiguration()) {
+    const profile = (input: GraphRunConfiguration['router'], kind: PromptKind, promptPath: string): AgentInput => ({ ...input,
+      id: randomUUID(), kind, promptPath, promptVars: input.promptVars ?? [], defaultPriority: input.defaultPriority ?? 'medium', claimCategory: input.claimCategory ?? null })
     const agents = [profile(configuration.router, 'verifyRoute', 'fact-verifier/main-agent-route'),
       profile(configuration.merger, 'verifyMerge', 'fact-verifier/main-agent-merge'),
-      ...configuration.agents.map(/* 当前转换为核查子 Agent 的执行配置。 */ agent => /* 把核查 Agent 转为新工作区的核查子角色配置。 */ profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`)),
+      ...configuration.agents.map(agent => profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`)),
       ...(configuration.parse ? [profile(configuration.parse, 'parseExtract', 'fact-parser/extract')] : []),
       ...(configuration.split ? [profile(configuration.split.router, 'splitRoute', 'fact-extractor/main-agent-route'),
         profile(configuration.split.merger, 'splitMerge', 'fact-extractor/main-agent-merge'),
-        ...configuration.split.agents.map(/* 当前转换为拆分子 Agent 的执行配置。 */ agent => /* 把拆分 Agent 转为新工作区的拆分子角色配置。 */ profile(agent, 'splitSubAgent', `fact-extractor/sub-agents/${agent.id}`))] : [])]
-    return auth.transact(userToken, async /* 共享设置更新和工作区创建共用的授权事务上下文。 */ ctx => {
-      // 在同一身份事务中写共享模型与工具设置并创建测试工作区。
+        ...configuration.split.agents.map(agent => profile(agent, 'splitSubAgent', `fact-extractor/sub-agents/${agent.id}`))] : [])]
+    return auth.transact(userToken, async ctx => {
       const bootstrap = await control.read(ctx, { method: 'app.bootstrap', params: {} }) as { settings: { revision: number } }
-      await control.dispatch(ctx, { requestId: randomUUID(), method: 'settings.update', params: {
-        expectedRevision: bootstrap.settings.revision,
-        llm: { provider: configuration.router.provider, model: configuration.router.model },
-        tools: configuration.tools, limits: { maxAgentSlots: configuration.maxSlots },
-      } })
+      await control.dispatch(ctx, { requestId: randomUUID(), method: 'settings.update', params: { expectedRevision: bootstrap.settings.revision,
+        llm: { provider: configuration.router.provider, model: configuration.router.model }, tools: configuration.tools, limits: { maxAgentSlots: configuration.maxSlots } } })
       return control.createWorkspace(ctx, { id: randomUUID(), name: 'Fixture workspace', description: '', agentSource: 'empty' }, agents)
     })
   }
-  async function createRun(/* 新 Run 使用自动执行还是人工审核。 */ mode: 'auto' | 'human-in-loop' = 'auto', /* 需要写入新工作区并由 Run 冻结的执行配置。 */ configuration = verificationConfiguration(),
-    /* 可选新闻内容和上下文；提供时与测试事实建立 mentions 关系。 */ news?: { content: string; context: Record<string, ContextField> }) {
-    // 创建事实及可选新闻关系，然后启动可指定审核模式的独立核查 Run。
-    const mapId = randomUUID(), claimId = randomUUID(), runId = randomUUID()
+  async function createRun(/* 运行模式。 */ mode: 'auto' | 'human-in-loop' = 'auto', /* Agent 配置。 */ configuration = verificationConfiguration(),
+    /* 可选新闻上下文。 */ news?: { content: string; context: Record<string, { value: string; visibleToAI: boolean }> }) {
+    const mapId = randomUUID(), claimId = randomUUID(), newsId = news ? randomUUID() : undefined, runId = randomUUID()
     const workspace = await createWorkspace(configuration)
-    expect(await command('map.create', {
-      workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Dynamic verification',
-    })).toMatchObject({ status: 201 })
-    const nodes: Array<{ id: string; data: GraphNodeData }> = [{ id: claimId, data: { kind: 'claim', content: 'Fixture claim', category: 'data' } }]
-    const newsId = randomUUID()
-    if (news) nodes.push({ id: newsId, data: { kind: 'news', ...news } })
-    expect(await command('graph.apply', { mapId, expectedRevision: 0,
-      changes: { nodes: { put: nodes }, ...(news ? { edges: { put: [{ id: randomUUID(), kind: 'mentions', from: newsId, to: claimId }] } } : {}) },
-    })).toMatchObject({ status: 200 })
-    const result = await command('run.start', { mapId, expectedRevision: 1, id: runId, scope: { nodeIds: [claimId] }, until: 'verified', regenerate: true, mode })
-    expect(result).toMatchObject({ status: 200, body: { data: { snapshot: { run: { id: runId, status: 'running' } } } } })
-    return { mapId, claimId, runId, workspaceId: workspace.id,
-      operationId: result.body.data.snapshot.run.operations[0].id as string,
-      configuration: result.body.data.snapshot.run.configuration as GraphRunConfiguration }
+    expect(await command('map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Dynamic verification' })).toMatchObject({ status: 201 })
+    const nodes = [{ id: claimId, typeId: FACT_TYPES.claim.id, typeVersion: FACT_TYPES.claim.version, payload: { content: 'Fixture claim', category: 'data' } },
+      ...(newsId && news ? [{ id: newsId, typeId: FACT_TYPES.news.id, typeVersion: FACT_TYPES.news.version, payload: { content: news.content, context: news.context } }] : [])]
+    expect(await command('graph.apply', { mapId, branch: { rootIds: [newsId ?? claimId], expectedVersion: null }, changes: { nodes: { put: nodes }, ...(newsId ? { edges: { put: [
+      { id: randomUUID(), kind: 'successor', from: newsId, to: claimId, label: 'fixture:news-claim' },
+    ] } } : {}) } })).toMatchObject({ status: 200 })
+    const runBranch = await branch(mapId, [newsId ?? claimId])
+    const claimed = await command('branch.claim', { mapId, rootIds: runBranch.scope.rootIds, holderId: randomUUID() })
+    if (claimed.body.data.status !== 'claimed') throw new Error('Fixture Run branch is busy')
+    const grant = claimed.body.data.grant
+    const result = await command('run.start', { mapId, id: runId,
+      branch: { rootIds: runBranch.scope.rootIds, expectedVersion: runBranch.version },
+      lease: { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence }, scope: { nodeIds: [claimId, ...(newsId ? [newsId] : [])] },
+      plan: verificationPlan([claimId], newsId ? [newsId] : []), regenerate: true, mode })
+    expect(result).toMatchObject({ status: 200, body: { data: { snapshot: { runs: expect.arrayContaining([expect.objectContaining({ id: runId, status: 'running' })]) } } } })
+    const run = result.body.data.snapshot.runs.find((item: { id: string }) => item.id === runId)
+    return { mapId, claimId, newsId, runId, workspaceId: workspace.id,
+      operationId: run.operations[0].id as string, snapshot: result.body.data.snapshot }
   }
-  async function answer(/* 包含待回答审核的图身份。 */ mapId: string, /* 提交批准还是拒绝；默认批准以推进常规测试流程。 */ decision: 'approve' | 'reject' = 'approve') {
-    // 读取当前首个操作的审核版本并提交决定，返回请求体以便再次测试重放。
+  async function answer(/* 图身份。 */ mapId: string, /* 决定。 */ decision: 'approve' | 'reject' = 'approve', /* 可选 Operation。 */ operationId?: string) {
     const current = await snapshot(mapId)
-    const review = current.run.operations[0].review
-    const body = { requestId: randomUUID(), method: 'review.answer', params: {
-      mapId, expectedRevision: current.revision, runId: current.run.id, operationId: current.run.operations[0].id, reviewId: review.id,
-      expectedReviewRevision: review.revision, decision,
-    } }
+    const run = operationId ? current.runs.find((item: { operations: Array<{ id: string }> }) => item.operations.some(operation => operation.id === operationId))
+      : current.runs.find((item: { operations: Array<{ review: unknown }> }) => item.operations.some(operation => operation.review))
+    const operation = operationId ? run?.operations.find((item: { id: string }) => item.id === operationId)
+      : run?.operations.find((item: { review: unknown }) => item.review)
+    if (!run || !operation?.review) throw new Error('Pending Review missing')
+    const control = controls.get(`${mapId}:${run.id}`)
+    if (!control) throw new Error('Fixture Run control is missing')
+    const body = { requestId: randomUUID(), method: 'review.answer', params: { mapId, runId: run.id, operationId: operation.id,
+      reviewId: operation.review.id, expectedReviewRevision: operation.review.revision, decision,
+      control: { leaseId: control.leaseId, holderId: control.holderId, fence: control.fence } } }
     const result = await post('/api/v1/command', body)
     expect(result.status).toBe(200)
     return { body, snapshot: result.body.data.snapshot }
   }
-  return {
-    url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri, queue,
-    deleteNamespace: broker.deleteNamespace,
-    post, rawPost, command, snapshot, work, claim, read, propose, proposal, createWorkspace, createRun, answer,
+  return { url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri, queue,
+    deleteNamespace: broker.deleteNamespace, post, rawPost, command, snapshot, branch, apply, work, claim, read, propose, proposal,
+    planSlots, plan, output, opinion, verification, selection, createWorkspace, createRun, answer,
     async close() {
-      // 关闭 HTTP、消息循环和数据库，并删除本夹具的队列命名空间及自有代理。
-      server.closeAllConnections()
-      await new Promise<void>((/* HTTP 服务器完成关闭时结束清理等待的回调。 */ resolve, /* HTTP 服务器关闭失败时拒绝清理等待的回调。 */ reject) => /* 将服务器关闭回调转换为可等待的清理结果。 */ server.close(/* 服务器关闭回调提供的可空系统错误。 */ error => /* 服务器关闭失败时拒绝清理，否则确认 HTTP 资源已结束。 */ error ? reject(error) : resolve()))
-      await application.closeMessaging()
-      await connection.close()
-      await mongo.stop()
-      await broker.deleteNamespace(application.messaging().namespace)
-      await broker.close()
-    },
-  }
+      server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await application.closeMessaging(); await connection.close(); await mongo.stop(); await broker.deleteNamespace(application.messaging().namespace); await broker.close()
+    } }
 }
 
 export type TestGraphApi = Awaited<ReturnType<typeof createGraphApi>>
-
-export function proof(/* 需要裁剪为内部工作命令证明字段的授权。 */ grant: GraphWorkGrant) {
-  // 提取内部工作命令使用的 map、work、holder 和 fence 证明。
-  return { mapId: grant.mapId, workId: grant.workId, holderId: grant.holderId, fence: grant.fence }
-}
-
-export function expectRejected(/* 预期为结构化 4xx 业务失败的测试 HTTP 结果。 */ result: Awaited<ReturnType<TestGraphApi['post']>>) {
-  // 断言请求以有结构化错误码的 4xx 业务错误被拒绝。
-  expect(result.status).toBeGreaterThanOrEqual(400)
-  expect(result.status).toBeLessThan(500)
+export function proof(/* 完整授权。 */ grant: GraphWorkGrant) { return { mapId: grant.mapId, workId: grant.workId, holderId: grant.holderId, fence: grant.fence } }
+export function expectRejected(/* 预期结构化 4xx 的结果。 */ result: Awaited<ReturnType<TestGraphApi['post']>>) {
+  expect(result.status).toBeGreaterThanOrEqual(400); expect(result.status).toBeLessThan(500)
   expect(result.body).toMatchObject({ ok: false, error: { code: expect.any(String) } })
 }
+export type FixtureProposal = GraphDataProposal

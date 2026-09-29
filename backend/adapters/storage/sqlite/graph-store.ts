@@ -1,8 +1,8 @@
 // 文件职责：在本机持久化事务中维护图版本、执行租约、收据和工作通知。
 import { RuntimeMessage } from '../../../../contracts/messages'
-import type { GraphStore } from '../../../ports/graph-store'
-import type { GraphDocument, GraphReceipt } from '../../../modules/graph/graph-record'
-import { GRAPH_COLLECTION } from '../../../modules/graph/graph-record'
+import type { GraphCommitGuard, GraphStore } from '../../../ports/graph-store'
+import type { GraphDocument, GraphOwnershipReceipt, GraphOwnershipRecord, GraphReceipt } from '../../../modules/graph/graph-record'
+import { GRAPH_COLLECTION, storeAssertCurrentGraphSchema } from '../../../modules/graph/graph-record'
 import type { GraphWorkGrant, GraphWorkProof } from '../../../../contracts/graph'
 import type { Persistence, StorageSession } from '../../../ports/persistence'
 import { GraphError } from '../../../modules/shared/domain-error'
@@ -11,20 +11,61 @@ type StoredGraph = GraphDocument & { _id: string; dispatch: { version: number; p
 export function sqliteCreateGraphStore(/* 本机统一持久化入口，图操作复用其记录和串行事务能力。 */ database: Persistence, /* 可选外部事务会话，默认 null；提供时完整操作复用该事务。 */ session: StorageSession | null = null): GraphStore {
   // 将统一记录存储适配为图操作，并沿用可选外部事务。
   const records = database.records<StoredGraph>(GRAPH_COLLECTION)
-  const read = (/* 当前图集合中的文档身份。 */ id: string) => /* 按图身份读取当前会话可见的存储记录。 */  records.get(id, session)
+  const read = async (/* 当前图集合中的文档身份。 */ id: string) => {
+    // 按图身份读取当前会话可见的存储记录；旧节点、Run 或租约必须先显式迁移。
+    const document = await records.get(id, session)
+    if (document) storeAssertCurrentGraphSchema(document)
+    return document
+  }
   const atomic = <T>(/* 需要原子完成的图操作，接收同一事务的存储入口与会话。 */ callback: (/* 绑定本次事务的图存储接口，内部再次访问图时应复用。 */ store: GraphStore, /* 本次原子操作所处的有效事务会话。 */ tx: StorageSession) => Promise<T>): Promise<T> => /* 有外部事务时复用会话，否则为完整图操作创建新事务。 */
     session ? callback(sqliteCreateGraphStore(database, session), session) : database.transaction(/* 持久化层新建的事务会话，传给图操作及其存储入口。 */ tx => /* 向图操作提供绑定该事务的存储入口和会话。 */  callback(sqliteCreateGraphStore(database, tx), tx))
   function sqliteValidateGraph(/* 待创建或提交的图文档，普通写入需检查序列化大小。 */ document: GraphDocument, /* 可选待追加收据，既计入大小也用于识别收尾操作。 */ receipt?: GraphReceipt) {
     // 限制普通图写入的 JSON 大小，保留暂停、取消、删除和失败收尾路径。
+    storeAssertCurrentGraphSchema(document)
     if (receipt && ['run.pause', 'run.cancel', 'map.delete', 'work.fail'].includes(receipt.method)) return
     if (Buffer.byteLength(JSON.stringify(receipt ? { ...document, receipts: [...document.receipts, receipt] } : document)) > 8 * 1024 * 1024) throw new GraphError(413, 'GRAPH_LIMIT', RuntimeMessage.GRAPH_EXCEEDS_THE_8_MIB_DOCUMENT_LIMIT)
   }
   function sqliteIsLease(/* 读取出的图文档或 null，检查租约时不会修改。 */ document: GraphDocument | null, /* 请求方的工作身份、holder 与 fence，还须核对本机期限及运行状态。 */ proof: GraphWorkProof): document is GraphDocument {
     // 按本机时钟验证 holder/fence、到期时间和当前 Run；暂停或删除会使已有租约失效。
     const grant = document?.leases[proof.workId]
+    const run = document?.runs.find(item => item.id === grant?.runId)
     return !!document && !document.deletedAt && !!grant && grant.holderId === proof.holderId && grant.fence === proof.fence
-      && Date.parse(grant.expiresAt) > Date.now() && document.run?.id === grant.runId && !document.run.paused
-      && ['running', 'waiting', 'completed'].includes(document.run.status)
+      && Date.parse(grant.expiresAt) > Date.now() && !!run && !run.paused
+      && ['running', 'waiting', 'completed'].includes(run.status)
+  }
+  function sqliteMatchesGrant(/* 当前事务中的图状态。 */ document: GraphDocument, /* 最终提交携带的完整工作授权。 */ expected: GraphWorkGrant): boolean {
+    // 最终写入同时绑定存储租约、Run、Operation、阶段、槽位和冻结规格，不能只凭 holder/fence 提交。
+    const stored = document.leases[expected.workId]
+    const run = document.runs.find(item => item.id === expected.runId)
+    const operation = run?.operations.find(item => item.id === expected.operationId)
+    const stage = operation?.stages.find(item => item.stageId === expected.stageId)
+    return !!stored && expected.mapId === document.id && !!run
+      && operation?.status === 'running' && operation.specHash === expected.specHash
+      && !!stage?.expectedWorkIds.includes(expected.workId)
+      && !!stage.planSlots.some(slot => slot.id === expected.slotId && slot.stageId === expected.stageId)
+      && stored.mapId === expected.mapId && stored.runId === expected.runId && stored.operationId === expected.operationId
+      && stored.stageId === expected.stageId && stored.slotId === expected.slotId && stored.specHash === expected.specHash
+  }
+  function sqliteMatchesCommitGuard(/* 当前事务图。 */ document: GraphDocument, /* 调用方观察的占有条件。 */ guard?: GraphCommitGuard): boolean {
+    if (!guard) return true
+    if ((document.ownershipRevision ?? 0) !== guard.ownershipRevision) return false
+    if (guard.editor) {
+      const ownership = document.branchOwnerships?.[guard.editor.leaseId]
+      if (!ownership || ownership.kind !== 'editor' || ownership.ownerUserId !== guard.editor.ownerUserId
+        || ownership.holderId !== guard.editor.holderId || ownership.fence !== guard.editor.fence
+        || ownership.expiresAt === null || Date.parse(ownership.expiresAt) <= Date.now()) return false
+    }
+    if (guard.runId) {
+      const ownership = document.branchOwnerships?.[guard.runId]
+      if (!ownership || ownership.kind !== 'run' || ownership.runId !== guard.runId) return false
+    }
+    if (guard.control) {
+      const control = document.branchOwnerships?.[guard.control.leaseId]
+      if (!control || control.kind !== 'control' || control.runId !== guard.control.runId
+        || control.ownerUserId !== guard.control.ownerUserId || control.holderId !== guard.control.holderId
+        || control.fence !== guard.control.fence || Date.parse(control.expiresAt) <= Date.now()) return false
+    }
+    return true
   }
   return {
     initialize: async () => {
@@ -43,11 +84,17 @@ export function sqliteCreateGraphStore(/* 本机统一持久化入口，图操�
     },
     async *discover() {
       // 遍历仍运行且未暂停、未删除的图，用于恢复待执行工作。
-      for (const doc of await records.list({ 'run.status': 'running', 'run.paused': false, deletedAt: null }, session)) yield doc
+      for (const doc of await records.list({ deletedAt: null }, session)) {
+        storeAssertCurrentGraphSchema(doc)
+        if (doc.runs.some(run => run.status === 'running' && !run.paused)) yield doc
+      }
     },
     async *readDispatch() {
       // 遍历待通知图并携带当前分发版本。
-      for (const doc of await records.list({ 'dispatch.pending': true }, session)) yield { ...doc, dispatchVersion: doc.dispatch.version }
+      for (const doc of await records.list({ 'dispatch.pending': true }, session)) {
+        storeAssertCurrentGraphSchema(doc)
+        yield { ...doc, dispatchVersion: doc.dispatch.version }
+      }
     },
     async clearDispatch(/* 已发布通知的图文档身份。 */ id, /* 发送通知时记录的分发版本，清理必须仍匹配此值。 */ version) {
       // 仅清除调用者已经发布的版本，保留并发产生的新通知标记。
@@ -61,7 +108,9 @@ export function sqliteCreateGraphStore(/* 本机统一持久化入口，图操�
       return atomic(async (/* 原子包装器提供的图存储接口，此领取实现直接操作事务记录。 */ _store, /* 重新读取当前图并保存新租约共用的事务会话。 */ tx) => {
         // 以事务中读到的版本和租约为准，避免根据领取前的旧快照覆盖其他 Host 的授权。
         const current = await records.get(document.id, tx)
-        if (!current || current.deletedAt || current.revision !== document.revision || current.run?.id !== work.runId || current.run.status !== 'running' || current.run.paused) return null
+        if (current) storeAssertCurrentGraphSchema(current)
+        const run = current?.runs.find(item => item.id === work.runId)
+        if (!current || current.deletedAt || current.revision !== document.revision || !run || run.status !== 'running' || run.paused) return null
         const prior = current.leases[work.workId]
         if (prior && Date.parse(prior.expiresAt) > Date.now()) return null
         const grant: GraphWorkGrant = { ...work, hostId, holderId, leaseMs, fence: (prior?.fence ?? 0) + 1, expiresAt: new Date(Date.now() + leaseMs).toISOString() }
@@ -78,6 +127,7 @@ export function sqliteCreateGraphStore(/* 本机统一持久化入口，图操�
       return atomic(async (/* 事务图存储接口，此续租实现只使用 records 因而不读取它。 */ _store, /* 读取、验证和写回到期时间所共用的事务会话。 */ tx) => {
         // 在同一事务中检查租约并写回期限，避免校验与续租之间发生接管。
         const doc = await records.get(id, tx)
+        if (doc) storeAssertCurrentGraphSchema(doc)
         if (!sqliteIsLease(doc, proof)) return null
         const grant = doc.leases[proof.workId]
         grant.expiresAt = new Date(Date.now() + grant.leaseMs).toISOString()
@@ -89,6 +139,7 @@ export function sqliteCreateGraphStore(/* 本机统一持久化入口，图操�
       // 将匹配授权的到期时间置零，保留 fence 和工作身份供后续接管与结果确认使用。
       return !!await records.change(id, /* 记录更新器取得的独立图副本，匹配凭证后将其期限置零。 */ doc => {
         // 迟到的释放只影响自己的 holder/fence，不能撤销后来持有者的租约。
+        storeAssertCurrentGraphSchema(doc)
         const grant = doc.leases[proof.workId]
         if (!grant || grant.holderId !== proof.holderId || grant.fence !== proof.fence) return null
         grant.expiresAt = new Date(0).toISOString()
@@ -97,23 +148,54 @@ export function sqliteCreateGraphStore(/* 本机统一持久化入口，图操�
     },
     async list(/* 调用方已授权访问的工作区身份，限制摘要列表范围。 */ workspaceId) {
       // 返回未删除图的工作区摘要，并按更新时间与身份稳定排序。
-      return (await records.list({ workspaceId, deletedAt: null }, session)).sort((/* 排序比较左侧图记录，以更新时间和身份决定位置。 */ a, /* 排序比较右侧图记录，较新时间优先，同时间按身份排序。 */ b) => /* 优先展示最近更新的图，同时间按图身份排序。 */  b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
-        .map(/* 当前工作区内的未删除图，投影为列表摘要。 */ doc => /* 投影图列表所需的身份、版本、节点数量和更新时间。 */  ({ id: doc.id, workspaceId, revision: doc.revision, name: doc.name, nodeCount: doc.nodes.length,
-          claimCount: doc.nodes.filter(/* 图中的单个节点，仅事实节点进入 claimCount。 */ node => /* 仅将事实节点计入摘要中的事实数量。 */  node.data.kind === 'claim').length, updatedAt: doc.updatedAt }))
+      const documents = await records.list({ workspaceId, deletedAt: null }, session)
+      documents.forEach(storeAssertCurrentGraphSchema)
+      return documents.sort((/* 排序比较左侧图记录，以更新时间和身份决定位置。 */ a, /* 排序比较右侧图记录，较新时间优先，同时间按身份排序。 */ b) => /* 优先展示最近更新的图，同时间按图身份排序。 */  b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+        .map(/* 当前工作区内的未删除图，投影为通用类型摘要。 */ doc => ({
+          id: doc.id,
+          workspaceId,
+          revision: doc.revision,
+          name: doc.name,
+          nodeCount: doc.nodes.length,
+          typeCounts: Object.fromEntries([...doc.nodes.reduce((counts, node) => {
+            // 本机和协作存储保持相同的 typeId 聚合语义。
+            counts.set(node.typeId, (counts.get(node.typeId) ?? 0) + 1)
+            return counts
+          }, new Map<string, number>())]),
+          updatedAt: doc.updatedAt,
+        }))
     },
-    async commit(/* 业务计算的待提交图草稿，最终租约取自事务内最新记录。 */ document, /* 业务计算时的原图版本，最终提交必须仍相等。 */ expectedRevision, /* 随本次状态变化一同写入的请求收据。 */ receipt, /* 可选执行工作授权，存在时必须仍有效且 Run 正在运行。 */ grant) {
-      // 在事务中校验版本与可选工作租约，一起保存图变更、收据和待通知标记；暂停同时撤销本 Run 的租约。
+    async commitOwnership(/* 图身份。 */ mapId, /* 内容版本。 */ expectedRevision, /* 协调版本。 */ expectedOwnershipRevision,
+      /* 新占有字典。 */ ownerships: Record<string, GraphOwnershipRecord>, /* 幂等收据。 */ receipt: GraphOwnershipReceipt) {
+      return atomic(async (_store, tx) => {
+        const current = await records.get(mapId, tx)
+        if (!current || current.revision !== expectedRevision || (current.ownershipRevision ?? 0) !== expectedOwnershipRevision) return false
+        await records.replace({ ...current, branchOwnerships: ownerships, ownershipRevision: expectedOwnershipRevision + 1,
+          ownershipReceipts: [...(current.ownershipReceipts ?? []), receipt],
+          dispatch: { version: current.dispatch.version + 1, pending: true } }, tx)
+        return true
+      })
+    },
+    async commit(/* 业务计算的待提交图草稿，最终租约取自事务内最新记录。 */ document, /* 业务计算时的原图版本，最终提交必须仍相等。 */ expectedRevision, /* 随本次状态变化一同写入的请求收据。 */ receipt, /* 可选执行工作授权，存在时必须仍有效且 Run 正在运行。 */ grant, /* 可选分支占有条件。 */ guard) {
+      // 先保证草稿确实由 expectedRevision 快照派生，再在事务中校验持久版本与可选租约；CAS 失败后的分支重放必须从最新图重新生成草稿。
       sqliteValidateGraph(document, receipt)
+      if (document.revision !== expectedRevision) return false
       if (receipt.method === 'run.pause' && !session?.inTransaction()) throw new Error(RuntimeMessage.RUN_PAUSE_REQUIRES_THE_AUTHORIZATION_TRANSACTION)
       return atomic(async (/* 事务图接口，此提交实现直接使用 records 完成最终写入。 */ _store, /* 版本核对、租约检查与文档替换共用的事务会话。 */ tx) => {
         // 最终写入前重新读取当前图，拒绝版本变化、租约失效或已停止运行的工作提交。
         const current = await records.get(document.id, tx)
-        if (!current || current.revision !== expectedRevision || (grant && (!sqliteIsLease(current, grant) || current.run?.status !== 'running'))) return false
+        if (current) storeAssertCurrentGraphSchema(current)
+        if (!current || current.revision !== expectedRevision || !sqliteMatchesCommitGuard(current, guard)
+          || (grant && (!sqliteIsLease(current, grant) || !sqliteMatchesGrant(current, grant)
+            || current.runs.find(run => run.id === grant.runId)?.status !== 'running'))) return false
         // 图计算使用的快照可能早于最近一次续租，必须保留事务中读到的最新租约。
         const leases = current.leases
-        if (receipt.method === 'run.pause') for (const lease of Object.values(leases)) if (lease.runId === document.run!.id) lease.expiresAt = new Date(0).toISOString()
+        if (receipt.method === 'run.pause') for (const lease of Object.values(leases)) if (lease.runId === guard?.runId) lease.expiresAt = new Date(0).toISOString()
         await records.replace({ ...document, _id: document.id, revision: expectedRevision + 1, leases,
-          receipts: [...current.receipts, receipt], dispatch: { version: expectedRevision + 1, pending: true } }, tx)
+          ownershipRevision: guard ? document.ownershipRevision : current.ownershipRevision,
+          branchOwnerships: guard ? document.branchOwnerships : current.branchOwnerships,
+          ownershipReceipts: guard ? document.ownershipReceipts : current.ownershipReceipts,
+          receipts: [...current.receipts, receipt], dispatch: { version: current.dispatch.version + 1, pending: true } }, tx)
         return true
       })
     },

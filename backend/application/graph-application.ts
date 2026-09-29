@@ -16,13 +16,29 @@ import { GraphError } from '../modules/shared/domain-error'
 
 export function applicationBuildService(/* 供所有业务服务共享、并负责授权事务的持久化入口。 */ database: Persistence,
   /* 负责图变更通知、工作投递和临时活动的消息服务。 */ outbox: MessagingService,
-  /* 应用装配选项；leaseMs 以毫秒计且省略时由图服务使用 15000，另提供来源策略与默认 Agent 配置。 */ options: { leaseMs?: number; allowPrivateSources?: boolean; readUrl: SourceReader; seedConfiguration: GraphSeedConfiguration }) {
+  /* 租期、客户端协调策略、来源策略与默认 Agent 配置；客户端策略只能由服务装配决定。 */ options: { leaseMs?: number; clientLeases?: 'required' | 'none'; allowPrivateSources?: boolean; readUrl: SourceReader; seedConfiguration: GraphSeedConfiguration }) {
   // 将鉴权、工作区、资产和图服务接入同一持久化入口，并暴露消息服务的生命周期。
   const store = database.graph()
   const auth = authCreateService(database)
-  const control = controlCreateService(database, options.seedConfiguration)
+  const control = controlCreateService(database, options.seedConfiguration, options.clientLeases)
   const assets = assetsCreateService(database, auth, control, options)
-  const graph = graphCreateService(store, { ...options, readSource: assets.readSource })
+  const graphBase = graphCreateService(store, { ...options, now: () => database.now(), readSource: assets.readSource })
+  const graph = {
+    ...graphBase,
+    async propose(/* 内部 Host 提交的图身份。 */ mapId: string, /* 提案所属 Operation。 */ operationId: string,
+      /* 已解析的通用阶段提案。 */ proposal: Parameters<typeof graphBase.propose>[2], /* 当前 Work 凭证。 */ proof: GraphWorkProof) {
+      // Agent 产物与资产删除共用工作区写栅栏和数据库事务，避免同时通过引用检查形成写偏差。
+      return database.transaction(async session => {
+        const transactionalStore = database.graph(session)
+        const document = await transactionalStore.read(mapId)
+        if (!document || document.deletedAt) throw new GraphError(404, 'MAP_NOT_FOUND', RuntimeMessage.MAP_NOT_FOUND)
+        await control.fenceExecutionWrite(session, document.workspaceId)
+        const service = graphCreateService(transactionalStore, { ...options, now: () => database.now(), readSource: assets.readSource,
+          assertOutputReferences: (workspaceId, nodes, definitions) => assets.assertInternalReferences(workspaceId, nodes, definitions, session) })
+        return service.propose(mapId, operationId, proposal, proof)
+      })
+    },
+  }
 
   async function applicationReadMap(/* 已经解析用户身份并携带可选事务的请求上下文。 */ ctx: RequestContext, /* 需要读取并检查工作区权限的图身份。 */ mapId: string, /* 此次调用要求的最低工作区角色。 */ role: 'viewer' | 'editor') {
     // 沿用请求的存储会话读取图并检查工作区角色；写请求的权限检查还会更新授权栅栏，参与并发撤权仲裁。
@@ -58,7 +74,7 @@ export function applicationBuildService(/* 供所有业务服务共享、并负�
       // 校验用户的查看权限并拒绝已删除的图，再返回带节点产出来源的公开快照。
       const document = await applicationReadMap(await auth.read(token), mapId, 'viewer')
       if (document.deletedAt) throw new GraphError(404, 'MAP_NOT_FOUND', RuntimeMessage.MAP_NOT_FOUND)
-      return graphReadSnapshot(document)
+      return graphReadSnapshot(document, await database.now(), options.clientLeases !== 'none')
     },
     async authorizeMap(/* 建立事件订阅前需要校验的用户令牌。 */ token: string, /* 订阅目标图身份。 */ mapId: string) {
       // 确认用户可以查看仍存在的图，供事件订阅等不需要完整快照的入口鉴权。
@@ -80,9 +96,9 @@ export function applicationBuildService(/* 供所有业务服务共享、并负�
         await control.requireRole(ctx, query.params.workspaceId, 'viewer')
         return graph.read(query)
       }
-      if (query.method === 'map.get' || query.method === 'run.get') {
-        await applicationReadMap(ctx, query.params.mapId, 'viewer')
-        return graph.read(query)
+      if (query.method === 'map.get' || query.method === 'branch.get' || query.method === 'run.get') {
+        const document = await applicationReadMap(ctx, query.params.mapId, 'viewer')
+        return graph.read(query, query.method === 'branch.get' ? await control.definitions(ctx, document.workspaceId) : undefined)
       }
       return control.read(ctx, query)
     },
@@ -93,14 +109,16 @@ export function applicationBuildService(/* 供所有业务服务共享、并负�
       return auth.transact(token, async /* 已经锁定用户和令牌授权版本的写请求上下文。 */ ctx => {
         // 在已锁定写入身份的事务中分派命令，并为图写入绑定当前用户的幂等请求标识。
         if (command.method === 'asset.delete') return assets.delete(ctx, command)
-        if (!['map.create', 'map.delete', 'graph.apply', 'run.start', 'run.cancel', 'run.pause', 'run.resume', 'review.update', 'review.answer'].includes(command.method)) {
+        if (!['map.create', 'map.delete', 'graph.apply', 'branch.claim', 'branch.renew', 'branch.release', 'run.control.claim', 'run.control.renew', 'run.control.release',
+          'run.start', 'run.cancel', 'run.pause', 'run.resume', 'review.answer'].includes(command.method)) {
           return control.dispatch(ctx, command as ControlCommand)
         }
         const input = command as GraphCommand
         // 用用户 ID 隔离收据，避免其他成员猜中 requestId 后重放不属于自己的请求。
         const scoped = { ...input, requestId: `${ctx.actor.userId}:${input.requestId}` } as GraphCommand
         const transactionalStore = database.graph(ctx.session)
-        const service = graphCreateService(transactionalStore, options)
+        const service = graphCreateService(transactionalStore, { ...options, now: () => database.now(), readSource: assets.readSource,
+          assertOutputReferences: (workspaceId, nodes, definitions) => assets.assertInternalReferences(workspaceId, nodes, definitions, ctx.session) })
         if (input.method === 'map.create') {
           const workspace = await control.requireRole(ctx, input.params.workspaceId, 'editor')
           const prior = await transactionalStore.read(input.params.id)
@@ -115,8 +133,12 @@ export function applicationBuildService(/* 供所有业务服务共享、并负�
         const replay = document.receipts.some(/* 当前图中用于判断用户请求是否已经提交的收据。 */ receipt => /* 判断当前用户的请求是否已经提交。 */ receipt.requestId === scoped.requestId)
         // 重放沿用既有提交，不重新要求资产或配置仍满足新写入条件；图服务会核对收据的输入摘要。
         if (input.method === 'graph.apply' && !replay) await assets.assertReferences(ctx, document.workspaceId, input.params.changes.nodes?.put ?? [])
-        const configuration = input.method === 'run.start' && !replay ? await control.configuration(ctx, document.workspaceId) : undefined
-        return service.dispatch(scoped, configuration)
+        if (input.method === 'map.delete') return service.dispatch(scoped)
+        const execution = !replay && input.method === 'run.start' ? await control.executionCatalog(ctx, document.workspaceId) : undefined
+        const definitions = execution?.definitions ?? await control.definitions(ctx, document.workspaceId)
+        return service.dispatch(scoped, { definitions, actorUserId: ctx.actor.userId, ...(execution ? { run: {
+          definitions: execution.definitions, agents: execution.agents, tools: execution.tools, maxSlots: execution.maxSlots,
+        } } : {}) })
       })
     },
   }

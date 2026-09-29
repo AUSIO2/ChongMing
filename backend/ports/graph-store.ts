@@ -1,6 +1,13 @@
 // 图存储端口统一图文档、版本提交及工作租约，具体时钟和事务由适配器实现。
-import type { GraphMapSummary, GraphWork, GraphWorkGrant, GraphWorkProof } from '../../contracts/graph'
-import type { GraphDocument, GraphReceipt } from '../modules/graph/graph-record'
+import type { GraphBranchLeaseProof, GraphMapSummary, GraphRunControlProof, GraphWork, GraphWorkGrant, GraphWorkProof } from '../../contracts/graph'
+import type { GraphDocument, GraphOwnershipReceipt, GraphOwnershipRecord, GraphReceipt } from '../modules/graph/graph-record'
+
+export interface GraphCommitGuard {
+  ownershipRevision: number
+  editor?: GraphBranchLeaseProof & { ownerUserId: string }
+  runId?: string
+  control?: GraphRunControlProof & { ownerUserId: string; runId: string }
+}
 
 export interface GraphStore {
   // 准备适配器所需的索引或存储结构，完成后才能提供图服务。
@@ -27,6 +34,11 @@ export interface GraphStore {
   release(/* 需要释放租约的图身份。 */ mapId: string, /* 只允许释放相同 holder 和 fence 的工作证明。 */ proof: GraphWorkProof): Promise<boolean>
   // 列出指定工作区中未删除图的摘要；用户权限由调用方先行检查。
   list(/* 需要列出未删除图的工作区身份。 */ workspaceId: string): Promise<GraphMapSummary[]>
-  // 原子校验版本与可选租约，提交图、收据和分发标记；暂停必须沿用授权事务并撤销租约。
-  commit(/* 包含业务变更但尚未推进持久化版本的图草稿。 */ document: GraphDocument, /* 调用方读取草稿时观察到的图版本。 */ expectedRevision: number, /* 与图状态一起原子追加的幂等收据。 */ receipt: GraphReceipt, /* 执行结果提交时必须在最终写入处匹配的可选租约授权。 */ grant?: GraphWorkGrant): Promise<boolean>
+  // 只更新分支占有状态和独立协调版本；内容 revision 不变，仍通过 dispatch 唤醒实时订阅。
+  commitOwnership(/* 图身份。 */ mapId: string, /* 读取 scope 时的内容版本。 */ expectedRevision: number,
+    /* 读取占有时的协调版本。 */ expectedOwnershipRevision: number, /* 完整替换的新占有字典。 */ ownerships: Record<string, GraphOwnershipRecord>,
+    /* 幂等占有收据。 */ receipt: GraphOwnershipReceipt): Promise<boolean>
+  // 原子校验存储串行版本与可选完整租约，提交图、收据和分发标记；false 后只能基于重新读取的文档重放局部变化，不能给旧草稿换一个新版本号后盲写。
+  // revision 是整文档的物理 CAS token；节点/边 revision 或其分支摘要才是业务并发域。这样服务层可在不相交分支变化后安全重放，同时仍由存储层串行化最终写入。
+  commit(/* 包含业务变更但尚未推进持久化版本的图草稿；其 revision 必须等于 expectedRevision。 */ document: GraphDocument, /* 生成该草稿的同一图快照版本。 */ expectedRevision: number, /* 与图状态一起原子追加的幂等收据。 */ receipt: GraphReceipt, /* 执行结果提交时必须完整匹配持久授权和当前冻结阶段的可选租约。 */ grant?: GraphWorkGrant, /* 分支占有最终写条件。 */ guard?: GraphCommitGuard): Promise<boolean>
 }

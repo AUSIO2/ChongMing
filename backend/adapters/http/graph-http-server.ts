@@ -7,6 +7,9 @@ import { pipeline } from 'node:stream/promises'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type {
   GraphChanges,
+  GraphBranchProof,
+  GraphBranchLeaseProof,
+  GraphRunControlProof,
   GraphCommand,
   GraphFailure,
   GraphQuery,
@@ -17,17 +20,16 @@ import type {
 } from '../../../contracts/graph'
 import type { ControlCommand, ControlQuery } from '../../../contracts/control'
 import { GraphError } from '../../modules/shared/domain-error'
-import { graphInputReadNodeData } from '../../modules/graph/graph-input'
+import { graphInputReadAgentRef, graphInputReadDefinitionRef, graphInputReadNode, graphInputReadPayload } from '../../modules/graph/graph-input'
 import type { ApplicationService } from '../../application/graph-application'
 import { controlReadCommand, controlReadQuery } from '../../modules/workspace/workspace-input'
 import { assetsReadCommand } from '../../modules/assets/asset-service'
 import { eventsOpen } from './graph-event-stream'
-import { configurationReadSlots } from '../../modules/workspace/agent-configuration'
 import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 import {
   inputReadObject as apiReadObject, inputReadString as apiReadString, inputReadId as apiReadId,
   inputReadRevision as apiReadRevision, inputReadArray as apiReadArray,
-  inputReadNames as apiReadNames, inputReadScore as apiReadScore, inputReadIds as apiReadIds,
+  inputReadNames as apiReadNames, inputReadIds as apiReadIds,
 } from '../../modules/shared/input-validation'
 
 const MAX_BODY_BYTES = 1_048_576
@@ -66,17 +68,16 @@ function apiReadChanges(/* 图编辑请求中的原始 changes 对象，需逐�
     nodes: nodes && {
       put: nodes.put === undefined ? undefined : apiReadArray(nodes.put, 'params.changes.nodes.put').map((/* 本批待新增或更新节点的原始 JSON 条目。 */ value, /* 节点在提交数组中的位置，用于生成准确的校验字段路径。 */ index) => {
         // 校验单个节点身份及对应类型的数据结构。
-        const item = apiReadObject(value, ['id', 'data'], `params.changes.nodes.put[${index}]`)
-        return { id: apiReadId(item.id, 'node.id'), data: graphInputReadNodeData(item.data, 'node.data') }
+        return graphInputReadNode(value, `params.changes.nodes.put[${index}]`)
       }),
       remove: nodes.remove === undefined ? undefined : apiReadIds(nodes.remove, 'params.changes.nodes.remove'),
     },
     edges: edges && {
       put: edges.put === undefined ? undefined : apiReadArray(edges.put, 'params.changes.edges.put').map((/* 本批待新增或更新关系的原始 JSON 条目。 */ value, /* 关系在提交数组中的位置，用于生成准确的校验字段路径。 */ index) => {
         // 校验单条关系的种类、身份与端点字段。
-        const item = apiReadObject(value, ['id', 'kind', 'from', 'to'], `params.changes.edges.put[${index}]`)
+        const item = apiReadObject(value, ['id', 'kind', 'from', 'to', 'label'], `params.changes.edges.put[${index}]`)
         const kind = item.kind
-        if (kind !== 'derived-from' && kind !== 'mentions' && kind !== 'verifies' && kind !== 'related-to') {
+        if (kind !== 'successor' && kind !== 'reference') {
           throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.EDGE_KIND_IS_INVALID)
         }
         return {
@@ -84,11 +85,35 @@ function apiReadChanges(/* 图编辑请求中的原始 changes 对象，需逐�
           kind,
           from: apiReadId(item.from, 'edge.from'),
           to: apiReadId(item.to, 'edge.to'),
+          ...(item.label === undefined ? {} : { label: apiReadString(item.label, 'edge.label') }),
         }
       }),
       remove: edges.remove === undefined ? undefined : apiReadIds(edges.remove, 'params.changes.edges.remove'),
     },
   }
+}
+function apiReadBranchProof(/* 人工编辑携带的分支根及其内容版本。 */ value: unknown): GraphBranchProof {
+  // 现有分支必须携带不透明版本；null 仅由领域层判定是否确为本次新建的独立根。
+  const input = apiReadObject(value, ['rootIds', 'expectedVersion'], 'params.branch')
+  const rootIds = apiReadIds(input.rootIds, 'params.branch.rootIds')
+  if (!rootIds.length) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.BRANCH_ROOTS_MUST_NOT_BE_EMPTY)
+  if (new Set(rootIds).size !== rootIds.length) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTAINS_DUPLICATE_IDS, 'params.branch.rootIds'))
+  return {
+    rootIds,
+    expectedVersion: input.expectedVersion === null ? null : apiReadString(input.expectedVersion, 'params.branch.expectedVersion'),
+  }
+}
+function apiReadBranchLeaseProof(/* 客户端会话持有的分支租约证明。 */ value: unknown): GraphBranchLeaseProof {
+  const input = apiReadObject(value, ['leaseId', 'holderId', 'fence'], 'params.lease')
+  const fence = apiReadRevision(input.fence, 'params.lease.fence')
+  if (fence < 1) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.FENCE_MUST_BE_POSITIVE)
+  return { leaseId: apiReadId(input.leaseId, 'params.lease.leaseId'), holderId: apiReadId(input.holderId, 'params.lease.holderId'), fence }
+}
+function apiReadRunControlProof(/* 客户端窗口持有的 Run 控制租约。 */ value: unknown): GraphRunControlProof {
+  const input = apiReadObject(value, ['leaseId', 'holderId', 'fence'], 'params.control')
+  const fence = apiReadRevision(input.fence, 'params.control.fence')
+  if (fence < 1) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.FENCE_MUST_BE_POSITIVE)
+  return { leaseId: apiReadId(input.leaseId, 'params.control.leaseId'), holderId: apiReadId(input.holderId, 'params.control.holderId'), fence }
 }
 function apiReadQuery(/* 客户端原始查询信封，包含待验证的方法及参数。 */ value: unknown): GraphQuery | ControlQuery {
   // 按查询方法校验图、Run 或资产身份，其余查询交给工作区协议解析器。
@@ -102,6 +127,13 @@ function apiReadQuery(/* 客户端原始查询信封，包含待验证的方法�
     const params = apiReadObject(envelope.params, ['mapId'], 'params')
     return { method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId') } }
   }
+  if (envelope.method === 'branch.get') {
+    const params = apiReadObject(envelope.params, ['mapId', 'rootIds'], 'params')
+    const rootIds = apiReadIds(params.rootIds, 'params.rootIds')
+    if (!rootIds.length) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.BRANCH_ROOTS_MUST_NOT_BE_EMPTY)
+    if (new Set(rootIds).size !== rootIds.length) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTAINS_DUPLICATE_IDS, 'params.rootIds'))
+    return { method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId'), rootIds } }
+  }
   if (envelope.method === 'run.get') {
     const params = apiReadObject(envelope.params, ['mapId', 'runId'], 'params')
     return { method: 'run.get', params: { mapId: apiReadId(params.mapId, 'mapId'), runId: apiReadId(params.runId, 'runId') } }
@@ -111,6 +143,59 @@ function apiReadQuery(/* 客户端原始查询信封，包含待验证的方法�
     return { method: 'asset.get', params: { assetId: apiReadId(params.assetId, 'assetId') } }
   }
   return controlReadQuery(value)
+}
+function apiReadPlanSource(/* 运行步骤输入绑定的原始来源。 */ value: unknown, /* 报错字段路径。 */ label: string) {
+  // 来源只能绑定显式 scope 成员或一个已声明前序步骤的命名输出端口。
+  const input = apiReadObject(value, ['kind', 'nodeIds', 'stepId', 'port'], label)
+  if (input.kind === 'scope') {
+    apiReadObject(value, ['kind', 'nodeIds'], label)
+    return { kind: 'scope' as const, nodeIds: apiReadIds(input.nodeIds, `${label}.nodeIds`) }
+  }
+  if (input.kind === 'step') {
+    apiReadObject(value, ['kind', 'stepId', 'port'], label)
+    return { kind: 'step' as const, stepId: apiReadString(input.stepId, `${label}.stepId`), port: apiReadString(input.port, `${label}.port`) }
+  }
+  throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.RUN_PLAN_INVALID_VALUE, label))
+}
+function apiReadPlanBindings(/* 运行步骤的输入或上下文绑定数组。 */ value: unknown, /* 报错字段路径。 */ label: string) {
+  return apiReadArray(value, label).map((entry, index) => {
+    const item = apiReadObject(entry, ['port', 'source'], `${label}[${index}]`)
+    return { port: apiReadString(item.port, `${label}[${index}].port`), source: apiReadPlanSource(item.source, `${label}[${index}].source`) }
+  })
+}
+function apiReadRunPlan(/* run.start 中尚未验证的有限步骤计划。 */ value: unknown): import('../../../contracts/graph').GraphRunPlan {
+  // 这里只解析声明式 DAG；端口、类型、依赖和基数由冻结定义目录在 Run 创建时校验。
+  const input = apiReadObject(value, ['steps'], 'params.plan')
+  const steps = apiReadArray(input.steps, 'params.plan.steps').map((entry, index) => {
+    const label = `params.plan.steps[${index}]`
+    const item = apiReadObject(entry, ['id', 'transitionRef', 'dependsOn', 'input', 'context', 'grouping', 'onEmpty'], label)
+    const grouping = apiReadObject(item.grouping, ['mode', 'groups'], `${label}.grouping`)
+    let parsedGrouping: import('../../../contracts/graph').GraphPlanGrouping
+    if (grouping.mode === 'each' || grouping.mode === 'all') {
+      apiReadObject(item.grouping, ['mode'], `${label}.grouping`)
+      parsedGrouping = { mode: grouping.mode }
+    } else if (grouping.mode === 'explicit') {
+      parsedGrouping = { mode: 'explicit', groups: apiReadArray(grouping.groups, `${label}.grouping.groups`).map((entry, groupIndex) => {
+        const group = apiReadObject(entry, ['id', 'members'], `${label}.grouping.groups[${groupIndex}]`)
+        if (!group.members || typeof group.members !== 'object' || Array.isArray(group.members)) {
+          throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_MUST_BE_AN_OBJECT, `${label}.grouping.groups[${groupIndex}].members`))
+        }
+        const members = group.members as Record<string, unknown>
+        return { id: apiReadString(group.id, 'group.id'), members: Object.fromEntries(Object.entries(members).map(([port, ids]) => [port, apiReadIds(ids, `members.${port}`)])) }
+      }) }
+    } else throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.RUN_PLAN_INVALID_VALUE, `${label}.grouping`))
+    if (item.onEmpty !== 'skip' && item.onEmpty !== 'fail') throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.RUN_PLAN_INVALID_VALUE, `${label}.onEmpty`))
+    return {
+      id: apiReadString(item.id, `${label}.id`),
+      transitionRef: graphInputReadDefinitionRef(item.transitionRef, `${label}.transitionRef`),
+      dependsOn: apiReadNames(item.dependsOn, `${label}.dependsOn`),
+      input: apiReadPlanBindings(item.input, `${label}.input`),
+      context: apiReadPlanBindings(item.context, `${label}.context`),
+      grouping: parsedGrouping,
+      onEmpty: item.onEmpty as 'skip' | 'fail',
+    }
+  })
+  return { steps }
 }
 function apiReadCommand(/* 客户端原始命令信封，需验证请求身份、方法及对应参数。 */ value: unknown): GraphCommand | ControlCommand {
   // 按命令种类校验幂等身份、版本及业务参数，并分派资产和管理命令解析。
@@ -143,74 +228,83 @@ function apiReadCommand(/* 客户端原始命令信封，需验证请求身份�
     }
   }
   if (envelope.method === 'graph.apply') {
-    const params = apiReadObject(envelope.params, ['mapId', 'expectedRevision', 'changes'], 'params')
+    const params = apiReadObject(envelope.params, ['mapId', 'branch', 'lease', 'changes'], 'params')
     return {
       requestId,
       method: envelope.method,
       params: {
         mapId: apiReadId(params.mapId, 'params.mapId'),
-        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
+        branch: apiReadBranchProof(params.branch),
+        ...(params.lease === undefined ? {} : { lease: apiReadBranchLeaseProof(params.lease) }),
         changes: apiReadChanges(params.changes),
       },
     }
   }
+  if (envelope.method === 'branch.claim') {
+    const params = apiReadObject(envelope.params, ['mapId', 'rootIds', 'holderId'], 'params')
+    const rootIds = apiReadIds(params.rootIds, 'params.rootIds')
+    if (!rootIds.length || new Set(rootIds).size !== rootIds.length) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.BRANCH_ROOTS_MUST_NOT_BE_EMPTY)
+    return { requestId, method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId'), rootIds,
+      holderId: apiReadId(params.holderId, 'params.holderId') } }
+  }
+  if (envelope.method === 'branch.renew' || envelope.method === 'branch.release') {
+    const params = apiReadObject(envelope.params, ['mapId', 'lease'], 'params')
+    return { requestId, method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId'), lease: apiReadBranchLeaseProof(params.lease) } }
+  }
+  if (envelope.method === 'run.control.claim') {
+    const params = apiReadObject(envelope.params, ['mapId', 'runId', 'holderId'], 'params')
+    return { requestId, method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId'),
+      runId: apiReadId(params.runId, 'params.runId'), holderId: apiReadId(params.holderId, 'params.holderId') } }
+  }
+  if (envelope.method === 'run.control.renew' || envelope.method === 'run.control.release') {
+    const params = apiReadObject(envelope.params, ['mapId', 'runId', 'control'], 'params')
+    return { requestId, method: envelope.method, params: { mapId: apiReadId(params.mapId, 'params.mapId'),
+      runId: apiReadId(params.runId, 'params.runId'), control: apiReadRunControlProof(params.control) } }
+  }
   if (envelope.method === 'run.start') {
     const params = apiReadObject(
       envelope.params,
-      ['mapId', 'expectedRevision', 'id', 'scope', 'until', 'mode', 'regenerate'],
+      ['mapId', 'id', 'branch', 'lease', 'scope', 'plan', 'mode', 'regenerate'],
       'params',
     )
     if (params.mode !== 'auto' && params.mode !== 'human-in-loop') {
       throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.PARAMS_MODE_IS_INVALID)
     }
+    const branch = apiReadBranchProof(params.branch)
+    if (branch.expectedVersion === null) {
+      throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_MUST_BE_A_NON_EMPTY_STRING, 'params.branch.expectedVersion'))
+    }
     return {
       requestId,
       method: envelope.method,
       params: {
         mapId: apiReadId(params.mapId, 'params.mapId'),
-        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
         id: apiReadId(params.id, 'params.id'),
+        branch,
+        ...(params.lease === undefined ? {} : { lease: apiReadBranchLeaseProof(params.lease) }),
         scope: { nodeIds: apiReadIds(apiReadObject(params.scope, ['nodeIds'], 'scope').nodeIds, 'scope.nodeIds') },
-        until: apiReadUntil(params.until),
+        plan: apiReadRunPlan(params.plan),
         ...(params.regenerate === undefined ? {} : { regenerate: apiReadBoolean(params.regenerate, 'regenerate') }),
         mode: params.mode,
       },
     }
   }
   if (envelope.method === 'run.cancel' || envelope.method === 'run.pause' || envelope.method === 'run.resume') {
-    const params = apiReadObject(envelope.params, ['mapId', 'expectedRevision', 'runId'], 'params')
+    const params = apiReadObject(envelope.params, ['mapId', 'runId', 'control'], 'params')
     return {
       requestId,
       method: envelope.method,
       params: {
         mapId: apiReadId(params.mapId, 'params.mapId'),
-        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
         runId: apiReadId(params.runId, 'params.runId'),
-      },
-    }
-  }
-  if (envelope.method === 'review.update') {
-    const params = apiReadObject(envelope.params,
-      ['mapId', 'expectedRevision', 'runId', 'operationId', 'reviewId', 'expectedReviewRevision', 'reason', 'slots'], 'params')
-    return {
-      requestId,
-      method: envelope.method,
-      params: {
-        mapId: apiReadId(params.mapId, 'params.mapId'),
-        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
-        runId: apiReadId(params.runId, 'params.runId'),
-        operationId: apiReadString(params.operationId, 'operationId'),
-        reviewId: apiReadId(params.reviewId, 'params.reviewId'),
-        expectedReviewRevision: apiReadRevision(params.expectedReviewRevision, 'params.expectedReviewRevision'),
-        reason: apiReadString(params.reason, 'params.reason'),
-        slots: configurationReadSlots(params.slots),
+        ...(params.control === undefined ? {} : { control: apiReadRunControlProof(params.control) }),
       },
     }
   }
   if (envelope.method === 'review.answer') {
     const params = apiReadObject(
       envelope.params,
-      ['mapId', 'expectedRevision', 'runId', 'operationId', 'reviewId', 'expectedReviewRevision', 'decision'],
+      ['mapId', 'runId', 'operationId', 'reviewId', 'expectedReviewRevision', 'decision', 'control'],
       'params',
     )
     if (params.decision !== 'approve' && params.decision !== 'reject') {
@@ -221,7 +315,6 @@ function apiReadCommand(/* 客户端原始命令信封，需验证请求身份�
       method: envelope.method,
       params: {
         mapId: apiReadId(params.mapId, 'params.mapId'),
-        expectedRevision: apiReadRevision(params.expectedRevision, 'params.expectedRevision'),
         runId: apiReadId(params.runId, 'params.runId'),
         operationId: apiReadString(params.operationId, 'operationId'),
         reviewId: apiReadId(params.reviewId, 'params.reviewId'),
@@ -230,6 +323,7 @@ function apiReadCommand(/* 客户端原始命令信封，需验证请求身份�
           'params.expectedReviewRevision',
         ),
         decision: params.decision,
+        ...(params.control === undefined ? {} : { control: apiReadRunControlProof(params.control) }),
       },
     }
   }
@@ -241,67 +335,58 @@ function apiReadBoolean(/* 待校验的布尔输入，不接受字符串或数�
   if (typeof value !== 'boolean') throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_MUST_BE_BOOLEAN, label))
   return value
 }
-function apiReadUntil(/* 客户端指定的运行终点，必须属于支持的三个业务阶段。 */ value: unknown): 'news' | 'claims' | 'verified' {
-  // 将执行终点限制为新闻、事实或已核查三种阶段。
-  if (value !== 'news' && value !== 'claims' && value !== 'verified') throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.UNTIL_MUST_BE_NEWS_CLAIMS_OR_VERIFIED)
-  return value
-}
-function apiReadOutputs(/* 解析提案中的原始新闻数组，尚未验证内容和上下文。 */ value: unknown, /* 固定为新闻的输出种类，同时确定重载返回类型。 */ kind: 'news'): import('../../../contracts/graph').GraphNewsOutput[]
-function apiReadOutputs(/* 拆分报告中的原始事实数组，尚未验证内容和分类。 */ value: unknown, /* 固定为事实的输出种类，同时确定重载返回类型。 */ kind: 'claim'): import('../../../contracts/graph').GraphClaimOutput[]
-function apiReadOutputs(/* 待验证的模型产物数组，单次 Operation 最多接受 256 条。 */ value: unknown, /* 本次产物的业务种类，决定允许的字段及返回结构。 */ kind: 'news' | 'claim') {
-  // 验证至多 256 条新闻或事实产物，并投影为对应输出结构。
-  const items = apiReadArray(value, kind)
-  if (items.length > 256) throw new GraphError(413, 'OUTPUT_LIMIT', RuntimeMessage.AT_MOST_256_OUTPUTS_PER_OPERATION)
-  return items.map(/* 新闻或事实数组中的单个未验证产物。 */ value => {
-    // 按产物类型校验内容及上下文或分类，剔除不属于输出协议的字段。
-    const item = apiReadObject(value, kind === 'news' ? ['content', 'context'] : ['content', 'category'], kind)
-    const node = graphInputReadNodeData({ ...item, kind }, kind)
-    if (node.kind === 'news') return { content: node.content, context: node.context }
-    if (node.kind === 'claim') return { content: node.content, category: node.category }
-    throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.INVALID_OUTPUT_KIND)
-  })
-}
 function apiReadDataProposal(/* Host 发送的原始提案载荷，需按提案种类收窄。 */ value: unknown): GraphDataProposal {
-  // 按提案类型校验路由、报告、候选选择与汇总参数，建立可信提交结构。
+  // 解析通用 outputs/selection/plan 信封；精确 schema、依赖和基数由 Operation 冻结合同复核。
   const input = apiReadObject(value,
-    ['mapId', 'operationId', 'id', 'kind', 'reason', 'slots', 'routeRevision', 'slotId', 'score', 'reportIds', 'news', 'claims', 'selected'], 'data.propose')
+    ['mapId', 'operationId', 'id', 'specHash', 'kind', 'reason', 'outputs', 'selection', 'slots'], 'data.propose')
   const base = {
     mapId: apiReadId(input.mapId, 'mapId'),
     operationId: apiReadString(input.operationId, 'operationId'),
     id: apiReadString(input.id, 'id'),
+    specHash: apiReadString(input.specHash, 'specHash'),
     reason: apiReadString(input.reason, 'reason'),
   }
-  if (input.kind === 'route') {
-    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'slots'], 'route')
-    return { ...base, kind: 'route', slots: configurationReadSlots(input.slots) }
+  if (input.kind === 'outputs') {
+    apiReadObject(value, ['mapId', 'operationId', 'id', 'specHash', 'kind', 'reason', 'outputs'], 'outputs')
+    const outputs = apiReadArray(input.outputs, 'outputs')
+    if (outputs.length > 256) throw new GraphError(413, 'OUTPUT_LIMIT', RuntimeMessage.AT_MOST_256_OUTPUTS_PER_OPERATION)
+    return { ...base, kind: 'outputs', outputs: outputs.map((entry, index) => {
+      const item = apiReadObject(entry, ['key', 'port', 'typeRef', 'payload', 'sourceKeys'], `outputs[${index}]`)
+      return {
+        key: apiReadString(item.key, `outputs[${index}].key`),
+        port: apiReadString(item.port, `outputs[${index}].port`),
+        typeRef: graphInputReadDefinitionRef(item.typeRef, `outputs[${index}].typeRef`),
+        payload: graphInputReadPayload(item.payload, `outputs[${index}].payload`),
+        ...(item.sourceKeys === undefined ? {} : { sourceKeys: apiReadNames(item.sourceKeys, `outputs[${index}].sourceKeys`) }),
+      }
+    }) }
   }
-  if (input.kind === 'parse') {
-    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'news'], 'parse')
-    return { ...base, kind: 'parse', news: apiReadOutputs(input.news, 'news') }
+  if (input.kind === 'selection') {
+    apiReadObject(value, ['mapId', 'operationId', 'id', 'specHash', 'kind', 'reason', 'selection'], 'selection')
+    const selection = apiReadArray(input.selection, 'selection')
+    if (selection.length > 256) throw new GraphError(413, 'OUTPUT_LIMIT', RuntimeMessage.AT_MOST_256_CANDIDATES_PER_OPERATION)
+    return { ...base, kind: 'selection', selection: selection.map((entry, index) => {
+      const item = apiReadObject(entry, ['workId', 'key'], `selection[${index}]`)
+      return { workId: apiReadString(item.workId, `selection[${index}].workId`), key: apiReadString(item.key, `selection[${index}].key`) }
+    }) }
   }
-  const routeRevision = apiReadRevision(input.routeRevision, 'routeRevision')
-  if (input.kind === 'split-report') {
-    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'slotId', 'claims'], 'split-report')
-    return { ...base, kind: 'split-report', routeRevision, slotId: apiReadString(input.slotId, 'slotId'), claims: apiReadOutputs(input.claims, 'claim') }
-  }
-  if (input.kind === 'split-merge') {
-    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'reportIds', 'selected'], 'split-merge')
-    const selected = apiReadArray(input.selected, 'selected').map(/* 拆分汇总中的单个候选引用，含报告身份与候选索引。 */ value => {
-      // 校验被选候选的报告身份与非负整数索引。
-      const item = apiReadObject(value, ['reportId', 'index'], 'selection')
-      return { reportId: apiReadString(item.reportId, 'reportId'), index: apiReadRevision(item.index, 'index') }
-    })
-    if (selected.length > 256) throw new GraphError(413, 'OUTPUT_LIMIT', RuntimeMessage.AT_MOST_256_CANDIDATES_PER_OPERATION)
-    return { ...base, kind: 'split-merge', routeRevision, reportIds: apiReadNames(input.reportIds, 'reportIds'), selected }
-  }
-  const score = apiReadScore(input.score)
-  if (input.kind === 'report') {
-    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'slotId', 'score'], 'report')
-    return { ...base, kind: 'report', routeRevision, score, slotId: apiReadString(input.slotId, 'slotId') }
-  }
-  if (input.kind === 'merge') {
-    apiReadObject(value, ['mapId', 'operationId', 'id', 'kind', 'reason', 'routeRevision', 'reportIds', 'score'], 'merge')
-    return { ...base, kind: 'merge', routeRevision, score, reportIds: apiReadNames(input.reportIds, 'reportIds') }
+  if (input.kind === 'plan') {
+    apiReadObject(value, ['mapId', 'operationId', 'id', 'specHash', 'kind', 'reason', 'slots'], 'plan')
+    const slots = apiReadArray(input.slots, 'slots')
+    if (slots.length > 256) throw new GraphError(413, 'OUTPUT_LIMIT', RuntimeMessage.AT_MOST_256_CANDIDATES_PER_OPERATION)
+    return { ...base, kind: 'plan', slots: slots.map((entry, index) => {
+      const item = apiReadObject(entry, ['id', 'stageId', 'agentRef', 'angle', 'hint', 'priority', 'tools'], `slots[${index}]`)
+      if (!['high', 'medium', 'low'].includes(item.priority as string)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.INVALID_SLOT_PRIORITY)
+      return {
+        id: apiReadString(item.id, `slots[${index}].id`),
+        stageId: apiReadString(item.stageId, `slots[${index}].stageId`),
+        agentRef: graphInputReadAgentRef(item.agentRef, `slots[${index}].agentRef`),
+        angle: apiReadString(item.angle, `slots[${index}].angle`),
+        hint: typeof item.hint === 'string' ? item.hint : (() => { throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.SLOT_HINT_MUST_BE_A_STRING) })(),
+        priority: item.priority as 'high' | 'medium' | 'low',
+        tools: apiReadNames(item.tools, `slots[${index}].tools`),
+      }
+    }) }
   }
   throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.PROPOSAL_KIND_IS_INVALID)
 }
@@ -323,7 +408,7 @@ function apiReadUserToken(/* 携带用户 Authorization 头的请求，此处只
 function apiReadWorkId(/* 未经校验的工作身份，字符和长度必须符合租约键约定。 */ value: unknown): string {
   // 限制工作身份的字符集合与长度，供租约索引使用。
   const workId = apiReadString(value, 'workId')
-  if (!/^[a-zA-Z0-9_:-]{1,256}$/.test(workId)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.WORKID_IS_INVALID)
+  if (!/^[a-zA-Z0-9_:-]{1,512}$/.test(workId)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.WORKID_IS_INVALID)
   return workId
 }
 function apiReadProof(/* 已经确认是对象的原始工作凭证字段，仍需逐项验证。 */ input: Record<string, unknown>): GraphWorkProof {
@@ -422,7 +507,7 @@ export function apiCreateServer(
         apiValidateToken(request, internalToken)
         const proof = apiReadWorkProof(request)
         const input = apiReadDataProposal(await apiReadBody(request))
-        apiWriteJson(response, 200, { ok: true, data: await service.propose(input, proof) })
+        apiWriteJson(response, 200, { ok: true, data: await service.propose(input.mapId, input.operationId, input, proof) })
         return
       }
       if (request.method === 'POST' && request.url === '/internal/v1/activity') {

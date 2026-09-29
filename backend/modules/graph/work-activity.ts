@@ -11,14 +11,17 @@ export async function activityReadRecord(/* 用于按存储时钟校验工作租
   const document = await store.readLease(mapId, proof)
   const work = document && workReadItems(document).find(/* 当前与上报工作身份匹配的可执行工作。 */ work => /* 从当前可执行工作中确认上报者对应的工作仍存在。 */ work.workId === proof.workId)
   if (!document || !work) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.ACTIVITY_NO_LONGER_BELONGS_TO_EXECUTABLE_WORK)
-  const run = document.run!
-  const operation = run.operations.find(/* 当前与工作绑定的 Operation。 */ operation => /* 读取活动所属操作以选择其阶段配置。 */ operation.id === work.operationId)!
-  const configuration = operation.kind === 'split' ? run.configuration.split! : run.configuration
-  const actor = work.actor
-  const slot = actor.role === 'worker' ? operation.route!.slots.find(/* 当前与 Worker 角色槽位匹配的路由项。 */ slot => /* 取得 Worker 绑定的路由槽位，确定实际执行 Agent。 */ slot.id === actor.slotId)! : null
-  const profile = actor.role === 'parse' ? run.configuration.parse!
-    : actor.role === 'router' ? configuration.router
-    : actor.role === 'merge' ? configuration.merger : configuration.agents.find(/* 当前与槽位绑定身份匹配的冻结 Agent 配置。 */ agent => /* 从本 Run 冻结的阶段配置中读取槽位 Agent 的名称。 */ agent.id === slot!.agentId)!
-  return { mapId, runId: run.id, operationId: operation.id, nodeId: operation.targetId, workId: work.workId,
-    actor, agentName: profile.name.slice(0, 256), status, fence: proof.fence, sequence, updatedAt: new Date().toISOString() }
+  const run = document.runs.find(item => item.id === work.runId)!
+  const operation = run.operations.find(/* 当前与工作绑定的 Operation。 */ operation => /* 读取活动所属操作以选择其冻结阶段。 */ operation.id === work.operationId)!
+  const stage = operation.executionSpec.stages.find(item => item.id === work.stageId)!
+  const group = operation.stages.find(item => item.stageId === work.stageId)!
+  const slot = group.planSlots.find(item => item.id === work.slotId)
+  const plannedAgent = operation.executionSpec.stages.flatMap(item => item.plan?.agents ?? [])
+    .find(item => slot && item.ref.id === slot.agentRef.id && item.ref.version === slot.agentRef.version)
+  const agent = slot && !(slot.id === stage.id && slot.agentRef.id === stage.agent.ref.id && slot.agentRef.version === stage.agent.ref.version)
+    ? plannedAgent : stage.agent
+  if (!agent) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.ACTIVITY_NO_LONGER_BELONGS_TO_EXECUTABLE_WORK)
+  return { mapId, runId: run.id, operationId: operation.id, nodeId: operation.group.inputRefs[0]?.id ?? operation.id,
+    workId: work.workId, stageId: work.stageId, slotId: work.slotId, agentName: agent.profile.name.slice(0, 256),
+    status, fence: proof.fence, sequence, updatedAt: new Date().toISOString() }
 }

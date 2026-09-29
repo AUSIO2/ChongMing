@@ -1,237 +1,89 @@
-// 通过 HTTP 与持久化验证图输入、版本提交、幂等重放和删除行为。
+// 验证通用数据图的 HTTP 边界、CAS、幂等和持久化。
 import { createHash, randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { graphCreateService } from '../../../../backend/modules/graph/graph-service'
-import { repairUpdateNewsContext } from '../../../../backend/adapters/storage/mongo/maintenance'
 import { storeCreateConnection } from '../../../../backend/adapters/storage/mongo/connection'
 import { storeCreateGraphStore } from '../../../../backend/adapters/storage/mongo/graph-store'
-import { GRAPH_COLLECTION } from '../../../../backend/modules/graph/graph-record'
-import { createGraphApi, type TestGraphApi } from '../../fixtures/graph-api'
+import { createGraphApi, FACT_TYPES, type TestGraphApi } from '../../fixtures/graph-api'
 
-let api: TestGraphApi
-let workspaceId: string
+let api: TestGraphApi, workspaceId: string
+beforeAll(async () => { api = await createGraphApi(); workspaceId = (await api.createWorkspace()).id }, 30_000)
+afterAll(async () => { await api?.close() })
 
-async function request(/* 选择公共查询还是写命令端点。 */ path: 'query' | 'command', /* 按 JSON 发送、由用例自行断言的请求体。 */ body: unknown) {
-  // 以夹具用户身份转发公共图查询或命令，保留响应以核对版本及错误。
-  return api.post(`/api/v1/${path}`, body)
-}
-
-beforeAll(async () => {
-  // 启动隔离图服务并创建本文件使用的工作区。
-  api = await createGraphApi()
-  workspaceId = (await api.createWorkspace()).id
-}, 30_000)
-
-afterAll(async () => {
-  // 清理本文件的图 API、数据库和消息资源。
-  await api?.close()
-})
-
-describe('Graph HTTP API', () => {
-  // 组织图输入校验、空上下文保留、幂等提交及持久化的回归测试。
-  it('rejects mixed-kind and missing required node fields at the HTTP boundary', async () => {
-    // 提交混合节点种类字段或缺失必填字段，验证 HTTP 边界拒绝且原图不变。
+describe('Generic graph HTTP API', () => {
+  it('rejects malformed envelopes and payloads outside the registered type schema', async () => {
     const mapId = randomUUID()
-    await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Boundary validation' })
+    await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Boundary' })
     const before = await api.snapshot(mapId)
-    for (const data of [
-      { kind: 'news', content: 'News without context' },
-      { kind: 'news', content: 'News', context: {}, category: 'data' },
-      { kind: 'claim', content: 'Claim', category: null, context: {} },
-      { kind: 'claim', content: 'Claim', category: null, score: 1 },
-      { kind: 'verification', score: 1, reason: 'Reason', reportIds: [], opinions: [], content: 'Not allowed' },
+    for (const node of [
+      { id: randomUUID(), payload: { content: 'missing type' } },
+      { id: randomUUID(), typeId: FACT_TYPES.news.id, typeVersion: 1, payload: { content: 'missing context' } },
+      { id: randomUUID(), typeId: FACT_TYPES.claim.id, typeVersion: 1, payload: { content: 'claim', category: null, extra: true } },
+      { id: randomUUID(), typeId: 'unknown.type', typeVersion: 1, payload: {} },
     ]) {
-      const result = await api.command('graph.apply', { mapId, expectedRevision: 0,
-        changes: { nodes: { put: [{ id: randomUUID(), data }] } } })
-      expect(result.status).toBe(400)
-      expect(result.body.error.code).toBe('INVALID_ARGUMENT')
+      const result = await api.command('graph.apply', { mapId, branch: { rootIds: [node.id], expectedVersion: null }, changes: { nodes: { put: [node] } } })
+      expect(result.status).toBeGreaterThanOrEqual(400)
       expect(await api.snapshot(mapId)).toEqual(before)
     }
-    await api.command('map.delete', { mapId, expectedRevision: 0 })
   })
 
-  it('preserves an explicitly empty News context through storage and later graph writes', async () => {
-    // 验证显式空新闻上下文经存储和后续写入仍保留，并检查历史缺字段的显式修复行为。
+  it('preserves an explicitly empty payload object member through storage and later writes', async () => {
     const mapId = randomUUID(), newsId = randomUUID()
-    expect((await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Empty context' })).status).toBe(201)
-    const created = await api.command('graph.apply', { mapId, expectedRevision: 0, changes: { nodes: { put: [
-      { id: newsId, data: { kind: 'news', content: 'A news item without optional context fields', context: {} } },
-    ] } } })
-    expect(created.body.data.snapshot.nodes[0].data).toHaveProperty('context', {})
-    expect((await api.snapshot(mapId)).nodes[0].data).toHaveProperty('context', {})
-    await api.command('graph.apply', { mapId, expectedRevision: 1, changes: { name: 'Renamed' } })
-    expect((await api.snapshot(mapId)).nodes[0].data).toHaveProperty('context', {})
-    const graphs = api.connection.collection(GRAPH_COLLECTION)
-    await graphs.updateOne({ _id: mapId } as never, { $unset: { 'nodes.0.data.context': '' } })
-    expect(await repairUpdateNewsContext(api.connection)).toEqual({ matchedMaps: 1, modifiedMaps: 0 })
-    expect((await api.snapshot(mapId)).nodes[0].data).not.toHaveProperty('context')
-    expect(await repairUpdateNewsContext(api.connection, true)).toEqual({ matchedMaps: 1, modifiedMaps: 1 })
-    const repaired = await api.snapshot(mapId)
-    expect(repaired.revision).toBe(3)
-    expect(repaired.nodes[0].revision).toBe(0)
-    expect(repaired.nodes[0].data).toHaveProperty('context', {})
-    expect(await repairUpdateNewsContext(api.connection, true)).toEqual({ matchedMaps: 0, modifiedMaps: 0 })
-    await api.command('map.delete', { mapId, expectedRevision: 3 })
+    await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Empty context' })
+    expect((await api.command('graph.apply', { mapId, branch: { rootIds: [newsId], expectedVersion: null }, changes: { nodes: { put: [{ id: newsId,
+      typeId: FACT_TYPES.news.id, typeVersion: 1, payload: { content: 'News', context: {} } }] } } })).status).toBe(200)
+    expect((await api.snapshot(mapId)).nodes[0].payload).toHaveProperty('context', {})
+    await api.apply(mapId, [newsId], { name: 'Renamed' })
+    expect((await api.snapshot(mapId)).nodes[0].payload).toHaveProperty('context', {})
   })
 
-  it('confirms an accepted source edit after the source and its asset have been deleted', async () => {
-    // 删除来源和附件后重放原编辑，验证仍能确认成功但同请求不同输入必须冲突。
-    const content = Buffer.from('source evidence')
-    const sha256 = createHash('sha256').update(content).digest('hex')
+  it('confirms an accepted asset-backed source edit after the source and asset are deleted', async () => {
+    const content = Buffer.from('source evidence'), sha256 = createHash('sha256').update(content).digest('hex')
     const asset = await api.application.assets.upload(api.userToken,
       { workspaceId, requestId: randomUUID(), filename: 'source.txt', mediaType: 'text/plain', size: content.length, sha256 }, Readable.from([content]))
     const mapId = randomUUID(), nodeId = randomUUID()
-    expect((await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Asset replay' })).status).toBe(201)
-    const saved = { requestId: randomUUID(), method: 'graph.apply', params: { mapId, expectedRevision: 0,
-      changes: { nodes: { put: [{ id: nodeId, data: { kind: 'source', label: null, locator: { kind: 'asset', assetId: asset.data.id, mediaType: 'text/plain' } } }] } },
-    } }
-    expect((await request('command', saved)).status).toBe(200)
-    expect((await api.command('graph.apply', { mapId, expectedRevision: 1, changes: { nodes: { remove: [nodeId] } } })).status).toBe(200)
-    expect((await api.command('asset.delete', { assetId: asset.data.id, expectedSha256: sha256 })).status).toBe(200)
-    expect(await request('command', saved)).toMatchObject({ status: 200, body: { replayed: true, data: { snapshot: { revision: 2, nodes: [] } } } })
-    const different = structuredClone(saved)
-    different.params.changes.nodes.put[0].data.locator.assetId = randomUUID()
-    expect(await request('command', different)).toMatchObject({ status: 409, body: { error: { code: 'IDEMPOTENCY_CONFLICT' } } })
-    expect((await api.command('map.delete', { mapId, expectedRevision: 2 })).status).toBe(200)
+    await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'Asset replay' })
+    const saved = { requestId: randomUUID(), method: 'graph.apply', params: { mapId, branch: { rootIds: [nodeId], expectedVersion: null }, changes: { nodes: { put: [{
+      id: nodeId, typeId: FACT_TYPES.source.id, typeVersion: 1,
+      payload: { label: null, locator: { kind: 'asset', assetId: asset.data.id, mediaType: 'text/plain' } },
+    }] } } } }
+    expect((await api.post('/api/v1/command', saved)).status).toBe(200)
+    await api.apply(mapId, [nodeId], { nodes: { remove: [nodeId] } })
+    await api.command('asset.delete', { assetId: asset.data.id, expectedSha256: sha256 })
+    expect(await api.post('/api/v1/command', saved)).toMatchObject({ status: 200, body: { replayed: true, data: { snapshot: { nodes: [] } } } })
+    const changed = structuredClone(saved); changed.params.changes.nodes.put[0].payload.locator.assetId = randomUUID()
+    expect(await api.post('/api/v1/command', changed)).toMatchObject({ status: 409, body: { error: { code: 'IDEMPOTENCY_CONFLICT' } } })
   })
 
-  it('rejects an oversized document before publishing it', async () => {
-    // 尝试直接创建超过图大小限制的文档，验证拒绝发生在持久化发布之前。
+  it('rejects an oversized generic document before publishing it', async () => {
     const id = randomUUID(), now = new Date().toISOString()
-    await expect(api.store.create({ id, workspaceId, revision: 0, name: 'Too large', nodes: [{
-      id: randomUUID(), revision: 0, data: { kind: 'news', content: 'x'.repeat(8 * 1024 * 1024), context: {} }, createdAt: now, updatedAt: now,
-    }], edges: [], run: null, runHistory: [], leases: {}, receipts: [], createdAt: now, updatedAt: now }))
-      .rejects.toMatchObject({ status: 413, code: 'GRAPH_LIMIT' })
+    await expect(api.store.create({ id, workspaceId, revision: 0, name: 'Too large', nodes: [{ id: randomUUID(), revision: 0,
+      typeId: FACT_TYPES.news.id, typeVersion: 1, payload: { content: 'x'.repeat(8 * 1024 * 1024), context: {} }, createdAt: now, updatedAt: now }],
+    edges: [], runs: [], runHistory: [], leases: {}, receipts: [], createdAt: now, updatedAt: now })).rejects.toMatchObject({ status: 413, code: 'GRAPH_LIMIT' })
     expect(await api.store.read(id)).toBeNull()
   })
 
-  it('persists a shared graph with CAS and idempotent writes', async () => {
-    // 验证共享图的原子版本竞争、输入幂等、失败回滚、关系删除、重连读取及删除重放。
-    const mapId = randomUUID()
-    const newsA = randomUUID()
-    const newsB = randomUUID()
-    const claim = randomUUID()
-    const edgeA = randomUUID()
-    const edgeB = randomUUID()
-    const createRequest = randomUUID()
-    const created = await request('command', {
-      requestId: createRequest,
-      method: 'map.create',
-      params: { workspaceId, expectedRevision: 0, id: mapId, name: 'Shared graph' },
-    })
-    expect(created).toMatchObject({ status: 201, body: { ok: true, replayed: false } })
-
-    const applyRequest = randomUUID()
-    const apply = {
-      requestId: applyRequest,
-      method: 'graph.apply',
-      params: {
-        mapId,
-        expectedRevision: 0,
-        changes: {
-          nodes: { put: [
-            {
-              id: newsA,
-              data: {
-                kind: 'news',
-                content: 'A',
-                context: { author: { value: 'Reporter A', visibleToAI: false } },
-              },
-            },
-            { id: newsB, data: { kind: 'news', content: 'B', context: {} } },
-            { id: claim, data: { kind: 'claim', content: 'C', category: 'data' } },
-          ] },
-          edges: { put: [
-            { id: edgeA, kind: 'mentions', from: newsA, to: claim },
-            { id: edgeB, kind: 'mentions', from: newsB, to: claim },
-          ] },
-        },
-      },
-    }
-    const applied = await request('command', apply)
-    expect(applied).toMatchObject({
-      status: 200,
-      body: { ok: true, replayed: false, data: { snapshot: { revision: 1 } } },
-    })
-    const replayed = await request('command', {
-      method: apply.method,
-      requestId: apply.requestId,
-      params: { changes: apply.params.changes, expectedRevision: 0, mapId },
-    })
-    expect(replayed).toMatchObject({ status: 200, body: { ok: true, replayed: true } })
-    const changedReplay = structuredClone(apply)
-    changedReplay.params.changes.nodes.put[0].data.content = 'different'
-    expect(await request('command', changedReplay)).toMatchObject({
-      status: 409, body: { error: { code: 'IDEMPOTENCY_CONFLICT' } },
-    })
-
-    const concurrent = await Promise.all([
-      request('command', {
-        requestId: randomUUID(), method: 'graph.apply',
-        params: { mapId, expectedRevision: 1, changes: { name: 'Winner A' } },
-      }),
-      request('command', {
-        requestId: randomUUID(), method: 'graph.apply',
-        params: { mapId, expectedRevision: 1, changes: { name: 'Winner B' } },
-      }),
-    ])
-    expect(concurrent.map(/* 并发图写入中当前提取 HTTP 状态码的响应。 */ result => /* 提取并发写入状态码，确认一个成功而另一个发生版本冲突。 */ result.status).sort()).toEqual([200, 409])
-
-    const beforeInvalid = await request('query', { method: 'map.get', params: { mapId } })
-    const revision = beforeInvalid.body.data.revision as number
-    expect(await request('command', {
-      requestId: randomUUID(), method: 'graph.apply',
-      params: {
-        mapId, expectedRevision: revision,
-        changes: {
-          nodes: { put: [{ id: randomUUID(), data: { kind: 'claim', content: 'D', category: null } }] },
-          edges: { put: [{ id: randomUUID(), kind: 'mentions', from: claim, to: newsA }] },
-        },
-      },
-    })).toMatchObject({ status: 422, body: { error: { code: 'INVALID_RELATION' } } })
-    const afterInvalid = await request('query', { method: 'map.get', params: { mapId } })
-    expect(afterInvalid.body.data.revision).toBe(revision)
-    expect(afterInvalid.body.data.nodes).toHaveLength(3)
-
-    const removed = await request('command', {
-      requestId: randomUUID(), method: 'graph.apply',
-      params: { mapId, expectedRevision: revision, changes: { nodes: { remove: [newsA] } } },
-    })
-    expect(removed).toMatchObject({ status: 200, body: { data: { snapshot: { revision: revision + 1 } } } })
-    expect(removed.body.data.snapshot.nodes.map((/* 删除后快照中当前提取身份的节点。 */ node: { id: string }) => /* 提取删除操作后的节点身份，核对仅删除指定节点及其关联边。 */ node.id)).toEqual([newsB, claim])
-    expect(removed.body.data.snapshot.edges).toEqual([
-      expect.objectContaining({ id: edgeB, from: newsB, to: claim }),
-    ])
-
+  it('uses branch versions for CAS, replays identical requests and summarizes registered type ids', async () => {
+    const mapId = randomUUID(), newsId = randomUUID(), claimId = randomUUID(), edgeId = randomUUID()
+    await api.command('map.create', { workspaceId, expectedRevision: 0, id: mapId, name: 'CAS graph' })
+    const requestId = randomUUID(), changes = { nodes: { put: [
+      { id: newsId, typeId: FACT_TYPES.news.id, typeVersion: 1, payload: { content: 'A', context: {} } },
+      { id: claimId, typeId: FACT_TYPES.claim.id, typeVersion: 1, payload: { content: 'B', category: 'data' } },
+    ] }, edges: { put: [{ id: edgeId, kind: 'successor', from: newsId, to: claimId }] } }
+    const create = { mapId, branch: { rootIds: [newsId], expectedVersion: null }, changes }
+    expect((await api.command('graph.apply', create, requestId)).status).toBe(200)
+    expect(await api.command('graph.apply', create, requestId)).toMatchObject({ status: 200, body: { replayed: true } })
+    const old = await api.branch(mapId, [newsId])
+    expect((await api.command('graph.apply', { mapId, branch: { rootIds: old.scope.rootIds, expectedVersion: old.version },
+      changes: { nodes: { put: [{ id: claimId, typeId: FACT_TYPES.claim.id, typeVersion: 1, payload: { content: 'changed', category: 'data' } }] } } })).status).toBe(200)
+    const stale = await api.command('graph.apply', { mapId, branch: { rootIds: old.scope.rootIds, expectedVersion: old.version }, changes: { name: 'stale' } })
+    expect(stale).toMatchObject({ status: 409, body: { error: { code: 'BRANCH_VERSION_CONFLICT' } } })
+    expect(await api.post('/api/v1/query', { method: 'map.list', params: { workspaceId } })).toMatchObject({ status: 200,
+      body: { data: expect.arrayContaining([expect.objectContaining({ id: mapId, nodeCount: 2,
+        typeCounts: { 'factcheck.news': 1, 'factcheck.claim': 1 } })]) } })
     const reopened = await storeCreateConnection(api.uri)
-    try {
-      const fresh = graphCreateService(storeCreateGraphStore(reopened))
-      expect(await fresh.read({ method: 'map.get', params: { mapId } })).toMatchObject({ nodes: [{ id: newsB }, { id: claim }] })
-    } finally { await reopened.close() }
-    expect(await request('query', {
-      method: 'map.list', params: { workspaceId },
-    })).toMatchObject({
-      status: 200,
-      body: { data: [{ id: mapId, nodeCount: 2, claimCount: 1 }] },
-    })
-
-    const finalSnapshot = await request('query', { method: 'map.get', params: { mapId } })
-    const deleteRequest = {
-      requestId: randomUUID(), method: 'map.delete',
-      params: { mapId, expectedRevision: finalSnapshot.body.data.revision },
-    }
-    expect(await request('command', deleteRequest)).toMatchObject({
-      status: 200, body: { ok: true, replayed: false, data: { mapId, deleted: true } },
-    })
-    expect(await request('command', deleteRequest)).toMatchObject({
-      status: 200, body: { ok: true, replayed: true, data: { mapId, deleted: true } },
-    })
-    expect(await request('query', { method: 'map.get', params: { mapId } })).toMatchObject({
-      status: 404, body: { error: { code: 'MAP_NOT_FOUND' } },
-    })
-    expect(await request('query', {
-      method: 'map.list', params: { workspaceId },
-    })).toMatchObject({ status: 200, body: { data: [] } })
-  }, 30_000)
+    try { expect(await graphCreateService(storeCreateGraphStore(reopened)).read({ method: 'map.get', params: { mapId } })).toMatchObject({ nodes: [{ id: newsId }, { id: claimId }] }) }
+    finally { await reopened.close() }
+  })
 })

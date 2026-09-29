@@ -1,10 +1,10 @@
 // 定义公共客户端的查询、写入、文件、连接与桌面 IPC 契约及结构化错误。
 import type { LocalServiceState } from './desktop'
 import type {
-  AgentList, AppBootstrap, Asset, ClusterSettings, ControlCommand, ControlQuery, ImportResult,
+  AgentList, AppBootstrap, Asset, ClusterSettings, ControlCommand, ControlQuery, DefinitionPublishResult, DefinitionView, ImportResult,
   Member, Page, Preferences, WorkspaceSummary, WorkspaceView,
 } from './control'
-import type { GraphCommand, GraphMapSummary, GraphQuery, GraphRun, GraphSnapshot, GraphSuccess, GraphWriteResult } from './graph'
+import type { GraphBranchClaimResult, GraphBranchGrant, GraphBranchSnapshot, GraphCommand, GraphMapSummary, GraphQuery, GraphRun, GraphRunControlClaimResult, GraphRunControlGrant, GraphSnapshot, GraphSuccess, GraphWriteResult } from './graph'
 import type { GraphStreamEvent } from './events'
 
 // 客户端可访问的图查询与管理查询集合。
@@ -17,11 +17,13 @@ export type QueryInputMap = { [K in PublicQuery['method']]: Extract<PublicQuery,
 export interface QueryOutputMap {
   'map.list': GraphMapSummary[]
   'map.get': GraphSnapshot
+  'branch.get': GraphBranchSnapshot
   'run.get': GraphRun
   'app.bootstrap': AppBootstrap
   'workspace.list': Page<WorkspaceSummary>
   'workspace.get': WorkspaceView
   'agent.list': AgentList
+  'definition.get': DefinitionView
   'asset.get': Asset
   'asset.list': Page<Asset>
 }
@@ -32,6 +34,12 @@ export interface CommandOutputMap {
   'map.create': GraphWriteResult
   'map.delete': { mapId: string; deleted: true }
   'graph.apply': GraphWriteResult
+  'branch.claim': GraphBranchClaimResult
+  'branch.renew': GraphBranchGrant
+  'branch.release': { released: boolean; ownershipRevision: number }
+  'run.control.claim': GraphRunControlClaimResult
+  'run.control.renew': GraphRunControlGrant
+  'run.control.release': { released: boolean; ownershipRevision: number }
   'run.start': GraphWriteResult
   'run.cancel': GraphWriteResult
   'run.pause': GraphWriteResult
@@ -47,6 +55,7 @@ export interface CommandOutputMap {
   'agent.update': AgentList
   'agent.delete': AgentList
   'agent.copy': WorkspaceView
+  'definition.publish': DefinitionPublishResult
   'settings.update': ClusterSettings
   'asset.delete': { assetId: string; deleted: true }
   'workspace.import': ImportResult
