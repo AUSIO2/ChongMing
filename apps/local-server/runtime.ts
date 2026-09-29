@@ -12,7 +12,7 @@ import type { DiagnosticReporter } from '../../contracts/diagnostics'
 
 // 持久化的本机身份及工作区编号，保留内部和用户令牌供重启恢复。
 interface LocalIdentity { _id: string; userId: string; workspaceId: string; internalToken: string; userToken?: string }
-export async function localCreateRuntime(/* 运行目录及可选执行配置；端口缺省为 4320、零表示随机端口，配置与环境交给本地应用和 Host。 */ input: Pick<HostInput, 'dshBin' | 'patches' | 'env' | 'maxRounds' | 'maxTokens'> & {
+export async function localCreateRuntime(/* 运行目录及可选执行配置；端口缺省为 4320、零表示随机端口，配置与环境交给本地应用和 Host。 */ input: Pick<HostInput, 'dshBin' | 'patches' | 'env' | 'maxRounds' | 'maxTokens' | 'concurrency'> & {
   directory: string; port?: number; dshHome?: string; configuration?: GraphRunConfiguration; allowPrivateSources?: boolean; reporter?: DiagnosticReporter
 }) {
   // 创建或恢复本机身份和工作区，启动 API 与 Host 并写入连接文件，失败时统一收回资源。
@@ -80,7 +80,7 @@ export async function localCreateRuntime(/* 运行目录及可选执行配置；
     host = hostCreateWorker({ hostId: 'local-host', queue: { namespace: 'local', open: async () => /* 向本地 Host 提供同一进程内的工作队列。 */  application.localQueue },
       dataApiUrl: baseUrl, token: identity.internalToken, dshHome: input.dshHome ?? path.join(directory, 'dsh'),
       cwd: directory, processCwd: directory, dshBin: input.dshBin, patches: input.patches, env: input.env,
-      maxRounds: input.maxRounds, maxTokens: input.maxTokens, reporter: input.reporter })
+      maxRounds: input.maxRounds, maxTokens: input.maxTokens, concurrency: input.concurrency, reporter: input.reporter })
     await host.start()
     void application.localQueue.closed.then(() => {
       // 队列意外关闭时触发整个本地运行时清理，避免留下无消费者的 API。

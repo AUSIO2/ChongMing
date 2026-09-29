@@ -3,7 +3,7 @@ import { RuntimeMessage } from '../../../contracts/messages'
 import { randomUUID } from 'node:crypto'
 import type { GraphActivity } from '../../../contracts/activity'
 import type { QueueChange, QueueWork } from '../../../contracts/events'
-import type { QueueLink } from '../../ports/messaging'
+import { workReadConcurrency, type QueueLink } from '../../ports/messaging'
 import type { Persistence, PersistenceEvents } from '../../ports/persistence'
 import { GRAPH_COLLECTION } from '../../modules/graph/graph-record'
 import { workReadItems } from '../../modules/graph/work-state'
@@ -14,13 +14,14 @@ import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 export function localCreateMessaging(/* 本机持久化与提交事件入口；消息服务订阅它但不关闭数据库。 */ database: Persistence & PersistenceEvents, /* 可选诊断接收器，用于记录后台分发的致命错误。 */ reporter?: DiagnosticReporter) {
   // 维护本机消息通道与订阅生命周期，并在启动时从持久化 Run 重建待执行工作。
   const stop = new AbortController(), pending = new Map<string, QueueWork>()
+  const inFlight = new Map<string, Promise<void>>()
   const listeners = new Set<(/* 实时变更提示；null 用于告知监听者通道已终止。 */ change: QueueChange | null) => void>()
   const activities = new Map<string, QueueChange>()
   const store = database.graph()
   let deploymentId: string, started = false, consuming = false, unsubscribe = () => {
     // 数据库订阅建立前无需解除监听。
   }
-  let failure: unknown | undefined
+  let failure: unknown | undefined, closing: Promise<void> | undefined
   let wake = () => {
     // 消费者尚未等待时，发布工作无需唤醒任何 Promise。
   }, resolveClosed!: () => void, flushing: Promise<void> | undefined, dirty = false
@@ -29,11 +30,10 @@ export function localCreateMessaging(/* 本机持久化与提交事件入口；�
      resolveClosed = resolve })
   const messaging = () => /* 返回本机部署身份和固定的进程内队列命名空间。 */  ({ version: 1 as const, deploymentId, namespace: 'local.' + deploymentId, enabled: true })
   function localFail(/* 导致本机分发无法继续的异常，保留为服务终止原因。 */ error: unknown) {
-    // 记录消息分发的致命错误，停止消费者并通知所有订阅者断开。
-    failure = error
+    // 记录首个消息分发故障并启动统一关闭，让 closed 在全部在途工作排空后才完成。
+    failure ??= error
     reporter?.report({ name: 'messaging.local.failed', severity: 'fatal', context: { phase: 'dispatch' }, error })
-    stop.abort(error); wake(); resolveClosed()
-    for (const listener of listeners) { try { listener(null) } catch { /* the original listener failure is already terminal */ } }
+    stop.abort(error); wake(); void close()
   }
   function localPublishChange(/* 待发布的业务刷新或活动提示，活动按 fence 与序号去重。 */ change: QueueChange) {
     // 按 fence 和序号丢弃过时活动，再向当前监听者同步发布变更。
@@ -54,6 +54,7 @@ export function localCreateMessaging(/* 本机持久化与提交事件入口；�
     while (dirty && !stop.signal.aborted) {
       dirty = false
       for await (const document of store.readDispatch()) {
+        if (stop.signal.aborted) return
         for (const work of workReadItems(document)) await queue.publishWork({ version: 1, deploymentId, mapId: document.id, workId: work.workId })
         localPublishChange({ version: 1, deploymentId, kind: 'graph', mapId: document.id, workspaceId: document.workspaceId })
         await store.clearDispatch(document.id, document.dispatchVersion)
@@ -70,17 +71,28 @@ export function localCreateMessaging(/* 本机持久化与提交事件入口；�
       // 释放扫描占用；结束期间若又有变更则启动下一轮扫描。
        flushing = undefined; if (dirty && !stop.signal.aborted) localUpdateDispatch() })
   }
-  async function close() {
-    // 取消数据库监听与消费等待，通知订阅者断开并等待发布任务结束。
-    if (!stop.signal.aborted) { stop.abort(); unsubscribe(); wake(); for (const listener of listeners) listener(null); resolveClosed() }
-    await flushing
+  function close(): Promise<void> {
+    // 合并关闭请求，停止新工作和数据库监听，等待发布及全部在途处理器结束后再确认通道关闭。
+    return closing ??= (async () => {
+      // 先同步取消所有工作，再尝试通知每个订阅者，单个监听异常不跳过剩余资源清理。
+      if (!stop.signal.aborted) stop.abort()
+      unsubscribe(); wake()
+      for (const listener of listeners) { try { listener(null) } catch { /* 关闭通知失败不覆盖原始故障或跳过排空。 */ } }
+      listeners.clear()
+      await flushing
+      while (inFlight.size) await Promise.allSettled([...inFlight.values()])
+      pending.clear()
+      resolveClosed()
+    })()
   }
   const queue: QueueLink = {
     signal: stop.signal, closed,
     async publishWork(/* 待领取工作通知，按图身份与工作身份合并重复项。 */ message) {
-      // 按图与工作身份合并重复通知，并唤醒等待中的消费者。
+      // 按图与工作身份合并待执行或正在执行的重复通知，并唤醒等待中的消费者。
       if (stop.signal.aborted) throw new Error(RuntimeMessage.LOCAL_WORK_CHANNEL_IS_CLOSED)
-      pending.set(message.mapId + ':' + message.workId, message); wake()
+      const key = message.mapId + ':' + message.workId
+      if (!inFlight.has(key)) pending.set(key, message)
+      wake()
     },
     async publishChange(/* 经本机消息入口发送的业务变更提示。 */ change) {
       // 将通道变更交给本机监听者分发。
@@ -99,24 +111,50 @@ export function localCreateMessaging(/* 本机持久化与提交事件入口；�
         // 结束订阅并卸下对应的取消事件监听。
          remove(); signal?.removeEventListener('abort', remove) }
     },
-    async consumeWork(/* 逐条执行通知的异步处理器，返回 ack 或 retry 决定是否重入队。 */ handler, /* 可选 Host 停止信号，与本机通道关闭信号共同取消当前消费。 */ signal) {
-      // 独占消费本机工作队列，依处理结果确认或重新入队，取消后退出循环。
+    async consumeWork(/* 并发执行通知的异步处理器，每项独立返回 ack 或 retry。 */ handler, /* 可选 Host 停止信号，与本机通道关闭信号共同取消全部在途工作。 */ signal, /* 本消费者的有界并发容量配置。 */ options) {
+      // 独占消费本机工作队列，在容量内并行处理、合并重复项，并在取消后排空全部任务。
+      const concurrency = workReadConcurrency(options)
       if (consuming) throw new Error(RuntimeMessage.INDEPENDENT_LOCAL_MODE_SUPPORTS_ONE_HOST)
       consuming = true
-      const lifetime = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
+      const consumerStop = new AbortController()
+      const lifetime = signal ? AbortSignal.any([signal, stop.signal, consumerStop.signal]) : AbortSignal.any([stop.signal, consumerStop.signal])
+      let consumerFailure: unknown
       const abort = () => /* 取消消费时解除空队列等待，让循环及时退出。 */  wake()
       lifetime.addEventListener('abort', abort)
       try {
         while (!lifetime.aborted) {
-          const first = pending.entries().next().value
-          if (!first) { await new Promise<void>(/* 当前空队列等待的唤醒函数，由发布工作或取消消费时调用。 */ resolve => {
+          while (!lifetime.aborted && inFlight.size < concurrency) {
+            const first = pending.entries().next().value as [string, QueueWork] | undefined
+            if (!first) break
+            pending.delete(first[0])
+            let task: Promise<void>
+            task = handler(first[1], lifetime).then(/* 当前工作处理结果，决定是否在消费者仍有效时重新排队。 */ result => {
+              // retry 只恢复这一项通知；其他工作按各自结果完成，不共享确认状态。
+              if (result === 'retry' && !lifetime.aborted) pending.set(first[0], first[1])
+            }).catch(/* 单项处理器抛出的异常，终止本消费者并取消其他在途工作。 */ error => {
+              // 保留首个处理器故障并取消本轮消费，finally 仍会等待所有任务。
+              consumerFailure ??= error
+              consumerStop.abort(error)
+            }).finally(() => {
+              // 归还本地容量并唤醒调度循环，允许下一项待处理工作启动。
+              inFlight.delete(first[0]); wake()
+            })
+            inFlight.set(first[0], task)
+          }
+          if (lifetime.aborted) break
+          if (!pending.size || inFlight.size >= concurrency) {
+            await new Promise<void>(/* 当前无可启动工作时的唤醒函数，由发布、任务完成或取消调用。 */ resolve => {
             // 保存本轮空队列的唤醒回调，并处理已发生的取消。
-             wake = resolve; if (lifetime.aborted) resolve() }); continue }
-          pending.delete(first[0])
-          const result = await handler(first[1], lifetime)
-          if (result === 'retry' && !lifetime.aborted) pending.set(first[0], first[1])
+             wake = resolve; if (lifetime.aborted) resolve() })
+          }
         }
-      } finally { consuming = false; lifetime.removeEventListener('abort', abort) }
+      } finally {
+        consumerStop.abort()
+        await Promise.allSettled([...inFlight.values()])
+        consuming = false
+        lifetime.removeEventListener('abort', abort)
+      }
+      if (consumerFailure) throw consumerFailure
     },
     close,
   }

@@ -20,7 +20,7 @@ async function hostStartProcess(): Promise<() => Promise<void>> {
       'queue-url': { type: 'string' }, 'queue-namespace': { type: 'string' },
       'dsh-home': { type: 'string' }, 'dsh-bin': { type: 'string' },
       cwd: { type: 'string' }, 'process-cwd': { type: 'string' },
-      'request-timeout-ms': { type: 'string' },
+      'request-timeout-ms': { type: 'string' }, concurrency: { type: 'string' },
       patch: { type: 'string', multiple: true },
       'max-tokens': { type: 'string' }, 'max-rounds': { type: 'string' },
     },
@@ -31,6 +31,8 @@ async function hostStartProcess(): Promise<() => Promise<void>> {
   const dshHome = path.resolve(values['dsh-home'] ?? process.env.CHONGMING_DSH_HOME ?? local.settings.dshHome ?? path.join('.dsh-runtime', 'hosts', hostId))
   const maxTokens = values['max-tokens'] ?? process.env.CHONGMING_DSH_MAX_TOKENS
   const maxRounds = values['max-rounds'] ?? process.env.CHONGMING_DSH_MAX_ROUNDS
+  const concurrencyValue = values.concurrency ?? process.env.CHONGMING_HOST_CONCURRENCY
+  const concurrency = concurrencyValue === undefined ? 1 : Number(concurrencyValue)
   const queueUrl = values['queue-url'] ?? process.env.CHONGMING_AMQP_URL ?? local.secrets.CHONGMING_AMQP_URL
   if (!queueUrl) throw new Error(RuntimeMessage.CHONGMING_AMQP_URL_OR_QUEUE_URL_MUST_BE_CONFIGURED)
   const worker = hostCreateWorker({
@@ -44,10 +46,11 @@ async function hostStartProcess(): Promise<() => Promise<void>> {
     patches: values.patch?.map(/* 用户通过命令行指定的 DSH 补丁路径，按当前目录解析。 */ patch => /* 将用户指定的补丁转换为绝对路径。 */  path.resolve(patch)),
     maxTokens: maxTokens === undefined ? undefined : Number(maxTokens),
     maxRounds: maxRounds === undefined ? undefined : Number(maxRounds),
+    concurrency,
     reporter,
   })
   await worker.start()
-  console.log(JSON.stringify({ event: 'host.started', hostId, dataApiUrl, dshHome }))
+  console.log(JSON.stringify({ event: 'host.started', hostId, concurrency: worker.concurrency, dataApiUrl, dshHome }))
   void worker.finished().then(/* Host 消费结束时记录的故障；undefined 表示未记录致命失败。 */ error => {
     // 消费循环异常结束时报告致命诊断并设置失败退出码。
     if (error !== undefined) {

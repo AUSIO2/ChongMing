@@ -99,7 +99,7 @@ async function dshReadWorkStatus(/* 本次执行的工作配置，授权身份�
   return data.status
 }
 async function dshReadWork(/* 本次已领取工作配置，决定数据读取范围与须匹配的返回身份。 */ input: DshWorkInput): Promise<GraphDataRead> {
-  // 读取授权输入并逐项核对 Run、Operation、角色、路由版本及目标类型。
+  // 读取授权输入并逐项核对 Run、Operation、阶段、槽位及冻结执行规格。
   const grant = input.grant
   const data = await dshReadWorkReply<GraphDataRead>(input, '/internal/v1/data/read', {
     mapId: grant.mapId, operationId: grant.operationId,
@@ -107,35 +107,27 @@ async function dshReadWork(/* 本次已领取工作配置，决定数据读取�
     'x-work-id': grant.workId, 'x-work-holder': grant.holderId, 'x-work-fence': String(grant.fence),
   })
   if (data.mapId !== grant.mapId || data.runId !== grant.runId || data.operationId !== grant.operationId
-    || data.work?.id !== grant.workId || data.work.routeRevision !== grant.routeRevision
-    || JSON.stringify(data.work.actor) !== JSON.stringify(grant.actor)) throw new Error(RuntimeMessage.DATA_API_RETURNED_ANOTHER_WORK_GRANT)
-  const targetKind = { parse: 'source', split: 'news', verify: 'claim' }[data.operationKind]
-  if (!targetKind || data.target?.data.kind !== targetKind || !data.proposalId
-    || (data.operationKind === 'parse' && typeof data.rawContent !== 'string')) throw new Error(RuntimeMessage.DATA_API_RETURNED_INVALID_OPERATION_INPUT)
+    || data.specHash !== grant.specHash || data.work?.id !== grant.workId
+    || data.work.stageId !== grant.stageId || data.work.slotId !== grant.slotId || data.work.specHash !== grant.specHash
+    || data.stage?.id !== grant.stageId || data.stage.slotId !== grant.slotId || !data.proposalId) {
+    throw new Error(RuntimeMessage.DATA_API_RETURNED_ANOTHER_WORK_GRANT)
+  }
   return data
 }
 function dshReadWorkProfile(/* 从 API 读取并已核对工作身份的执行视图，包含冻结配置与批准路由。 */ data: GraphDataRead, /* 当前执行授权，角色与槽位决定采用哪个 Agent 配置。 */ grant: GraphWorkGrant): GraphAgentProfile {
-  // 根据冻结配置和工作角色选择 Agent，检查 worker 槽位与工具授权。
-  if (data.operationKind === 'parse') {
-    if (grant.actor.role !== 'parse' || !data.configuration.parse) throw new Error(RuntimeMessage.PARSE_WORK_HAS_NO_CONFIGURED_PARSER)
-    return data.configuration.parse
+  // 使用数据服务返回的冻结阶段 Agent，拒绝阶段工具超出该配置能力或身份与授权不符。
+  if (data.stage.id !== grant.stageId || data.stage.slotId !== grant.slotId) throw new Error(RuntimeMessage.DATA_API_RETURNED_ANOTHER_WORK_GRANT)
+  const profile = data.stage.agent.profile
+  if (!profile || data.stage.tools.some(/* 冻结阶段授予的工具声明，必须属于 Agent 能力集合。 */ tool =>
+    /* 检查该阶段工具是否超出 Agent 配置。 */ !profile.tools.includes(tool.name))) {
+    throw new Error(RuntimeMessage.WORKER_HAS_NO_VALID_CONFIGURED_SLOT)
   }
-  if (grant.actor.role === 'parse') throw new Error(RuntimeMessage.PARSER_CANNOT_EXECUTE_ANOTHER_OPERATION)
-  const configuration = data.operationKind === 'split' ? data.configuration.split : data.configuration
-  if (!configuration) throw new Error(RuntimeMessage.SPLIT_WORK_HAS_NO_CONFIGURED_AGENTS)
-  if (grant.actor.role === 'router') return configuration.router
-  if (!data.route?.approved || data.route.revision !== grant.routeRevision) throw new Error(RuntimeMessage.WORK_HAS_NO_MATCHING_APPROVED_ROUTE)
-  if (grant.actor.role !== 'worker') return configuration.merger
-  const slotId = grant.actor.slotId
-  const slot = data.route.slots.find(/* 批准路由中的候选槽位，与当前 worker 的 slotId 比较。 */ slot => /* 查找工作授权绑定的路由槽位。 */  slot.id === slotId)
-  const profile = configuration.agents.find(/* 本 Run 冻结配置中的 Agent，与槽位指定身份比较。 */ agent => /* 取得该槽位指定的冻结 Agent 配置。 */  agent.id === slot?.agentId)
-  if (!slot || !profile || slot.tools.some(/* 路由槽位请求的工具名，必须包含在所选 Agent 的能力集合中。 */ tool => /* 检查路由所选工具是否超出 Agent 的能力集合。 */  !profile.tools.includes(tool))) throw new Error(RuntimeMessage.WORKER_HAS_NO_VALID_CONFIGURED_SLOT)
   return profile
 }
 
 /** One accepted work grant owns one DSH process. The caller owns claim, renew and release. */
 export async function dshRunWork(/* 调用方提供的单工作配置；执行器复制 grant，管理临时补丁和 DSH 进程。 */ options: DshWorkInput): Promise<DshWorkResult> {
-  // 为未完成工作启动独立 DSH 会话，有限追问直到收据确认，最终关闭进程并清理临时补丁。
+  // 为未完成工作启动独立 DSH 会话与可写目录，有限追问直到收据确认，最终关闭进程并清理本次尝试。
   const input = { ...options, grant: structuredClone(options.grant) }
   const grant = input.grant
   input.signal?.throwIfAborted()
@@ -151,7 +143,8 @@ export async function dshRunWork(/* 调用方提供的单工作配置；执行�
   const rootSessionId = randomUUID()
   const dshHome = path.resolve(input.dshHome)
   await mkdir(dshHome, { recursive: true })
-  const patchDir = await mkdtemp(path.join(dshHome, 'work-'))
+  const attemptHome = await mkdtemp(path.join(dshHome, 'attempt-'))
+  let attemptProcessDirectory = path.join(attemptHome, 'process')
   let runtime: DshRuntimeAPI | undefined
   let closePromise: Promise<void> | undefined
   function dshCloseWork(): Promise<void> {
@@ -166,19 +159,25 @@ export async function dshRunWork(/* 调用方提供的单工作配置；执行�
   }) }
   try {
     input.signal?.throwIfAborted()
-    const patchPath = path.join(patchDir, 'work.patch.yml')
+    if (input.processCwd) {
+      const processRoot = path.resolve(input.processCwd)
+      await mkdir(processRoot, { recursive: true })
+      attemptProcessDirectory = await mkdtemp(path.join(processRoot, '.chongming-attempt-'))
+    } else await mkdir(attemptProcessDirectory, { recursive: true })
+    const patchPath = path.join(attemptHome, 'work.patch.yml')
     // The token remains in the environment; the immutable grant never enters model arguments.
     await writeFile(patchPath, JSON.stringify([
-      { id: 'chongming-data-tools', config: { grant, rootSessionId, operationKind: data.operationKind,
-        proposalId: data.proposalId, configuration: data.configuration, route: data.route, persona: prompt } },
+      { id: 'chongming-data-tools', config: { grant, rootSessionId,
+        proposalId: data.proposalId, specHash: data.specHash, stage: data.stage,
+        outputContract: data.outputContract, persona: prompt } },
       { id: 'sdk-jsonrpc-server', config: { maxTokensAsSuccess: false } },
     ], null, 2), { mode: 0o600 })
     input.signal?.throwIfAborted()
     runtime = dshCreateRuntime({
       dshBin: input.dshBin,
-      dshHome,
+      dshHome: attemptHome,
       cwd: path.resolve(input.cwd ?? process.cwd()),
-      processCwd: path.resolve(input.processCwd ?? dshHome),
+      processCwd: attemptProcessDirectory,
       profile: 'sdk',
       patches: [businessPatch, ...(input.patches ?? []), patchPath],
       provider: profile.provider, model: profile.model, maxTokens: input.maxTokens,
@@ -198,6 +197,12 @@ export async function dshRunWork(/* 调用方提供的单工作配置；执行�
     throw error
   } finally {
     input.signal?.removeEventListener('abort', abort)
-    try { await dshCloseWork() } finally { await rm(patchDir, { recursive: true, force: true }) }
+    try { await dshCloseWork() } finally {
+      // 仅在 DSH 子进程确认关闭后删除本次尝试的 Home 与进程目录，绝不触碰其他并行尝试。
+      const directories = attemptProcessDirectory.startsWith(attemptHome + path.sep)
+        ? [attemptHome] : [attemptHome, attemptProcessDirectory]
+      await Promise.all(directories.map(/* 本次尝试独占的临时目录，运行时关闭后可并行移除。 */ directory =>
+        /* 递归删除一个本次尝试目录；不存在时视为已完成清理。 */ rm(directory, { recursive: true, force: true })))
+    }
   }
 }

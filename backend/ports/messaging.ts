@@ -1,14 +1,29 @@
 // 消息端口区分工作投递、图变更通知及临时活动；持久化图仍是业务状态依据。
+import { RuntimeMessage } from '../../contracts/messages'
 import type { GraphActivity } from '../../contracts/activity'
 import type { QueueWork, QueueChange } from '../../contracts/events'
+
+export interface WorkConsumeOptions {
+  // 同一消费者最多同时交给处理器的工作数；省略时保持单工作串行消费。
+  concurrency?: number
+}
+
+export function workReadConcurrency(/* 调用方给出的消费容量配置，省略时采用兼容默认值 1。 */ options?: WorkConsumeOptions): number {
+  // 将消费容量限制为 1..64，避免 adapter 接受无界预取或创建无界任务集合。
+  const concurrency = options?.concurrency ?? 1
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64) {
+    throw new RangeError(RuntimeMessage.HOST_CONCURRENCY_MUST_BE_AN_INTEGER_FROM_1_TO_64)
+  }
+  return concurrency
+}
 
 export interface WorkChannel {
   // 通道失效时中止在途工作，具体原因由适配器写入 signal.reason。
   readonly signal: AbortSignal
   // 通道关闭并完成适配器清理后结束的通知。
   readonly closed: Promise<void>
-  // 消费工作并等待处理器给出确认或重投决定；stop 用于结束消费并取消活动投递。
-  consumeWork(/* 接收每项投递并返回确认或重投决定的异步处理器。 */ handler: (/* 当前队列投递的工作线索。 */ message: QueueWork, /* 队列通道失效或消费停止时取消当前投递的信号。 */ signal: AbortSignal) => Promise<'ack' | 'retry'>, /* 结束消费并取消在途投递的可选外部信号。 */ stop?: AbortSignal): Promise<void>
+  // 按容量消费工作并独立确认每项投递；停止后不再投递新项，并等待全部在途处理器清理。
+  consumeWork(/* 接收每项投递并返回确认或重投决定的异步处理器。 */ handler: (/* 当前队列投递的工作线索。 */ message: QueueWork, /* 队列通道失效或消费停止时取消当前投递的信号。 */ signal: AbortSignal) => Promise<'ack' | 'retry'>, /* 结束消费并取消在途投递的可选外部信号。 */ stop?: AbortSignal, /* 可选有界并发容量；缺省为 1。 */ options?: WorkConsumeOptions): Promise<void>
   // 关闭通道并等待适配器拥有的连接与消费资源结束。
   close(): Promise<void>
 }

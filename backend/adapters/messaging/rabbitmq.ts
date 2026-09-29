@@ -1,6 +1,6 @@
 // 文件职责：实现 RabbitMQ 工作队列与变更广播的校验、发布确认、消费确认和连接收尾。
 import { RuntimeMessage } from '../../../contracts/messages'
-import type { QueueLink, WorkTransport } from '../../ports/messaging'
+import { workReadConcurrency, type QueueLink, type WorkTransport } from '../../ports/messaging'
 import { activityIsRecord } from '../../../contracts/activity'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
@@ -68,6 +68,11 @@ export async function queueOpen(/* 部署提供的连接 URL 与隔离命名空�
   const abort = () => /* 将连接错误或关闭转换为统一的生命周期取消。 */  lifetime.abort(new QueueError('QUEUE_DISCONNECTED', RuntimeMessage.RABBITMQ_CONNECTION_CLOSED))
   connection.on('error', abort); connection.on('close', abort)
   const closed = queueWaitSignal(lifetime.signal)
+  const deliveries = new Set<Promise<void>>()
+  async function queueWaitDeliveries(): Promise<void> {
+    // 等待当前连接拥有的全部投递处理器完成；循环覆盖等待期间刚登记的最后一批任务。
+    while (deliveries.size) await Promise.allSettled([...deliveries])
+  }
   async function queueCloseHandle(/* 执行正常关闭握手的操作，超过期限后将取消底层传输。 */ closeHandle: () => Promise<unknown>) {
     // 给通道或连接关闭设置上限，超时后强制终止底层传输。
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -84,9 +89,12 @@ export async function queueOpen(/* 部署提供的连接 URL 与隔离命名空�
   }
   let closing: Promise<void> | undefined
   const close = () => /* 合并重复关闭请求，使调用者等待同一个收尾过程。 */  closing ??= (async () => {
-    // 先取消业务生命周期，再尝试关闭连接，最终终止底层传输。
+    // 先取消业务生命周期并关闭连接以停止投递，再等待全部处理器清理，最终终止底层传输。
     abort()
-    try { await queueCloseHandle(() => /* 向 RabbitMQ 连接发送正常关闭请求。 */  connection.close()) } finally { transport.abort() }
+    try {
+      await queueCloseHandle(() => /* 向 RabbitMQ 连接发送正常关闭请求。 */  connection.close())
+      await queueWaitDeliveries()
+    } finally { transport.abort() }
   })()
   const workExchange = config.namespace + '.work-exchange', workQueue = config.namespace + '.work', changeExchange = config.namespace + '.events'
   let publisher: ConfirmChannel
@@ -154,17 +162,20 @@ export async function queueOpen(/* 部署提供的连接 URL 与隔离命名空�
     signal: lifetime.signal, closed,
     publishWork: /* 待发送的持久工作通知，须能路由到工作队列。 */ message => /* 按持久化工作消息规则发布待领取通知。 */  publish(message, true),
     publishChange: /* 待广播的临时业务刷新提示，不要求存在订阅者。 */ message => /* 按变更广播规则发布临时刷新提示。 */  publish(message, false),
-    async consumeWork(/* 处理单次投递的异步业务回调，返回 ack 或 retry。 */ handler, /* 可选消费停止信号；取消后等待当前业务处理器收尾。 */ stop) {
-      // 以预取量 1 消费工作，按处理结果确认或重入队，取消时排空当前处理。
+    async consumeWork(/* 处理单次投递的异步业务回调，返回 ack 或 retry。 */ handler, /* 可选消费停止信号；取消后等待全部业务处理器收尾。 */ stop, /* 本消费者的有界并发容量配置。 */ options) {
+      // 按配置预取并发消费工作，每项独立确认；取消时停止新投递并排空全部处理器。
+      const concurrency = workReadConcurrency(options)
       const channel = await openChannel(), local = new AbortController()
       const signal = stop ? AbortSignal.any([lifetime.signal, stop, local.signal]) : AbortSignal.any([lifetime.signal, local.signal])
-      let task: Promise<void> = Promise.resolve(), failure: unknown, consumerTag: string | undefined
+      let failure: unknown, consumerTag: string | undefined
       try {
-        await channel.prefetch(1)
+        await channel.prefetch(concurrency)
         signal.throwIfAborted()
         const consumer = await channel.consume(workQueue, /* broker 原始工作投递；null 表示 broker 主动取消消费者。 */ message => {
           // 接收工作投递，处理 broker 取消通知并启动对应的异步处理。
           if (!message) { local.abort(new QueueError('QUEUE_CONSUMER_CANCELLED', RuntimeMessage.RABBITMQ_CANCELLED_THE_CONSUMER)); return }
+          if (signal.aborted) return
+          let task: Promise<void>
           task = (async () => {
             // 校验投递载荷，永久丢弃畸形消息，并依业务结果执行 ack 或重入队。
             let notice: QueueWork
@@ -179,16 +190,19 @@ export async function queueOpen(/* 部署提供的连接 URL 与隔离命名空�
               else channel.nack(message, false, true)
             }
           })().catch(/* 业务处理或确认投递时发生的异常，触发本地消费取消。 */ error => {
-            // 保存处理器异常并取消消费循环，避免失败被后台 Promise 隐藏。
-             failure = error; local.abort(error) })
+            // 保存首个处理器异常并取消消费循环，其他在途处理器仍由 finally 全部等待。
+             failure ??= error; local.abort(error) }).finally(() => {
+            // 从连接级在途集合移除已结束投递，供 close 判断何时真正排空。
+             deliveries.delete(task) })
+          deliveries.add(task)
         }, { noAck: false })
         consumerTag = consumer.consumerTag
         await queueWaitSignal(signal)
       } finally {
         local.abort()
         if (consumerTag && !lifetime.signal.aborted) await queueCloseHandle(() => /* 在关闭连接前取消当前消费者，阻止接收新投递。 */  channel.cancel(consumerTag!))
+        await queueWaitDeliveries()
         await close()
-        await task
       }
       if (failure) throw failure
       if (!stop?.aborted) throw signal.reason ?? new QueueError('QUEUE_DISCONNECTED', RuntimeMessage.WORK_CONSUMER_ENDED)

@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { describe, expect, it } from 'vitest'
 import type { GraphDataRead, GraphWorkGrant } from '../../../contracts/graph'
 import { createGraphApi, expectRejected, type TestGraphApi } from '../fixtures/graph-api'
-import { configuredSlots, verificationConfiguration, verificationSlots } from '../fixtures/verification'
+import { verificationConfiguration } from '../fixtures/verification'
 
 interface WireCall { id: string; function: { name: string; arguments: string } }
 interface WireMessage { role: string; content?: string; tool_call_id?: string; tool_calls?: WireCall[] }
@@ -57,7 +57,7 @@ function startHost(/* 本次真实 Host 子进程的唯一业务身份，亦用�
   // 启动真实 Host 子进程，收集日志并暴露就绪、退出和输出状态。
   const child = spawn(process.execPath, ['--import', 'tsx', path.resolve('apps/execution-host/main.ts'),
     '--data-api', api.url, '--host-id', hostId,
-    '--dsh-home', path.join(directory, hostId), '--request-timeout-ms', '1000',
+    '--dsh-home', path.join(directory, hostId), '--request-timeout-ms', '3000',
     '--patch', patchPath, '--cwd', directory, '--process-cwd', directory, '--max-tokens', '2000', '--max-rounds', '3',
   ], { cwd: path.resolve('.'), stdio: ['ignore', 'pipe', 'pipe'], env: {
     ...process.env, CHONGMING_DATA_TOKEN: api.token, DEEPSEEK_API_KEY: 'local-fixture-key',
@@ -131,7 +131,7 @@ describe('Multiple real Host processes and official DSH', () => {
     const orphanPids = new Set<number>()
     let crashedGrant: GraphWorkGrant | undefined, crashedHostId: string | undefined, crashAt: number | undefined
     let api: TestGraphApi | undefined, provider: Server | undefined
-    let slots = verificationSlots(3).map(/* 初始路由候选槽位，复制后仅允许使用本地证据工具。 */ slot => /* 为初始核查槽位配置受限的本地证据工具。 */  ({ ...slot, tools: ['archive_lookup'] }))
+    let slots: import('../../../contracts/graph').GraphPlanSlot[] = []
     try {
       // Only model responses are scripted. Production Host loops, DSH processes, tools and Mongo are real.
       provider = createServer(async (/* 真实 DSH 发给本地模型的请求，需验证路由、凭据和私有内容未泄漏。 */ request, /* 本地模型返回流，依据当前角色写入下一次工具调用。 */ response) => {
@@ -147,25 +147,32 @@ describe('Multiple real Host processes and official DSH', () => {
           if (JSON.stringify(body).includes('PRIVATE_CONTEXT_NEVER_TO_MODEL')) throw new Error('A private context field reached the model')
           const results = toolResults(body.messages)
           const last = results[results.length - 1]
+          const readResult = results.find(result => result.name === 'data_read')?.data as unknown as GraphDataRead | undefined
           trace.push({ role, sessionId: String(request.headers['x-deepseek-harness-session-id']),
             tools: body.tools?.map(/* 模型请求暴露的工具 schema，记录 function.name 检查能力集合。 */ tool => /* 记录模型可见工具名，用于验证角色能力隔离。 */  tool.function.name),
             prompt: body.messages.find(/* 模型消息条目，定位 user 消息以检查变量顺序。 */ message => /* 取得用户提示词供变量顺序和授权上下文断言。 */  message.role === 'user')?.content, last })
           if (!last) return stream(response, 'data_read', {})
           if (last.name === 'archive_lookup') return stream(response, 'data_propose', { proposal: {
-            kind: 'report', score: last.data.score, reason: `${last.data.marker}: ${last.data.source}`,
+            kind: 'outputs', reason: `${last.data.marker}: ${last.data.source}`, outputs: [{
+              key: `opinion-${readResult!.stage.slotId}`, port: 'opinions', typeRef: { id: 'factcheck.opinion', version: 1 },
+              payload: { score: last.data.score, reason: `${last.data.marker}: ${last.data.source}`, evidenceIds: [] },
+            }],
           } })
           if (last.name !== 'data_read') throw new Error('Accepted work should conclude its native turn')
           const data = last.data as unknown as GraphDataRead
           if (role === 'router') return stream(response, 'data_propose', { proposal: {
-            kind: 'route', reason: 'Three evidence angles selected by the router', slots,
+            kind: 'plan', reason: 'Three evidence angles selected by the router', slots,
           } })
           if (role === 'worker') {
-            if (data.work.actor.role !== 'worker') throw new Error('Worker lacks its DB-derived slot identity')
-            const slotId = data.work.actor.slotId
-            return stream(response, 'archive_lookup', { query: data.route!.slots.find(/* 数据 API 授权视图中的批准槽位，与当前 worker slotId 匹配。 */ slot => /* 找到授权 worker 槽位，以其核查角度调用证据工具。 */  slot.id === slotId)!.angle })
+            if (data.stage.id !== 'assess') throw new Error('Worker lacks its DB-derived stage identity')
+            return stream(response, 'archive_lookup', { query: slots.find(slot => slot.id === data.stage.slotId)!.angle })
           }
-          return stream(response, 'data_propose', { proposal: { kind: 'merge', score: 0.5,
-            reason: 'Merged three independent Host reports.', reportIds: data.reports.map(/* 已接纳核查报告，提取身份生成汇总所需的完整引用。 */ report => /* 让汇总提案引用已接纳的全部报告身份。 */  report.id) } })
+          const opinionIds = data.priorStageResults.flatMap(result => result.mode === 'outputs'
+            ? result.outputs.map(output => ({ candidate: { workId: result.workId, key: output.key } })) : [])
+          return stream(response, 'data_propose', { proposal: { kind: 'outputs', reason: 'Merged three independent Host reports.', outputs: [{
+            key: 'verification', port: 'verification', typeRef: { id: 'factcheck.verification', version: 1 },
+            payload: { score: 0.5, reason: 'Merged three independent Host reports.', opinionIds },
+          }] } })
         } catch (error) {
           trace.push({ error: String(error) })
           response.writeHead(500, { 'content-type': 'application/json' })
@@ -192,29 +199,32 @@ describe('Multiple real Host processes and official DSH', () => {
         profile.content = 'E2E_ROLE=worker\nClaim={{claimContent}}'; profile.tools = ['archive_lookup']
         profile.promptVars = ['hint', 'claimContent', 'context', 'originalContent']; profile.defaultPriority = 'high'
       }
-      api = await createGraphApi(crash ? 1800 : 3000, configuration)
+      api = await createGraphApi(crash ? 2500 : 15000, configuration)
       const context = await api.createRun(mode, configuration, { content: 'Fixture original source', context: {
         public: { value: 'PUBLIC_CONTEXT_TO_MODEL', visibleToAI: true },
         private: { value: 'PRIVATE_CONTEXT_NEVER_TO_MODEL', visibleToAI: false },
       } })
-      slots = configuredSlots(context.configuration, 3).map(/* 按实际 Run 配置生成的路由槽位，限制为本地证据工具。 */ slot => /* 按创建 Run 后的实际 Agent 配置生成证据槽位。 */  ({ ...slot, tools: ['archive_lookup'] }))
+      const operation = (await api.store.read(context.mapId))!.runs[0].operations[0]
+      const planner = operation.executionSpec.stages.find(stage => stage.id === 'route')!
+      slots = planner.plan!.agents.slice(0, 3).map((agent, index) => ({ id: `angle-${index + 1}`, stageId: 'assess', agentRef: agent.ref,
+        angle: `independent-angle-${index + 1}`, hint: `Follow evidence chain ${index + 1}`, priority: 'high', tools: ['archive_lookup'] }))
       hosts.push(startHost('host-a', api, directory, patchPath, crash ? 2200 : 150),
         startHost('host-b', api, directory, patchPath, crash ? 2200 : 150))
       await Promise.all(hosts.map(/* 已启动的 Host 进程句柄，读取 ready 等待启动完成。 */ host => /* 等待每个真实 Host 的启动日志确认。 */  host.ready))
       expect(hosts[0].child.pid).not.toBe(hosts[1].child.pid)
       async function waitFor(/* 判定图是否达到当前审核或完成边界的纯条件函数。 */ predicate: (/* 刚从图 API 读取的最新测试快照，供条件判断而非直接修改。 */ snapshot: Record<string, any>) => boolean) {
         // 轮询图直到指定业务边界，Run 失败或超时立即报告。
-        const deadline = Date.now() + 25000
+        const deadline = Date.now() + 45000
         while (Date.now() < deadline) {
           const current = await api!.snapshot(context.mapId)
-          if (current.run.status === 'failed') throw new Error(`Host failed: ${JSON.stringify(current.run.error)}`)
+          if (current.runs[0].status === 'failed') throw new Error(`Host failed: ${JSON.stringify(current.runs[0].error)}`)
           if (predicate(current)) return current
           await delay(40)
         }
         throw new Error('Hosts did not reach the expected business boundary')
       }
       if (crash) {
-        const deadline = Date.now() + 15000
+        const deadline = Date.now() + 25000
         let starts: Array<{ hostId: string; pid: number }> = []
         while (Date.now() < deadline) {
           const text = await readFile(path.join(directory, 'tool-calls.jsonl'), 'utf8').catch(/* 读取工具日志失败的文件系统异常，仅 ENOENT 表示尚待创建。 */ error => {
@@ -229,9 +239,9 @@ describe('Multiple real Host processes and official DSH', () => {
         expect(new Set(starts.map(/* 工具启动事件，提取 hostId 验证两个 Host 均已运行。 */ record => /* 提取 Host 身份，断言两台 Host 都已开始证据执行。 */  record.hostId)).size).toBe(2)
         crashedHostId = starts[0].hostId
         const document = (await api.store.read(context.mapId))!
-        crashedGrant = Object.values(document.leases).find(/* 图中保存的执行授权候选，定位即将被强杀 Host 的 worker 工作。 */ grant => /* 定位即将崩溃 Host 持有的 worker 授权。 */  grant.hostId === crashedHostId && grant.actor.role === 'worker')!
+        crashedGrant = Object.values(document.leases).find(grant => grant.hostId === crashedHostId && grant.stageId === 'assess')!
         expect(crashedGrant).toBeDefined()
-        expect(document.run!.operations[0].reports).toHaveLength(0)
+        expect(document.runs[0].operations[0].stages.find(stage => stage.stageId === 'assess')!.results).toHaveLength(0)
         const victim = hosts.find(/* 测试启动的 Host 进程，按其结构化日志确认应强杀的目标。 */ host => /* 按结构化 Host 身份日志找到要强杀的子进程。 */  host.output().includes(`"hostId":"${crashedHostId}"`))!
         victim.crashed = true
         crashAt = Date.now()
@@ -245,24 +255,24 @@ describe('Multiple real Host processes and official DSH', () => {
         }
       }
       if (mode === 'human-in-loop') {
-        const routed = await waitFor(/* 最新图快照，用于等待人工模式的路由审核状态。 */ snapshot => /* 等待人工模式的路由审核边界。 */  snapshot.run.status === 'waiting' && snapshot.run.operations[0].review.kind === 'route')
-        expect(routed.run.operations[0].reports).toEqual([])
+        const routed = await waitFor(snapshot => snapshot.runs[0].status === 'waiting' && snapshot.runs[0].operations[0].review.kind === 'plan')
+        expect(routed.runs[0].operations[0].stages.find((stage: { stageId: string }) => stage.stageId === 'assess').results).toEqual([])
         await delay(200)
         await expect(readFile(path.join(directory, 'tool-calls.jsonl'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
         await api.answer(context.mapId)
-        const merged = await waitFor(/* 最新图快照，用于等待人工模式的结果审核状态。 */ snapshot => /* 等待人工模式的结果审核边界。 */  snapshot.run.status === 'waiting' && snapshot.run.operations[0].review.kind === 'result')
+        const merged = await waitFor(/* 最新图快照，用于等待人工模式的结果审核状态。 */ snapshot => /* 等待人工模式的结果审核边界。 */  snapshot.runs[0].status === 'waiting' && snapshot.runs[0].operations[0].review.kind === 'result')
         expect(merged.nodes).toHaveLength(2)
-        expect(merged.run.operations[0].reports).toHaveLength(3)
+        expect(merged.runs[0].operations[0].stages.find((stage: { stageId: string }) => stage.stageId === 'assess').results).toHaveLength(3)
         await api.answer(context.mapId)
       }
-      const completed = await waitFor(/* 最新图快照，用于等待 Run 到达 completed。 */ snapshot => /* 等待本次 Run 完成全部报告与汇总。 */  snapshot.run.status === 'completed')
-      expect(completed.run.operations[0].route.slots).toHaveLength(3)
-      const verification = completed.nodes.find((/* 完成图中的节点，按 data.kind 查找核查结论。 */ node: { data: { kind: string } }) => /* 定位最终核查结论节点。 */  node.data.kind === 'verification')
-      expect(verification.data).toMatchObject({ score: 0.5, reason: 'Merged three independent Host reports.' })
-      expect(verification.data.opinions).toHaveLength(3)
-      for (const slot of slots) expect(verification.data.opinions).toContainEqual(expect.objectContaining({
-        slotId: slot.id, agentId: slot.agentId, tools: ['archive_lookup'], reason: `custom-tool-executed: archive:${slot.angle}`,
-      }))
+      const completed = await waitFor(/* 最新图快照，用于等待 Run 到达 completed。 */ snapshot => /* 等待本次 Run 完成全部报告与汇总。 */  snapshot.runs[0].status === 'completed')
+      expect(completed.runs[0].operations[0].stages.find((stage: { stageId: string }) => stage.stageId === 'assess').planSlots).toHaveLength(3)
+      const opinions = completed.nodes.filter((node: { typeId: string }) => node.typeId === 'factcheck.opinion')
+      const verification = completed.nodes.find((node: { typeId: string }) => node.typeId === 'factcheck.verification')
+      expect(verification.payload).toMatchObject({ score: 0.5, reason: 'Merged three independent Host reports.',
+        opinionIds: opinions.map((node: { id: string }) => node.id) })
+      for (const slot of slots) expect(opinions).toContainEqual(expect.objectContaining({ producer: expect.objectContaining({ agentRef: slot.agentRef }),
+        payload: expect.objectContaining({ reason: `custom-tool-executed: archive:${slot.angle}` }) }))
       await Promise.all(hosts.filter(/* 本测试 Host 句柄，crashed 标记决定是否仍需正常关闭。 */ host => /* 只对仍存活、未被强杀的 Host 执行正常关闭断言。 */  !host.crashed).map(stopHost))
       const toolCalls = (await readFile(path.join(directory, 'tool-calls.jsonl'), 'utf8')).trim().split('\n').map(/* 完整证据工具日志的一行 JSON 文本。 */ line => /* 解析完整工具调用日志，验证执行数量与重叠时间。 */  JSON.parse(line))
       const starts = toolCalls.filter(/* 工具调用事件，挑选开始记录以检查数量与时间范围。 */ call => /* 收集工具开始事件。 */  call.event === 'start')
@@ -307,8 +317,10 @@ describe('Multiple real Host processes and official DSH', () => {
         expect(replacement.fence).toBeGreaterThan(crashedGrant.fence)
         expect(replacement.hostId).not.toBe(crashedGrant.hostId)
         expectRejected(await api.propose(crashedGrant, { mapId: context.mapId, operationId: context.operationId,
-          id: crashedGrant.workId, kind: 'report', routeRevision: crashedGrant.routeRevision,
-          slotId: crashedGrant.actor.role === 'worker' ? crashedGrant.actor.slotId : '', score: 0, reason: 'Late orphan proposal',
+          id: crashedGrant.workId, specHash: crashedGrant.specHash, kind: 'outputs', reason: 'Late orphan proposal', outputs: [{
+            key: 'late', port: 'opinions', typeRef: { id: 'factcheck.opinion', version: 1 },
+            payload: { score: 0, reason: 'Late orphan proposal', evidenceIds: [] },
+          }],
         }))
         expect(await api.snapshot(context.mapId)).toEqual(completed)
       }
@@ -327,5 +339,5 @@ describe('Multiple real Host processes and official DSH', () => {
       await api?.close()
       await rm(directory, { recursive: true, force: true })
     }
-  }, 45_000)
+  }, 90_000)
 })

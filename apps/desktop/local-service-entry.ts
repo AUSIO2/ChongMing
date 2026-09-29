@@ -48,7 +48,9 @@ async function desktopStartService() {
   const directory = dataDirectory
   if (!directory || !path.isAbsolute(directory) || !process.send) throw new Error(RuntimeMessage.DESKTOP_SERVICE_REQUIRES_A_PARENT_IPC_CHANNEL_AND_FIXED_DATA_DIRECTORY)
   const local = await localReadConfiguration()
+  const concurrencyValue = process.env.CHONGMING_HOST_CONCURRENCY
   runtime = await localCreateRuntime({ directory, port: 0, reporter,
+    concurrency: concurrencyValue === undefined ? undefined : Number(concurrencyValue),
     env: Object.fromEntries(Object.entries(local.secrets).filter((/* 本机密钥条目，仅取名称检查进程环境是否已有显式配置。 */ [name]) => /* 仅补充环境中尚未设置的本机密钥，保留显式环境配置优先级。 */  process.env[name] === undefined)) })
   if (stopping) return
   process.send({ type: 'ready', baseUrl: runtime.baseUrl, token: runtime.userToken }, (/* 就绪消息发送错误；null 表示发送成功，否则启动清理。 */ error: Error | null) => {

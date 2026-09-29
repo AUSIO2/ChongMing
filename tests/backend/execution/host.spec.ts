@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GraphWorkGrant } from '../../../contracts/graph'
 import type { DshWorkInput } from '../../../backend/execution/dsh/work-executor'
-import { hostCreateWorker } from '../../../backend/execution/host-worker'
+import { hostCreateWorker, type HostExecutionEvent } from '../../../backend/execution/host-worker'
 import { queueOpen, queueCreateTransport } from '../../../backend/adapters/messaging/rabbitmq'
 import { rabbitCreateFixture } from '../fixtures/rabbitmq'
 
@@ -64,12 +64,13 @@ async function hostCreateFixture(/* 用例提供的工作 API 行为，按方法
     disconnect: () => {
       // 强制销毁全部代理连接以模拟 broker 断流。
        for (const socket of sockets) socket.destroy() },
-    grant(/* 本次 claim 请求的持有者身份，夹具授权必须原样回显。 */ holderId: string, /* 测试租约时长，单位毫秒，默认 30000；失租用例可缩短。 */ leaseMs = 30_000): GraphWorkGrant {
+    grant(/* 本次 claim 请求的持有者身份，夹具授权必须原样回显。 */ holderId: string, /* 测试租约时长，单位毫秒，默认 30000；失租用例可缩短。 */ leaseMs = 30_000, /* 本次授权对应的工作身份；省略时沿用旧用例的 route。 */ grantedWorkId = workId): GraphWorkGrant {
       // 构造绑定本夹具部署和图的工作授权，可调整租约时长。
-      return { workId, mapId, runId, operationId: `${runId}:verify:claim`, actor: { role: 'router' }, routeRevision: 0,
+      return { workId: grantedWorkId, mapId, runId, operationId: `${runId}:verify:${grantedWorkId}`,
+        stageId: 'route', slotId: 'route', specHash: 'fixture-spec',
         hostId, holderId, fence: 1, leaseMs, expiresAt: new Date(Date.now() + leaseMs).toISOString() }
     },
-    publish: () => /* 向本夹具命名空间发布固定工作的领取通知。 */  link.publishWork({ version: 1, deploymentId, mapId, workId }),
+    publish: (/* 可选工作编号；省略时发布旧用例使用的 route。 */ publishedWorkId = workId) => /* 向本夹具命名空间发布指定工作的领取通知。 */  link.publishWork({ version: 1, deploymentId, mapId, workId: publishedWorkId }),
     async close() {
       // 关闭发布连接、代理和 HTTP 服务，再清理队列命名空间与 broker 夹具。
       await link.close()
@@ -190,6 +191,127 @@ describe('Host work lifecycle through RabbitMQ', () => {
       await delay(50)
       expect(runner).toHaveBeenCalledTimes(1)
     } finally { await worker.close(); await fixture.close() }
+  })
+
+  it('runs distinct work up to its configured capacity, coalesces duplicates and attributes events to slots', async () => {
+    // 验证一个 Host 的两个执行槽并行领取不同工作，同一 Work 只领取一次且事件带完整槽位身份。
+    const claims = new Map<string, number>()
+    const fixture = await hostCreateFixture((/* 多槽用例收到的工作 API 方法。 */ method, /* 当前工作命令参数，用于生成匹配授权。 */ params) => {
+      // 为每个不同工作返回独立授权，并统计重复通知是否造成重复领取。
+      if (method === 'claim') {
+        claims.set(params.workId, (claims.get(params.workId) ?? 0) + 1)
+        return { data: { status: 'claimed', grant: fixture.grant(params.holderId, 30_000, params.workId) } }
+      }
+      return { data: { released: true } }
+    })
+    const releases = new Map<string, () => void>(), started: string[] = [], events: HostExecutionEvent[] = []
+    let active = 0, maximum = 0
+    const runner = vi.fn(async (/* Host 为一个执行槽构造的单工作 DSH 输入。 */ input: DshWorkInput) => {
+      // 发出一条可归属事件并等待用例乱序释放，以观察真实并发上限。
+      started.push(input.grant.workId); active++; maximum = Math.max(maximum, active)
+      input.onEvent?.({ method: 'session.status', params: { status: 'running' } })
+      await new Promise<void>(/* 当前工作完成开关，由用例按工作编号保存。 */ resolve => {
+        // 登记当前工作对应的释放回调。
+        releases.set(input.grant.workId, resolve)
+      })
+      active--
+      return { ...input.grant, status: 'accepted' as const, sessionId: null, finalResponse: '' }
+    })
+    const worker = hostCreateWorker({ ...fixture.input, concurrency: 2, onEvent: /* 已包装的 Host 执行事件，保存后核对身份。 */ event => {
+      // 收集并发执行事件的 Host、槽位和租约包装。
+      events.push(event)
+    } }, runner)
+    try {
+      expect(worker.concurrency).toBe(2)
+      await worker.start()
+      await fixture.publish('work-a'); await fixture.publish('work-a')
+      await fixture.publish('work-b'); await fixture.publish('work-c')
+      await vi.waitFor(() => /* 等待两个执行槽都开始工作。 */ expect(started).toHaveLength(2), { timeout: 3000 })
+      expect(maximum).toBe(2)
+      expect(claims.get('work-a')).toBe(1)
+      const finishedEarly = started.find(/* 已启动工作编号，选择非 work-a 的任务先结束。 */ id => /* 找到另一个并发任务。 */ id !== 'work-a')!
+      releases.get(finishedEarly)!()
+      await vi.waitFor(() => /* 等待第三个不同工作取得刚归还的槽位。 */ expect(started).toContain('work-c'), { timeout: 3000 })
+      for (const id of ['work-a', 'work-b', 'work-c']) releases.get(id)?.()
+      await vi.waitFor(() => /* 等待三个工作均完成并调用 release。 */ expect(active).toBe(0))
+      expect(new Set(started)).toEqual(new Set(['work-a', 'work-b', 'work-c']))
+      expect(events).toHaveLength(3)
+      expect(new Set(events.map(/* Host 事件包装，提取执行槽身份检查容量复用。 */ event => /* 返回事件所属槽位。 */ event.executionSlotId)).size).toBe(2)
+      for (const event of events) expect(event).toMatchObject({ hostId: fixture.input.hostId, workId: expect.any(String),
+        holderId: expect.any(String), fence: 1, event: { method: 'session.status', params: { status: 'running' } } })
+    } finally {
+      for (const release of releases.values()) release()
+      await worker.close(); await fixture.close()
+    }
+  })
+
+  it('isolates one lost lease without cancelling another slot', async () => {
+    // 让一个并发工作续租失败，验证另一个执行槽保持运行且 Host 继续消费。
+    vi.spyOn(console, 'error').mockImplementation(() => {
+      // 抑制本用例预期失租诊断。
+    })
+    const claims = new Map<string, number>(), aborted: string[] = []
+    const fixture = await hostCreateFixture((/* 失租隔离用例收到的工作命令。 */ method, /* 命令中的工作和 holder 身份。 */ params) => {
+      // lost 工作首次授权后续租失败，重投时过时；survivor 工作正常续租与释放。
+      if (method === 'claim') {
+        const count = (claims.get(params.workId) ?? 0) + 1
+        claims.set(params.workId, count)
+        if (params.workId === 'lost' && count > 1) return { data: { status: 'obsolete' } }
+        return { data: { status: 'claimed', grant: fixture.grant(params.holderId, 300, params.workId) } }
+      }
+      if (method === 'renew' && params.workId === 'lost') return { status: 409, error: { code: 'LEASE_LOST', message: 'taken over' } }
+      if (method === 'renew') return { data: fixture.grant(params.holderId, 300, params.workId) }
+      return { data: { released: true } }
+    })
+    let survivorSignal: AbortSignal | undefined, finishSurvivor!: () => void
+    const survivorDone = new Promise<void>(/* 允许 survivor 执行完成的开关。 */ resolve => {
+      // 保存 survivor 的完成回调。
+      finishSurvivor = resolve
+    })
+    const runner = vi.fn(async (/* 当前槽位执行的工作输入，按 workId 模拟失租或正常完成。 */ input: DshWorkInput) => {
+      // lost 等待并记录自身取消；survivor 保持活动直到用例确认隔离成功。
+      if (input.grant.workId === 'lost') {
+        await new Promise<void>(/* lost 工作收到独立取消后的同步点。 */ resolve => {
+          // 等待租约续租失败触发当前工作信号。
+          input.signal!.addEventListener('abort', () => /* 记录取消到达后解除等待。 */ resolve(), { once: true })
+        })
+        aborted.push('lost')
+        throw input.signal!.reason
+      }
+      survivorSignal = input.signal
+      await survivorDone
+      return { ...input.grant, status: 'accepted' as const, sessionId: null, finalResponse: '' }
+    })
+    const worker = hostCreateWorker({ ...fixture.input, concurrency: 2, requestTimeoutMs: 1000 }, runner)
+    try {
+      await worker.start(); await fixture.publish('lost'); await fixture.publish('survivor')
+      await vi.waitFor(() => /* 等待 lost 的续租失败只取消其自身执行。 */ expect(aborted).toEqual(['lost']), { timeout: 3000 })
+      expect(survivorSignal?.aborted).toBe(false)
+      let ended = false
+      void worker.finished().then(() => {
+        // 标记 Host 消费循环意外结束，隔离成功时该值应保持 false。
+        ended = true
+      })
+      await delay(50)
+      expect(ended).toBe(false)
+    } finally {
+      finishSurvivor()
+      await worker.close(); await fixture.close()
+    }
+  })
+
+  it('defaults to one slot and rejects capacities outside 1..64', async () => {
+    // 验证兼容默认容量及配置上限在打开任何队列连接前生效。
+    const fixture = await hostCreateFixture(() => {
+      // 容量校验用例不应调用工作 API。
+      throw new Error('Unexpected API call')
+    })
+    try {
+      expect(hostCreateWorker(fixture.input).concurrency).toBe(1)
+      for (const concurrency of [0, 65, 1.5, Number.NaN]) {
+        expect(() => /* 以当前非法容量创建 Host，必须同步拒绝。 */ hostCreateWorker({ ...fixture.input, concurrency })).toThrow('1 to 64')
+      }
+    } finally { await fixture.close() }
   })
 
   it('rejects a different API namespace before consuming work', async () => {

@@ -10,7 +10,6 @@ import * as dshRuntime from '../../../backend/execution/dsh/runtime'
 import { dshCreateRuntime, dshReadEvent } from '../../../backend/execution/dsh/runtime'
 import { dshHttpCreateServer } from '../../../backend/adapters/http/dsh-diagnostic-server'
 import { dshRunWork, type DshWorkInput } from '../../../backend/execution/dsh/work-executor'
-import { verificationConfiguration, verificationSlots } from '../fixtures/verification'
 
 vi.mock('@deepseek-ai/dsh-sdk-client', { spy: true })
 
@@ -30,7 +29,7 @@ function workInput(): DshWorkInput {
   return {
     grant: {
       workId: 'operation:route', mapId: 'map', runId: 'run', operationId: 'operation',
-      actor: { role: 'router' }, routeRevision: 0, hostId: 'host', holderId: 'holder',
+      stageId: 'route', slotId: 'route', specHash: 'spec-hash', priority: 'medium', hostId: 'host', holderId: 'holder',
       fence: 1, expiresAt: '2099-01-01T00:00:00.000Z', leaseMs: 30000,
     },
     dataApiUrl: 'http://127.0.0.1:12345', token: 'test-only-token',
@@ -80,38 +79,26 @@ describe('DSH work access failures', () => {
 })
 
 describe('DSH operation profiles', () => {
-  // 覆盖解析和拆分各角色对冻结 Agent 配置的选择。
+  // 覆盖任意通用阶段对冻结 Agent 配置的选择。
   it.each([
-    { kind: 'parse', actor: { role: 'parse' } },
-    { kind: 'split', actor: { role: 'router' } },
-    { kind: 'split', actor: { role: 'worker', slotId: 'angle-1' } },
-    { kind: 'split', actor: { role: 'merge' } },
-  ] as const)('binds $kind/$actor.role to its frozen profile and exact proposal identity', async (/* 参数化用例给定的 Operation 种类及可信角色，用于验证对应配置选择。 */ { kind, actor }) => {
-    // 逐个角色验证模型配置、提示词、补丁中的可信授权和提案身份均正确绑定。
+    { stageId: 'parse', slotId: 'parse', prompt: 'Shared source' },
+    { stageId: 'route', slotId: 'route', prompt: 'Frozen content' },
+    { stageId: 'assess', slotId: 'angle-1', prompt: 'Independent angle' },
+  ] as const)('binds $stageId/$slotId to its frozen profile and exact proposal identity', async ({ stageId, slotId, prompt }) => {
     const directory = await mkdtemp(path.join(tmpdir(), 'chongming-dsh-profile-'))
     temporaryDirectories.push(directory)
-    const configuration = verificationConfiguration()
-    configuration.parse = { ...configuration.router, id: 'custom-parser', provider: 'parse-provider', model: 'parse-model', content: 'Parse={{rawContent}}', promptVars: ['rawContent'] }
-    configuration.split = {
-      router: { ...configuration.router, id: 'split-router', provider: 'split-router-provider', model: 'route-model', content: 'Route={{content}}', promptVars: ['content'] },
-      merger: { ...configuration.merger, id: 'split-merger', provider: 'split-merge-provider', model: 'merge-model', content: 'Merge={{subResults}}', promptVars: ['subResults'] },
-      agents: configuration.agents.map(/* 原始核查 Agent 测试配置，复制后改成拆分专属身份与模型。 */ profile => /* 生成具有独立身份、模型和提示词的拆分 worker 配置。 */  ({ ...profile, id: 'split-' + profile.id, provider: 'split-worker-provider', model: 'worker-model',
-        content: 'Split={{content}};{{hint}}', promptVars: ['content', 'hint'] })),
-    }
-    const slots = verificationSlots(2).map(/* 原核查路由槽位，复制后改为引用拆分 Agent。 */ slot => /* 将测试槽位映射到拆分 Agent 身份。 */  ({ ...slot, agentId: 'split-' + slot.agentId }))
     const input = workInput()
     input.dshHome = directory
-    input.grant = { ...input.grant, actor, routeRevision: actor.role === 'parse' || actor.role === 'router' ? 0 : 2 }
+    input.grant = { ...input.grant, stageId, slotId }
+    const profile = { id: `agent-${stageId}`, name: `Agent ${stageId}`, description: stageId, content: 'Task={{task}}', tools: [],
+      provider: `${stageId}-provider`, model: `${stageId}-model`, promptVars: ['task'] }
     const data: GraphDataRead = {
-      mapId: input.grant.mapId, runId: input.grant.runId, operationId: input.grant.operationId, operationKind: kind,
-      target: { id: 'target', revision: 0, createdAt: '', updatedAt: '', data: kind === 'parse'
-        ? { kind: 'source', locator: { kind: 'asset', assetId: 'asset', mediaType: 'text/plain' }, label: null }
-        : { kind: 'news', content: 'Frozen news', context: {} } },
-      ...(kind === 'parse' ? { rawContent: 'Shared source' } : {}),
-      configuration, context: [], route: input.grant.routeRevision ? { revision: 2, reason: 'Angles', slots, approved: true } : null,
-      reports: [], splitReports: [], contentDraft: null, draft: null, review: null,
-      phase: actor.role === 'parse' ? 'parse' : actor.role === 'router' ? 'route' : actor.role === 'worker' ? 'workers' : 'merge',
-      proposalId: 'exact-proposal-from-api', work: { id: input.grant.workId, actor, routeRevision: input.grant.routeRevision, status: 'ready' },
+      mapId: input.grant.mapId, runId: input.grant.runId, operationId: input.grant.operationId,
+      transitionRef: { id: 'demo.transition', version: 1 }, specHash: input.grant.specHash,
+      inputs: {}, context: {}, priorStageResults: [], promptVariables: { task: prompt },
+      stage: { id: stageId, slotId, agent: { ref: { id: profile.id, version: 1 }, profile }, tools: [] },
+      outputContract: { mode: 'outputs', ports: [] }, proposalId: 'exact-proposal-from-api',
+      work: { id: input.grant.workId, stageId, slotId, specHash: input.grant.specHash, status: 'ready' },
     }
     const request = vi.spyOn(globalThis, 'fetch')
     request.mockResolvedValueOnce(Response.json({ ok: true, data: { workId: input.grant.workId, status: 'ready' } }))
@@ -128,11 +115,10 @@ describe('DSH operation profiles', () => {
          patch = JSON.parse(await readFile(config.patches!.at(-1)!, 'utf8')) }, run, close,
     }))
     const result = await dshRunWork(input)
-    const profile = kind === 'parse' ? configuration.parse : actor.role === 'router' ? configuration.split.router
-      : actor.role === 'merge' ? configuration.split.merger : configuration.split.agents[0]
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ provider: profile.provider, model: profile.model }))
-    expect(patch[0].config).toMatchObject({ operationKind: kind, proposalId: data.proposalId, grant: input.grant, rootSessionId: result.sessionId, configuration })
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({ sessionId: result.sessionId, prompt: expect.stringContaining(kind === 'parse' ? 'Shared source' : actor.role === 'merge' ? 'Merge=[]' : 'Frozen news') }), undefined)
+    expect(patch[0].config).toMatchObject({ proposalId: data.proposalId, specHash: data.specHash, grant: input.grant,
+      rootSessionId: result.sessionId, stage: data.stage, outputContract: data.outputContract })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ sessionId: result.sessionId, prompt: expect.stringContaining(prompt) }), undefined)
     expect(close).toHaveBeenCalledOnce()
   })
 })

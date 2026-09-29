@@ -5,15 +5,28 @@ import { randomUUID } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { GraphWorkCommand, GraphWorkGrant, GraphWorkProof } from '../../contracts/graph'
 import type { GraphClaimResult, QueueWork } from '../../contracts/events'
+import type { DshEvent } from '../../contracts/dsh'
 import { dshRunWork, type DshWorkInput } from './dsh/work-executor'
-import type { WorkTransport } from '../ports/messaging'
+import { workReadConcurrency, type WorkTransport } from '../ports/messaging'
 import type { DiagnosticReporter, DiagnosticSeverity } from '../../contracts/diagnostics'
 
-export interface HostInput extends Omit<DshWorkInput, 'grant' | 'signal'> {
+export interface HostExecutionEvent {
+  hostId: string
+  executionSlotId: string
+  workId: string
+  holderId: string
+  fence: number
+  event: DshEvent
+}
+
+export interface HostInput extends Omit<DshWorkInput, 'grant' | 'signal' | 'onEvent'> {
   hostId?: string
   queue: WorkTransport
+  concurrency?: number
   requestTimeoutMs?: number
   reporter?: DiagnosticReporter
+  // 接收附带 Host、执行槽和租约身份的事件，避免并发 DSH 会话的裸事件相互混淆。
+  onEvent?: (/* 一份工作产生的已归属 DSH 事件。 */ event: HostExecutionEvent) => void
 }
 
 interface HostMessaging { version: 1; deploymentId: string; namespace: string; enabled: boolean }
@@ -32,6 +45,7 @@ class HostProtocolError extends Error {
 
 export interface HostWorker {
   readonly hostId: string
+  readonly concurrency: number
   // 校验部署并启动消费；重复调用共用同一次启动，启动失败由此 Promise 拒绝，关闭后禁止重启。
   start(): Promise<void>
   // 在 start 后等待消费循环结束并返回记录的致命错误；启动错误仍由 start 的调用方处理。
@@ -66,8 +80,11 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
   if (input.maxTokens !== undefined) hostReadDuration(input.maxTokens, 'maxTokens')
   if (!['http:', 'https:'].includes(new URL(input.dataApiUrl).protocol)) throw new Error(RuntimeMessage.DATA_API_MUST_USE_HTTP_S)
   const requestTimeoutMs = hostReadDuration(input.requestTimeoutMs ?? 5000, 'requestTimeoutMs')
+  const concurrency = workReadConcurrency({ concurrency: input.concurrency })
   // 这些状态仅属于当前 Host；start/close 共用各自的 Promise，关闭后不再开启新的消费循环。
   const stop = new AbortController()
+  const availableSlots = Array.from({ length: concurrency }, (/* 当前执行槽的零基位置，用于建立稳定槽位身份。 */ _value, /* 槽位在本 Host 内的零基序号。 */ index) => /* 生成只在本 Host 内使用的执行槽编号。 */ `slot-${index + 1}`)
+  const activeWorks = new Map<string, Promise<'ack' | 'retry'>>()
   let starting: Promise<void> | undefined
   let closing: Promise<void> | undefined
   let loop: Promise<void> | undefined
@@ -101,17 +118,18 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
   }
 
   function hostReadGrant(/* API 返回的授权对象，仍需核对 Host、工作身份与租约参数。 */ grant: GraphWorkGrant, /* 本次领取请求随机生成的持有者身份，响应必须原样匹配。 */ holderId: string): GraphWorkGrant {
-    // 核对授权归属、本次领取身份及租约参数，并冻结授权与角色副本，防止执行期间被改写。
+    // 核对授权归属、本次领取身份、阶段规格及租约参数，并冻结副本防止执行期间被改写。
     if (!grant || grant.hostId !== hostId || grant.holderId !== holderId
       || !grant.workId || !grant.mapId || !grant.runId || !grant.operationId
+      || !grant.stageId || !grant.slotId || !grant.specHash
       || !Number.isSafeInteger(grant.fence) || grant.fence < 1) {
       throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_ANOTHER_OR_INVALID_EXECUTION_GRANT)
     }
     hostReadDuration(grant.leaseMs, 'grant.leaseMs')
-    return Object.freeze({ ...grant, actor: Object.freeze({ ...grant.actor }) })
+    return Object.freeze({ ...grant })
   }
 
-  async function hostRunWork(/* 已验证并冻结的本次执行授权，整个 DSH 工作期间不得替换。 */ grant: GraphWorkGrant, /* 领取请求开始时的 performance.now 毫秒值，用于保守计算本地截止时间。 */ acquiredAt: number, /* 队列投递取消信号，断线时必须终止当前执行。 */ deliverySignal: AbortSignal): Promise<'ack' | 'retry'> {
+  async function hostRunWork(/* 已验证并冻结的本次执行授权，整个 DSH 工作期间不得替换。 */ grant: GraphWorkGrant, /* 当前工作独占的 Host 执行槽身份，直到清理和释放后才归还。 */ executionSlotId: string, /* 领取请求开始时的 performance.now 毫秒值，用于保守计算本地截止时间。 */ acquiredAt: number, /* 队列投递取消信号，断线时必须终止当前执行。 */ deliverySignal: AbortSignal): Promise<'ack' | 'retry'> {
     // 执行已领取的工作并维护租约；执行完成或失败上报成功时确认消息，其他中断请求重投。
     const proof: GraphWorkProof & { mapId: string } = {
       mapId: grant.mapId, workId: grant.workId, holderId: grant.holderId, fence: grant.fence,
@@ -144,11 +162,11 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
           const requestStartedAt = performance.now()
           const renewed = await hostCallApi<GraphWorkGrant>({ method: 'renew', params: proof }, renewalSignal)
           hostReadGrant(renewed, grant.holderId)
-          // 续租只能延长有效期，不能替换工作、角色、路由或隔离旧持有者的 fence。
+          // 续租只能延长有效期，不能替换工作、阶段、槽位、冻结规格或隔离旧持有者的 fence。
           if (renewed.workId !== grant.workId || renewed.mapId !== grant.mapId || renewed.runId !== grant.runId
             || renewed.operationId !== grant.operationId || renewed.fence !== grant.fence
-            || renewed.routeRevision !== grant.routeRevision || renewed.leaseMs !== grant.leaseMs
-            || JSON.stringify(renewed.actor) !== JSON.stringify(grant.actor)) {
+            || renewed.stageId !== grant.stageId || renewed.slotId !== grant.slotId || renewed.specHash !== grant.specHash
+            || renewed.leaseMs !== grant.leaseMs) {
             throw new HostProtocolError(RuntimeMessage.RENEWAL_CHANGED_THE_EXECUTION_GRANT)
           }
           hostUpdateDeadline(requestStartedAt)
@@ -169,10 +187,11 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
       await runner({
         grant, dataApiUrl: input.dataApiUrl, token, dshHome: input.dshHome, signal,
         dshBin: input.dshBin, cwd: input.cwd, processCwd: input.processCwd,
-        patches: input.patches, env: { ...input.env, CHONGMING_HOST_ID: hostId }, maxTokens: input.maxTokens,
+        patches: input.patches, env: { ...input.env, CHONGMING_HOST_ID: hostId, CHONGMING_EXECUTION_SLOT_ID: executionSlotId }, maxTokens: input.maxTokens,
         maxRounds: input.maxRounds, onEvent: /* 执行器发出的公共 DSH 通知，转成活动摘要并交给调用者观察。 */ event => {
-          // 将执行事件交给活动摘要，同时通知调用方注册的事件观察者。
-          activity.event(event); input.onEvent?.(event)
+          // 将执行事件交给活动摘要，并附上工作、槽位和租约身份后通知 Host 观察者。
+          activity.event(event); input.onEvent?.({ hostId, executionSlotId, workId: grant.workId,
+            holderId: grant.holderId, fence: grant.fence, event })
         },
       })
       return 'ack'
@@ -213,41 +232,54 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
   }
 
   async function hostRunNotice(/* 队列提供的工作线索，仍需检查部署身份并向 API 领取授权。 */ notice: QueueWork, /* 此次投递的取消信号，由队列连接或消费者停止触发。 */ deliverySignal: AbortSignal, /* 已由消息配置确认的部署身份，通知必须属于同一部署。 */ deploymentId: string): Promise<'ack' | 'retry'> {
-    // 为队列通知领取独立授权并执行工作；过时通知直接确认，占用或暂时失败则延迟重投。
+    // 合并本 Host 内同一工作提示，为新工作分配空闲槽并在完整清理后归还。
     const signal = AbortSignal.any([stop.signal, deliverySignal])
     if (notice.deploymentId !== deploymentId) {
       stop.abort(new Error(RuntimeMessage.QUEUE_WORK_BELONGS_TO_ANOTHER_DEPLOYMENT))
       return 'retry'
     }
-    try {
-      signal.throwIfAborted()
-      const holderId = randomUUID(), acquiredAt = performance.now()
-      const result = await hostCallApi<GraphClaimResult>({ method: 'claim', params: {
-        hostId, holderId, mapId: notice.mapId, workId: notice.workId, deploymentId,
-      } }, signal)
-      if (result.status === 'obsolete') return 'ack'
-      if (result.status === 'busy') {
-        // 保留当前投递直到服务端给出的等待期结束，避免其他 Host 持租时反复争抢同一工作。
-        await hostWaitInterval(hostReadDuration(result.retryAfterMs, 'claim.retryAfterMs'), signal)
+    const workKey = notice.mapId + ':' + notice.workId
+    if (activeWorks.has(workKey)) return 'ack'
+    const executionSlotId = availableSlots.shift()
+    if (!executionSlotId) throw new HostProtocolError(RuntimeMessage.HOST_EXECUTION_CAPACITY_WAS_EXCEEDED)
+    const task = (async () => {
+      // 使用本次槽位的独立 holder 领取并运行工作；错误只取消所属执行，永久协议错误才停止 Host。
+      try {
+        signal.throwIfAborted()
+        const holderId = randomUUID(), acquiredAt = performance.now()
+        const result = await hostCallApi<GraphClaimResult>({ method: 'claim', params: {
+          hostId, holderId, mapId: notice.mapId, workId: notice.workId, deploymentId,
+        } }, signal)
+        if (result.status === 'obsolete') return 'ack'
+        if (result.status === 'busy') {
+          // 保留当前投递直到服务端给出的等待期结束，避免其他 Host 持租时反复争抢同一工作。
+          await hostWaitInterval(hostReadDuration(result.retryAfterMs, 'claim.retryAfterMs'), signal)
+          return 'retry'
+        }
+        if (result.status !== 'claimed') throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_AN_INVALID_CLAIM_RESULT)
+        const grant = hostReadGrant(result.grant, holderId)
+        if (grant.mapId !== notice.mapId || grant.workId !== notice.workId) throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_ANOTHER_QUEUED_WORK)
+        const outcome = await hostRunWork(grant, executionSlotId, acquiredAt, signal)
+        if (outcome === 'retry') await hostWaitInterval(1000, signal)
+        return outcome
+      } catch (error) {
+        if (!signal.aborted) {
+          if (error instanceof HostProtocolError || (error instanceof HostApiError && [401, 403].includes(error.status))) {
+            failure = error; stop.abort(error)
+          }
+          else {
+            hostReport('host.work.retry', 'warn', error, { workId: notice.workId })
+            await hostWaitInterval(1000, signal)
+          }
+        }
         return 'retry'
       }
-      if (result.status !== 'claimed') throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_AN_INVALID_CLAIM_RESULT)
-      const grant = hostReadGrant(result.grant, holderId)
-      if (grant.mapId !== notice.mapId || grant.workId !== notice.workId) throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_ANOTHER_QUEUED_WORK)
-      const outcome = await hostRunWork(grant, acquiredAt, signal)
-      if (outcome === 'retry') await hostWaitInterval(1000, signal)
-      return outcome
-    } catch (error) {
-      if (!signal.aborted) {
-        if (error instanceof HostProtocolError || (error instanceof HostApiError && [401, 403].includes(error.status))) {
-          failure = error; stop.abort(error)
-        }
-        else {
-          hostReport('host.work.retry', 'warn', error, { workId: notice.workId })
-          await hostWaitInterval(1000, signal)
-        }
-      }
-      return 'retry'
+    })()
+    activeWorks.set(workKey, task)
+    try { return await task }
+    finally {
+      activeWorks.delete(workKey)
+      availableSlots.push(executionSlotId)
     }
   }
 
@@ -257,10 +289,10 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
     let reconnectMs = 250
     while (!stop.signal.aborted) {
       try {
-        // 队列适配器一次只投递一项工作，并在消费结束前等待处理器清理，防止重连后两份执行重叠。
+        // 队列适配器按 Host 容量投递，并在消费结束前等待全部处理器清理，防止重连后执行重叠。
         await current.link.consumeWork((/* 本连接投递的合法工作通知，交给领取及执行流程。 */ notice, /* 当前投递关联的取消信号，失联时传给执行器。 */ signal) =>
           /* 使用当前连接对应的部署身份校验通知，并返回确认或重投决定。 */
-          hostRunNotice(notice, signal, current.info.deploymentId), stop.signal)
+          hostRunNotice(notice, signal, current.info.deploymentId), stop.signal, { concurrency })
       } catch (error) {
         const cause = current.link.signal.reason ?? error
         if (cause && typeof cause === 'object' && 'code' in cause && cause.code === 'QUEUE_HANDLER') {
@@ -287,7 +319,7 @@ export function hostCreateWorker(/* 部署入口提供的 Host 身份、API、�
   }
 
   return {
-    hostId,
+    hostId, concurrency,
     start() {
       // 仅在首次调用时建立队列连接并启动后台消费，后续调用复用启动结果。
       if (closing) return Promise.reject(new Error(RuntimeMessage.HOST_IS_CLOSED))

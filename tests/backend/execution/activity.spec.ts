@@ -40,13 +40,13 @@ describe('DSH display-only activity', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
-  it('rejects activity records containing raw execution fields or invalid actors', () => {
-    // 验证活动记录拒绝原始会话字段、缺少槽位的 worker 和非法阶段。
+  it('rejects activity records containing raw execution fields or invalid stage identities', () => {
+    // 验证活动记录拒绝原始会话字段、空阶段身份和非法阶段状态。
     const item = { mapId: 'map', runId: 'run', operationId: 'op', nodeId: 'node', workId: 'work',
-      actor: { role: 'router' }, agentName: 'Router', status: 'model', fence: 1, sequence: 1, updatedAt: new Date().toISOString() }
+      stageId: 'route', slotId: 'route', agentName: 'Router', status: 'model', fence: 1, sequence: 1, updatedAt: new Date().toISOString() }
     expect(activityIsRecord(item)).toBe(true)
     expect(activityIsRecord({ ...item, sessionId: 'secret' })).toBe(false)
-    expect(activityIsRecord({ ...item, actor: { role: 'worker' } })).toBe(false)
+    expect(activityIsRecord({ ...item, stageId: '' })).toBe(false)
     expect(activityIsRecord({ ...item, status: '__proto__' })).toBe(false)
   })
 })

@@ -145,6 +145,51 @@ describe('RabbitMQ work transport', () => {
     finish.abort(); await recovery
   })
 
+  it('prefetches up to the configured capacity, confirms each result independently and drains all active handlers', async () => {
+    // 以容量 2 乱序完成三项工作，停止时只让尚未确认的一项重投，并等待它完成清理。
+    const f = await fixture(), producer = await f.open(), worker = await f.open()
+    const items = [notice(), notice(), notice()]
+    for (const item of items) await producer.publishWork(item)
+    const stop = new AbortController(), started: QueueWork[] = [], releases = new Map<string, () => void>()
+    let active = 0, maximum = 0
+    const running = worker.consumeWork(async (/* broker 在容量内投递的一份工作，按 workId 等待测试释放。 */ work) => {
+      // 记录活动处理器数并允许后启动项先确认，供独立 ACK 与关闭排空断言使用。
+      started.push(work); active++; maximum = Math.max(maximum, active)
+      await new Promise<void>(/* 当前消息处理的完成开关，由用例按乱序释放。 */ resolve => {
+        // 保存当前 workId 对应的释放函数。
+        releases.set(work.workId, resolve)
+      })
+      active--
+      return 'ack'
+    }, stop.signal, { concurrency: 2 })
+    await vi.waitFor(() => /* 等待预取容量中的两项都进入处理器。 */ expect(started).toHaveLength(2))
+    expect(maximum).toBe(2)
+    const held = started[0], completedFirst = started[1]
+    releases.get(completedFirst.workId)!()
+    await vi.waitFor(() => /* 等待第二项确认后第三项取得空闲容量。 */ expect(started).toHaveLength(3))
+    const completedSecond = started[2]
+    releases.get(completedSecond.workId)!()
+    await vi.waitFor(() => /* 等待第三项处理器真正归还活动计数。 */ expect(active).toBe(1))
+    stop.abort()
+    let drained = false
+    void running.then(() => {
+      // 标记消费者完成全部在途清理，用于确认最早任务仍能阻止关闭完成。
+      drained = true
+    })
+    await new Promise<void>(/* 让出一个事件循环轮次观察排空状态。 */ resolve => /* 下一轮检查消费者仍未完成。 */ setImmediate(resolve))
+    expect(drained).toBe(false)
+    releases.get(held.workId)!()
+    await running
+    expect(active).toBe(0)
+    const replacement = await f.open(), finish = new AbortController(), recovered: QueueWork[] = []
+    const recovery = replacement.consumeWork(async /* 新连接收到的未确认投递，应只有停止时仍活动的第一项。 */ work => {
+      // 保存恢复项并确认，已独立确认的另外两项不得再次出现。
+      recovered.push(work); return 'ack'
+    }, finish.signal, { concurrency: 2 })
+    await vi.waitFor(() => /* 等待未确认的最早工作被新连接恢复。 */ expect(recovered).toEqual([held]))
+    finish.abort(); await recovery
+  })
+
   it('settles an unconfirmed publish and closes its transport after a TCP blackhole', async () => {
     // 模拟 TCP 黑洞，验证发布确认超时后连接及 Promise 都在有界时间内结束。
     const f = await fixture(), broker = new URL(f.config.url), sockets = new Set<Socket>()
