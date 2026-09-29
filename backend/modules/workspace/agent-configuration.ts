@@ -1,11 +1,23 @@
 // 验证执行期 Agent、工具和路由配置，禁止调用宿主保留能力。
 import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
-import type { GraphAgentProfile, GraphRouteSlot, GraphRunConfiguration } from '../../../contracts/graph'
+import type { DefinitionPackage } from '../../../contracts/data-definition'
+import type { GraphAgentProfile, GraphRunConfiguration } from '../../../contracts/graph'
+import { definitionsReadPackage } from '../shared/data-definition'
 import { GraphError } from '../shared/domain-error'
 import { inputReadArray, inputReadNames, inputReadObject, inputReadRevision, inputReadString } from '../shared/input-validation'
 export type GraphSeedConfiguration = GraphRunConfiguration & {
   parse: GraphAgentProfile
   split: NonNullable<GraphRunConfiguration['split']>
+  definitionPackage: DefinitionPackage
+}
+// 仅供显式旧 Run 迁移读取的历史路由槽位，不进入新的通用执行规格。
+export interface LegacyGraphRouteSlot {
+  id: string
+  agentId: string
+  angle: string
+  priority: 'high' | 'medium' | 'low'
+  hint: string
+  tools: string[]
 }
 
 const reserved = new Set(['data_read', 'data_propose', 'data_delegate', 'subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'run_code', 'cordis_define', 'cordis_run'])
@@ -78,15 +90,17 @@ export function configurationRead(/* 尚未解析为完整运行配置的输入�
 }
 
 export function configurationReadSeed(/* 来自部署默认配置、尚未确认完整阶段能力的输入。 */ value: unknown): GraphSeedConfiguration {
-  // 在通用配置校验后要求默认配置同时具备解析与拆分能力。
-  const configuration = configurationRead(value)
+  // 在通用配置校验后要求默认配置同时具备解析、拆分和已验证数据定义包。
+  const input = inputReadObject(value, ['parse', 'split', 'router', 'merger', 'agents', 'tools', 'maxSlots', 'definitionPackage'], 'seed configuration')
+  const configuration = configurationRead({ parse: input.parse, split: input.split, router: input.router, merger: input.merger,
+    agents: input.agents, tools: input.tools, maxSlots: input.maxSlots })
   if (!configuration.parse || !configuration.split) {
     throw new GraphError(500, 'DEFAULT_CONFIGURATION_INVALID', RuntimeMessage.DEFAULT_CONFIGURATION_REQUIRES_PARSE_AND_SPLIT)
   }
-  return { ...configuration, parse: configuration.parse, split: configuration.split }
+  return { ...configuration, parse: configuration.parse, split: configuration.split, definitionPackage: definitionsReadPackage(input.definitionPackage) }
 }
 
-export function configurationReadSlots(/* 来自路由提案、尚未解析的槽位数组。 */ value: unknown): GraphRouteSlot[] {
+export function configurationReadSlots(/* 来自旧路由提案、尚未解析的槽位数组。 */ value: unknown): LegacyGraphRouteSlot[] {
   // 按输入顺序解析路由槽位，供后续校验槽位归属和可用工具。
   return inputReadArray(value, 'route.slots').map(/* 路由数组中当前尚未验证的槽位定义。 */ value => {
     // 验证槽位身份、Agent、角度、优先级、提示及工具列表，返回收窄后的路由项。

@@ -1,0 +1,458 @@
+{
+  "id": "chongming.fact-checking",
+  "version": 1,
+  "title": "重明事实核查",
+  "description": "来源解析、事实拆分和多 Agent 核查的默认数据与转换定义。",
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "dataTypes": [
+    {
+      "id": "factcheck.source",
+      "version": 1,
+      "title": "来源",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "locator": { "$ref": "#/definitions/locator" },
+          "label": { "type": ["string", "null"] }
+        },
+        "required": ["locator", "label"],
+        "additionalProperties": false,
+        "definitions": {
+          "locator": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "asset" },
+                  "assetId": { "type": "string", "minLength": 1 },
+                  "mediaType": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "assetId", "mediaType"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "url" },
+                  "url": { "type": "string", "format": "uri" }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "successorTypes": [{ "id": "factcheck.news", "version": 1 }],
+      "presentation": { "titlePath": "/label", "fieldOrder": ["/label", "/locator"] },
+      "references": [
+        {
+          "path": "/locator/assetId",
+          "target": { "kind": "asset" },
+          "when": { "path": "/locator/kind", "equals": "asset" }
+        }
+      ],
+      "agentProjection": { "include": ["/locator", "/label"], "mapEntryFilters": [] }
+    },
+    {
+      "id": "factcheck.news",
+      "version": 1,
+      "title": "新闻",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "minLength": 1 },
+          "context": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/definitions/contextField" }
+          }
+        },
+        "required": ["content", "context"],
+        "additionalProperties": false,
+        "definitions": {
+          "contextField": {
+            "type": "object",
+            "properties": {
+              "value": { "type": "string" },
+              "visibleToAI": { "type": "boolean" }
+            },
+            "required": ["value", "visibleToAI"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "successorTypes": [{ "id": "factcheck.claim", "version": 1 }],
+      "presentation": { "titlePath": "/content", "summaryPath": "/content", "fieldOrder": ["/content", "/context"] },
+      "references": [],
+      "agentProjection": {
+        "include": ["/content", "/context"],
+        "mapEntryFilters": [{ "path": "/context", "visibleWhen": "visibleToAI" }]
+      }
+    },
+    {
+      "id": "factcheck.claim",
+      "version": 1,
+      "title": "事实",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "minLength": 1 },
+          "category": { "type": ["string", "null"], "enum": ["data", "quote", "causal", null] }
+        },
+        "required": ["content", "category"],
+        "additionalProperties": false
+      },
+      "successorTypes": [
+        { "id": "factcheck.evidence", "version": 1 },
+        { "id": "factcheck.opinion", "version": 1 }
+      ],
+      "presentation": { "titlePath": "/content", "summaryPath": "/content", "fieldOrder": ["/content", "/category"] },
+      "references": [],
+      "agentProjection": { "include": ["/content", "/category"], "mapEntryFilters": [] }
+    },
+    {
+      "id": "factcheck.evidence",
+      "version": 1,
+      "title": "证据",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "minLength": 1 },
+          "locator": { "$ref": "#/definitions/locator" },
+          "capturedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["content", "locator", "capturedAt"],
+        "additionalProperties": false,
+        "definitions": {
+          "locator": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "asset" },
+                  "assetId": { "type": "string", "minLength": 1 },
+                  "mediaType": { "type": "string", "minLength": 1 }
+                },
+                "required": ["kind", "assetId", "mediaType"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "const": "url" },
+                  "url": { "type": "string", "format": "uri" }
+                },
+                "required": ["kind", "url"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "successorTypes": [],
+      "presentation": { "titlePath": "/content", "summaryPath": "/content", "fieldOrder": ["/content", "/locator", "/capturedAt"] },
+      "references": [
+        {
+          "path": "/locator/assetId",
+          "target": { "kind": "asset" },
+          "when": { "path": "/locator/kind", "equals": "asset" }
+        }
+      ],
+      "agentProjection": { "include": ["/content", "/locator", "/capturedAt"], "mapEntryFilters": [] }
+    },
+    {
+      "id": "factcheck.opinion",
+      "version": 1,
+      "title": "核查意见",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "score": { "type": "number", "enum": [0, 0.5, 1] },
+          "reason": { "type": "string", "minLength": 1 },
+          "evidenceIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 0,
+            "maxItems": 32,
+            "uniqueItems": true
+          },
+          "legacy": {
+            "type": "object",
+            "properties": {
+              "reportId": { "type": "string", "minLength": 1 },
+              "slotId": { "type": "string", "minLength": 1 },
+              "routeRevision": { "type": "integer", "minimum": 0 },
+              "agentId": { "type": "string", "minLength": 1 },
+              "agentName": { "type": "string", "minLength": 1 },
+              "angle": { "type": "string" },
+              "tools": { "type": "array", "items": { "type": "string" } },
+              "createdAt": { "type": "string", "format": "date-time" }
+            },
+            "required": ["reportId", "slotId", "routeRevision", "agentId", "agentName", "angle", "tools", "createdAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["score", "reason", "evidenceIds"],
+        "additionalProperties": false
+      },
+      "successorTypes": [{ "id": "factcheck.verification", "version": 1 }],
+      "presentation": { "titlePath": "/reason", "summaryPath": "/reason", "fieldOrder": ["/score", "/reason", "/evidenceIds"] },
+      "references": [
+        {
+          "path": "/evidenceIds/*",
+          "target": { "kind": "node", "types": [{ "id": "factcheck.evidence", "version": 1 }] }
+        }
+      ],
+      "agentProjection": { "include": ["/score", "/reason", "/evidenceIds"], "mapEntryFilters": [] }
+    },
+    {
+      "id": "factcheck.verification",
+      "version": 1,
+      "title": "核查结论",
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "score": { "type": "number", "enum": [0, 0.5, 1] },
+          "reason": { "type": "string", "minLength": 1 },
+          "opinionIds": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true
+          }
+        },
+        "required": ["score", "reason", "opinionIds"],
+        "additionalProperties": false
+      },
+      "successorTypes": [],
+      "presentation": { "titlePath": "/reason", "summaryPath": "/reason", "fieldOrder": ["/score", "/reason", "/opinionIds"] },
+      "references": [
+        {
+          "path": "/opinionIds/*",
+          "target": { "kind": "node", "types": [{ "id": "factcheck.opinion", "version": 1 }] }
+        }
+      ],
+      "agentProjection": { "include": ["/score", "/reason", "/opinionIds"], "mapEntryFilters": [] }
+    }
+  ],
+  "transitions": [
+    {
+      "id": "factcheck.parse-source",
+      "version": 1,
+      "title": "解析来源",
+      "ports": {
+        "input": [{ "name": "source", "inputType": { "id": "factcheck.source", "version": 1 }, "count": { "min": 1, "max": 1 } }],
+        "context": [],
+        "output": [
+          {
+            "name": "news",
+            "outputType": { "id": "factcheck.news", "version": 1 },
+            "count": { "min": 0, "max": 8 },
+            "successorOf": [{ "source": "input", "port": "source" }]
+          }
+        ]
+      },
+      "cardinality": "1:N",
+      "group": { "mode": "explicit-members", "ready": "sealed-all-required" },
+      "execution": {
+        "stages": [
+          {
+            "id": "parse",
+            "kind": "agent",
+            "agentRef": { "id": "parse-extract", "version": 0 },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [{ "port": "news", "count": { "min": 0, "max": 8 } }],
+            "promptBindings": { "rawContent": { "source": "source-text", "port": "source", "path": "/locator" } }
+          }
+        ],
+        "resultStage": "parse"
+      },
+      "review": { "mode": "none", "at": "result", "onReject": "fail" }
+    },
+    {
+      "id": "factcheck.split-news",
+      "version": 1,
+      "title": "拆分事实",
+      "ports": {
+        "input": [{ "name": "news", "inputType": { "id": "factcheck.news", "version": 1 }, "count": { "min": 1, "max": 1 } }],
+        "context": [],
+        "output": [
+          {
+            "name": "claims",
+            "outputType": { "id": "factcheck.claim", "version": 1 },
+            "count": { "min": 0, "max": 64 },
+            "successorOf": [{ "source": "input", "port": "news" }]
+          }
+        ]
+      },
+      "cardinality": "1:N",
+      "group": { "mode": "explicit-members", "ready": "sealed-all-required" },
+      "execution": {
+        "stages": [
+          {
+            "id": "route",
+            "kind": "agent",
+            "agentRef": { "id": "split-router", "version": 0 },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "plan",
+            "outputPorts": [],
+            "promptBindings": {
+              "availableAgents": { "source": "agents", "format": "json" },
+              "context": { "source": "input", "port": "news", "path": "/context", "format": "json" },
+              "content": { "source": "input", "port": "news", "path": "/content", "format": "text", "required": true }
+            },
+            "plan": {
+              "stageIds": ["extract"],
+              "agentRefs": [
+                { "id": "split-data", "version": 0 },
+                { "id": "split-quote", "version": 0 },
+                { "id": "split-causal", "version": 0 }
+              ],
+              "maxSlots": 8
+            }
+          },
+          {
+            "id": "extract",
+            "kind": "agent",
+            "agentRef": { "id": "split-data", "version": 0 },
+            "dependsOn": ["route"],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [{ "port": "claims", "count": { "min": 0, "max": 8 } }],
+            "promptBindings": {
+              "hint": { "source": "stage", "stageId": "route", "format": "json" },
+              "context": { "source": "input", "port": "news", "path": "/context", "format": "json" },
+              "content": { "source": "input", "port": "news", "path": "/content", "format": "text", "required": true }
+            }
+          },
+          {
+            "id": "merge",
+            "kind": "agent",
+            "agentRef": { "id": "split-merger", "version": 0 },
+            "dependsOn": ["extract"],
+            "ready": "all-dependencies",
+            "resultMode": "selection",
+            "outputPorts": [{ "port": "claims", "count": { "min": 0, "max": 64 } }],
+            "promptBindings": {
+              "content": { "source": "input", "port": "news", "path": "/content", "format": "text", "required": true },
+              "subResults": { "source": "stage", "stageId": "extract", "format": "json" }
+            }
+          }
+        ],
+        "resultStage": "merge"
+      },
+      "review": { "mode": "required", "at": "result", "onReject": "fail" }
+    },
+    {
+      "id": "factcheck.verify-claim",
+      "version": 1,
+      "title": "核查事实",
+      "ports": {
+        "input": [{ "name": "claim", "inputType": { "id": "factcheck.claim", "version": 1 }, "count": { "min": 1, "max": 1 } }],
+        "context": [{ "name": "news", "inputType": { "id": "factcheck.news", "version": 1 }, "count": { "min": 0, "max": 8 } }],
+        "output": [
+          {
+            "name": "opinions",
+            "outputType": { "id": "factcheck.opinion", "version": 1 },
+            "count": { "min": 1, "max": 8 },
+            "successorOf": [{ "source": "input", "port": "claim" }]
+          },
+          {
+            "name": "verification",
+            "outputType": { "id": "factcheck.verification", "version": 1 },
+            "count": { "min": 1, "max": 1 },
+            "successorOf": [{ "source": "output", "port": "opinions" }]
+          }
+        ]
+      },
+      "cardinality": "1:N",
+      "group": { "mode": "explicit-members", "ready": "sealed-all-required" },
+      "execution": {
+        "stages": [
+          {
+            "id": "route",
+            "kind": "agent",
+            "agentRef": { "id": "verify-router", "version": 0 },
+            "dependsOn": [],
+            "ready": "all-dependencies",
+            "resultMode": "plan",
+            "outputPorts": [],
+            "promptBindings": {
+              "availableAgents": { "source": "agents", "format": "json" },
+              "context": { "source": "context", "port": "news", "format": "json" },
+              "claimContent": { "source": "input", "port": "claim", "path": "/content", "format": "text", "required": true },
+              "originalContent": { "source": "context", "port": "news", "path": "/content", "format": "text-lines" }
+            },
+            "plan": {
+              "stageIds": ["assess"],
+              "agentRefs": [
+                { "id": "sources", "version": 0 },
+                { "id": "logic", "version": 0 },
+                { "id": "numbers", "version": 0 }
+              ],
+              "maxSlots": 8
+            }
+          },
+          {
+            "id": "assess",
+            "kind": "agent",
+            "agentRef": { "id": "sources", "version": 0 },
+            "dependsOn": ["route"],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [{ "port": "opinions", "count": { "min": 1, "max": 1 } }],
+            "promptBindings": {
+              "hint": { "source": "stage", "stageId": "route", "format": "json" },
+              "context": { "source": "context", "port": "news", "format": "json" },
+              "claimContent": { "source": "input", "port": "claim", "path": "/content", "format": "text", "required": true },
+              "originalContent": { "source": "context", "port": "news", "path": "/content", "format": "text-lines" }
+            }
+          },
+          {
+            "id": "merge",
+            "kind": "agent",
+            "agentRef": { "id": "verify-merger", "version": 0 },
+            "dependsOn": ["assess"],
+            "ready": "all-dependencies",
+            "resultMode": "outputs",
+            "outputPorts": [{ "port": "verification", "count": { "min": 1, "max": 1 } }],
+            "promptBindings": {
+              "claimContent": { "source": "input", "port": "claim", "path": "/content", "format": "text", "required": true },
+              "originalContent": { "source": "context", "port": "news", "path": "/content", "format": "text-lines" },
+              "opinions": { "source": "stage", "stageId": "assess", "format": "json" }
+            }
+          }
+        ],
+        "resultStage": "merge"
+      },
+      "review": { "mode": "required", "at": "result", "onReject": "fail" },
+      "publication": { "includeReferencedCandidates": true, "candidateStages": ["assess"] }
+    }
+  ],
+  "dependencies": {
+    "packages": [],
+    "agents": [
+      { "id": "parse-extract", "version": 0 },
+      { "id": "split-router", "version": 0 },
+      { "id": "split-data", "version": 0 },
+      { "id": "split-quote", "version": 0 },
+      { "id": "split-causal", "version": 0 },
+      { "id": "split-merger", "version": 0 },
+      { "id": "verify-router", "version": 0 },
+      { "id": "sources", "version": 0 },
+      { "id": "logic", "version": 0 },
+      { "id": "numbers", "version": 0 },
+      { "id": "verify-merger", "version": 0 }
+    ]
+  }
+}
