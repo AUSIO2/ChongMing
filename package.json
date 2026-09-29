@@ -21,7 +21,7 @@
     "graph:serve": "node --import tsx apps/graph-server/main.ts",
     "headless": "node --import tsx apps/cli/main.ts",
     "local:serve": "node --import tsx apps/local-server/main.ts",
-    "test:local": "vitest run tests/backend/adapters/storage/sqlite.spec.ts tests/backend/adapters/storage/sqlite-integration.spec.ts",
+    "test:local": "vitest run tests/backend/adapters/storage/sqlite.spec.ts tests/backend/adapters/storage/sqlite-integration.spec.ts tests/backend/modules/graph/local-coordination.spec.ts",
     "desktop:prepare": "node scripts/prepare-desktop-runtime.mjs",
     "test:desktop-runtime": "npm run desktop:prepare && node --import tsx scripts/check-desktop-runtime.ts",
     "test:boundaries": "node scripts/check-architecture.mjs && node scripts/check-runtime-messages.mjs",

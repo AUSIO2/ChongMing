@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { spawn } from 'node:child_process'
 import { clientCreateService } from '../apps/desktop/local-service-process'
 import { clientCreateGateway } from '../client/graph-client'
+import type { GraphDataRead } from '../contracts/graph'
 
 async function desktopCheckRuntime() {
   // 使用模拟模型端点运行完整核验，再检查服务重启、日志脱敏与父进程失联退出。
@@ -25,14 +26,26 @@ async function desktopCheckRuntime() {
       const last = [...body.messages].reverse().find((/* 倒序对话中的候选消息，只选最近的工具结果。 */ message: { role: string }) => /* 从倒序消息中寻找最近的工具执行结果。 */  message.role === 'tool')
       let name = 'data_read', args: unknown = {}
       if (last) {
-        const data = JSON.parse(last.content)
+        const data = JSON.parse(last.content) as GraphDataRead
         name = 'data_propose'
-        calls.push(data.work.actor.role)
-        if (data.work.actor.role === 'router') args = { proposal: { kind: 'route', reason: 'Packaged runtime route', slots: [{
-          id: 'packaged-slot', agentId: data.configuration.agents[0].id, angle: 'Packaged check', priority: 'medium', hint: '', tools: [],
-        }] } }
-        else if (data.work.actor.role === 'worker') args = { proposal: { kind: 'report', score: 1, reason: 'Packaged report' } }
-        else args = { proposal: { kind: 'merge', reportIds: data.reports.map((/* 业务数据中的已接受报告，取其编号形成模拟合并引用。 */ report: { id: string }) => /* 提取全部报告编号供模拟合并提案引用。 */  report.id), score: 1, reason: 'Packaged result' } }
+        calls.push(data.stage.id)
+        if (data.stage.id === 'route') {
+          const candidate = data.stage.plan?.agents[0], stageId = data.stage.plan?.stageIds[0]
+          if (!candidate || !stageId) throw new Error('Packaged route has no frozen candidate Agent')
+          args = { proposal: { kind: 'plan', reason: 'Packaged runtime route', slots: [{
+            id: 'packaged-slot', stageId, agentRef: candidate.ref, angle: 'Packaged check', priority: 'medium', hint: '', tools: [],
+          }] } }
+        } else if (data.stage.id === 'assess') {
+          const port = data.outputContract.ports[0]
+          args = { proposal: { kind: 'outputs', reason: 'Packaged report', outputs: [{ key: 'packaged-opinion', port: port.port,
+            typeRef: port.type, payload: { score: 1, reason: 'Packaged report', evidenceIds: [] } }] } }
+        } else {
+          const port = data.outputContract.ports[0]
+          const opinionIds = data.priorStageResults.flatMap(result => result.mode === 'outputs'
+            ? result.outputs.map(output => ({ candidate: { workId: result.workId, key: output.key } })) : [])
+          args = { proposal: { kind: 'outputs', reason: 'Packaged result', outputs: [{ key: 'packaged-verification', port: port.port,
+            typeRef: port.type, payload: { score: 1, reason: 'Packaged result', opinionIds } }] } }
+        }
       }
       response.writeHead(200, { 'content-type': 'text/event-stream' })
       response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }) + '\n\n')
@@ -53,24 +66,32 @@ async function desktopCheckRuntime() {
     const workspaceId = (await gateway.read('workspace.list', {})).items[0].id
     const workspace = await gateway.read('workspace.get', { workspaceId })
     const mapId = randomUUID(), claimId = randomUUID()
-    let result = await gateway.dispatch(randomUUID(), 'map.create', { workspaceId, expectedRevision: workspace.revision, id: mapId, name: 'Packaged runtime' })
-    result = await gateway.dispatch(randomUUID(), 'graph.apply', { mapId, expectedRevision: result.data.snapshot.revision, changes: { nodes: { put: [{
-      id: claimId, data: { kind: 'claim', content: 'Packaged runtime fact', category: null },
+    await gateway.dispatch(randomUUID(), 'map.create', { workspaceId, expectedRevision: workspace.revision, id: mapId, name: 'Packaged runtime' })
+    await gateway.dispatch(randomUUID(), 'graph.apply', { mapId, branch: { rootIds: [claimId], expectedVersion: null }, changes: { nodes: { put: [{
+      id: claimId, typeId: 'factcheck.claim', typeVersion: 1, payload: { content: 'Packaged runtime fact', category: null },
     }] } } })
-    await gateway.dispatch(randomUUID(), 'run.start', { mapId, expectedRevision: result.data.snapshot.revision, id: randomUUID(), scope: { nodeIds: [claimId] }, until: 'verified', mode: 'auto' })
+    const branch = await gateway.read('branch.get', { mapId, rootIds: [claimId] })
+    await gateway.dispatch(randomUUID(), 'run.start', { mapId, id: randomUUID(), branch: {
+      rootIds: [...branch.scope.rootIds], expectedVersion: branch.version,
+    }, scope: { nodeIds: [claimId] }, mode: 'auto', plan: { steps: [{
+      id: 'verify', transitionRef: { id: 'factcheck.verify-claim', version: 1 }, dependsOn: [],
+      input: [{ port: 'claim', source: { kind: 'scope', nodeIds: [claimId] } }],
+      context: [{ port: 'news', source: { kind: 'scope', nodeIds: [] } }], grouping: { mode: 'each' }, onEmpty: 'fail',
+    }] } })
     const deadline = Date.now() + 30000
     let completed = false
     while (Date.now() < deadline) {
       const graph = await gateway.read('map.get', { mapId })
-      assert.notEqual(graph.run?.status, 'failed', JSON.stringify(graph.run?.error))
-      if (graph.run?.status === 'completed') {
-        assert.equal(graph.nodes.filter(/* 运行完成快照中的业务节点，用于统计核验产物。 */ node => /* 只统计核验产物，确认完整执行生成一个验证节点。 */  node.data.kind === 'verification').length, 1)
+      const run = graph.runs[0]
+      assert.notEqual(run?.status, 'failed', JSON.stringify(run?.error))
+      if (run?.status === 'completed') {
+        assert.equal(graph.nodes.filter(/* 运行完成快照中的业务节点，用于统计核验产物。 */ node => /* 只统计默认包核验结论，确认完整执行生成一个验证节点。 */  node.typeId === 'factcheck.verification').length, 1)
         completed = true; break
       }
       await delay(80)
     }
     assert(completed, 'Packaged DSH flow timed out')
-    assert.deepEqual(calls, ['router', 'worker', 'merge'])
+    assert.deepEqual(calls, ['route', 'assess', 'merge'])
     await gateway.disconnect(); await service.close()
     const diagnostics = await readFile(path.join(directory, 'data', 'service-diagnostics.log'), 'utf8')
     assert.match(diagnostics, /"name":"shutdown\.started"/)
@@ -80,7 +101,7 @@ async function desktopCheckRuntime() {
       const next = await restart.start()
       assert.equal(next.token, connection.token)
       await gateway.connect({ ...next, remember: false })
-      assert.equal((await gateway.read('map.get', { mapId })).run?.status, 'completed')
+      assert.equal((await gateway.read('map.get', { mapId })).runs[0]?.status, 'completed')
     } finally { await gateway.disconnect(); await restart.close() }
     // 不发送 stop 而直接断开父进程 IPC，验证服务仍会退出并释放 SQLite 目录锁。
     const child = spawn(path.join(runtimeDirectory, 'bin', process.platform === 'win32' ? 'node.exe' : 'node'), [path.join(runtimeDirectory, 'service/main.mjs')], {

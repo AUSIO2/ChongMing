@@ -6,5 +6,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.spec.ts'],
     globals: false,
+    // 真实 Mongo、RabbitMQ 与 DSH 套件会启动子进程；限制文件并发，避免资源争用制造假超时。
+    maxWorkers: 1,
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
   },
 })
