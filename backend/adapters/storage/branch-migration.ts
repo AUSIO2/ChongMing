@@ -27,41 +27,67 @@ export interface BranchMigrationSummary {
 
 const terminalStatuses = new Set(['completed', 'failed', 'cancelled'])
 
-function migrationObject(/* 存储中未知结构值。 */ value: unknown, /* 失败说明中的字段名。 */ label: string): RawObject {
+/**
+ * @param value 存储中未知结构值。
+ * @param label 失败说明中的字段名。
+ */
+function migrationObject(value: unknown, label: string): RawObject {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_AN_OBJECT, label))
   return value as RawObject
 }
 
-function migrationArray(/* 存储中未知数组值。 */ value: unknown, /* 失败说明中的字段名。 */ label: string): unknown[] {
+/**
+ * @param value 存储中未知数组值。
+ * @param label 失败说明中的字段名。
+ */
+function migrationArray(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_AN_ARRAY, label))
   return value
 }
 
-function migrationString(/* 存储中未知文本值。 */ value: unknown, /* 失败说明中的字段名。 */ label: string): string {
+/**
+ * @param value 存储中未知文本值。
+ * @param label 失败说明中的字段名。
+ */
+function migrationString(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.length) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_NON_EMPTY_STRING, label))
   return value
 }
 
-function migrationRevision(/* 存储中未知非负整数。 */ value: unknown, /* 失败说明中的字段名。 */ label: string): number {
+/**
+ * @param value 存储中未知非负整数。
+ * @param label 失败说明中的字段名。
+ */
+function migrationRevision(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_NON_NEGATIVE_INTEGER, label))
   return value
 }
 
-function migrationTime(/* 存储中可能是 Date 或字符串的时间。 */ value: unknown, /* 失败说明中的字段名。 */ label: string): string {
+/**
+ * @param value 存储中可能是 Date 或字符串的时间。
+ * @param label 失败说明中的字段名。
+ */
+function migrationTime(value: unknown, label: string): string {
   if (!(value instanceof Date) && typeof value !== 'string') throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_TIMESTAMP, label))
   const time = new Date(value)
   if (!Number.isFinite(time.getTime())) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_VALID_TIMESTAMP, label))
   return time.toISOString()
 }
 
-function migrationCanonical(/* 用于判断同一历史报告内容是否一致的值。 */ value: unknown): string {
+/**
+ * @param value 用于判断同一历史报告内容是否一致的值。
+ */
+function migrationCanonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(migrationCanonical).join(',')}]`
   const object = value as RawObject
   return `{${Object.keys(object).sort().map(key => `${JSON.stringify(key)}:${migrationCanonical(object[key])}`).join(',')}}`
 }
 
-function migrationReadReport(/* Operation 或结论中的旧 GraphReport。 */ value: unknown): RawObject {
+/**
+ * @param value Operation 或结论中的旧 GraphReport。
+ */
+function migrationReadReport(value: unknown): RawObject {
   const report = migrationObject(value, 'report')
   const score = report.score
   if (score !== 0 && score !== 0.5 && score !== 1) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
@@ -75,7 +101,10 @@ function migrationReadReport(/* Operation 或结论中的旧 GraphReport。 */ v
   }
 }
 
-function migrationReadRun(/* 需要确认为终态并转为只读归档的旧 Run。 */ value: unknown): { run: RawObject; reports: RawObject[]; active: boolean } {
+/**
+ * @param value 需要确认为终态并转为只读归档的旧 Run。
+ */
+function migrationReadRun(value: unknown): { run: RawObject; reports: RawObject[]; active: boolean } {
   const source = migrationObject(value, 'run')
   const status = migrationString(source.status, 'run.status')
   const active = !terminalStatuses.has(status)
@@ -108,7 +137,11 @@ function migrationReadRun(/* 需要确认为终态并转为只读归档的旧 Ru
   return { run, reports, active }
 }
 
-function migrationReadLeaseActive(/* 原图租约字典。 */ value: unknown, /* 由存储端提供的当前时间。 */ serverNow: number): boolean {
+/**
+ * @param value 原图租约字典。
+ * @param serverNow 由存储端提供的当前时间。
+ */
+function migrationReadLeaseActive(value: unknown, serverNow: number): boolean {
   if (value === undefined) return false
   const leases = migrationObject(value, 'leases')
   return Object.values(leases).some(item => {
@@ -117,7 +150,10 @@ function migrationReadLeaseActive(/* 原图租约字典。 */ value: unknown, /*
   })
 }
 
-function migrationValidateLocator(/* source/evidence 节点的旧 locator。 */ value: unknown): void {
+/**
+ * @param value source/evidence 节点的旧 locator。
+ */
+function migrationValidateLocator(value: unknown): void {
   const locator = migrationObject(value, 'node.data.locator')
   if (locator.kind === 'asset') {
     migrationString(locator.assetId, 'node.data.locator.assetId'); migrationString(locator.mediaType, 'node.data.locator.mediaType'); return
@@ -132,8 +168,13 @@ function migrationValidateLocator(/* source/evidence 节点的旧 locator。 */ 
   throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
 }
 
-function migrationValidateLegacyPayload(/* 旧业务类型。 */ kind: string, /* 去除 kind 前的旧节点内容。 */ data: RawObject): void {
-  // 只接纳能被 factcheck.*@1 无损解释的终态数据；旧自由 category 等不猜测转换。
+/**
+ * 只接纳能被 factcheck.*@1 无损解释的终态数据；旧自由 category 等不猜测转换。
+ *
+ * @param kind 旧业务类型。
+ * @param data 去除 kind 前的旧节点内容。
+ */
+function migrationValidateLegacyPayload(kind: string, data: RawObject): void {
   if (kind === 'source') {
     migrationValidateLocator(data.locator)
     if (data.label !== null && typeof data.label !== 'string') throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
@@ -165,12 +206,21 @@ function migrationValidateLegacyPayload(/* 旧业务类型。 */ kind: string, /
   }
 }
 
-function migrationBlocked(/* 图身份。 */ mapId: string, /* 是否因活跃执行而阻断。 */ activeRun: boolean, /* 预览中可见的原因。 */ reason: string): BranchMigrationPlan {
+/**
+ * @param mapId 图身份。
+ * @param activeRun 是否因活跃执行而阻断。
+ * @param reason 预览中可见的原因。
+ */
+function migrationBlocked(mapId: string, activeRun: boolean, reason: string): BranchMigrationPlan {
   return { status: 'blocked', mapId, activeRun, reason }
 }
 
-function migrationCreateDataPackage(/* 部署随版本提供的完整事实核查包。 */ source: DefinitionPackage): DefinitionPackage {
-  // 历史工作区没有可靠的 Agent 版本绑定；只注册能解释已迁移节点的六种数据类型。
+/**
+ * 历史工作区没有可靠的 Agent 版本绑定；只注册能解释已迁移节点的六种数据类型。
+ *
+ * @param source 部署随版本提供的完整事实核查包。
+ */
+function migrationCreateDataPackage(source: DefinitionPackage): DefinitionPackage {
   const required = new Set(['factcheck.source', 'factcheck.news', 'factcheck.claim', 'factcheck.evidence', 'factcheck.opinion', 'factcheck.verification'])
   const dataTypes = source.dataTypes.filter(type => required.has(type.id) && type.version === 1).map(type => structuredClone(type))
   if (dataTypes.length !== required.size) throw new GraphError(409, 'DATA_MIGRATION_BLOCKED', RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
@@ -179,8 +229,13 @@ function migrationCreateDataPackage(/* 部署随版本提供的完整事实核�
     schemaDialect: 'http://json-schema.org/draft-07/schema#', dataTypes, transitions: [], dependencies: { packages: [], agents: [] } }
 }
 
-function migrationPlanWorkspace(/* 候选图所属的原工作区记录。 */ workspace: RawWorkspace, /* 为历史节点提供的数据定义包。 */ migrationPackage: DefinitionPackage,
-  /* 存储端时间，与同批图迁移使用同一基准。 */ serverNow: number): { expectedRevision: number; document: RawWorkspace } | null {
+/**
+ * @param workspace 候选图所属的原工作区记录。
+ * @param migrationPackage 为历史节点提供的数据定义包。
+ * @param serverNow 存储端时间，与同批图迁移使用同一基准。
+ */
+function migrationPlanWorkspace(workspace: RawWorkspace, migrationPackage: DefinitionPackage,
+  serverNow: number): { expectedRevision: number; document: RawWorkspace } | null {
   const revision = migrationRevision(workspace.revision, 'workspace.revision')
   if (revision === Number.MAX_SAFE_INTEGER) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
   const packages = migrationArray(workspace.definitionPackages ?? [], 'workspace.definitionPackages').map(value => migrationObject(value, 'definition package'))
@@ -202,7 +257,11 @@ function migrationPlanWorkspace(/* 候选图所属的原工作区记录。 */ wo
 }
 
 /** Build a pure conversion plan for one raw graph. It never mutates the supplied record. */
-export function migrationPlanBranchGraph(/* 从存储直接读取的旧或新图。 */ raw: unknown, /* 存储端时间，用于判定租约是否仍有效。 */ serverNow: number): BranchMigrationPlan {
+/**
+ * @param raw 从存储直接读取的旧或新图。
+ * @param serverNow 存储端时间，用于判定租约是否仍有效。
+ */
+export function migrationPlanBranchGraph(raw: unknown, serverNow: number): BranchMigrationPlan {
   let source: RawObject, mapId = '<unknown>'
   try {
     source = migrationObject(raw, 'map')
@@ -341,9 +400,17 @@ export function migrationPlanBranchGraph(/* 从存储直接读取的旧或新图
 }
 
 /** Inspect or atomically apply all generic-data migrations through the configured Persistence adapter. */
-export async function migrationMigrateBranches(/* Mongo 或 SQLite 的通用持久化实例。 */ database: Persistence, /* true 才实际写入，默认只预览。 */ apply = false,
-  /* 可选部署默认包；管理入口必须提供，以便为旧工作区原子安装数据定义。 */ legacyDefinitions?: DefinitionPackage): Promise<BranchMigrationSummary> {
-  const execute = async (/* 预览时为 null，应用时为同一原子事务会话。 */ session: Parameters<ReturnType<Persistence['records']>['list']>[1] = null) => {
+/**
+ * @param database Mongo 或 SQLite 的通用持久化实例。
+ * @param apply true 才实际写入，默认只预览。
+ * @param legacyDefinitions 可选部署默认包；管理入口必须提供，以便为旧工作区原子安装数据定义。
+ */
+export async function migrationMigrateBranches(database: Persistence, apply = false,
+  legacyDefinitions?: DefinitionPackage): Promise<BranchMigrationSummary> {
+  /**
+   * @param session 预览时为 null，应用时为同一原子事务会话。
+   */
+  const execute = async (session: Parameters<ReturnType<Persistence['records']>['list']>[1] = null) => {
     const records = database.records<RawGraph>(GRAPH_COLLECTION), workspaces = database.records<RawWorkspace>('control_workspaces'), now = await database.now()
     let plans = (await records.list({}, session)).map(row => migrationPlanBranchGraph(row, now))
     const workspaceChanges = new Map<string, { expectedRevision: number; document: RawWorkspace }>()

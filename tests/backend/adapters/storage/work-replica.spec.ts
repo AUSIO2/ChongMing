@@ -17,13 +17,24 @@ import { verificationConfiguration } from '../../fixtures/verification'
 import { DEFAULT_DEFINITION_PACKAGE, DEFAULT_RUN_CONFIGURATION } from '../../../../apps/config/default-prompts'
 import { GRAPH_COLLECTION } from '../../../../backend/modules/graph/graph-record'
 
-function replicaReadProof(/* 真实领取返回的工作授权，提取图身份及 holder/fence 用于后续 API 调用。 */ grant: GraphWorkGrant) {
-  // 从测试授权中提取工作 API 所需的图身份与租约凭证。
+/**
+ * 从测试授权中提取工作 API 所需的图身份与租约凭证。
+ *
+ * @param grant 真实领取返回的工作授权，提取图身份及 holder/fence 用于后续 API 调用。
+ */
+function replicaReadProof(grant: GraphWorkGrant) {
   return { mapId: grant.mapId, workId: grant.workId, holderId: grant.holderId, fence: grant.fence }
 }
 
-async function replicaReadGrant(/* 绑定目标 Mongo 连接的图服务，负责为测试 Host 领取工作。 */ service: GraphService, /* 同一数据库的图存储，用于读取并推导当前可执行工作。 */ store: GraphStore, /* 本用例要领取工作的图身份。 */ mapId: string, /* 本次模拟执行者的 Host 身份，不同阶段使用不同名字追踪归属。 */ hostId: string): Promise<GraphWorkGrant> {
-  // 遍历当前可执行工作，返回指定 Host 成功领取的第一份授权。
+/**
+ * 遍历当前可执行工作，返回指定 Host 成功领取的第一份授权。
+ *
+ * @param service 绑定目标 Mongo 连接的图服务，负责为测试 Host 领取工作。
+ * @param store 同一数据库的图存储，用于读取并推导当前可执行工作。
+ * @param mapId 本用例要领取工作的图身份。
+ * @param hostId 本次模拟执行者的 Host 身份，不同阶段使用不同名字追踪归属。
+ */
+async function replicaReadGrant(service: GraphService, store: GraphStore, mapId: string, hostId: string): Promise<GraphWorkGrant> {
   const document = await store.read(mapId)
   if (!document) throw new Error('Expected a graph document')
   for (const item of workReadItems(document)) {
@@ -35,8 +46,13 @@ async function replicaReadGrant(/* 绑定目标 Mongo 连接的图服务，负�
   throw new Error('Expected a claimed work grant')
 }
 
-async function replicaReadReport(/* 提供授权数据读取的图服务，可能属于选举前或选举后的连接。 */ service: GraphService, /* 已领取的 worker 授权，槽位身份决定生成哪份核查报告。 */ grant: GraphWorkGrant): Promise<GraphDataProposal> {
-  // 根据 assess 阶段授权构造对应槽位的通用意见产物。
+/**
+ * 根据 assess 阶段授权构造对应槽位的通用意见产物。
+ *
+ * @param service 提供授权数据读取的图服务，可能属于选举前或选举后的连接。
+ * @param grant 已领取的 worker 授权，槽位身份决定生成哪份核查报告。
+ */
+async function replicaReadReport(service: GraphService, grant: GraphWorkGrant): Promise<GraphDataProposal> {
   if (grant.stageId !== 'assess') throw new Error('Expected assess work')
   const data = await service.readData(grant.mapId, grant.operationId, replicaReadProof(grant))
   return {
@@ -47,8 +63,13 @@ async function replicaReadReport(/* 提供授权数据读取的图服务，可�
   }
 }
 
-async function replicaReadPrimary(/* 需要确认主节点状态的真实 Mongo 客户端连接。 */ connection: Connection, /* 可选旧主节点地址；提供时必须等到不同地址成为可写主节点。 */ previous?: string): Promise<string> {
-  // 有界等待副本集选出可写主节点，必要时排除旧主节点。
+/**
+ * 有界等待副本集选出可写主节点，必要时排除旧主节点。
+ *
+ * @param connection 需要确认主节点状态的真实 Mongo 客户端连接。
+ * @param previous 可选旧主节点地址；提供时必须等到不同地址成为可写主节点。
+ */
+async function replicaReadPrimary(connection: Connection, previous?: string): Promise<string> {
   const deadline = Date.now() + 20_000
   let lastError: unknown
   while (Date.now() < deadline) {
@@ -104,7 +125,7 @@ describe('Work leases across a Mongo primary election', () => {
       await control.seed(verificationConfiguration())
       const user = await auth.createUser({ id: randomUUID(), displayName: 'Replica Owner', hostAdmin: true })
       const { token } = await auth.createToken(user.userId)
-      const workspace = await auth.transact(token, /* 副本集测试拥有者的授权事务上下文，工作区创建复用其会话。 */ ctx => /* 在用户授权事务中建立副本集测试工作区。 */  control.createWorkspace(ctx, {
+      const workspace = await auth.transact(token, ctx => /* 在用户授权事务中建立副本集测试工作区。 */  control.createWorkspace(ctx, {
         id: randomUUID(), name: 'Replica workspace', description: '', agentSource: 'library',
       }))
       const execution = await auth.transact(token, ctx => control.executionCatalog(ctx, workspace.id))
@@ -163,8 +184,8 @@ describe('Work leases across a Mongo primary election', () => {
       }
       expect((await store.read(mapId))!.name).toBe('Replica election proof')
       expect(before.runs[0].operations[0].stages.find(stage => stage.stageId === 'assess')!.results).toHaveLength(1)
-      expect(before.receipts.some(/* 选举前图中的收据，检查已成功报告的请求身份。 */ receipt => /* 确认已提交报告对应收据存在。 */  receipt.requestId === acceptedReport.id)).toBe(true)
-      expect(before.receipts.some(/* 选举前图中的收据，确认尚未提交报告没有成功记录。 */ receipt => /* 确认尚未提交报告还没有成功收据。 */  receipt.requestId === pendingReport.id)).toBe(false)
+      expect(before.receipts.some(receipt => /* 确认已提交报告对应收据存在。 */  receipt.requestId === acceptedReport.id)).toBe(true)
+      expect(before.receipts.some(receipt => /* 确认尚未提交报告还没有成功收据。 */  receipt.requestId === pendingReport.id)).toBe(false)
       expect(before.leases[unfinished.workId]).toEqual(unfinished)
 
       const oldPrimary = await replicaReadPrimary(connection)
@@ -208,12 +229,12 @@ describe('Work leases across a Mongo primary election', () => {
       await replacementService.propose(mapId, replacement.operationId, pendingReport, replicaReadProof(replacement))
       const finished = (await replacementStore.read(mapId))!
       expect(finished.runs[0].operations[0].stages.find(stage => stage.stageId === 'assess')!.results).toHaveLength(2)
-      expect(finished.receipts.filter(/* 恢复后的持久收据，统计原已成功报告是否仍恰好一份。 */ receipt => /* 统计原已接纳报告的收据，验证选举恢复后没有重复提交。 */  receipt.requestId === acceptedReport.id)).toHaveLength(1)
-      expect(finished.receipts.filter(/* 恢复后的持久收据，统计接管报告是否仅被接纳一次。 */ receipt => /* 统计接管后报告的收据，验证只接纳一次。 */  receipt.requestId === pendingReport.id)).toHaveLength(1)
+      expect(finished.receipts.filter(receipt => /* 统计原已接纳报告的收据，验证选举恢复后没有重复提交。 */  receipt.requestId === acceptedReport.id)).toHaveLength(1)
+      expect(finished.receipts.filter(receipt => /* 统计接管后报告的收据，验证只接纳一次。 */  receipt.requestId === pendingReport.id)).toHaveLength(1)
     } finally {
-      const closed = await Promise.allSettled(connections.map(/* 测试建立的某条 Mongo 连接，均需在副本集停止前关闭。 */ connection => /* 并行关闭所有选举前后的 Mongo 客户端连接。 */  connection.close()))
+      const closed = await Promise.allSettled(connections.map(connection => /* 并行关闭所有选举前后的 Mongo 客户端连接。 */  connection.close()))
       await replica.stop({ doCleanup: true, force: true })
-      const failure = closed.find(/* 单条连接关闭的 Promise.allSettled 结果，用于查找清理失败。 */ result => /* 找到连接清理中的失败，避免测试结束时静默忽略资源错误。 */  result.status === 'rejected')
+      const failure = closed.find(result => /* 找到连接清理中的失败，避免测试结束时静默忽略资源错误。 */  result.status === 'rejected')
       if (failure?.status === 'rejected') throw failure.reason
     }
   }, 60_000)

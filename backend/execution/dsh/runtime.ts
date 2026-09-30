@@ -12,8 +12,12 @@ import type {
   DshRuntimeAPI,
   DshRuntimeConfig,
 } from '../../../contracts/dsh'
-export function dshReadEvent(/* SDK 发出的原始通知，将复制为 JSON 可传输的公共事件。 */ notification: HarnessNotification): DshEvent {
-  // 把 SDK 通知复制为可序列化的公共运行事件。
+/**
+ * 把 SDK 通知复制为可序列化的公共运行事件。
+ *
+ * @param notification SDK 发出的原始通知，将复制为 JSON 可传输的公共事件。
+ */
+export function dshReadEvent(notification: HarnessNotification): DshEvent {
   return {
     method: notification.method,
     params: JSON.parse(JSON.stringify(notification.params)),
@@ -27,8 +31,12 @@ function dshReadBinary(): string {
   if (typeof metadata.bin?.dsh !== 'string') throw new Error(RuntimeMessage.INSTALLED_DSH_HAS_NO_DECLARED_EXECUTABLE)
   return path.resolve(path.dirname(manifest), metadata.bin.dsh)
 }
-export function dshCreateRuntime(/* 由部署及工作授权决定的运行时配置，含路径、模型和受控环境覆盖。 */ config: DshRuntimeConfig): DshRuntimeAPI {
-  // 按部署配置创建 Harness，并移除不应传给模型进程的队列凭据环境变量。
+/**
+ * 按部署配置创建 Harness，并移除不应传给模型进程的队列凭据环境变量。
+ *
+ * @param config 由部署及工作授权决定的运行时配置，含路径、模型和受控环境覆盖。
+ */
+export function dshCreateRuntime(config: DshRuntimeConfig): DshRuntimeAPI {
   const env = { ...process.env, ...config.env }
   delete env.CHONGMING_AMQP_URL
   delete env.CHONGMING_TEST_BROKER_FILE
@@ -52,8 +60,13 @@ export function dshCreateRuntime(/* 由部署及工作授权决定的运行时�
       if (closePromise) return Promise.reject(new Error(RuntimeMessage.DSH_RUNTIME_IS_CLOSED))
       return harness.start()
     },
-    async run(/* 本轮提示词及可选会话身份；提示词去除首尾空白后不得为空。 */ input: DshRunInput, /* 可选同步事件观察者，接收经过 JSON 复制的 DSH 通知。 */ onEvent): Promise<DshRunResult> {
-      // 执行非空提示词，收集并转发事件，返回会话身份和最终响应。
+    /**
+     * 执行非空提示词，收集并转发事件，返回会话身份和最终响应。
+     *
+     * @param input 本轮提示词及可选会话身份；提示词去除首尾空白后不得为空。
+     * @param onEvent 可选同步事件观察者，接收经过 JSON 复制的 DSH 通知。
+     */
+    async run(input: DshRunInput, onEvent): Promise<DshRunResult> {
       if (closePromise) throw new Error(RuntimeMessage.DSH_RUNTIME_IS_CLOSED)
       const prompt = input.prompt.trim()
       if (!prompt) throw new Error(RuntimeMessage.DSH_PROMPT_MUST_NOT_BE_EMPTY)
@@ -61,8 +74,12 @@ export function dshCreateRuntime(/* 由部署及工作授权决定的运行时�
       const events: DshEvent[] = []
       const result = await harness.run(prompt, {
         sessionId: input.sessionId,
-        onNotification(/* Harness 本轮推送的原始通知，需要复制后才暴露给调用者。 */ notification) {
-          // 将通知投影为公共事件，同时加入结果记录并通知调用者。
+        /**
+         * 将通知投影为公共事件，同时加入结果记录并通知调用者。
+         *
+         * @param notification Harness 本轮推送的原始通知，需要复制后才暴露给调用者。
+         */
+        onNotification(notification) {
           const event = dshReadEvent(notification)
           events.push(event)
           onEvent?.(event)

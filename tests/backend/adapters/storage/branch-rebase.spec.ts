@@ -12,8 +12,12 @@ import { branchReadScope, branchReadVersion } from '../../../../backend/modules/
 import type { GraphDocument, GraphReceipt } from '../../../../backend/modules/graph/graph-record'
 import type { GraphStore } from '../../../../backend/ports/graph-store'
 
-function branchCreateReceipt(/* 本次测试提交的稳定方法名，用来区分两个逻辑分支。 */ method: string): GraphReceipt {
-  // 构造完整收据，失败的 CAS 不应留下它，成功重放只能追加一次。
+/**
+ * 构造完整收据，失败的 CAS 不应留下它，成功重放只能追加一次。
+ *
+ * @param method 本次测试提交的稳定方法名，用来区分两个逻辑分支。
+ */
+function branchCreateReceipt(method: string): GraphReceipt {
   return { requestId: randomUUID(), method, inputHash: method, createdNodeIds: [], createdEdgeIds: [], createdAt: new Date().toISOString() }
 }
 
@@ -30,9 +34,15 @@ function branchCreateDocument(): { document: GraphDocument; leftId: string; righ
   } }
 }
 
-function branchChangeNode(/* 作为修改基线的完整最新图快照。 */ document: GraphDocument, /* 本次局部修改所属的节点身份。 */ nodeId: string,
-  /* 用来确认并发更新没有互相覆盖的新值。 */ value: string): GraphDocument {
-  // 模拟服务层把局部变化重放到给定快照；图 revision 留作该快照的存储 CAS token。
+/**
+ * 模拟服务层把局部变化重放到给定快照；图 revision 留作该快照的存储 CAS token。
+ *
+ * @param document 作为修改基线的完整最新图快照。
+ * @param nodeId 本次局部修改所属的节点身份。
+ * @param value 用来确认并发更新没有互相覆盖的新值。
+ */
+function branchChangeNode(document: GraphDocument, nodeId: string,
+  value: string): GraphDocument {
   const updated = structuredClone(document), node = updated.nodes.find(item => item.id === nodeId)
   if (!node) throw new Error('Branch fixture node disappeared')
   node.revision += 1
@@ -42,8 +52,12 @@ function branchChangeNode(/* 作为修改基线的完整最新图快照。 */ do
   return updated
 }
 
-async function branchExpectSafeRebase(/* 任一 GraphStore 适配器，必须遵守相同提交契约。 */ store: GraphStore): Promise<void> {
-  // 先制造同一基线的并发草稿，再证明旧草稿不能伪装成新基线，而从最新图重放可同时保留两侧修改。
+/**
+ * 先制造同一基线的并发草稿，再证明旧草稿不能伪装成新基线，而从最新图重放可同时保留两侧修改。
+ *
+ * @param store 任一 GraphStore 适配器，必须遵守相同提交契约。
+ */
+async function branchExpectSafeRebase(store: GraphStore): Promise<void> {
   await store.initialize()
   const { document, leftId, rightId } = branchCreateDocument()
   expect(await store.create(document)).toBe(true)

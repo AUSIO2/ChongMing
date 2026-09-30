@@ -19,7 +19,7 @@ afterEach(async () => {
   // 恢复测试替身和环境变量，并删除各用例创建的临时运行目录。
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
-  await Promise.all(temporaryDirectories.splice(0).map(/* 该用例登记的临时 DSH 工作目录，测试结束后递归删除。 */ directory => /* 删除该次 DSH 测试的独立目录。 */
+  await Promise.all(temporaryDirectories.splice(0).map(directory => /* 删除该次 DSH 测试的独立目录。 */
     rm(directory, { recursive: true, force: true }),
   ))
 })
@@ -108,8 +108,8 @@ describe('DSH operation profiles', () => {
     const close = vi.fn(async () => {
       // 模拟无外部资源的运行时关闭，供检查关闭调用次数。
     })
-    const run = vi.fn<DshRuntimeAPI['run']>(async (/* 执行器传给运行时的本轮输入对象，此替身只复用其中根会话身份。 */ { sessionId }) => /* 模拟同一根会话成功结束一轮执行。 */  ({ sessionId: sessionId!, finalResponse: 'accepted', events: [] }))
-    const create = vi.spyOn(dshRuntime, 'dshCreateRuntime').mockImplementation(/* 执行器传来的运行时配置，读取其最后补丁验证绑定内容。 */ config => /* 提供可观察启动补丁的运行时替身。 */  ({
+    const run = vi.fn<DshRuntimeAPI['run']>(async ({ sessionId }) => /* 模拟同一根会话成功结束一轮执行。 */  ({ sessionId: sessionId!, finalResponse: 'accepted', events: [] }))
+    const create = vi.spyOn(dshRuntime, 'dshCreateRuntime').mockImplementation(config => /* 提供可观察启动补丁的运行时替身。 */  ({
       start: async () => {
         // 读取执行器生成的最后一份补丁，供可信绑定断言。
          patch = JSON.parse(await readFile(config.patches!.at(-1)!, 'utf8')) }, run, close,
@@ -190,8 +190,13 @@ describe('DSH runtime facade', () => {
       start: async () => {
         // 诊断用运行时替身无需启动真实进程。
       },
-      async run(/* 诊断 HTTP 传入的提示词及可选会话身份，用于生成模拟完成结果。 */ input, /* 可选事件接收器，夹具向其推送一条运行中通知。 */ onEvent) {
-        // 先发送运行事件，再返回指定会话的固定完成结果。
+      /**
+       * 先发送运行事件，再返回指定会话的固定完成结果。
+       *
+       * @param input 诊断 HTTP 传入的提示词及可选会话身份，用于生成模拟完成结果。
+       * @param onEvent 可选事件接收器，夹具向其推送一条运行中通知。
+       */
+      async run(input, onEvent) {
         onEvent?.({ method: 'session.status', params: { status: 'running' } })
         return { sessionId: input.sessionId ?? 'new-session', finalResponse: 'done', events: [] }
       },
@@ -200,7 +205,7 @@ describe('DSH runtime facade', () => {
       },
     }
     const server = dshHttpCreateServer(runtime)
-    await new Promise<void>(/* 诊断服务器监听成功后兑现测试启动等待的回调。 */ resolve => /* 等待诊断 HTTP 服务监听本地临时端口。 */  server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>(resolve => /* 等待诊断 HTTP 服务监听本地临时端口。 */  server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('Server did not bind')
     try {
@@ -216,7 +221,7 @@ describe('DSH runtime facade', () => {
         '',
       ].join('\n'))
     } finally {
-      await new Promise<void>((/* 诊断服务器正常关闭后兑现清理等待的回调。 */ resolve, /* 诊断服务器关闭失败时拒绝清理等待的回调。 */ reject) => /* 将诊断服务器关闭转换为可等待清理。 */  server.close(/* Node 关闭服务器返回的可选错误，存在时让清理失败可见。 */ error => /* 按服务器关闭结果结束或拒绝清理 Promise。 */  error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) => /* 将诊断服务器关闭转换为可等待清理。 */  server.close(error => /* 按服务器关闭结果结束或拒绝清理 Promise。 */  error ? reject(error) : resolve()))
     }
   })
 })

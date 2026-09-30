@@ -8,8 +8,12 @@ export interface WorkConsumeOptions {
   concurrency?: number
 }
 
-export function workReadConcurrency(/* 调用方给出的消费容量配置，省略时采用兼容默认值 1。 */ options?: WorkConsumeOptions): number {
-  // 将消费容量限制为 1..64，避免 adapter 接受无界预取或创建无界任务集合。
+/**
+ * 将消费容量限制为 1..64，避免 adapter 接受无界预取或创建无界任务集合。
+ *
+ * @param options 调用方给出的消费容量配置，省略时采用兼容默认值 1。
+ */
+export function workReadConcurrency(options?: WorkConsumeOptions): number {
   const concurrency = options?.concurrency ?? 1
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 64) {
     throw new RangeError(RuntimeMessage.HOST_CONCURRENCY_MUST_BE_AN_INTEGER_FROM_1_TO_64)
@@ -22,23 +26,46 @@ export interface WorkChannel {
   readonly signal: AbortSignal
   // 通道关闭并完成适配器清理后结束的通知。
   readonly closed: Promise<void>
-  // 按容量消费工作并独立确认每项投递；停止后不再投递新项，并等待全部在途处理器清理。
-  consumeWork(/* 接收每项投递并返回确认或重投决定的异步处理器。 */ handler: (/* 当前队列投递的工作线索。 */ message: QueueWork, /* 队列通道失效或消费停止时取消当前投递的信号。 */ signal: AbortSignal) => Promise<'ack' | 'retry'>, /* 结束消费并取消在途投递的可选外部信号。 */ stop?: AbortSignal, /* 可选有界并发容量；缺省为 1。 */ options?: WorkConsumeOptions): Promise<void>
+  /**
+   * 按容量消费工作并独立确认每项投递；停止后不再投递新项，并等待全部在途处理器清理。
+   *
+   * @param handler 接收每项投递并返回确认或重投决定的异步处理器。
+   * @param stop 结束消费并取消在途投递的可选外部信号。
+   * @param options 可选有界并发容量；缺省为 1。
+   */
+  consumeWork(handler: (message: QueueWork, signal: AbortSignal) => Promise<'ack' | 'retry'>, stop?: AbortSignal, options?: WorkConsumeOptions): Promise<void>
   // 关闭通道并等待适配器拥有的连接与消费资源结束。
   close(): Promise<void>
 }
 export interface WorkTransport {
   namespace: string;
-  // 为指定部署命名空间建立工作通道，调用方负责在退出或重连时关闭。
-  open(/* 带部署身份、用于隔离队列资源的完整命名空间。 */ namespace: string): Promise<WorkChannel>
+  /**
+   * 为指定部署命名空间建立工作通道，调用方负责在退出或重连时关闭。
+   *
+   * @param namespace 带部署身份、用于隔离队列资源的完整命名空间。
+   */
+  open(namespace: string): Promise<WorkChannel>
 }
 export interface QueueLink extends WorkChannel {
-  // 发布可领取工作的提示，实际可执行性仍由领取时读取的图状态决定。
-  publishWork(/* 提示 Host 某项工作可能可领取的队列消息。 */ message: QueueWork): Promise<void>
-  // 发布图、管理配置或临时活动的变更通知。
-  publishChange(/* 需要广播给图或管理订阅者的变更消息。 */ message: QueueChange): Promise<void>
-  // 订阅部署变更，返回可等待完成的退订操作，并支持外部取消信号。
-  subscribeChanges(/* 接收每条部署变更的同步处理器。 */ handler: (/* 当前从变更通道收到的消息。 */ message: QueueChange) => void, /* 触发停止订阅的可选取消信号；需要确认清理完成时应等待返回的退订操作。 */ stop?: AbortSignal): Promise<() => Promise<void>>
+  /**
+   * 发布可领取工作的提示，实际可执行性仍由领取时读取的图状态决定。
+   *
+   * @param message 提示 Host 某项工作可能可领取的队列消息。
+   */
+  publishWork(message: QueueWork): Promise<void>
+  /**
+   * 发布图、管理配置或临时活动的变更通知。
+   *
+   * @param message 需要广播给图或管理订阅者的变更消息。
+   */
+  publishChange(message: QueueChange): Promise<void>
+  /**
+   * 订阅部署变更，返回可等待完成的退订操作，并支持外部取消信号。
+   *
+   * @param handler 接收每条部署变更的同步处理器。
+   * @param stop 触发停止订阅的可选取消信号；需要确认清理完成时应等待返回的退订操作。
+   */
+  subscribeChanges(handler: (message: QueueChange) => void, stop?: AbortSignal): Promise<() => Promise<void>>
 }
 export interface MessagingService {
   // 准备部署身份及消息服务状态，供随后启动分发循环。
@@ -51,10 +78,23 @@ export interface MessagingService {
   finished(): Promise<unknown | undefined>
   // 停止后台分发并释放消息监听及连接资源。
   closeMessaging(): Promise<void>
-  // 注册本进程变更观察者并返回退订函数；null 通知调用方重新同步基线。
-  watchChanges(/* 接收本进程变更或重新同步标记的观察者。 */ listener: (/* 当前变更消息；null 表示订阅者必须重新读取基线。 */ change: QueueChange | null) => void): () => void
-  // 读取当前缓存的临时活动；消费方仍须重新校验活动对应的租约。
-  readActivities(/* 需要读取缓存执行活动的图身份。 */ mapId: string): QueueChange[]
-  // 发布带工作持有者身份的临时活动，租约授权由上游业务服务验证。
-  publishActivity(/* 已经过租约校验、准备发布的执行活动。 */ activity: GraphActivity, /* 发布活动时持有该工作的 holder 身份，用于消息侧覆盖隔离。 */ holderId: string): Promise<void>
+  /**
+   * 注册本进程变更观察者并返回退订函数；null 通知调用方重新同步基线。
+   *
+   * @param listener 接收本进程变更或重新同步标记的观察者。
+   */
+  watchChanges(listener: (change: QueueChange | null) => void): () => void
+  /**
+   * 读取当前缓存的临时活动；消费方仍须重新校验活动对应的租约。
+   *
+   * @param mapId 需要读取缓存执行活动的图身份。
+   */
+  readActivities(mapId: string): QueueChange[]
+  /**
+   * 发布带工作持有者身份的临时活动，租约授权由上游业务服务验证。
+   *
+   * @param activity 已经过租约校验、准备发布的执行活动。
+   * @param holderId 发布活动时持有该工作的 holder 身份，用于消息侧覆盖隔离。
+   */
+  publishActivity(activity: GraphActivity, holderId: string): Promise<void>
 }

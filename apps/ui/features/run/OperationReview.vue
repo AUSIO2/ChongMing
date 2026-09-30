@@ -21,7 +21,10 @@ const selectionResults = computed(() => props.operation.stages.flatMap(stage => 
 const latestPlan = computed(() => planResults.value[planResults.value.length - 1])
 const latestSelection = computed(() => selectionResults.value[selectionResults.value.length - 1])
 
-function reviewAnswer(/* 用户对当前版本审核的决定。 */ decision: 'approve' | 'reject'): void {
+/**
+ * @param decision 用户对当前版本审核的决定。
+ */
+function reviewAnswer(decision: 'approve' | 'reject'): void {
   const current = review.value
   if (!current || !pending.value || !props.canEdit || !props.canControl || props.busy) return
   emit('answer', { mapId: props.snapshot.mapId, runId: props.run.id, operationId: props.operation.id,

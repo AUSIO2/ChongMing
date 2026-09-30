@@ -15,32 +15,52 @@ const claimType: DataTypeDefinition = { id: 'demo.claim', version: 1, title: 'Cl
   successorTypes: [], references: [], agentProjection: { include: ['/content'], mapEntryFilters: [] } }
 const definitions = { workspaceId: 'workspace-a', catalog: { revision: 1, packages: [], index: [], dataTypes: [claimType], transitions: [] } }
 const emptyPlan = { steps: [] }
+/**
+ * @param status 模拟 HTTP 错误状态，0 表示网络或本地失败。
+ * @param code 模拟业务错误代码，同时用于 Error 的消息。
+ * @param retryable 是否可重试，默认 false，网络重连用例可显式开启。
+ */
 const error = (
-  /* 模拟 HTTP 错误状态，0 表示网络或本地失败。 */ status: number,
-  /* 模拟业务错误代码，同时用于 Error 的消息。 */ code: string,
-  /* 是否可重试，默认 false，网络重连用例可显式开启。 */ retryable = false
+  status: number,
+  code: string,
+  retryable = false
 ) =>
   /* 构造带 HTTP 状态、错误代码和重试标记的测试异常。 */
   Object.assign(new Error(code), { status, code, retryable })
 function deferred<T>() {
-  // 创建可手动完成或拒绝的 Promise，供测试安排异步先后顺序。
-  let resolve!: (/* 测试手动交付的延迟 Promise 成功值。 */ value: T) => void, reject!: (/* 测试手动注入的任意 Promise 拒绝原因。 */ reason: unknown) => void
-  const promise = new Promise<T>((/* Promise 构造器提供的完成入口，保存给测试使用。 */ yes, /* Promise 构造器提供的拒绝入口，保存给测试使用。 */ no) => {
+  /**
+   * 创建可手动完成或拒绝的 Promise，供测试安排异步先后顺序。
+   *
+   * @param value 测试手动交付的延迟 Promise 成功值。
+   * @param reason 测试手动注入的任意 Promise 拒绝原因。
+   */
+  let resolve!: (value: T) => void, reject!: (reason: unknown) => void
+  const promise = new Promise<T>((yes, no) => {
     // 保存 Promise 的完成与拒绝函数。
     resolve = yes; reject = no
   })
   return { promise, resolve, reject }
 }
-function success(/* 要包装为命令成功响应的测试业务结果。 */ data: unknown) {
-  // 将测试业务数据包装为成功命令结果。
+/**
+ * 将测试业务数据包装为成功命令结果。
+ *
+ * @param data 要包装为命令成功响应的测试业务结果。
+ */
+function success(data: unknown) {
   return { ok: true, requestId: 'request', replayed: false, data }
 }
+/**
+ * 创建包含一个事实节点的指定工作区图快照。
+ *
+ * @param id 测试图身份，同时派生图名称和事实节点身份。
+ * @param workspaceId 测试图所属工作区身份，默认 workspace-a。
+ * @param revision 测试图版本，默认 1，用于安排新旧快照顺序。
+ */
 function map(
-  /* 测试图身份，同时派生图名称和事实节点身份。 */ id: string,
-  /* 测试图所属工作区身份，默认 workspace-a。 */ workspaceId = 'workspace-a',
-  /* 测试图版本，默认 1，用于安排新旧快照顺序。 */ revision = 1
+  id: string,
+  workspaceId = 'workspace-a',
+  revision = 1
 ): GraphSnapshot {
-  // 创建包含一个事实节点的指定工作区图快照。
   return { mapId: id, workspaceId, revision, ownershipRevision: 0, ownerships: [], runControls: [], name: id, updatedAt: time, edges: [], runs: [],
     nodes: [{ id: `${id}-claim`, revision: 0, typeId: claimType.id, typeVersion: claimType.version, payload: { content: `${id} content` }, createdAt: time, updatedAt: time }] }
 }
@@ -68,16 +88,25 @@ function claimed(snapshot: GraphSnapshot, rootIds: string[]) {
 const runControl = { leaseId: '33333333-3333-4333-8333-333333333333', runId: 'run-a', ownerUserId: 'user-a',
   holderId: '22222222-2222-4222-8222-222222222222', fence: 2, expiresAt: '2999-01-01T00:00:00.000Z', leaseMs: 30_000 }
 function controlled() { return success({ status: 'claimed', grant: { ...runControl, ownershipRevision: 1 } }) }
-function processingMap(/* 测试运行是否暂停，默认 false。 */ paused = false, /* 带运行测试图的版本，默认 2。 */ revision = 2): GraphSnapshot {
-  // 创建等待结果审核的运行快照，并允许指定暂停状态和图版本。
+/**
+ * 创建等待结果审核的运行快照，并允许指定暂停状态和图版本。
+ *
+ * @param paused 测试运行是否暂停，默认 false。
+ * @param revision 带运行测试图的版本，默认 2。
+ */
+function processingMap(paused = false, revision = 2): GraphSnapshot {
   return { ...map('map-a', 'workspace-a', revision), ownershipRevision: 1, runControls: [{ ...runControl }], runs: [{
     id: 'run-a', scope: { nodeIds: ['map-a-claim'] }, until: 'verified', paused, regenerate: false, mode: 'human-in-loop', status: 'waiting', configuration: verificationConfiguration(),
     operations: [{ id: 'operation-a', kind: 'verify', targetId: 'map-a-claim', status: 'waiting', inputRefs: [], configurationHash: 'fixture', outputRefs: [], splitReports: [], contentDraft: null,
       route: null, reports: [], draft: null, review: { id: 'review-a', revision: 0, kind: 'result', state: 'pending', decision: null, createdAt: time, answeredAt: null }, resultNodeId: null }], createdAt: time, updatedAt: time,
   }] }
 }
-function workspace(/* 测试工作区身份，同时用于名称和偏好所属范围。 */ id: string): WorkspaceView {
-  // 创建所有者视角的工作区与空偏好。
+/**
+ * 创建所有者视角的工作区与空偏好。
+ *
+ * @param id 测试工作区身份，同时用于名称和偏好所属范围。
+ */
+function workspace(id: string): WorkspaceView {
   return { id, name: id, description: '', revision: 0, role: 'owner', mapCount: 2, updatedAt: time, agents: [], members: [],
     preferences: { workspaceId: id, revision: 0, openMapIds: [], currentMapId: null, nodeSelection: {} } }
 }
@@ -91,17 +120,17 @@ function fakeGateway() {
     revision: 0, llm: { provider: 'fixture', model: 'fixture' }, tools: [], limits: { maxAgentSlots: 3 },
   }, metadata: { version: 'fixture', promptKinds: [], executableKinds: ['verify'], scores: [0, 0.5, 1], variables: {}, outputs: [] } } as unknown as AppBootstrap
   const read = vi.fn(async (
-    /* 模拟查询的方法名，选择相应内存夹具。 */ method: string,
-    /* 模拟查询参数，包含目标工作区或图身份。 */ params: any,
-    /* 会话传入的可选取消信号，默认读取夹具不主动响应它。 */ _signal?: AbortSignal
+    method: string,
+    params: any,
+    _signal?: AbortSignal
   ): Promise<any> => {
     // 按公开查询方法从夹具读取启动信息、工作区或图副本。
     if (method === 'app.bootstrap') return structuredClone(bootstrap)
     if (method === 'workspace.list') return { items: [...workspaces.values()], nextCursor: null }
     if (method === 'workspace.get') return structuredClone(workspaces.get(params.workspaceId))
-    if (method === 'map.list') return [...snapshots.values()].filter(/* 内存图快照，用所属工作区筛选列表。 */ snapshot =>
+    if (method === 'map.list') return [...snapshots.values()].filter(snapshot =>
       /* 只列出请求工作区中的图。 */
-      snapshot.workspaceId === params.workspaceId).map(/* 已筛选的图快照，转换为公开列表摘要，不修改原记录。 */ snapshot =>
+      snapshot.workspaceId === params.workspaceId).map(snapshot =>
       /* 把完整图快照转换为列表摘要。 */
       ({
       id: snapshot.mapId, workspaceId: snapshot.workspaceId, revision: snapshot.revision, name: snapshot.name, nodeCount: snapshot.nodes.length,
@@ -113,10 +142,10 @@ function fakeGateway() {
     throw new Error(`Unexpected query: ${method}`)
   })
   const dispatch = vi.fn(async (
-    /* 会话传入的业务请求身份，默认偏好夹具不做重放判定。 */ _id: string,
-    /* 模拟命令方法名，默认只支持偏好保存。 */ method: string,
-    /* 偏好提交参数，用期望版本生成新版本并回显标签页选择。 */ params: any,
-    /* 会话传入的可选取消信号，默认命令夹具不主动响应。 */ _signal?: AbortSignal
+    _id: string,
+    method: string,
+    params: any,
+    _signal?: AbortSignal
   ): Promise<any> => {
     // 模拟偏好保存递增版本，其他未配置命令则使测试失败。
     if (method === 'preferences.set') return success({ workspaceId: params.workspaceId, revision: params.expectedRevision + 1,
@@ -133,21 +162,25 @@ function fakeGateway() {
   })
   const getConnection = vi.fn(async () => /* 返回当前模拟连接的配置状态。 */ ({ baseUrl: 'http://fixture', configured, remembered: false, canRemember: false }))
   const streams: Array<{ mapId: string; signal?: AbortSignal; emit: (
-    /* 测试主动推给已登记订阅的业务事件。 */ event: GraphStreamEvent
+    event: GraphStreamEvent
   ) => void; resolve: () => void; reject: (
-    /* 测试主动拒绝订阅时注入的任意失败原因。 */ cause: unknown
+    cause: unknown
   ) => void }> = []
   const watch = vi.fn((
-    /* 本次订阅的目标图身份，保存在夹具中供用例核对。 */ mapId: string,
-    /* 会话提供的事件接纳回调，测试可主动推送并捕捉其同步错误。 */ onEvent: (
-      /* 交给会话接纳回调的模拟图流事件。 */ event: GraphStreamEvent
+    mapId: string,
+    onEvent: (
+      event: GraphStreamEvent
     ) => void,
-    /* 可选的视图取消信号，用于观察切图或退出是否关闭订阅。 */ signal?: AbortSignal
+    signal?: AbortSignal
   ) =>
     /* 创建可由测试主动推送、结束或拒绝的图订阅。 */
-    new Promise<void>((/* 订阅 Promise 的成功入口，保存后由测试模拟正常断流。 */ resolve, /* 订阅 Promise 的拒绝入口，保存后由测试或取消触发错误。 */ reject) => {
-    // 登记订阅控制入口，并令取消信号拒绝该订阅。
-    const emit = (/* 测试主动推送的流事件，原样交给会话回调。 */ event: GraphStreamEvent) => {
+    new Promise<void>((resolve, reject) => {
+    /**
+     * 登记订阅控制入口，并令取消信号拒绝该订阅。
+     *
+     * @param event 测试主动推送的流事件，原样交给会话回调。
+     */
+    const emit = (event: GraphStreamEvent) => {
       // 把测试事件交给订阅者，回调抛错时结束订阅 Promise。
       try { onEvent(event) } catch (cause) { reject(cause) }
     }
@@ -295,7 +328,7 @@ describe('Client session state and subscriptions', () => {
     f.streams[0].emit({ type: 'snapshot', snapshot: approved })
     expect(f.session.snapshot.value?.runs[0]?.paused).toBe(true)
     await f.session.closeMap('map-a')
-    expect(f.dispatch.mock.calls.some(/* Vitest 记录的命令参数元组，检查是否误发取消或恢复命令。 */ call =>
+    expect(f.dispatch.mock.calls.some(call =>
       /* 检测关闭标签时是否错误发出了取消或恢复运行命令。 */
       call[1] === 'run.cancel' || call[1] === 'run.resume')).toBe(false)
   })
@@ -401,9 +434,9 @@ describe('Client session state and subscriptions', () => {
     const normalRead = f.read.getMockImplementation()!
     let oldSignal: AbortSignal | undefined
     f.read.mockImplementation(async (
-      /* 查询方法名，仅 map.get 的旧图读取会被延迟。 */ method,
-      /* 查询参数，使用 mapId 选择旧图拦截目标。 */ params,
-      /* 会话给旧视图的取消信号，保存供切图后断言。 */ signal
+      method,
+      params,
+      signal
     ) => {
       // 拦截旧图读取并记录取消信号，其他查询保持正常。
       if (method === 'map.get' && params.mapId === 'map-a') { oldSignal = signal; return late.promise }
@@ -425,9 +458,9 @@ describe('Client session state and subscriptions', () => {
     const late = deferred<GraphSnapshot>()
     const normalRead = f.read.getMockImplementation()!
     f.read.mockImplementation((
-      /* 查询方法名，图读取延迟以安排命令响应先到。 */ method,
-      /* 未被拦截查询的原始参数，转交默认模拟读取。 */ params,
-      /* 未被拦截查询的取消信号，转交默认模拟读取。 */ signal
+      method,
+      params,
+      signal
     ) =>
       /* 延迟图快照读取，其他查询继续走正常夹具。 */
       method === 'map.get' ? late.promise : normalRead(method, params, signal))
@@ -457,7 +490,7 @@ describe('Client session state and subscriptions', () => {
     expect(f.session.workspace.value).toBeNull()
     expect(f.session.snapshot.value).toBeNull()
     expect(f.session.online.value).toBe(false)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查退出是否误发 run.cancel。 */ call => /* 检查退出登录是否错误提交取消运行命令。 */ call[1] === 'run.cancel')).toBe(false)
+    expect(f.dispatch.mock.calls.some(call => /* 检查退出登录是否错误提交取消运行命令。 */ call[1] === 'run.cancel')).toBe(false)
   })
 
   it('ignores initialization connection metadata that arrives after a new login', async () => {
@@ -500,7 +533,7 @@ describe('Client session state and subscriptions', () => {
     expect(f.streams[2].signal?.aborted).toBe(true)
     await vi.advanceTimersByTimeAsync(30_000)
     expect(f.watch).toHaveBeenCalledTimes(3)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查关闭订阅是否误取消运行。 */ call => /* 检查关闭订阅时是否错误取消远端运行。 */ call[1] === 'run.cancel')).toBe(false)
+    expect(f.dispatch.mock.calls.some(call => /* 检查关闭订阅时是否错误取消远端运行。 */ call[1] === 'run.cancel')).toBe(false)
   })
 
   it('adopts stream snapshots and summaries while ignoring old HTTP failures and old view callbacks', async () => {
@@ -514,7 +547,7 @@ describe('Client session state and subscriptions', () => {
     late.reject(error(404, 'MAP_NOT_FOUND'))
     await reading
     expect(f.session.snapshot.value?.revision).toBe(5)
-    expect(f.session.mapList.value.find(/* 会话缓存的图摘要，用测试图身份定位实时更新结果。 */ map =>
+    expect(f.session.mapList.value.find(map =>
       /* 查找已被实时快照更新的图摘要。 */
       map.id === 'map-a')).toMatchObject({ name: 'Live graph', revision: 5, nodeCount: 1 })
     expect(f.session.online.value).toBe(true)
@@ -528,7 +561,7 @@ describe('Client session state and subscriptions', () => {
   it('refreshes invalidated workspace and settings without another Map read', async () => {
     // 验证工作区和设置失效通知只刷新相应数据，不额外读取图。
     const f = await opened()
-    const count = f.read.mock.calls.filter(/* 查询调用参数元组，以方法名统计初始图读取次数。 */ call => /* 统计刷新前已经发生的图读取。 */ call[0] === 'map.get').length
+    const count = f.read.mock.calls.filter(call => /* 统计刷新前已经发生的图读取。 */ call[0] === 'map.get').length
     f.workspaces.get('workspace-a')!.revision = 2
     f.workspaces.get('workspace-a')!.name = 'Shared metadata'
     f.bootstrap.settings.revision = 2
@@ -538,10 +571,10 @@ describe('Client session state and subscriptions', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(f.session.workspace.value?.name).toBe('Shared metadata')
     expect(f.session.bootstrap.value?.settings.llm.model).toBe('new model')
-    expect(f.read.mock.calls.filter(/* 查询调用参数元组，以方法名统计刷新后的图读取次数。 */ call => /* 统计刷新后图读取次数，检查没有多余请求。 */ call[0] === 'map.get')).toHaveLength(count)
+    expect(f.read.mock.calls.filter(call => /* 统计刷新后图读取次数，检查没有多余请求。 */ call[0] === 'map.get')).toHaveLength(count)
   })
 
-  it.each([401, 403, 404])('stops inaccessible subscriptions after %s without cancelling the Run', async /* 参数化用例中的状态码，分别覆盖认证失效、权限不足和资源缺失。 */ status => {
+  it.each([401, 403, 404])('stops inaccessible subscriptions after %s without cancelling the Run', async status => {
     // 验证 401、403、404 会停止不可访问订阅，只有 401 退出登录，且不取消运行。
     const f = await opened()
     f.streams[0].emit({ type: 'error', error: { status, code: status === 401 ? 'UNAUTHORIZED' : 'MAP_NOT_FOUND', message: 'Access ended', retryable: false, errorId: crypto.randomUUID() } })
@@ -552,7 +585,7 @@ describe('Client session state and subscriptions', () => {
     expect(f.session.bootstrap.value === null).toBe(status === 401)
     await vi.advanceTimersByTimeAsync(30_000)
     expect(f.watch).toHaveBeenCalledTimes(1)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查访问失效是否误取消运行。 */ call => /* 检查访问失效处理是否错误发出运行取消命令。 */ call[1] === 'run.cancel')).toBe(false)
+    expect(f.dispatch.mock.calls.some(call => /* 检查访问失效处理是否错误发出运行取消命令。 */ call[1] === 'run.cancel')).toBe(false)
   })
 
   it('disconnects on 401, clears private data, and does not cancel remote execution', async () => {
@@ -564,7 +597,7 @@ describe('Client session state and subscriptions', () => {
     expect(f.session.bootstrap.value).toBeNull()
     expect(f.session.snapshot.value).toBeNull()
     expect(f.session.error.value?.status).toBe(401)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查 401 退出是否误取消运行。 */ call => /* 检查认证失效时是否错误取消远端运行。 */ call[1] === 'run.cancel')).toBe(false)
+    expect(f.dispatch.mock.calls.some(call => /* 检查认证失效时是否错误取消远端运行。 */ call[1] === 'run.cancel')).toBe(false)
   })
 
   it('clears an inaccessible Workspace without signing the user out', async () => {
@@ -572,9 +605,9 @@ describe('Client session state and subscriptions', () => {
     const f = await opened()
     const normalRead = f.read.getMockImplementation()!
     f.read.mockImplementation(async (
-      /* 查询方法名，用于模拟图和工作区访问消失。 */ method,
-      /* 未受影响查询的原始参数，继续交给正常夹具。 */ params,
-      /* 未受影响查询的取消信号，继续交给正常夹具。 */ signal
+      method,
+      params,
+      signal
     ) => {
       // 模拟图与工作区消失、工作区列表清空，其他查询仍可读取。
       if (method === 'map.get' || method === 'workspace.get') throw error(404, 'WORKSPACE_NOT_FOUND')
@@ -609,9 +642,9 @@ describe('Client session state and subscriptions', () => {
     const sent: Array<{ id: string; method: string; params: any }> = []
     let failed = false
     f.dispatch.mockImplementation(async (
-      /* 会话提交的命令身份，复制记录以核对原操作重试。 */ id,
-      /* 会话提交的公开命令方法，复制记录以核对重试一致性。 */ method,
-      /* 会话已复制的提交内容，再独立复制保存为调用观察值。 */ params
+      id,
+      method,
+      params
     ) => {
       // 记录命令副本并只使首次调用网络失败，供比较重试内容。
       if (method === 'branch.claim') return claimed(f.snapshots.get('map-a')!, params.rootIds)
@@ -647,10 +680,10 @@ describe('Client session state and subscriptions', () => {
     const pending = deferred<unknown>()
     const normalDispatch = f.dispatch.getMockImplementation()!
     f.dispatch.mockImplementation((
-      /* 偏好请求的业务身份，非拦截分支原样转发。 */ id,
-      /* 命令方法名，只拦截 preferences.set。 */ method,
-      /* 命令参数，用工作区身份挑选要延迟的旧工作区保存。 */ params,
-      /* 该命令的可选取消信号，非拦截分支保留原值。 */ signal
+      id,
+      method,
+      params,
+      signal
     ) => {
       // 仅延迟旧工作区的偏好写入，其他命令沿用正常夹具。
       if (method === 'preferences.set' && params.workspaceId === 'workspace-a') return pending.promise
@@ -658,7 +691,7 @@ describe('Client session state and subscriptions', () => {
     })
     f.session.selectNode('map-a-claim')
     await vi.advanceTimersByTimeAsync(250)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查旧工作区偏好确已发出。 */ call =>
+    expect(f.dispatch.mock.calls.some(call =>
       /* 确认已开始保存旧工作区的偏好。 */
       call[1] === 'preferences.set' && call[2].workspaceId === 'workspace-a')).toBe(true)
     await f.session.selectWorkspace('workspace-b')
@@ -667,7 +700,7 @@ describe('Client session state and subscriptions', () => {
     await vi.advanceTimersByTimeAsync(250)
     pending.resolve(success({ workspaceId: 'workspace-a', revision: 1, openMapIds: ['map-a'], currentMapId: 'map-a', nodeSelection: {} }))
     await vi.advanceTimersByTimeAsync(300)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查新工作区偏好在旧保存结束后仍发出。 */ call =>
+    expect(f.dispatch.mock.calls.some(call =>
       /* 确认旧保存结束后新工作区偏好也得到提交。 */
       call[1] === 'preferences.set' && call[2].workspaceId === 'workspace-b')).toBe(true)
     expect(f.session.workspace.value?.id).toBe('workspace-b')
@@ -689,7 +722,7 @@ describe('Client session state and subscriptions', () => {
     await f.session.refreshWorkspace()
     expect(f.session.canEdit.value).toBe(false)
     expect(await f.session.createNode(claimType, { content: 'No write' })).toBe(false)
-    expect(f.dispatch.mock.calls.some(/* 命令调用参数元组，检查只读与关页操作没有产生图写入或运行取消。 */ call =>
+    expect(f.dispatch.mock.calls.some(call =>
       /* 检查关闭标签或只读写入尝试是否错误发出运行取消或图变更命令。 */
       call[1] === 'run.cancel' || call[1] === 'graph.apply')).toBe(false)
   })

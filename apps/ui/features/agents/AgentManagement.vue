@@ -26,7 +26,7 @@ const writable = computed(() =>
 const locked = computed(() => /* 请求执行或等待原操作重试时锁定配置表单。 */ busy.value || canRetry.value)
 const selected = computed(() =>
   /* 从当前列表解析所选智能体，缺失时返回空值。 */
-  list.value?.items.find(/* 当前目录中的只读配置项，用于匹配所选身份。 */ agent =>
+  list.value?.items.find(agent =>
     /* 匹配当前选中的智能体标识。 */
     agent.id === selectedId.value) ?? null)
 const dirty = computed(() => /* 比较草稿内容与基线，判断未保存修改。 */ !!draft.value && JSON.stringify(draft.value) !== baseContent.value)
@@ -36,36 +36,45 @@ const stale = computed(() =>
 const variables = computed(() => /* 取得当前草稿角色支持的提示词变量。 */ draft.value ? props.bootstrap.metadata.variables[draft.value.kind] ?? [] : [])
 const output = computed(() =>
   /* 查找当前草稿角色的输出格式说明。 */
-  props.bootstrap.metadata.outputs.find(/* 服务端公开的角色输出格式说明，用角色类型匹配草稿。 */ output =>
+  props.bootstrap.metadata.outputs.find(output =>
     /* 匹配输出格式所属的提示词角色。 */
     output.kind === draft.value?.kind)?.content)
 const validation = computed(() => {
   // 校验必填配置、标识格式、变量和工具引用，返回首条错误。
   if (!draft.value) return ''
   const agent = draft.value
-  if (![agent.name, agent.description, agent.content, agent.promptPath].every(/* 名称、说明、正文或路径中的一个必填文本，去空白后检查非空。 */ value =>
+  if (![agent.name, agent.description, agent.content, agent.promptPath].every(value =>
     /* 确认必填文本去掉首尾空白后仍有内容。 */
     value.trim())) return '名称、说明、提示词和配置路径均不能为空。'
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(agent.id)) return '标识使用 1–64 位字母、数字、下划线或连字符。'
-  if (agent.promptVars.some(/* 草稿声明的提示词变量名，与当前角色支持列表比较。 */ name => /* 检测当前角色不支持的草稿变量。 */ !variables.value.includes(name))) return '草稿包含当前类型不支持的变量，请移除后保存。'
-  if (agent.tools.some(/* 草稿声明的工具名，与服务端工具目录比较。 */ name =>
+  if (agent.promptVars.some(name => /* 检测当前角色不支持的草稿变量。 */ !variables.value.includes(name))) return '草稿包含当前类型不支持的变量，请移除后保存。'
+  if (agent.tools.some(name =>
     /* 检测服务工具目录中已不存在的工具引用。 */
-    !props.bootstrap.settings.tools.some(/* 服务端工具目录条目，只读取名称进行匹配。 */ tool =>
+    !props.bootstrap.settings.tools.some(tool =>
       /* 匹配工具目录中的同名工具。 */
       tool.name === name))) return '草稿引用了工具目录中不存在的工具，请移除后保存。'
   return ''
 })
 
-function agentReadInput(/* 已保存的只读 Agent 配置；可编辑字段和数组会复制进独立草稿。 */ agent: AgentProfile): AgentInput {
-  // 从已保存配置复制可编辑字段和数组，建立独立输入对象。
+/**
+ * 从已保存配置复制可编辑字段和数组，建立独立输入对象。
+ *
+ * @param agent 已保存的只读 Agent 配置；可编辑字段和数组会复制进独立草稿。
+ */
+function agentReadInput(agent: AgentProfile): AgentInput {
   return { id: agent.id, name: agent.name, description: agent.description, content: agent.content, promptPath: agent.promptPath,
     kind: agent.kind, provider: agent.provider, model: agent.model, tools: [...agent.tools], promptVars: [...agent.promptVars],
     defaultPriority: agent.defaultPriority, claimCategory: agent.claimCategory }
 }
-function agentReadDraft(/* 要载入的 Agent 标识；null 表示清空选择或准备新建。 */ id: string | null, /* 是否在找不到现有配置时建立新草稿，默认 false。 */ create = false) {
-  // 切换所选智能体或建立新草稿，并重置内容、目录版本和智能体版本基线。
+/**
+ * 切换所选智能体或建立新草稿，并重置内容、目录版本和智能体版本基线。
+ *
+ * @param id 要载入的 Agent 标识；null 表示清空选择或准备新建。
+ * @param create 是否在找不到现有配置时建立新草稿，默认 false。
+ */
+function agentReadDraft(id: string | null, create = false) {
   selectedId.value = id
-  const agent = list.value?.items.find(/* 目录中的候选配置，用待载入身份匹配。 */ agent => /* 查找待载入草稿的智能体配置。 */ agent.id === id)
+  const agent = list.value?.items.find(agent => /* 查找待载入草稿的智能体配置。 */ agent.id === id)
   draft.value = agent ? agentReadInput(agent) : create ? { id: crypto.randomUUID(), name: '', description: '', content: '',
     promptPath: 'custom/' + crypto.randomUUID(), kind: 'verifySubAgent', provider: null, model: null, tools: [],
     promptVars: [...props.bootstrap.metadata.variables.verifySubAgent], defaultPriority: 'medium', claimCategory: null } : null
@@ -74,37 +83,54 @@ function agentReadDraft(/* 要载入的 Agent 标识；null 表示清空选择�
   baseContent.value = JSON.stringify(draft.value)
   deleteTarget.value = null
 }
+/**
+ * 接纳目录列表，仅在允许覆盖或草稿未修改时重新选择并载入草稿。
+ *
+ * @param value 当前范围的最新目录响应，包含目录版本与配置项。
+ * @param preserveDraft 是否保护未保存草稿，默认 true；false 会按新目录重新载入选择。
+ */
 function agentUpdateList(
-  /* 当前范围的最新目录响应，包含目录版本与配置项。 */ value: AgentList,
-  /* 是否保护未保存草稿，默认 true；false 会按新目录重新载入选择。 */ preserveDraft = true
+  value: AgentList,
+  preserveDraft = true
 ) {
-  // 接纳目录列表，仅在允许覆盖或草稿未修改时重新选择并载入草稿。
   list.value = value
-  if (!preserveDraft || !dirty.value) agentReadDraft(value.items.some(/* 新目录中的配置项，用于确认原选择仍存在。 */ agent =>
+  if (!preserveDraft || !dirty.value) agentReadDraft(value.items.some(agent =>
     /* 确认原选中的智能体仍在新列表中。 */
     agent.id === selectedId.value) ? selectedId.value : value.items[0]?.id ?? null)
 }
 async function agentReadList() {
   // 读取当前范围的智能体列表；未选择工作区时清空列表和草稿。
   if (!scope.value) { list.value = null; agentReadDraft(null); return }
-  await task.read('agent.list', { scope: scope.value }, /* 查询返回的当前范围目录，交给统一目录接纳逻辑。 */ value => /* 接纳查询列表并按草稿保护规则更新选择。 */ agentUpdateList(value))
+  await task.read('agent.list', { scope: scope.value }, value => /* 接纳查询列表并按草稿保护规则更新选择。 */ agentUpdateList(value))
 }
+/**
+ * 请求切换范围或智能体，未保存草稿存在时先记录待确认选择。
+ *
+ * @param next 用户请求切换到共享库或工作区的目标范围。
+ * @param id 同一范围内要选择的配置标识，默认 null。
+ * @param create 是否进入新建配置草稿，默认 false；有未保存修改时一并记录待确认。
+ */
 async function agentUpdateScope(
-  /* 用户请求切换到共享库或工作区的目标范围。 */ next: 'workspace' | 'library',
-  /* 同一范围内要选择的配置标识，默认 null。 */ id: string | null = null,
-  /* 是否进入新建配置草稿，默认 false；有未保存修改时一并记录待确认。 */ create = false
+  next: 'workspace' | 'library',
+  id: string | null = null,
+  create = false
 ) {
-  // 请求切换范围或智能体，未保存草稿存在时先记录待确认选择。
   if (locked.value) return
   if (dirty.value) { pendingSelection.value = { scope: next, id, create }; return }
   await agentUpdateSelection(next, id, create)
 }
+/**
+ * 执行已确认的范围切换或草稿选择，并清除待确认操作。
+ *
+ * @param next 已确认切换的目录范围；与当前不同会重新读取目录。
+ * @param id 同范围内要载入的配置标识，null 可清空选择或配合新建标记。
+ * @param create 是否建立新草稿；仅同范围选择分支交给草稿载入器。
+ */
 async function agentUpdateSelection(
-  /* 已确认切换的目录范围；与当前不同会重新读取目录。 */ next: 'workspace' | 'library',
-  /* 同范围内要载入的配置标识，null 可清空选择或配合新建标记。 */ id: string | null,
-  /* 是否建立新草稿；仅同范围选择分支交给草稿载入器。 */ create: boolean
+  next: 'workspace' | 'library',
+  id: string | null,
+  create: boolean
 ) {
-  // 执行已确认的范围切换或草稿选择，并清除待确认操作。
   pendingSelection.value = null
   if (scopeKind.value !== next) {
     scopeKind.value = next; draft.value = null; selectedId.value = null; list.value = null
@@ -115,14 +141,23 @@ function agentUpdateKind() {
   // 新建智能体更换角色后重置该角色的默认提示词变量。
   if (draft.value && !selectedId.value) draft.value.promptVars = [...variables.value]
 }
-function agentUpdateVariableOrder(/* 待移动变量在草稿顺序中的零基索引。 */ index: number, /* 相对移动量，界面使用 -1 或 1；越界时不修改列表。 */ direction: number) {
-  // 将选中变量在允许范围内前移或后移一位。
+/**
+ * 将选中变量在允许范围内前移或后移一位。
+ *
+ * @param index 待移动变量在草稿顺序中的零基索引。
+ * @param direction 相对移动量，界面使用 -1 或 1；越界时不修改列表。
+ */
+function agentUpdateVariableOrder(index: number, direction: number) {
   const values = draft.value?.promptVars
   if (!values || index + direction < 0 || index + direction >= values.length) return
   const [value] = values.splice(index, 1); values.splice(index + direction, 0, value)
 }
-function agentUpdateVariable(/* 要勾选或取消的变量名，存在时删除、不存在时追加。 */ name: string) {
-  // 在草稿变量列表中添加或移除指定变量。
+/**
+ * 在草稿变量列表中添加或移除指定变量。
+ *
+ * @param name 要勾选或取消的变量名，存在时删除、不存在时追加。
+ */
+function agentUpdateVariable(name: string) {
   if (!draft.value) return
   const index = draft.value.promptVars.indexOf(name)
   if (index < 0) draft.value.promptVars.push(name)
@@ -133,8 +168,12 @@ async function agentUpdateProfile() {
   if (!scope.value || !draft.value || !writable.value || validation.value || stale.value) return
   const agent = { ...draft.value, name: draft.value.name.trim(), promptPath: draft.value.promptPath.trim(),
     provider: draft.value.provider?.trim() || null, model: draft.value.model?.trim() || null }
-  const accept = (/* 新建或修改成功的目录响应，用服务端确认值重建草稿。 */ result: { data: AgentList }) => {
-    // 选中新保存的智能体并更新列表、草稿及完成提示。
+  /**
+   * 选中新保存的智能体并更新列表、草稿及完成提示。
+   *
+   * @param result 新建或修改成功的目录响应，用服务端确认值重建草稿。
+   */
+  const accept = (result: { data: AgentList }) => {
     selectedId.value = agent.id; agentUpdateList(result.data, false); message.value = '智能体配置已保存；已有运行继续使用冻结配置。'; emit('changed')
   }
   if (selectedId.value) await task.command('agent.update', { scope: scope.value, expectedRevision: baseRevision.value,
@@ -144,10 +183,10 @@ async function agentUpdateProfile() {
 async function agentUpdateDraftRevision() {
   // 读取最新目录，仅更新草稿的版本依据，保留编辑内容。
   if (!scope.value) return
-  await task.read('agent.list', { scope: scope.value }, /* 重新查询的最新目录，只更新版本依据并保留当前编辑内容。 */ value => {
+  await task.read('agent.list', { scope: scope.value }, value => {
     // 接纳最新目录并更新版本；所选智能体已删除时保留草稿并提示。
     list.value = value
-    const current = value.items.find(/* 最新目录中的配置项，用于确认当前编辑身份是否仍存在。 */ agent => /* 查找所选智能体在最新目录中的记录。 */ agent.id === selectedId.value)
+    const current = value.items.find(agent => /* 查找所选智能体在最新目录中的记录。 */ agent.id === selectedId.value)
     if (selectedId.value && !current) { message.value = '所选智能体已经删除；草稿仍保留。'; return }
     baseRevision.value = value.revision; baseAgentRevision.value = current?.revision ?? 0
   })
@@ -156,48 +195,48 @@ async function agentDeleteProfile() {
   // 确认配置可删除后按目录和智能体版本删除它。
   if (!deleteTarget.value || !scope.value || !writable.value || !deleteTarget.value.deletable || !list.value) return
   await task.command('agent.delete', { scope: scope.value, expectedRevision: list.value.revision,
-    agentId: deleteTarget.value.id, expectedAgentRevision: deleteTarget.value.revision }, /* 删除成功的目录响应，接纳后重新选择可用配置。 */ result => {
+    agentId: deleteTarget.value.id, expectedAgentRevision: deleteTarget.value.revision }, result => {
     // 删除成功后重置选择、更新目录并通知父组件。
     deleteTarget.value = null; agentUpdateList(result.data, false); message.value = '所选智能体已删除。'; emit('changed')
   })
 }
 async function agentReadLibrary() {
   // 读取共享智能体库，默认选择全部配置供复制。
-  await task.read('agent.list', { scope: { kind: 'library' } }, /* 服务端返回的共享库目录，作为复制候选和版本依据。 */ value => {
+  await task.read('agent.list', { scope: { kind: 'library' } }, value => {
     // 接纳共享库列表，重置勾选和复制影响预览。
-    library.value = value; copyIds.value = value.items.map(/* 共享库配置项，提取其身份作为默认勾选。 */ agent => /* 提取共享库智能体标识作为默认复制选项。 */ agent.id); copyPreview.value = null
+    library.value = value; copyIds.value = value.items.map(agent => /* 提取共享库智能体标识作为默认复制选项。 */ agent.id); copyPreview.value = null
   })
 }
 function agentReadCopyPreview() {
   // 计算复制对工作区的新增、覆盖、删除及固定角色影响，并冻结本次复制参数。
   if (!props.workspace || props.workspace.role !== 'owner' || !library.value || !copyIds.value.length || dirty.value) return
-  const agents = library.value.items.filter(/* 共享库中的候选项，只保留已勾选的身份。 */ agent => /* 筛选用户勾选的共享库智能体。 */ copyIds.value.includes(agent.id))
-  const overwritten = props.workspace.agents.filter(/* 目标工作区中的现有配置，用路径判断是否将被覆盖。 */ agent =>
+  const agents = library.value.items.filter(agent => /* 筛选用户勾选的共享库智能体。 */ copyIds.value.includes(agent.id))
+  const overwritten = props.workspace.agents.filter(agent =>
     /* 筛选配置路径会被所选共享库配置覆盖的工作区智能体。 */
-    agents.some(/* 已选共享库配置，用其路径与目标工作区配置匹配。 */ source =>
+    agents.some(source =>
       /* 按配置路径匹配共享库来源与工作区目标。 */
       source.promptPath === agent.promptPath))
-  const removed = copyMode.value === 'replace' ? props.workspace.agents.filter(/* 目标工作区配置，替换模式下判断它是否未被所选来源保留。 */ agent =>
+  const removed = copyMode.value === 'replace' ? props.workspace.agents.filter(agent =>
     /* 替换模式下筛选未被所选共享库配置保留的工作区智能体。 */
-    !agents.some(/* 已选共享库配置，用路径判断是否保留目标配置。 */ source =>
+    !agents.some(source =>
       /* 判断所选库中是否存在相同配置路径。 */
       source.promptPath === agent.promptPath)) : []
   copyPreview.value = { params: { workspaceId: props.workspace.id, expectedRevision: props.workspace.revision,
-    libraryRevision: library.value.revision, agentIds: agents.map(/* 已经选定复制的来源配置，提取服务端身份用于复制参数。 */ agent =>
+    libraryRevision: library.value.revision, agentIds: agents.map(agent =>
       /* 提取本次复制所选的智能体标识。 */
       agent.id), mode: copyMode.value }, workspaceName: props.workspace.name,
-    added: agents.filter(/* 已经选定的来源配置，用来判断此次复制是否新增。 */ agent =>
+    added: agents.filter(agent =>
       /* 筛选没有对应覆盖目标的新配置。 */
-      !overwritten.some(/* 将被覆盖的工作区配置，用路径排除重复新增项。 */ target =>
+      !overwritten.some(target =>
         /* 按配置路径判断该来源是否对应已有目标。 */
-        target.promptPath === agent.promptPath)).map(/* 此次复制将新增的来源配置，取显示名称。 */ agent =>
+        target.promptPath === agent.promptPath)).map(agent =>
       /* 提取新增配置名称供预览展示。 */
       agent.name),
-    replaced: overwritten.map(/* 此次复制将覆盖的工作区配置，取显示名称。 */ agent =>
+    replaced: overwritten.map(agent =>
       /* 提取将被覆盖的配置名称供预览展示。 */
-      agent.name), removed: removed.map(/* 此次替换将删除的工作区配置，取显示名称。 */ agent =>
+      agent.name), removed: removed.map(agent =>
       /* 提取将被移除的配置名称供预览展示。 */
-      agent.name), removesFixed: removed.some(/* 待删除的工作区配置，deletable 标记用于保护固定角色。 */ agent =>
+      agent.name), removesFixed: removed.some(agent =>
       /* 检测移除列表中是否包含不可删除的固定角色。 */
       !agent.deletable) }
 }
@@ -205,14 +244,14 @@ async function agentUpdateLibraryCopy() {
   // 使用已预览的参数复制共享库配置，阻止移除固定角色或覆盖未保存草稿。
   const preview = copyPreview.value
   if (!preview || preview.removesFixed || dirty.value) return
-  await task.command('agent.copy', preview.params, /* 复制命令成功的工作区响应，提供新版本和复制后的配置目录。 */ result => {
+  await task.command('agent.copy', preview.params, result => {
     // 复制成功后清空预览、更新工作区智能体列表并通知父组件。
     copyPreview.value = null
     if (scopeKind.value === 'workspace') agentUpdateList({ scope: { kind: 'workspace', workspaceId: result.data.id }, revision: result.data.revision, items: result.data.agents }, false)
     message.value = '共享库配置已复制到工作区。'; emit('changed')
   })
 }
-watch(() => /* 观察工作区版本和智能体配置变化。 */ props.workspace, /* 父组件刷新的工作区；仅当前显示工作区范围时接纳其配置。 */ value => {
+watch(() => /* 观察工作区版本和智能体配置变化。 */ props.workspace, value => {
   // 在工作区范围下接纳外部刷新，同时沿用草稿保护规则。
   if (value && scopeKind.value === 'workspace') agentUpdateList({ scope: { kind: 'workspace', workspaceId: value.id }, revision: value.revision, items: value.agents })
 }, { immediate: true })
@@ -239,7 +278,7 @@ onMounted(agentReadList)
           <div class="form-grid"><label>默认优先级<select v-model="draft.defaultPriority" aria-label="默认优先级"><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label>默认事实类别<select v-model="draft.claimCategory" aria-label="默认事实类别"><option :value="null">不限定</option><option value="data">数据事实</option><option value="quote">引用观点</option><option value="causal">因果关系</option></select></label></div>
           <label>提示词<textarea v-model="draft.content" aria-label="智能体提示词" rows="8" required /></label>
           <div class="field-group"><strong>注入变量</strong><p>勾选要提供的变量，并调整正文后的注入顺序。</p><div class="checks"><label v-for="name in variables" :key="name"><input type="checkbox" :checked="draft.promptVars.includes(name)" @change="agentUpdateVariable(name)">{{ name }}</label></div><ol class="variable-order"><li v-for="(name, index) in draft.promptVars" :key="name"><code>{{ name }}</code><button type="button" :disabled="index === 0" :aria-label="`上移变量 ${name}`" @click="agentUpdateVariableOrder(index, -1)">↑</button><button type="button" :disabled="index === draft.promptVars.length - 1" :aria-label="`下移变量 ${name}`" @click="agentUpdateVariableOrder(index, 1)">↓</button><button type="button" :aria-label="`移除变量 ${name}`" @click="draft.promptVars.splice(index, 1)">移除</button></li></ol></div>
-          <div class="field-group"><strong>允许工具</strong><p v-if="!bootstrap.settings.tools.length">共享工具目录为空。</p><label v-for="tool in bootstrap.settings.tools" :key="tool.name" class="tool"><input v-model="draft.tools" type="checkbox" :value="tool.name"><span><strong>{{ tool.name }}</strong><small>{{ tool.description }}</small></span></label><div v-for="name in draft.tools.filter(/* 草稿中的工具名，与最新服务目录核对是否仍可用。 */ name => /* 筛出当前工具目录中已不存在的草稿工具。 */ !bootstrap.settings.tools.some(/* 服务端工具目录项，用名称匹配草稿引用。 */ tool => /* 按名称检查工具是否仍在服务目录中。 */ tool.name === name))" :key="name" class="actions error">未知工具 {{ name }}<button type="button" @click="draft.tools = draft.tools.filter(/* 草稿已选工具名，用待移除名称排除。 */ tool => /* 从草稿中移除指定的未知工具。 */ tool !== name)">移除</button></div></div>
+          <div class="field-group"><strong>允许工具</strong><p v-if="!bootstrap.settings.tools.length">共享工具目录为空。</p><label v-for="tool in bootstrap.settings.tools" :key="tool.name" class="tool"><input v-model="draft.tools" type="checkbox" :value="tool.name"><span><strong>{{ tool.name }}</strong><small>{{ tool.description }}</small></span></label><div v-for="name in draft.tools.filter(name => !bootstrap.settings.tools.some(tool => tool.name === name))" :key="name" class="actions error">未知工具 {{ name }}<button type="button" @click="draft.tools = draft.tools.filter(tool => tool !== name)">移除</button></div></div>
         </fieldset>
         <details v-if="output"><summary>当前角色的结果格式</summary><pre>{{ JSON.stringify(JSON.parse(output), null, 2) }}</pre></details>
         <p v-if="validation && (dirty || !selectedId)" class="error" role="alert">{{ validation }}</p>

@@ -36,9 +36,9 @@ async function localStartProcess(): Promise<() => Promise<void>> {
   const local = await localReadConfiguration()
   const concurrencyValue = values.concurrency ?? process.env.CHONGMING_HOST_CONCURRENCY
   const runtime = await localCreateRuntime({ directory: values.directory ?? '.chongming-local', port: values.port === undefined ? undefined : Number(values.port),
-    dshHome: values['dsh-home'], patches: values.patch?.map(/* 命令行给出的补丁文件路径，转换为绝对路径后传给运行时。 */ file => /* 将补丁文件转换为绝对路径。 */  path.resolve(file)), reporter,
+    dshHome: values['dsh-home'], patches: values.patch?.map(file => /* 将补丁文件转换为绝对路径。 */  path.resolve(file)), reporter,
     concurrency: concurrencyValue === undefined ? undefined : Number(concurrencyValue),
-    env: Object.fromEntries(Object.entries(local.secrets).filter((/* 本机密钥条目，仅取名称以保留显式进程环境的优先级。 */ [name]) => /* 仅把环境中缺少的密钥补充给本地运行时。 */  process.env[name] === undefined)) })
+    env: Object.fromEntries(Object.entries(local.secrets).filter(([name]) => /* 仅把环境中缺少的密钥补充给本地运行时。 */  process.env[name] === undefined)) })
   console.log(JSON.stringify({ event: 'local.ready', baseUrl: runtime.baseUrl, connectionPath: runtime.connectionPath, tokenPath: runtime.tokenPath }))
   let closing = false
   runtime.application.localQueue.closed.then(() => {
@@ -47,7 +47,7 @@ async function localStartProcess(): Promise<() => Promise<void>> {
       reporter.report({ name: 'local.channel.closed', severity: 'fatal', context: { phase: 'runtime' } })
       process.exitCode = 1
     }
-  }).catch(/* 观察本地队列关闭过程时抛出的异常，用于致命诊断。 */ error => /* 记录本地队列结束监听的异常。 */  reporter.report({ name: 'local.channel.failed', severity: 'fatal', error }))
+  }).catch(error => /* 记录本地队列结束监听的异常。 */  reporter.report({ name: 'local.channel.failed', severity: 'fatal', error }))
   return async () => {
     // 标记主动关闭并等待运行时收尾，说明本地数据仍然保留。
      closing = true; await runtime.close(); console.log('Local services stopped; data retained') }

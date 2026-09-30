@@ -19,8 +19,13 @@ beforeAll(async () => {
 afterAll(async () => {
   // 先断开客户端，再关闭服务与模型夹具。
    await gateway?.disconnect(); await fixture?.close() }, 20_000)
-async function sqliteWaitMap(/* 需要等待业务状态变化的图身份。 */ mapId: string, /* 指定本用例完成边界的纯条件函数，例如 Run 完成或审核建立。 */ predicate: (/* 客户端刚读取的最新图快照，提供给等待条件判断。 */ snapshot: GraphSnapshot) => boolean) {
-  // 有界等待图到达指定业务状态，失败 Run 立即报告原因。
+/**
+ * 有界等待图到达指定业务状态，失败 Run 立即报告原因。
+ *
+ * @param mapId 需要等待业务状态变化的图身份。
+ * @param predicate 指定本用例完成边界的纯条件函数，例如 Run 完成或审核建立。
+ */
+async function sqliteWaitMap(mapId: string, predicate: (snapshot: GraphSnapshot) => boolean) {
   const deadline = Date.now() + 70_000
   while (Date.now() < deadline) {
     const snapshot = await gateway.read('map.get', { mapId })
@@ -38,7 +43,7 @@ describe('SQLite / in-process notifications / real DSH', () => {
     const mapId = randomUUID(), sourceId = randomUUID()
     const created = await gateway.dispatch(randomUUID(), 'map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'SQLite full flow' })
     const events: GraphStreamEvent[] = [], stop = new AbortController()
-    const streaming = gateway.watch(mapId, /* 客户端 SSE 网关推送的公共事件，记录以检查最终快照和活动通知。 */ event => /* 保存实时事件，供快照与活动推送断言。 */  events.push(event), stop.signal).catch(/* 订阅 Promise 的结束异常，只有测试主动取消时才忽略。 */ error => {
+    const streaming = gateway.watch(mapId, event => /* 保存实时事件，供快照与活动推送断言。 */  events.push(event), stop.signal).catch(error => {
       // 正常取消订阅时吞掉中止错误，其余断流失败继续报告。
        if (!stop.signal.aborted) throw error })
     try {
@@ -49,13 +54,13 @@ describe('SQLite / in-process notifications / real DSH', () => {
       await gateway.dispatch(randomUUID(), 'run.start', { mapId, id: randomUUID(),
         branch: { rootIds: runBranch.scope.rootIds, expectedVersion: runBranch.version },
         scope: { nodeIds: [sourceId] }, plan: sourceFactCheckPlan([sourceId]), mode: 'auto' })
-      const final = await sqliteWaitMap(mapId, /* 来源处理期间读取的图快照，等待当前 Run 完成。 */ snapshot => /* 等待本次来源处理 Run 完成。 */  snapshot.runs.some(run => run.status === 'completed'))
+      const final = await sqliteWaitMap(mapId, snapshot => /* 等待本次来源处理 Run 完成。 */  snapshot.runs.some(run => run.status === 'completed'))
       expect(final.nodes.filter(node => node.typeId === FACT_TYPES.news.id)).toHaveLength(1)
       expect(final.nodes.filter(node => node.typeId === FACT_TYPES.claim.id)).toHaveLength(2)
       expect(final.nodes.filter(node => node.typeId === FACT_TYPES.verification.id)).toHaveLength(2)
       expect(final.runs[0].operations).toHaveLength(4)
-      await expect.poll(() => /* 轮询事件缓存，确认已推送最终图版本。 */  events.some(/* 缓存 SSE 事件，检查快照版本是否等于最终持久化版本。 */ event => /* 识别与最终持久化版本相同的快照事件。 */  event.type === 'snapshot' && event.snapshot.revision === final.revision)).toBe(true)
-      expect(events.some(/* 缓存 SSE 事件，查找含非空活动列表的执行摘要。 */ event => /* 确认执行期间收到过非空活动摘要。 */  event.type === 'activity' && event.items.length > 0)).toBe(true)
+      await expect.poll(() => /* 轮询事件缓存，确认已推送最终图版本。 */  events.some(event => /* 识别与最终持久化版本相同的快照事件。 */  event.type === 'snapshot' && event.snapshot.revision === final.revision)).toBe(true)
+      expect(events.some(event => /* 确认执行期间收到过非空活动摘要。 */  event.type === 'activity' && event.items.length > 0)).toBe(true)
       expect(fixture.errors).toEqual([])
     } finally { stop.abort(); await streaming }
   }, 80_000)
@@ -80,7 +85,7 @@ describe('SQLite / in-process notifications / real DSH', () => {
       reviewId: operation.review!.id, expectedReviewRevision: operation.review!.revision, decision: 'approve' })
     expect(approved.data.snapshot.runs.find(run => run.id === runId)?.paused).toBe(true)
     await gateway.dispatch(randomUUID(), 'run.resume', { mapId, runId })
-    const result = await sqliteWaitMap(mapId, /* 当前图快照，判断是否已经建立汇总结果审核。 */ snapshot => /* 等待结果审核建立，确认工作意见已全部提交。 */  snapshot.runs.find(run => run.id === runId)?.operations[0].review?.kind === 'result')
+    const result = await sqliteWaitMap(mapId, snapshot => /* 等待结果审核建立，确认工作意见已全部提交。 */  snapshot.runs.find(run => run.id === runId)?.operations[0].review?.kind === 'result')
     const resultRun = result.runs.find(run => run.id === runId)!
     expect(resultRun.operations[0].stages.find(stage => stage.stageId === 'assess')?.results).toHaveLength(3)
     const final = await gateway.dispatch(randomUUID(), 'review.answer', { mapId, runId, operationId: operation.id,

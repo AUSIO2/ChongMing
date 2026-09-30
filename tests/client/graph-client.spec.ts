@@ -12,29 +12,38 @@ const bootstrap: AppBootstrap = {
     definitions: { queryMethod: 'definition.get', publishMethod: 'definition.publish' } },
 }
 const snapshot = { mapId: 'map', workspaceId: 'workspace', revision: 7, ownershipRevision: 0, ownerships: [], runControls: [], name: 'Map', nodes: [], edges: [], runs: [], updatedAt: '' }
+/**
+ * 构造包含请求标识、重放标记和业务数据的成功 HTTP 响应。
+ *
+ * @param data 嵌入成功响应的测试业务数据，可故意缺失字段用于协议校验。
+ * @param requestId 响应中的关联请求身份，默认 response；可指定错误身份验证匹配检查。
+ */
 function success(
-  /* 嵌入成功响应的测试业务数据，可故意缺失字段用于协议校验。 */ data: unknown,
-  /* 响应中的关联请求身份，默认 response；可指定错误身份验证匹配检查。 */ requestId = 'response'
+  data: unknown,
+  requestId = 'response'
 ) {
-  // 构造包含请求标识、重放标记和业务数据的成功 HTTP 响应。
   return Response.json({ ok: true, requestId, replayed: false, data })
 }
 const servers: Server[] = []
 afterEach(async () => {
   // 每个用例后恢复模拟并关闭已创建的测试服务器。
   vi.restoreAllMocks()
-  await Promise.all(servers.splice(0).map(/* 当前用例登记的测试 HTTP 服务器，清理时关闭连接和监听。 */ server => /* 为每个测试服务器建立可等待的关闭操作。 */ new Promise<void>((
-    /* 该服务器完全关闭后调用的完成入口。 */ resolve,
-    /* 该服务器关闭失败时调用的拒绝入口。 */ reject
+  await Promise.all(servers.splice(0).map(server => /* 为每个测试服务器建立可等待的关闭操作。 */ new Promise<void>((
+    resolve,
+    reject
   ) => {
       // 先断开现有连接，再等待服务器停止监听。
-      server.closeAllConnections(); server.close(/* Node 关闭回调传来的可选错误，存在时使测试清理失败。 */ error => /* 根据服务器关闭结果完成或拒绝清理 Promise。 */ error ? reject(error) : resolve())
+      server.closeAllConnections(); server.close(error => /* 根据服务器关闭结果完成或拒绝清理 Promise。 */ error ? reject(error) : resolve())
   })))
 })
-async function listen(/* 尚未监听的测试服务器，启动后登记给 afterEach 统一清理。 */ server: Server): Promise<string> {
-  // 在本机随机端口启动并登记测试服务，返回可请求的源地址。
+/**
+ * 在本机随机端口启动并登记测试服务，返回可请求的源地址。
+ *
+ * @param server 尚未监听的测试服务器，启动后登记给 afterEach 统一清理。
+ */
+async function listen(server: Server): Promise<string> {
   servers.push(server)
-  await new Promise<void>(/* 本机临时端口绑定成功后调用的完成入口。 */ resolve => /* 开始监听临时端口，监听成功后结束等待。 */ server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>(resolve => /* 开始监听临时端口，监听成功后结束等待。 */ server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Test server did not bind')
   return 'http://127.0.0.1:' + address.port
@@ -73,7 +82,7 @@ describe('public Fetch client', () => {
     expect(await client.read('branch.get', { mapId: 'map', rootIds: ['node'] })).toEqual(branch)
     const result = await client.dispatch('request-1', 'graph.apply', { mapId: 'map', branch: { rootIds: ['node'], expectedVersion: branch.version }, changes: { name: 'Renamed' } })
     expect(result.data.snapshot.revision).toBe(7)
-    expect(fetcher.mock.calls.map(/* Vitest 记录的 Fetch 参数元组，首项用于固定路径断言。 */ call =>
+    expect(fetcher.mock.calls.map(call =>
       /* 提取 Fetch 调用 URL，供路径断言。 */
       String(call[0]))).toEqual(['http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/query', 'http://localhost:4320/api/v1/command'])
     for (const [, init] of fetcher.mock.calls) expect(init).toMatchObject({ redirect: 'error', credentials: 'omit', headers: { authorization: 'Bearer test-token' } })
@@ -123,13 +132,18 @@ describe('public Fetch client', () => {
   })
 
   it('aborts pending requests on caller cancellation, timeout and close', async () => {
-    // 验证调用者取消、客户端关闭和超时分别中断请求并报告对应错误。
+    /**
+     * 验证调用者取消、客户端关闭和超时分别中断请求并报告对应错误。
+     *
+     * @param _url 模拟 Fetch 收到的地址；本用例只验证生命周期，不读取它。
+     * @param init 模拟 Fetch 收到的请求选项，含需要监听的 AbortSignal。
+     */
     const fetcher: typeof fetch = (
-      /* 模拟 Fetch 收到的地址；本用例只验证生命周期，不读取它。 */ _url,
-      /* 模拟 Fetch 收到的请求选项，含需要监听的 AbortSignal。 */ init
+      _url,
+      init
     ) => /* 返回等待取消的网络 Promise，模拟未完成请求。 */ new Promise((
-      /* 网络 Promise 完成入口，此夹具始终等待取消，故不调用。 */ _resolve,
-      /* 网络 Promise 拒绝入口，收到取消时结束模拟请求。 */ reject
+      _resolve,
+      reject
     ) => {
       // 安装取消监听，使网络请求可由客户端生命周期结束。
       init!.signal!.addEventListener('abort', () => /* 收到取消信号时拒绝模拟请求。 */ reject(new Error('aborted')), { once: true })
@@ -171,13 +185,13 @@ describe('public Fetch client', () => {
     // 验证重定向被拒绝，目标服务没有收到请求或令牌。
     let hits = 0
     const destination = await listen(createServer((
-      /* 访问重定向目标的请求，本用例只统计访问次数。 */ _request,
-      /* 重定向目标的响应写入端，若意外访问则返回占位正文。 */ response
+      _request,
+      response
     ) => {
       // 统计重定向目标是否意外被访问。
       hits++; response.end('should not be reached')
     }))
-    const origin = await listen(createServer((/* 访问源服务的请求，本夹具统一返回重定向。 */ _request, /* 源服务响应写入端，设置跨服务 Location 并结束响应。 */ response) => {
+    const origin = await listen(createServer((_request, response) => {
       // 返回跨服务重定向，检验客户端禁止跟随跳转。
       response.writeHead(302, { location: destination + '/private' }); response.end()
     }))

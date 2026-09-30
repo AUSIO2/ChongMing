@@ -25,20 +25,24 @@ function desktopCloseService(): Promise<void> {
     if (process.connected) process.disconnect()
   })()
 }
-function desktopStopService(/* 触发关闭的信号或父进程断开原因，仅用于诊断关联。 */ reason: string): void {
-  // 在有界关闭流程中停止服务，并用退出码表达关闭是否完成。
+/**
+ * 在有界关闭流程中停止服务，并用退出码表达关闭是否完成。
+ *
+ * @param reason 触发关闭的信号或父进程断开原因，仅用于诊断关联。
+ */
+function desktopStopService(reason: string): void {
   void processRunClose({ reporter, component: 'desktop-service', timeoutMs: 15_000, close: desktopCloseService })
-    .then(/* 有界关闭是否成功完成，用于选择退出码。 */ okay => {
+    .then(okay => {
       // 依据关闭结果保留既有失败码或标记关闭失败。
        process.exitCode = okay ? process.exitCode ?? 0 : 1 })
-    .catch(/* 关闭协调逻辑自身抛出的错误，需要致命记录后退出。 */ error => {
+    .catch(error => {
       // 记录关闭处理器自身的致命错误并强制退出。
        reporter.report({ name: 'shutdown.handler.failed', severity: 'fatal', context: { reason }, error }); process.exit(1) })
 }
 process.once('disconnect', () => /* 父进程 IPC 断开时启动有界关闭。 */  desktopStopService('disconnect'))
 process.once('SIGINT', () => /* 收到中断信号时启动有界关闭。 */  desktopStopService('SIGINT'))
 process.once('SIGTERM', () => /* 收到终止信号时启动有界关闭。 */  desktopStopService('SIGTERM'))
-process.on('message', /* 父进程通过 IPC 发送的原始消息，只接受对象型 stop 指令。 */ message => {
+process.on('message', message => {
   // 仅处理父进程的停止消息，触发共享关闭任务。
   if (!message || typeof message !== 'object' || !('type' in message) || message.type !== 'stop') return
   void desktopCloseService()
@@ -51,14 +55,14 @@ async function desktopStartService() {
   const concurrencyValue = process.env.CHONGMING_HOST_CONCURRENCY
   runtime = await localCreateRuntime({ directory, port: 0, reporter,
     concurrency: concurrencyValue === undefined ? undefined : Number(concurrencyValue),
-    env: Object.fromEntries(Object.entries(local.secrets).filter((/* 本机密钥条目，仅取名称检查进程环境是否已有显式配置。 */ [name]) => /* 仅补充环境中尚未设置的本机密钥，保留显式环境配置优先级。 */  process.env[name] === undefined)) })
+    env: Object.fromEntries(Object.entries(local.secrets).filter(([name]) => /* 仅补充环境中尚未设置的本机密钥，保留显式环境配置优先级。 */  process.env[name] === undefined)) })
   if (stopping) return
-  process.send({ type: 'ready', baseUrl: runtime.baseUrl, token: runtime.userToken }, (/* 就绪消息发送错误；null 表示发送成功，否则启动清理。 */ error: Error | null) => {
+  process.send({ type: 'ready', baseUrl: runtime.baseUrl, token: runtime.userToken }, (error: Error | null) => {
     // 就绪消息发送失败时收回服务，避免留下父进程不可达的运行时。
      if (error) void desktopCloseService() })
 }
 starting = desktopStartService()
-void starting.catch(async /* 本地服务启动失败原因，用于生成诊断编号并通知父进程。 */ error => {
+void starting.catch(async error => {
   // 报告启动失败并通知父进程，关闭已创建的运行时后断开 IPC。
   const errorId = reporter.report({ name: 'process.start.failed', severity: 'fatal', context: { phase: 'desktop-service' }, error })
   if (process.connected) process.send?.({ type: 'failed', message: RuntimeMessage.LOCAL_SERVICE_START_FAILED_WITH_ERROR_ID, errorId }, () => {
@@ -66,8 +70,8 @@ void starting.catch(async /* 本地服务启动失败原因，用于生成诊断
     })
   process.exitCode = 1
   stopping = true
-  await runtime?.close().catch(/* 启动失败后清理部分运行时遇到的次级错误。 */ closeError => /* 将启动失败后的运行时清理错误写入诊断日志。 */  reporter.report({ name: 'startup.cleanup.failed', severity: 'error', error: closeError }))
+  await runtime?.close().catch(closeError => /* 将启动失败后的运行时清理错误写入诊断日志。 */  reporter.report({ name: 'startup.cleanup.failed', severity: 'error', error: closeError }))
   if (process.connected) process.disconnect()
-}).catch(/* 启动失败处理器自身再次拒绝的原因，需记录并立即退出。 */ error => {
+}).catch(error => {
   // 报告启动错误处理流程自身的失败并退出进程。
    reporter.report({ name: 'startup.handler.failed', severity: 'fatal', error }); process.exit(1) })

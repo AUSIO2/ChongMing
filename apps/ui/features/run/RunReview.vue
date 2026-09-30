@@ -20,8 +20,12 @@ const run = computed(() => /* 使用会话明确选择的 Run。 */ props.run)
 const active = computed(() => /* 判断运行是否仍在执行或等待，暂停中的运行也保留控制入口。 */ !!run.value && ['running', 'waiting'].includes(run.value.status))
 const hasControl = computed(() => !!run.value && (!props.leasesRequired || props.control?.runId === run.value.id))
 const occupied = computed(() => !!run.value && props.snapshot.runControls.some(control => control.runId === run.value!.id))
-function reviewUpdateControl(/* 用户选择的运行控制动作，只接受暂停、恢复或取消。 */ action: 'pause' | 'resume' | 'cancel'): void {
-  // 在具备权限且运行未结束时发送暂停、恢复或取消事件。
+/**
+ * 在具备权限且运行未结束时发送暂停、恢复或取消事件。
+ *
+ * @param action 用户选择的运行控制动作，只接受暂停、恢复或取消。
+ */
+function reviewUpdateControl(action: 'pause' | 'resume' | 'cancel'): void {
   if (!run.value || !active.value || !props.canEdit || !hasControl.value || props.busy) return
   const params = { mapId: props.snapshot.mapId, runId: run.value.id }
   if (action === 'pause') emit('pause', params)
@@ -52,8 +56,8 @@ function reviewUpdateControl(/* 用户选择的运行控制动作，只接受暂
       </div>
       <details v-for="operation in run.operations" :key="`${run.id}:${operation.id}`" class="operation-group" :open="operation.status !== 'completed'">
         <summary><strong>{{ graphReadOperationLabel(operation) }}</strong><span>{{ graphReadOperationProgress(operation) }}</span></summary>
-        <ul v-if="!run.paused && activities?.some(/* 会话提供的活动摘要，用 Operation 身份匹配本行。 */ item => /* 只显示当前 Operation 的执行活动。 */ item.operationId === operation.id)" class="activity-list" aria-label="当前执行活动">
-          <li v-for="item in activities.filter(/* 会话提供的活动摘要，用 Operation 身份匹配本行。 */ item => /* 只显示当前 Operation 的执行活动。 */ item.operationId === operation.id)" :key="item.workId">
+        <ul v-if="!run.paused && activities?.some(item => item.operationId === operation.id)" class="activity-list" aria-label="当前执行活动">
+          <li v-for="item in activities.filter(item => item.operationId === operation.id)" :key="item.workId">
             <strong>{{ item.agentName }}</strong> · {{ ACTIVITY_LABELS[item.status] }}
           </li>
         </ul>

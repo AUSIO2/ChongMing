@@ -4,8 +4,12 @@ import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import vue from '@vitejs/plugin-vue'
 
-function clientIsDependency(/* 构建器正在解析的模块标识，区分裸包名、相对路径、绝对路径和虚拟模块。 */ id: string): boolean {
-  // 识别裸包导入，使 Electron 主进程构建保留外部依赖而非打包相对资源。
+/**
+ * 识别裸包导入，使 Electron 主进程构建保留外部依赖而非打包相对资源。
+ *
+ * @param id 构建器正在解析的模块标识，区分裸包名、相对路径、绝对路径和虚拟模块。
+ */
+function clientIsDependency(id: string): boolean {
   return !id.startsWith('.') && !id.startsWith('\0') && !path.isAbsolute(id)
 }
 

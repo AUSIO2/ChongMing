@@ -6,8 +6,12 @@ import { createGraphApi, type TestGraphApi } from '../../fixtures/graph-api'
 let api: TestGraphApi
 const events: Array<DiagnosticEvent & { errorId: string }> = []
 const reporter: DiagnosticReporter = {
-  report(/* API 错误边界产生的内部诊断事件，保留原异常并补充关联错误编号。 */ event) {
-    // 保存诊断事件与错误编号，供断言公共响应和内部记录一致。
+  /**
+   * 保存诊断事件与错误编号，供断言公共响应和内部记录一致。
+   *
+   * @param event API 错误边界产生的内部诊断事件，保留原异常并补充关联错误编号。
+   */
+  report(event) {
      const errorId = event.errorId ?? crypto.randomUUID(); events.push({ ...event, errorId }); return errorId },
   async close() {
     // 测试报告器无外部资源，关闭时无需执行清理。

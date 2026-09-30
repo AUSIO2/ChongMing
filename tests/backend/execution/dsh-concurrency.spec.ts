@@ -16,12 +16,16 @@ const temporaryDirectories: string[] = []
 afterEach(async () => {
   // 恢复运行时与网络替身，并移除用例创建的父目录。
   vi.restoreAllMocks()
-  await Promise.all(temporaryDirectories.splice(0).map(/* 当前用例登记的临时父目录。 */ directory =>
-    /* 删除测试父目录及任何失败路径残留。 */ rm(directory, { recursive: true, force: true })))
+  await Promise.all(temporaryDirectories.splice(0).map(directory =>
+    rm(directory, { recursive: true, force: true })))
 })
 
-function dshGrant(/* 当前并发工作的稳定编号。 */ workId: string): GraphWorkGrant {
-  // 构造绑定同一 Operation、不同槽位和 Work 的通用阶段授权。
+/**
+ * 构造绑定同一 Operation、不同槽位和 Work 的通用阶段授权。
+ *
+ * @param workId 当前并发工作的稳定编号。
+ */
+function dshGrant(workId: string): GraphWorkGrant {
   return {
     workId, mapId: 'map', runId: 'run', operationId: 'operation', stageId: 'workers', slotId: workId,
     specHash: 'frozen-spec', hostId: 'host', holderId: 'holder-' + workId, fence: 1,
@@ -29,8 +33,12 @@ function dshGrant(/* 当前并发工作的稳定编号。 */ workId: string): Gr
   }
 }
 
-function dshData(/* 当前工作授权，数据视图必须逐项绑定其阶段和槽位。 */ grant: GraphWorkGrant): GraphDataRead {
-  // 构造只含声明式提示变量和冻结 Agent 的通用工作数据视图。
+/**
+ * 构造只含声明式提示变量和冻结 Agent 的通用工作数据视图。
+ *
+ * @param grant 当前工作授权，数据视图必须逐项绑定其阶段和槽位。
+ */
+function dshData(grant: GraphWorkGrant): GraphDataRead {
   return {
     mapId: grant.mapId, runId: grant.runId, operationId: grant.operationId,
     transitionRef: { id: 'fixture.transition', version: 1 }, specHash: grant.specHash,
@@ -56,7 +64,7 @@ describe('concurrent DSH work attempts', () => {
     temporaryDirectories.push(directory)
     const grants = [dshGrant('work-a'), dshGrant('work-b')]
     const statuses = new Map<string, number>()
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (/* 执行器发起的工作状态或数据读取请求。 */ request) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (request) => {
       // 按可信请求头或证明中的 workId 返回各自数据，并在运行后一律报告 accepted。
       const current = request as Request
       const body = await current.clone().json() as { method?: string; params?: { workId?: string } }
@@ -67,17 +75,17 @@ describe('concurrent DSH work attempts', () => {
         return Response.json({ ok: true, data: { workId, status: count === 1 ? 'ready' : 'accepted' } })
       }
       const workId = current.headers.get('x-work-id') ?? ''
-      const grant = grants.find(/* 两份并发授权候选，按请求头中的工作编号匹配。 */ item => /* 找到数据读取所属授权。 */ item.workId === workId)!
+      const grant = grants.find(item => /* 找到数据读取所属授权。 */ item.workId === workId)!
       return Response.json({ ok: true, data: dshData(grant) })
     })
     const configs: DshRuntimeConfig[] = [], patches = new Map<string, Record<string, any>>()
     const events = new Map<string, unknown[]>(), closes: string[] = []
     let running = 0, releaseBoth!: () => void
-    const bothRunning = new Promise<void>(/* 两个运行时都进入 run 后的放行函数。 */ resolve => {
+    const bothRunning = new Promise<void>(resolve => {
       // 保存并发屏障的释放函数。
       releaseBoth = resolve
     })
-    vi.spyOn(dshRuntime, 'dshCreateRuntime').mockImplementation((/* 一份并发尝试的独立运行时配置。 */ config): DshRuntimeAPI => {
+    vi.spyOn(dshRuntime, 'dshCreateRuntime').mockImplementation((config): DshRuntimeAPI => {
       // 保存路径并提供受屏障控制的运行时，close 时确认目录尚未被提前删除。
       configs.push(config)
       let workId = ''
@@ -89,8 +97,13 @@ describe('concurrent DSH work attempts', () => {
           workId = patch[0].config.grant.workId
           patches.set(workId, patch[0].config)
         },
-        async run(/* 执行器提供的独立根会话身份。 */ input, /* 当前工作的裸 DSH 事件接收器。 */ onEvent) {
-          // 发出当前工作事件并等待另一个运行时也进入执行。
+        /**
+         * 发出当前工作事件并等待另一个运行时也进入执行。
+         *
+         * @param input 执行器提供的独立根会话身份。
+         * @param onEvent 当前工作的裸 DSH 事件接收器。
+         */
+        async run(input, onEvent) {
           onEvent?.({ method: 'session.status', params: { workId } })
           if (++running === 2) releaseBoth()
           await bothRunning
@@ -103,18 +116,22 @@ describe('concurrent DSH work attempts', () => {
         },
       }
     })
-    const inputs = grants.map((/* 当前并发授权，转换成完整执行输入。 */ grant): DshWorkInput => /* 为每份授权共用父目录但保留独立事件集合。 */ ({
+    const inputs = grants.map((grant): DshWorkInput => /* 为每份授权共用父目录但保留独立事件集合。 */ ({
       grant, dataApiUrl: 'http://127.0.0.1:12345', token: 'fixture-token', dshHome: path.join(directory, 'home'),
       cwd: directory, processCwd: path.join(directory, 'process'),
-      onEvent: /* 本工作收到的 DSH 事件，按 workId 保存以检查不会串线。 */ event => {
-        // 将事件追加到所属工作集合。
+      /**
+       * 将事件追加到所属工作集合。
+       *
+       * @param event 本工作收到的 DSH 事件，按 workId 保存以检查不会串线。
+       */
+      onEvent: event => {
         const list = events.get(grant.workId) ?? []; list.push(event); events.set(grant.workId, list)
       },
     }))
-    const results = await Promise.all(inputs.map(/* 两份工作输入，并行交给执行器。 */ input => /* 启动一份独立 DSH 工作尝试。 */ dshRunWork(input)))
-    expect(new Set(configs.map(/* 每个运行时配置，提取独立 DSH Home。 */ config => /* 返回 DSH Home 路径。 */ config.dshHome)).size).toBe(2)
-    expect(new Set(configs.map(/* 每个运行时配置，提取独立进程目录。 */ config => /* 返回进程 cwd。 */ config.processCwd)).size).toBe(2)
-    expect(new Set(results.map(/* 已完成工作结果，提取根会话身份。 */ result => /* 返回 DSH 会话编号。 */ result.sessionId)).size).toBe(2)
+    const results = await Promise.all(inputs.map(input => /* 启动一份独立 DSH 工作尝试。 */ dshRunWork(input)))
+    expect(new Set(configs.map(config => /* 返回 DSH Home 路径。 */ config.dshHome)).size).toBe(2)
+    expect(new Set(configs.map(config => /* 返回进程 cwd。 */ config.processCwd)).size).toBe(2)
+    expect(new Set(results.map(result => /* 返回 DSH 会话编号。 */ result.sessionId)).size).toBe(2)
     expect(new Set(closes)).toEqual(new Set(['work-a', 'work-b']))
     for (const grant of grants) {
       expect(patches.get(grant.workId)).toMatchObject({ grant, specHash: grant.specHash,

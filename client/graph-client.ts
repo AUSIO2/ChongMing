@@ -17,34 +17,59 @@ export const CLIENT_COMMAND_METHODS = ['map.create', 'map.delete', 'graph.apply'
   'agent.copy', 'definition.publish', 'settings.update', 'asset.delete', 'workspace.import'] as const
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
-function clientAssertFileId(/* 外部传入的文件资源或上传请求标识，在使用前验证为 UUID。 */ value: unknown): asserts value is string {
-  // 校验文件操作使用的 UUID 格式，防止无效标识进入请求路径。
+/**
+ * 校验文件操作使用的 UUID 格式，防止无效标识进入请求路径。
+ *
+ * @param value 外部传入的文件资源或上传请求标识，在使用前验证为 UUID。
+ */
+function clientAssertFileId(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.FILE_OPERATION_REQUIRES_A_UUID)
 }
-function clientAssertFilename(/* 外部给出的文件名称，必须是不含路径的受限 UTF-8 文本。 */ value: unknown): asserts value is string {
-  // 要求文件名非空且不含路径或控制字符，并按 UTF-8 字节限制名称长度。
+/**
+ * 要求文件名非空且不含路径或控制字符，并按 UTF-8 字节限制名称长度。
+ *
+ * @param value 外部给出的文件名称，必须是不含路径的受限 UTF-8 文本。
+ */
+function clientAssertFilename(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !value.trim() || new TextEncoder().encode(value).length > 255 || /[\x00-\x1f\x7f/\\]/.test(value)) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.USE_A_FILENAME_WITHOUT_PATHS_OR_CONTROL_CHARACTERS)
 }
-export function clientAssertUpload(/* 尚未验证的上传幂等编号，必须为 UUID。 */ requestId: unknown, /* 尚未验证的上传对象，含工作区、文件元信息和有界字节数组。 */ value: unknown): asserts value is ClientUploadInput {
-  // 验证上传请求编号、工作区、文件元信息及字节类型和大小。
+/**
+ * 验证上传请求编号、工作区、文件元信息及字节类型和大小。
+ *
+ * @param requestId 尚未验证的上传幂等编号，必须为 UUID。
+ * @param value 尚未验证的上传对象，含工作区、文件元信息和有界字节数组。
+ */
+export function clientAssertUpload(requestId: unknown, value: unknown): asserts value is ClientUploadInput {
   clientAssertFileId(requestId)
-  if (!clientIsObject(value) || Object.keys(value).some(/* 上传对象枚举出的属性名，拒绝协议未定义字段。 */ key => /* 检查上传对象是否夹带未支持的属性。 */  !['workspaceId', 'filename', 'mediaType', 'bytes'].includes(key))) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.INVALID_UPLOAD_INPUT)
+  if (!clientIsObject(value) || Object.keys(value).some(key => /* 检查上传对象是否夹带未支持的属性。 */  !['workspaceId', 'filename', 'mediaType', 'bytes'].includes(key))) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.INVALID_UPLOAD_INPUT)
   clientAssertFileId(value.workspaceId); clientAssertFilename(value.filename)
   if (typeof value.mediaType !== 'string' || !value.mediaType.trim() || value.mediaType.length > 255 || /[\x00-\x1f\x7f]/.test(value.mediaType)) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.INVALID_MEDIA_TYPE)
   if (!(value.bytes instanceof Uint8Array) || value.bytes.byteLength > CLIENT_FILE_LIMIT) throw clientCreateError('FILE_TOO_LARGE', RuntimeMessage.UPLOAD_MUST_CONTAIN_AT_MOST_64_MIB_OF_BYTES)
 }
-export function clientAssertDownload(/* 尚未验证的下载目标，必须是固定资源类型和 UUID 的组合。 */ value: unknown): asserts value is ClientDownloadInput {
-  // 验证下载目标类型及 UUID，拒绝额外字段。
-  if (!clientIsObject(value) || Object.keys(value).some(/* 下载目标对象的属性名，限制为 kind 和 id。 */ key => /* 检查下载对象是否只包含目标类型和编号。 */  !['kind', 'id'].includes(key)) || !['asset', 'map', 'workspace'].includes(String(value.kind))) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.CHOOSE_AN_ASSET_MAP_OR_WORKSPACE_TO_DOWNLOAD)
+/**
+ * 验证下载目标类型及 UUID，拒绝额外字段。
+ *
+ * @param value 尚未验证的下载目标，必须是固定资源类型和 UUID 的组合。
+ */
+export function clientAssertDownload(value: unknown): asserts value is ClientDownloadInput {
+  if (!clientIsObject(value) || Object.keys(value).some(key => /* 检查下载对象是否只包含目标类型和编号。 */  !['kind', 'id'].includes(key)) || !['asset', 'map', 'workspace'].includes(String(value.kind))) throw clientCreateError('INVALID_ARGUMENT', RuntimeMessage.CHOOSE_AN_ASSET_MAP_OR_WORKSPACE_TO_DOWNLOAD)
   clientAssertFileId(value.id)
 }
-async function clientReadDigest(/* 需要校验的文件字节；创建独立视图副本交给 Web Crypto，不修改输入。 */ bytes: Uint8Array): Promise<string> {
-  // 计算文件的 SHA-256 摘要并编码为小写十六进制字符串。
+/**
+ * 计算文件的 SHA-256 摘要并编码为小写十六进制字符串。
+ *
+ * @param bytes 需要校验的文件字节；创建独立视图副本交给 Web Crypto，不修改输入。
+ */
+async function clientReadDigest(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)
-  return [...new Uint8Array(digest)].map(/* SHA-256 结果中的一个无符号字节，输出为两位十六进制。 */ byte => /* 将摘要字节编码为固定两位的十六进制。 */  byte.toString(16).padStart(2, '0')).join('')
+  return [...new Uint8Array(digest)].map(byte => /* 将摘要字节编码为固定两位的十六进制。 */  byte.toString(16).padStart(2, '0')).join('')
 }
-async function clientReadBytes(/* 下载 HTTP 响应；本函数消耗并最终取消、释放其内容读取器。 */ response: Response): Promise<Uint8Array> {
-  // 按 64 MiB 上限流式读取下载内容，校验未压缩响应的声明长度，并始终释放读取器。
+/**
+ * 按 64 MiB 上限流式读取下载内容，校验未压缩响应的声明长度，并始终释放读取器。
+ *
+ * @param response 下载 HTTP 响应；本函数消耗并最终取消、释放其内容读取器。
+ */
+async function clientReadBytes(response: Response): Promise<Uint8Array> {
   const declared = response.headers.get('content-length')
   const encoding = response.headers.get('content-encoding')?.trim().toLowerCase()
   const decoded = !!encoding && encoding !== 'identity'
@@ -70,18 +95,38 @@ async function clientReadBytes(/* 下载 HTTP 响应；本函数消耗并最终�
   } finally { await reader.cancel(); reader.releaseLock() }
 }
 
-function clientCreateError(/* 调用方指定的可程序识别错误码。 */ code: string, /* 可展示给客户端使用者的错误说明。 */ message: string, /* 是否建议重试，缺省为 false。 */ retryable = false, /* 关联 HTTP 状态码，缺省零表示尚无服务端 HTTP 状态。 */ status = 0): ClientError {
-  // 创建包含错误码、文案、重试建议和 HTTP 状态的客户端错误。
+/**
+ * 创建包含错误码、文案、重试建议和 HTTP 状态的客户端错误。
+ *
+ * @param code 调用方指定的可程序识别错误码。
+ * @param message 可展示给客户端使用者的错误说明。
+ * @param retryable 是否建议重试，缺省为 false。
+ * @param status 关联 HTTP 状态码，缺省零表示尚无服务端 HTTP 状态。
+ */
+function clientCreateError(code: string, message: string, retryable = false, status = 0): ClientError {
   return new ClientError({ code, message, retryable, status })
 }
-function clientIsObject(/* 需要在协议边界判断为普通对象的未知值。 */ value: unknown): value is Record<string, unknown> {
-  // 判断未知值是否为非空且非数组的对象。
+/**
+ * 判断未知值是否为非空且非数组的对象。
+ *
+ * @param value 需要在协议边界判断为普通对象的未知值。
+ */
+function clientIsObject(value: unknown): value is Record<string, unknown> {
    return value !== null && typeof value === 'object' && !Array.isArray(value) }
-function clientIsStrings(/* 需要验证为字符串数组的未知值。 */ value: unknown): value is string[] {
-  // 判断输入是否为全由字符串组成的数组。
-   return Array.isArray(value) && value.every(/* 已确认数组中的当前成员，逐项检查是否为字符串。 */ item => /* 确认数组当前成员为字符串。 */  typeof item === 'string') }
-function clientIsJson(/* 来自远端 payload、定义或执行结果的未知值。 */ value: unknown, /* 当前递归深度，防止畸形响应制造无界遍历。 */ depth = 0): boolean {
-  // 只接受有界、可序列化 JSON；具体 payload 字段约束由服务端的精确定义版本保证。
+/**
+ * 判断输入是否为全由字符串组成的数组。
+ *
+ * @param value 需要验证为字符串数组的未知值。
+ */
+function clientIsStrings(value: unknown): value is string[] {
+   return Array.isArray(value) && value.every(item => /* 确认数组当前成员为字符串。 */  typeof item === 'string') }
+/**
+ * 只接受有界、可序列化 JSON；具体 payload 字段约束由服务端的精确定义版本保证。
+ *
+ * @param value 来自远端 payload、定义或执行结果的未知值。
+ * @param depth 当前递归深度，防止畸形响应制造无界遍历。
+ */
+function clientIsJson(value: unknown, depth = 0): boolean {
   if (depth > 32) return false
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
   if (typeof value === 'number') return Number.isFinite(value)
@@ -89,8 +134,13 @@ function clientIsJson(/* 来自远端 payload、定义或执行结果的未知�
   return clientIsObject(value) && Object.keys(value).length <= 4096
     && Object.values(value).every(item => clientIsJson(item, depth + 1))
 }
-function clientAssertNode(/* 响应节点数组中的未验证节点，不修改原对象。 */ value: unknown, /* 该节点在响应数组中的零基位置，用于指明错误路径。 */ index: number): void {
-  // 验证通用数据实例信封；客户端不按业务类型猜测 payload 结构。
+/**
+ * 验证通用数据实例信封；客户端不按业务类型猜测 payload 结构。
+ *
+ * @param value 响应节点数组中的未验证节点，不修改原对象。
+ * @param index 该节点在响应数组中的零基位置，用于指明错误路径。
+ */
+function clientAssertNode(value: unknown, index: number): void {
   const clientCreateNodeError = () => /* 为当前节点位置生成协议响应错误。 */  clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RETURNED_INVALID_NODE_DATA_AT_NODES_VALUE, index))
   if (!clientIsObject(value) || typeof value.id !== 'string' || !value.id
     || typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 0
@@ -101,15 +151,23 @@ function clientAssertNode(/* 响应节点数组中的未验证节点，不修改
     || !clientIsObject(value.payload) || !clientIsJson(value.payload)) throw clientCreateNodeError()
   if (value.validity !== undefined && !['current', 'stale'].includes(String(value.validity))) throw clientCreateNodeError()
 }
-export function clientReadError(/* 任意调用失败值，只有 ClientError 可保留公开字段，其他值脱敏。 */ error: unknown): ClientErrorData {
-  // 将已知客户端异常投影为可序列化错误，未知异常隐藏细节并生成本地诊断编号。
+/**
+ * 将已知客户端异常投影为可序列化错误，未知异常隐藏细节并生成本地诊断编号。
+ *
+ * @param error 任意调用失败值，只有 ClientError 可保留公开字段，其他值脱敏。
+ */
+export function clientReadError(error: unknown): ClientErrorData {
   if (error instanceof ClientError) return { code: error.code, message: error.message, retryable: error.retryable, status: error.status,
     errorId: error.errorId,
     ...(error.currentRevision === undefined ? {} : { currentRevision: error.currentRevision }) }
   return { code: 'CLIENT_ERROR', message: RuntimeMessage.CLIENT_INTERNAL_ERROR, status: 0, retryable: false, errorId: crypto.randomUUID() }
 }
-export function clientReadBaseUrl(/* 用户或存储提供的服务地址，验证后仅返回无凭据的 HTTP(S) 源。 */ value: string): string {
-  // 将服务地址规范化为 HTTP(S) 源，拒绝凭据、路径、查询和片段。
+/**
+ * 将服务地址规范化为 HTTP(S) 源，拒绝凭据、路径、查询和片段。
+ *
+ * @param value 用户或存储提供的服务地址，验证后仅返回无凭据的 HTTP(S) 源。
+ */
+export function clientReadBaseUrl(value: string): string {
   let url: URL
   try { url = new URL(value.trim()) } catch { throw clientCreateError('INVALID_URL', RuntimeMessage.ENTER_A_VALID_HTTP_S_SERVICE_ADDRESS) }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || !['', '/'].includes(url.pathname)) {
@@ -117,8 +175,13 @@ export function clientReadBaseUrl(/* 用户或存储提供的服务地址，验�
   }
   return url.origin
 }
-function clientAssertData(/* 原请求的公共方法名，决定响应必须包含哪些业务字段。 */ method: string, /* 服务端 JSON 的未验证业务值，递归检查必要结构。 */ data: unknown): void {
-  // 按公开方法检查必要字段和关键业务结构，并递归验证快照、Run 和资产列表。
+/**
+ * 按公开方法检查必要字段和关键业务结构，并递归验证快照、Run 和资产列表。
+ *
+ * @param method 原请求的公共方法名，决定响应必须包含哪些业务字段。
+ * @param data 服务端 JSON 的未验证业务值，递归检查必要结构。
+ */
+function clientAssertData(method: string, data: unknown): void {
   const fields: Record<string, string[]> = {
     'app.bootstrap': ['identity', 'settings', 'metadata'], 'map.get': ['mapId', 'workspaceId', 'name', 'revision', 'nodes', 'edges', 'runs', 'ownershipRevision', 'ownerships', 'runControls', 'updatedAt'],
     'branch.get': ['scope', 'version'],
@@ -146,7 +209,7 @@ function clientAssertData(/* 原请求的公共方法名，决定响应必须包
     return
   }
   const required = fields[method] ?? ['snapshot', 'createdNodeIds', 'createdEdgeIds']
-  if (!clientIsObject(data) || required.some(/* 当前方法要求的字段名，检测缺失或 undefined。 */ key => /* 找出响应中缺少或明确为 undefined 的必要字段。 */  !Object.prototype.hasOwnProperty.call(data, key) || data[key] === undefined)) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_IS_INCOMPLETE_FOR_VALUE, method))
+  if (!clientIsObject(data) || required.some(key => /* 找出响应中缺少或明确为 undefined 的必要字段。 */  !Object.prototype.hasOwnProperty.call(data, key) || data[key] === undefined)) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_IS_INCOMPLETE_FOR_VALUE, method))
   for (const key of ['nodes', 'edges', 'runs', 'items', 'members', 'agents', 'tools', 'operations', 'ownerships', 'runControls', 'createdNodeIds', 'createdEdgeIds', 'openMapIds', 'mapIds', 'assetIds']) {
     if (key in data && !Array.isArray(data[key])) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, key))
   }
@@ -179,7 +242,7 @@ function clientAssertData(/* 原请求的公共方法名，决定响应必须包
   if (method === 'map.get') {
     (data.nodes as unknown[]).forEach(clientAssertNode)
     for (const edge of data.edges as unknown[]) {
-      if (!clientIsObject(edge) || !['id', 'from', 'to'].every(/* 图边身份字段名，要求其值为非空字符串。 */ key => /* 验证图边的编号和两端节点标识均为非空字符串。 */  typeof edge[key] === 'string' && !!edge[key])
+      if (!clientIsObject(edge) || !['id', 'from', 'to'].every(key => /* 验证图边的编号和两端节点标识均为非空字符串。 */  typeof edge[key] === 'string' && !!edge[key])
         || !['successor', 'reference'].includes(String(edge.kind))) throw clientCreateError('INVALID_RESPONSE', RuntimeMessage.SERVICE_RETURNED_INVALID_GRAPH_EDGE_DATA)
     }
     for (const ownership of data.ownerships as unknown[]) clientAssertData('branch.ownership', ownership)
@@ -251,8 +314,12 @@ function clientAssertData(/* 原请求的公共方法名，决定响应必须包
       })) throw clientCreateError('INVALID_RESPONSE', messageFormat(RuntimeMessage.SERVICE_RESPONSE_HAS_AN_INVALID_VALUE, 'branch snapshot'))
   }
 }
-async function clientReadJson(/* 待读取的 HTTP 响应，本函数消耗其正文并按字节限制 UTF-8 JSON 体积。 */ response: Response): Promise<unknown> {
-  // 按 16 MiB 上限流式解码 UTF-8 响应并解析 JSON，读取结束或失败时释放流锁。
+/**
+ * 按 16 MiB 上限流式解码 UTF-8 响应并解析 JSON，读取结束或失败时释放流锁。
+ *
+ * @param response 待读取的 HTTP 响应，本函数消耗其正文并按字节限制 UTF-8 JSON 体积。
+ */
+async function clientReadJson(response: Response): Promise<unknown> {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
     await response.body?.cancel().catch(() => {
@@ -279,8 +346,12 @@ async function clientReadJson(/* 待读取的 HTTP 响应，本函数消耗其�
 }
 // 固定凭据 HTTP 客户端配置，可注入 fetch 并分别控制请求与流空闲期限。
 export interface ClientApiOptions { baseUrl: string; token: string; timeoutMs?: number; streamIdleMs?: number; fetch?: typeof globalThis.fetch }
-export function clientCreateApi(/* 固定源和令牌及可选传输配置；普通请求缺省 15000 毫秒，流空闲缺省 45000 毫秒。 */ options: ClientApiOptions) {
-  // 创建固定服务地址和令牌的 HTTP 客户端，为请求与事件流持有共同的取消生命周期。
+/**
+ * 创建固定服务地址和令牌的 HTTP 客户端，为请求与事件流持有共同的取消生命周期。
+ *
+ * @param options 固定源和令牌及可选传输配置；普通请求缺省 15000 毫秒，流空闲缺省 45000 毫秒。
+ */
+export function clientCreateApi(options: ClientApiOptions) {
   const baseUrl = clientReadBaseUrl(options.baseUrl)
   const token = options.token.trim()
   if (!token || /[^\x21-\x7e]/.test(token)) throw clientCreateError('INVALID_TOKEN', RuntimeMessage.ENTER_A_VALID_SERVICE_TOKEN)
@@ -289,8 +360,14 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
   const lifetime = new AbortController()
 
-  async function clientRunRequest<T>(/* 实际网络操作，必须使用本层组合出的信号，并把结果或失败返回给生命周期管理器。 */ operation: (/* 本次请求专属的组合信号，包含关闭、外部取消和超时影响。 */ signal: AbortSignal) => Promise<T>, /* 可选的调用者取消信号，由调用方拥有，客户端只监听。 */ signal?: AbortSignal, /* 本次操作的毫秒期限，省略时沿用客户端普通请求超时。 */ duration = timeoutMs): Promise<T> {
-    // 合并客户端关闭、调用者取消和超时信号，执行一次请求并归一化失败，最后清理监听器与定时器。
+  /**
+   * 合并客户端关闭、调用者取消和超时信号，执行一次请求并归一化失败，最后清理监听器与定时器。
+   *
+   * @param operation 实际网络操作，必须使用本层组合出的信号，并把结果或失败返回给生命周期管理器。
+   * @param signal 可选的调用者取消信号，由调用方拥有，客户端只监听。
+   * @param duration 本次操作的毫秒期限，省略时沿用客户端普通请求超时。
+   */
+  async function clientRunRequest<T>(operation: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal, duration = timeoutMs): Promise<T> {
     if (lifetime.signal.aborted) throw clientCreateError('DISCONNECTED', RuntimeMessage.CONNECTION_WAS_CLOSED)
     if (signal?.aborted) throw clientCreateError('REQUEST_ABORTED', RuntimeMessage.REQUEST_WAS_CANCELLED)
     const controller = new AbortController(), abort = () => /* 将客户端关闭或调用者取消传递给本次请求。 */ controller.abort()
@@ -318,8 +395,14 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
       clearTimeout(timer); lifetime.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort)
     }
   }
-  async function clientReadReply<T>(/* 服务端 HTTP 响应，消耗正文并解码成功或失败结构。 */ response: Response, /* 原请求方法，决定成功响应所需的业务结构。 */ method: string, /* 可选预期业务请求编号；提供时要求服务端返回相同编号。 */ requestId?: string): Promise<GraphSuccess<T>> {
-    // 解析成功或失败响应，核对命令响应的 requestId 并验证业务数据结构后返回结果。
+  /**
+   * 解析成功或失败响应，核对命令响应的 requestId 并验证业务数据结构后返回结果。
+   *
+   * @param response 服务端 HTTP 响应，消耗正文并解码成功或失败结构。
+   * @param method 原请求方法，决定成功响应所需的业务结构。
+   * @param requestId 可选预期业务请求编号；提供时要求服务端返回相同编号。
+   */
+  async function clientReadReply<T>(response: Response, method: string, requestId?: string): Promise<GraphSuccess<T>> {
       const value = await clientReadJson(response)
       if (!response.ok || !clientIsObject(value) || value.ok !== true) {
         const detail = clientIsObject(value) && clientIsObject(value.error) ? value.error : {}
@@ -336,9 +419,17 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
       clientAssertData(method, value.data)
       return value as unknown as GraphSuccess<T>
   }
-  function clientSendRequest<T>(/* 由内部调用选择的固定查询或写命令端点，不接受任意路径。 */ path: '/api/v1/query' | '/api/v1/command', /* 本次请求的业务方法名，供返回结构校验使用。 */ method: string, /* 待 JSON 序列化的完整请求对象，包含方法、参数和必要的请求编号。 */ body: unknown, /* 可选写入幂等编号，用于核对响应；普通查询不指定。 */ requestId?: string, /* 可选调用方取消信号，转入统一请求生命周期。 */ signal?: AbortSignal): Promise<GraphSuccess<T>> {
-    // 携带服务令牌发送查询或命令 JSON，禁止重定向，并在请求生命周期内验证响应。
-    return clientRunRequest(async /* 统一请求包装器创建的组合取消信号，绑定本次 fetch。 */ signal => {
+  /**
+   * 携带服务令牌发送查询或命令 JSON，禁止重定向，并在请求生命周期内验证响应。
+   *
+   * @param path 由内部调用选择的固定查询或写命令端点，不接受任意路径。
+   * @param method 本次请求的业务方法名，供返回结构校验使用。
+   * @param body 待 JSON 序列化的完整请求对象，包含方法、参数和必要的请求编号。
+   * @param requestId 可选写入幂等编号，用于核对响应；普通查询不指定。
+   * @param signal 可选调用方取消信号，转入统一请求生命周期。
+   */
+  function clientSendRequest<T>(path: '/api/v1/query' | '/api/v1/command', method: string, body: unknown, requestId?: string, signal?: AbortSignal): Promise<GraphSuccess<T>> {
+    return clientRunRequest(async signal => {
       // 使用本次请求的取消信号发送 POST，再核对响应与原请求是否匹配。
       const response = await fetcher(new URL(path, baseUrl), {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
@@ -348,8 +439,14 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
     }, signal)
   }
   return {
-    async watch(/* 目标图的 UUID，既用于事件端点也用于首帧归属验证。 */ mapId: string, /* 接收已验证事件的调用方回调，回调由订阅流程同步调用。 */ onEvent: (/* 已通过 SSE 类型及业务结构检查的事件，错误事件随后也会终止订阅。 */ event: GraphStreamEvent) => void, /* 可选订阅取消信号，由调用方控制持续流的结束。 */ signal?: AbortSignal): Promise<void> {
-      // 订阅指定图的 SSE 流，验证首个快照、事件结构和帧大小；取消时释放资源，断流时将是否可重连交给调用者。
+    /**
+     * 订阅指定图的 SSE 流，验证首个快照、事件结构和帧大小；取消时释放资源，断流时将是否可重连交给调用者。
+     *
+     * @param mapId 目标图的 UUID，既用于事件端点也用于首帧归属验证。
+     * @param onEvent 接收已验证事件的调用方回调，回调由订阅流程同步调用。
+     * @param signal 可选订阅取消信号，由调用方控制持续流的结束。
+     */
+    async watch(mapId: string, onEvent: (event: GraphStreamEvent) => void, signal?: AbortSignal): Promise<void> {
       clientAssertFileId(mapId)
       if (lifetime.signal.aborted) throw clientCreateError('DISCONNECTED', RuntimeMessage.CONNECTION_WAS_CLOSED)
       if (signal?.aborted) throw clientCreateError('REQUEST_ABORTED', RuntimeMessage.REQUEST_WAS_CANCELLED)
@@ -377,8 +474,12 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
       }
       const decoder = new TextDecoder('utf-8', { fatal: true }), encoder = new TextEncoder()
       let parts: string[] = [], lineBytes = 0, frameBytes = 0, data: string[] = [], eventName = '', previousCR = false, sawSnapshot = false
-      const add = (/* 当前尚未完成一行的解码文本片段，加入帧字节配额。 */ part: string) => {
-        // 累积尚未结束的一行文本，并按 UTF-8 字节数限制当前事件帧大小。
+      /**
+       * 累积尚未结束的一行文本，并按 UTF-8 字节数限制当前事件帧大小。
+       *
+       * @param part 当前尚未完成一行的解码文本片段，加入帧字节配额。
+       */
+      const add = (part: string) => {
         parts.push(part); lineBytes += encoder.encode(part).byteLength
         if (frameBytes + lineBytes > MAX_RESPONSE_BYTES) throw clientCreateError('STREAM_TOO_LARGE', RuntimeMessage.REAL_TIME_FRAME_EXCEEDS_16_MIB)
       }
@@ -396,7 +497,7 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
               sawSnapshot = true
               touch()
             } else if (event.type === 'activity') {
-              if (!sawSnapshot || !Array.isArray(event.items) || event.items.length > 1000 || !event.items.every(/* 活动事件中的未验证条目，须匹配当前图且符合活动摘要协议。 */ item =>
+              if (!sawSnapshot || !Array.isArray(event.items) || event.items.length > 1000 || !event.items.every(item =>
                 /* 确认活动条目符合协议且属于当前订阅图。 */
                 activityIsRecord(item) && item.mapId === mapId)) throw clientCreateError('INVALID_STREAM', RuntimeMessage.INVALID_REAL_TIME_ACTIVITY)
               touch()
@@ -419,8 +520,12 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
         if (field === 'data') data.push(text)
         else if (field === 'event') eventName = text
       }
-      const consume = (/* 新解码出的 SSE 文本块，可能从上一块的半行或 CRLF 中间继续。 */ text: string) => {
-        // 从解码文本中分离 SSE 行，保留跨数据块的半行和 CRLF 状态。
+      /**
+       * 从解码文本中分离 SSE 行，保留跨数据块的半行和 CRLF 状态。
+       *
+       * @param text 新解码出的 SSE 文本块，可能从上一块的半行或 CRLF 中间继续。
+       */
+      const consume = (text: string) => {
         if (!text.length) return
         // 上一块以 CR 结束时，本块开头的 LF 属于同一个换行，不能再生成一条空行。
         let start = previousCR && text.startsWith('\n') ? 1 : 0
@@ -476,22 +581,41 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
         lifetime.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort)
       }
     },
-    async read<K extends keyof QueryInputMap>(/* 公开查询方法名，执行前检查其属于客户端白名单。 */ method: K, /* 与该查询方法对应的业务参数，作为请求 JSON 传递。 */ params: QueryInputMap[K], /* 可选查询取消信号，交给统一请求包装器。 */ signal?: AbortSignal): Promise<QueryOutputMap[K]> {
-      // 验证公开查询方法，发送查询并返回已校验的业务数据。
+    /**
+     * 验证公开查询方法，发送查询并返回已校验的业务数据。
+     *
+     * @param method 公开查询方法名，执行前检查其属于客户端白名单。
+     * @param params 与该查询方法对应的业务参数，作为请求 JSON 传递。
+     * @param signal 可选查询取消信号，交给统一请求包装器。
+     */
+    async read<K extends keyof QueryInputMap>(method: K, params: QueryInputMap[K], signal?: AbortSignal): Promise<QueryOutputMap[K]> {
       if (!(CLIENT_QUERY_METHODS as readonly string[]).includes(method)) throw clientCreateError('UNKNOWN_METHOD', RuntimeMessage.UNKNOWN_PUBLIC_QUERY)
       return (await clientSendRequest<QueryOutputMap[K]>('/api/v1/query', method, { method, params }, undefined, signal)).data
     },
-    dispatch<K extends keyof CommandInputMap>(/* 非空且跨重试稳定的写入请求编号，用于服务端收据判重。 */ requestId: string, /* 公开写命令名，提交前检查白名单。 */ method: K, /* 该命令的业务参数，重试相同编号时应保持内容不变。 */ params: CommandInputMap[K], /* 可选写入取消信号，取消本地等待不证明服务端未提交。 */ signal?: AbortSignal): Promise<GraphSuccess<CommandOutputMap[K]>> {
-      // 验证公开命令和稳定请求标识，提交命令并返回包含重放标记的完整响应。
+    /**
+     * 验证公开命令和稳定请求标识，提交命令并返回包含重放标记的完整响应。
+     *
+     * @param requestId 非空且跨重试稳定的写入请求编号，用于服务端收据判重。
+     * @param method 公开写命令名，提交前检查白名单。
+     * @param params 该命令的业务参数，重试相同编号时应保持内容不变。
+     * @param signal 可选写入取消信号，取消本地等待不证明服务端未提交。
+     */
+    dispatch<K extends keyof CommandInputMap>(requestId: string, method: K, params: CommandInputMap[K], signal?: AbortSignal): Promise<GraphSuccess<CommandOutputMap[K]>> {
       if (!(CLIENT_COMMAND_METHODS as readonly string[]).includes(method)) return Promise.reject(clientCreateError('UNKNOWN_METHOD', RuntimeMessage.UNKNOWN_PUBLIC_COMMAND))
       if (typeof requestId !== 'string' || !requestId) return Promise.reject(clientCreateError('INVALID_REQUEST_ID', RuntimeMessage.COMMAND_NEEDS_A_STABLE_REQUEST_ID))
       return clientSendRequest('/api/v1/command', method, { requestId, method, params }, requestId, signal)
     },
-    async upload(/* 文件上传的 UUID 幂等编号，重复上传同一内容时沿用。 */ requestId: string, /* 待上传元信息与字节；验证后立即复制内容以固定本次请求。 */ input: ClientUploadInput, /* 可选上传取消信号，由调用方负责触发。 */ signal?: AbortSignal): Promise<GraphSuccess<Asset>> {
-      // 校验并复制待上传文件，以稳定请求标识上传内容，并核对返回资产是否对应原文件。
+    /**
+     * 校验并复制待上传文件，以稳定请求标识上传内容，并核对返回资产是否对应原文件。
+     *
+     * @param requestId 文件上传的 UUID 幂等编号，重复上传同一内容时沿用。
+     * @param input 待上传元信息与字节；验证后立即复制内容以固定本次请求。
+     * @param signal 可选上传取消信号，由调用方负责触发。
+     */
+    async upload(requestId: string, input: ClientUploadInput, signal?: AbortSignal): Promise<GraphSuccess<Asset>> {
       clientAssertUpload(requestId, input)
       const bytes = new Uint8Array(input.bytes), workspaceId = input.workspaceId, filename = input.filename.trim(), mediaType = input.mediaType.trim()
-      return clientRunRequest(async /* 上传专属组合信号，上传前检查取消并绑定 fetch。 */ signal => {
+      return clientRunRequest(async signal => {
         // 计算文件摘要，携带幂等键上传字节，并核对服务端的工作区、摘要、大小、文件名和媒体类型。
         const digest = await clientReadDigest(bytes)
         signal.throwIfAborted()
@@ -506,11 +630,16 @@ export function clientCreateApi(/* 固定源和令牌及可选传输配置；普
         return result
       }, signal, options.timeoutMs ?? 120000)
     },
-    async download(/* 已选择的资源类型和 UUID，决定固定下载端点。 */ input: ClientDownloadInput, /* 可选下载取消信号，交给统一文件请求生命周期。 */ signal?: AbortSignal): Promise<ClientFile> {
-      // 下载资产或图与工作区导出内容，限制大小、验证资产摘要，并返回经校验的文件名和字节。
+    /**
+     * 下载资产或图与工作区导出内容，限制大小、验证资产摘要，并返回经校验的文件名和字节。
+     *
+     * @param input 已选择的资源类型和 UUID，决定固定下载端点。
+     * @param signal 可选下载取消信号，交给统一文件请求生命周期。
+     */
+    async download(input: ClientDownloadInput, signal?: AbortSignal): Promise<ClientFile> {
       clientAssertDownload(input)
       const { kind, id } = input
-      return clientRunRequest(async /* 下载专属组合信号，绑定读取资产或导出端点的请求。 */ signal => {
+      return clientRunRequest(async signal => {
         // 读取所选下载端点，校验资产完整性并解析响应中的文件名和媒体类型。
         const path = kind === 'asset' ? '/api/v1/assets/' + id + '/content'
           : '/api/v1/' + (kind === 'map' ? 'maps/' : 'workspaces/') + id + '/export'
@@ -543,8 +672,12 @@ export type ClientApi = ReturnType<typeof clientCreateApi>
 export interface ClientConnectionStore {
   // 恢复地址及可用令牌；不存在或可容忍的损坏返回 null，其他读取故障可拒绝。
   load(): Promise<{ baseUrl: string; token: string | null; remembered: boolean } | null>
-  // 保存连接选项并返回是否实际记住令牌，调用方不能仅依据 remember 输入判断。
-  save(/* 需要持久化的地址、令牌和记住意愿，实际是否记住由存储能力决定。 */ input: ClientConnectInput): Promise<boolean>
+  /**
+   * 保存连接选项并返回是否实际记住令牌，调用方不能仅依据 remember 输入判断。
+   *
+   * @param input 需要持久化的地址、令牌和记住意愿，实际是否记住由存储能力决定。
+   */
+  save(input: ClientConnectInput): Promise<boolean>
   // 清除持久化连接配置，供登出和新连接验证前调用。
   clear(): Promise<void>
   // 报告当前环境是否允许安全记住令牌。
@@ -552,9 +685,13 @@ export interface ClientConnectionStore {
 }
 // 可切换连接网关配置，可选系统凭据存储供桌面环境使用。
 export interface ClientGatewayOptions { baseUrl: string; timeoutMs?: number; streamIdleMs?: number; fetch?: typeof globalThis.fetch; store?: ClientConnectionStore }
-export function clientCreateGateway(/* 网关初始地址、传输期限和可选凭据存储；凭据未接存储时仅保留在内存。 */ options: ClientGatewayOptions): ClientGateway & { // 永久关闭网关并取消活动与候选连接，已保存的凭据由 disconnect 单独清除。
+/**
+ * 管理当前与待登录的客户端、连接代次和凭据存储队列，使切换登录与退出按顺序完成。
+ *
+ * @param options 网关初始地址、传输期限和可选凭据存储；凭据未接存储时仅保留在内存。
+ */
+export function clientCreateGateway(options: ClientGatewayOptions): ClientGateway & { // 永久关闭网关并取消活动与候选连接，已保存的凭据由 disconnect 单独清除。
   close(): void } {
-  // 管理当前与待登录的客户端、连接代次和凭据存储队列，使切换登录与退出按顺序完成。
   let baseUrl = clientReadBaseUrl(options.baseUrl)
   let active: ClientApi | null = null
   let pending: ClientApi | null = null
@@ -571,8 +708,12 @@ export function clientCreateGateway(/* 网关初始地址、传输期限和可�
     if (saved.token) active = clientCreateApi({ ...options, baseUrl, token: saved.token })
     remembered = !!saved.token && saved.remembered
   })()
-  function clientEnqueueOperation<T>(/* 要按序执行的登录或凭据变更；成功失败均不阻塞后续排队任务。 */ operation: () => Promise<T>): Promise<T> {
-    // 将登录和凭据写入串行排队，单次失败继续传给调用者，同时允许后续操作执行。
+  /**
+   * 将登录和凭据写入串行排队，单次失败继续传给调用者，同时允许后续操作执行。
+   *
+   * @param operation 要按序执行的登录或凭据变更；成功失败均不阻塞后续排队任务。
+   */
+  function clientEnqueueOperation<T>(operation: () => Promise<T>): Promise<T> {
     const result = tail.then(operation, operation)
     tail = result.then(() => /* 在前一项操作成功后释放队列尾部，不把其结果传给下一项操作。 */ undefined, () => /* 吸收队列尾部的拒绝，使后续登录或清理仍可执行；原调用者仍持有失败结果。 */ undefined)
     return result
@@ -584,8 +725,14 @@ export function clientCreateGateway(/* 网关初始地址、传输期限和可�
     return active
   }
   return {
-    async watch(/* 需要订阅的图编号，交给当前固定凭据客户端验证。 */ mapId, /* 调用方的事件观察者，直接转交当前客户端。 */ onEvent, /* 可选调用者取消信号，不进入登录串行队列。 */ signal) {
-      // 取得当前客户端并直接启动订阅，避免长期事件流阻塞登录和退出队列。
+    /**
+     * 取得当前客户端并直接启动订阅，避免长期事件流阻塞登录和退出队列。
+     *
+     * @param mapId 需要订阅的图编号，交给当前固定凭据客户端验证。
+     * @param onEvent 调用方的事件观察者，直接转交当前客户端。
+     * @param signal 可选调用者取消信号，不进入登录串行队列。
+     */
+    async watch(mapId, onEvent, signal) {
       return (await clientReadApi()).watch(mapId, onEvent, signal)
     },
     async getConnection(): Promise<ClientConnection> {
@@ -593,8 +740,12 @@ export function clientCreateGateway(/* 网关初始地址、传输期限和可�
       await initialized
       return { baseUrl, configured: active !== null, remembered, canRemember: options.store?.canRemember() ?? false }
     },
-    connect(/* 用户选择的新服务地址、令牌与记住开关，先使旧连接失效再验证候选连接。 */ input: ClientConnectInput): Promise<AppBootstrap> {
-      // 立即使旧连接和待登录结果失效，再串行验证新凭据、保存连接选项并激活新客户端。
+    /**
+     * 立即使旧连接和待登录结果失效，再串行验证新凭据、保存连接选项并激活新客户端。
+     *
+     * @param input 用户选择的新服务地址、令牌与记住开关，先使旧连接失效再验证候选连接。
+     */
+    connect(input: ClientConnectInput): Promise<AppBootstrap> {
       if (closed) return Promise.reject(clientCreateError('DISCONNECTED', RuntimeMessage.CONNECTION_WAS_CLOSED))
       const version = ++generation
       pending?.close(); active?.close(); active = null; remembered = false
@@ -627,20 +778,44 @@ export function clientCreateGateway(/* 网关初始地址、传输期限和可�
         await initialized; await options.store?.clear()
       })
     },
-    async read(/* 待转发的公共查询方法。 */ method, /* 查询方法对应的业务参数，原样交给活动客户端。 */ params, /* 调用方可选的读取取消信号。 */ signal) {
-      // 取得当前客户端后转发查询及调用者取消信号。
+    /**
+     * 取得当前客户端后转发查询及调用者取消信号。
+     *
+     * @param method 待转发的公共查询方法。
+     * @param params 查询方法对应的业务参数，原样交给活动客户端。
+     * @param signal 调用方可选的读取取消信号。
+     */
+    async read(method, params, signal) {
       return (await clientReadApi()).read(method, params, signal)
     },
-    async dispatch(/* 调用方提供的稳定业务幂等编号。 */ requestId, /* 待转发的公共写命令。 */ method, /* 写命令对应参数，交给活动客户端提交。 */ params, /* 调用方可选的写请求取消信号。 */ signal) {
-      // 取得当前客户端后转发命令，保留调用者提供的请求标识和取消信号。
+    /**
+     * 取得当前客户端后转发命令，保留调用者提供的请求标识和取消信号。
+     *
+     * @param requestId 调用方提供的稳定业务幂等编号。
+     * @param method 待转发的公共写命令。
+     * @param params 写命令对应参数，交给活动客户端提交。
+     * @param signal 调用方可选的写请求取消信号。
+     */
+    async dispatch(requestId, method, params, signal) {
       return (await clientReadApi()).dispatch(requestId, method, params, signal)
     },
-    async upload(/* 上传操作的稳定业务幂等编号。 */ requestId, /* 含工作区及文件内容的上传输入，交给活动客户端验证并复制。 */ input, /* 调用方可选的上传取消信号。 */ signal) {
-      // 取得当前客户端后转发文件上传及其幂等请求标识。
+    /**
+     * 取得当前客户端后转发文件上传及其幂等请求标识。
+     *
+     * @param requestId 上传操作的稳定业务幂等编号。
+     * @param input 含工作区及文件内容的上传输入，交给活动客户端验证并复制。
+     * @param signal 调用方可选的上传取消信号。
+     */
+    async upload(requestId, input, signal) {
       return (await clientReadApi()).upload(requestId, input, signal)
     },
-    async download(/* 含资源类型与编号的下载目标。 */ input, /* 调用方可选的下载取消信号。 */ signal) {
-      // 取得当前客户端后转发文件下载及调用者取消信号。
+    /**
+     * 取得当前客户端后转发文件下载及调用者取消信号。
+     *
+     * @param input 含资源类型与编号的下载目标。
+     * @param signal 调用方可选的下载取消信号。
+     */
+    async download(input, signal) {
       return (await clientReadApi()).download(input, signal)
     },
     close(): void {

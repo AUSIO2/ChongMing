@@ -21,7 +21,10 @@ const { svgStyle, scalePercent, zoomIn, zoomOut, resetView, fitToView, focusLayo
 const focusedId = ref<string | null>(null)
 const focused = computed(() => layout.value.nodes.find(node => node.id === focusedId.value))
 
-function canvasSelect(/* 被选择的真实数据节点。 */ item: CanvasNode | null): void {
+/**
+ * @param item 被选择的真实数据节点。
+ */
+function canvasSelect(item: CanvasNode | null): void {
   focusedId.value = item?.id ?? null
   emit('select', item?.selectId ?? null)
 }
@@ -41,7 +44,10 @@ watch(() => props.selectedId, async id => {
 })
 onMounted(canvasResetMap)
 
-function canvasReadStatus(/* 数据卡片。 */ item: CanvasNode): string {
+/**
+ * @param item 数据卡片。
+ */
+function canvasReadStatus(item: CanvasNode): string {
   const activity = props.activities?.find(value => value.nodeId === item.id
     && props.snapshot.runs.some(run => run.id === value.runId && !run.paused))
   if (activity) return `${activity.agentName} · ${ACTIVITY_LABELS[activity.status]}`

@@ -16,8 +16,12 @@ export interface DiagnosticEvent {
 }
 // 输出诊断并返回关联编号的能力，由持有者负责结束输出。
 export interface DiagnosticReporter {
-  // 记录诊断并返回可向用户展示的关联编号，由实现负责敏感内容筛除。
-  report(/* 组件提交的诊断事件，可含原始错误供实现脱敏处理，但不能原样公开。 */ event: DiagnosticEvent): string
+  /**
+   * 记录诊断并返回可向用户展示的关联编号，由实现负责敏感内容筛除。
+   *
+   * @param event 组件提交的诊断事件，可含原始错误供实现脱敏处理，但不能原样公开。
+   */
+  report(event: DiagnosticEvent): string
   // 停止后续输出并等待实现需要完成的清理。
   close(): Promise<void>
 }

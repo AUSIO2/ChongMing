@@ -12,13 +12,22 @@ import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 const callId = '11111111-1111-4111-8111-111111111111'
 function fixture() {
   // 建立内存 IPC、可信主框架和网关替身，暴露处理器及调用记录供权限测试。
-  const handlers = new Map<string, (/* 内存 IPC 处理器接受的事件及通道参数列表，测试直接按通道协议构造。 */ ...args: any[]) => any>()
+  const handlers = new Map<string, (...args: any[]) => any>()
   const ipc = Object.assign(new EventEmitter(), {
-    handle: (/* 需要注册的 IPC 通道名，作为内存处理器映射键。 */ channel: string, /* 被测主进程注册的通道回调，保存在夹具中供测试直接调用。 */ handler: (/* 该通道回调实际接受的事件及请求参数列表。 */ ...args: any[]) => any) => {
-      // 将 IPC 请求处理器记录到映射，供测试直接调用。
+    /**
+     * 将 IPC 请求处理器记录到映射，供测试直接调用。
+     *
+     * @param channel 需要注册的 IPC 通道名，作为内存处理器映射键。
+     * @param handler 被测主进程注册的通道回调，保存在夹具中供测试直接调用。
+     */
+    handle: (channel: string, handler: (...args: any[]) => any) => {
        handlers.set(channel, handler) },
-    removeHandler: (/* 需要卸载的通道名，用于验证 dispose 移除注册。 */ channel: string) => {
-      // 删除指定通道处理器以验证卸载行为。
+    /**
+     * 删除指定通道处理器以验证卸载行为。
+     *
+     * @param channel 需要卸载的通道名，用于验证 dispose 移除注册。
+     */
+    removeHandler: (channel: string) => {
        handlers.delete(channel) },
   })
   const frame = { routingId: 12, processId: 34, url: 'http://localhost:5173/' }
@@ -62,11 +71,14 @@ describe('desktop client IPC authority', () => {
   it('forwards ordered stream events only while the authorized watch remains active', async () => {
     // 验证合法订阅按序转发事件，非法取消无效且已取消订阅不再发消息。
     const f = fixture()
-    let emit!: (/* 测试手动发出的图事件，交给被保存的网关订阅回调。 */ event: GraphStreamEvent) => void, signal!: AbortSignal, finish!: () => void
-    vi.mocked(f.gateway.watch).mockImplementation((/* 被测代码传入的订阅图编号，此替身只观察回调和取消信号。 */ _mapId, /* 被测代码提供的图事件回调，保存后由测试控制事件到达时点。 */ onEvent, /* 被测 IPC 为订阅创建的可选取消信号，当前场景预期必定提供。 */ stop) => {
+    /**
+     * @param event 测试手动发出的图事件，交给被保存的网关订阅回调。
+     */
+    let emit!: (event: GraphStreamEvent) => void, signal!: AbortSignal, finish!: () => void
+    vi.mocked(f.gateway.watch).mockImplementation((_mapId, onEvent, stop) => {
       // 保存订阅回调和信号，并延迟结束以便手动模拟流事件。
       emit = onEvent; signal = stop!
-      return new Promise<void>(/* 用于手动结束模拟网关订阅的 Promise 完成函数。 */ resolve => {
+      return new Promise<void>(resolve => {
         // 把订阅完成函数交给测试，控制何时结束主进程处理。
          finish = resolve })
     })
@@ -91,12 +103,15 @@ describe('desktop client IPC authority', () => {
   it('aborts a window stream together with files and preserves the two-file limit', async () => {
     // 验证窗口销毁会同时取消订阅与文件传输，订阅不占用两个文件配额。
     const f = fixture()
-    const wait = (/* 可选类型的操作取消信号，本用例始终传入并借此结束挂起操作。 */ signal?: AbortSignal) => /* 创建只有收到取消信号才失败的操作，模拟持续流或未完成下载。 */  new Promise<never>((/* 此模拟操作只因取消而拒绝，不使用成功完成函数。 */ _resolve, /* 窗口关闭导致取消时，用结构化错误结束挂起操作的函数。 */ reject) => /* 注册取消监听，让挂起操作保持未完成直到窗口关闭。 */  signal!.addEventListener('abort', () => /* 取消时以结构化客户端错误拒绝挂起操作。 */  reject(new ClientError({ status: 0, code: 'REQUEST_ABORTED', message: 'Closed', retryable: false })), { once: true }))
-    vi.mocked(f.gateway.watch).mockImplementation((/* 被测订阅目标，本场景只验证生命周期，不读取其值。 */ _mapId, /* 被测订阅的事件回调，本场景只等待取消，不生成事件。 */ _emit, /* IPC 分配的订阅取消信号，交给挂起操作替身。 */ signal) => /* 使模拟订阅等待同一个取消信号。 */  wait(signal))
-    vi.mocked(f.gateway.download).mockImplementation((/* 被测下载目标，本场景只验证取消和配额，不读取内容。 */ _input, /* IPC 分配的下载取消信号，交给挂起操作替身。 */ signal) => /* 使模拟下载等待同一个取消信号。 */  wait(signal))
+    /**
+     * @param signal 可选类型的操作取消信号，本用例始终传入并借此结束挂起操作。
+     */
+    const wait = (signal?: AbortSignal) => /* 创建只有收到取消信号才失败的操作，模拟持续流或未完成下载。 */  new Promise<never>((_resolve, reject) => /* 注册取消监听，让挂起操作保持未完成直到窗口关闭。 */  signal!.addEventListener('abort', () => /* 取消时以结构化客户端错误拒绝挂起操作。 */  reject(new ClientError({ status: 0, code: 'REQUEST_ABORTED', message: 'Closed', retryable: false })), { once: true }))
+    vi.mocked(f.gateway.watch).mockImplementation((_mapId, _emit, signal) => /* 使模拟订阅等待同一个取消信号。 */  wait(signal))
+    vi.mocked(f.gateway.download).mockImplementation((_input, signal) => /* 使模拟下载等待同一个取消信号。 */  wait(signal))
     const watching = f.handlers.get(CLIENT_CHANNELS.watch)!(f.event, callId, callId)
     const ids = ['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444']
-    const files = ids.slice(0, 2).map(/* 为当前模拟资产下载分配的独立调用编号。 */ id => /* 为两个不同调用编号发起资产下载，填满文件配额。 */  f.handlers.get(CLIENT_CHANNELS.download)!(f.event, id, { kind: 'asset', id: callId }))
+    const files = ids.slice(0, 2).map(id => /* 为两个不同调用编号发起资产下载，填满文件配额。 */  f.handlers.get(CLIENT_CHANNELS.download)!(f.event, id, { kind: 'asset', id: callId }))
     expect(await f.handlers.get(CLIENT_CHANNELS.download)!(f.event, ids[2], { kind: 'asset', id: callId })).toMatchObject({ ok: false, error: { code: 'TOO_MANY_REQUESTS' } })
     f.contents.emit('destroyed')
     for (const result of await Promise.all([watching, ...files])) expect(result).toMatchObject({ ok: false, error: { code: 'REQUEST_ABORTED' } })
@@ -132,12 +147,12 @@ describe('desktop client IPC authority', () => {
   it('bounds file concurrency and aborts pending transfers when the window closes', async () => {
     // 验证第三项文件传输被拒绝，窗口关闭后两项挂起传输均被取消。
     const f = fixture()
-    vi.mocked(f.gateway.download).mockImplementation(async (/* 被测图导出目标，下载替身不读取其业务内容。 */ _input, /* 当前文件调用的取消信号，用于观察窗口销毁传播。 */ signal) => /* 模拟在取消前始终挂起的下载。 */  new Promise((/* 挂起下载不主动成功，因此不使用完成函数。 */ _resolve, /* 收到取消时拒绝模拟下载的函数。 */ reject) => {
+    vi.mocked(f.gateway.download).mockImplementation(async (_input, signal) => /* 模拟在取消前始终挂起的下载。 */  new Promise((_resolve, reject) => {
       // 监听下载的取消信号，以便检查窗口销毁是否向下传递。
       signal!.addEventListener('abort', () => /* 收到取消时拒绝下载 Promise。 */  reject(new ClientError({ code: 'REQUEST_ABORTED', message: 'Closed', status: 0, retryable: false })), { once: true })
     }))
     const ids = [callId, '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333']
-    const pending = ids.slice(0, 2).map(/* 用于当前图导出下载的独立调用编号。 */ id => /* 并行发起两项图导出下载，占满文件传输配额。 */  f.handlers.get(CLIENT_CHANNELS.download)!(f.event, id, { kind: 'map', id: callId }))
+    const pending = ids.slice(0, 2).map(id => /* 并行发起两项图导出下载，占满文件传输配额。 */  f.handlers.get(CLIENT_CHANNELS.download)!(f.event, id, { kind: 'map', id: callId }))
     expect(await f.handlers.get(CLIENT_CHANNELS.download)!(f.event, ids[2], { kind: 'map', id: callId })).toMatchObject({ ok: false, error: { code: 'TOO_MANY_REQUESTS' } })
     f.contents.emit('destroyed')
     for (const result of await Promise.all(pending)) expect(result).toMatchObject({ ok: false, error: { code: 'REQUEST_ABORTED' } })
@@ -198,7 +213,7 @@ describe('desktop client IPC authority', () => {
   it('cancels only the owning frame call and handles cancellation before invoke', async () => {
     // 验证只有所属可信框架可以取消，且 invoke 之前到达的取消不会漏掉。
     const f = fixture()
-    f.read.mockImplementation((/* 查询替身收到的方法、参数和信号列表，第三项用于观察所属调用取消。 */ ...args: unknown[]) => /* 让查询保持挂起，直到收到所属调用的取消信号。 */  new Promise((/* 挂起查询不会自行成功，此处不用完成函数。 */ _resolve, /* 合法取消到达时以客户端取消错误结束查询的函数。 */ reject) => {
+    f.read.mockImplementation((...args: unknown[]) => /* 让查询保持挂起，直到收到所属调用的取消信号。 */  new Promise((_resolve, reject) => {
       // 提取查询的取消信号并监听其变化。
       const signal = args[2] as AbortSignal
       signal.addEventListener('abort', () => /* 收到取消时将挂起查询转换为结构化取消错误。 */  reject(new ClientError({ code: 'REQUEST_ABORTED', message: 'Stopped', status: 0, retryable: false })), { once: true })
@@ -230,13 +245,13 @@ describe('desktop client IPC authority', () => {
   it('registers one destroy listener per window and aborts all its pending calls', async () => {
     // 验证同一窗口只注册一个销毁监听，销毁会取消其全部挂起调用。
     const f = fixture()
-    f.read.mockImplementation((/* 当前查询替身的完整参数列表，第三项是窗口关联的取消信号。 */ ...args: unknown[]) => /* 模拟未完成查询，供窗口整体取消测试使用。 */  new Promise((/* 该查询只因窗口销毁取消，不主动成功。 */ _resolve, /* 窗口销毁时拒绝当前查询的函数。 */ reject) => {
+    f.read.mockImplementation((...args: unknown[]) => /* 模拟未完成查询，供窗口整体取消测试使用。 */  new Promise((_resolve, reject) => {
       // 监听查询取消，以验证窗口销毁会终止全部请求。
       const signal = args[2] as AbortSignal
       signal.addEventListener('abort', () => /* 窗口关闭时拒绝当前查询并标记取消原因。 */  reject(new ClientError({ code: 'REQUEST_ABORTED', message: 'Window closed', status: 0, retryable: false })), { once: true })
     }))
     const secondId = '22222222-2222-4222-8222-222222222222'
-    const requests = [callId, secondId].map(/* 同一窗口中当前模拟查询的独立生命周期编号。 */ id => /* 为同一窗口的两个调用编号分别发起查询。 */  f.handlers.get(CLIENT_CHANNELS.read)!(f.event, id, 'map.get', { mapId: 'map' }))
+    const requests = [callId, secondId].map(id => /* 为同一窗口的两个调用编号分别发起查询。 */  f.handlers.get(CLIENT_CHANNELS.read)!(f.event, id, 'map.get', { mapId: 'map' }))
     expect(f.contents.listenerCount('destroyed')).toBe(1)
     f.contents.emit('destroyed')
     for (const result of await Promise.all(requests)) expect(result).toMatchObject({ ok: false, error: { code: 'REQUEST_ABORTED' } })
@@ -250,18 +265,18 @@ describe('Renderer bridge adapter', () => {
   it('listens before invoking and isolates ordered first frames by watch ID', async () => {
     // 验证订阅调用前已经监听消息，并按订阅编号隔离首次及后续事件。
     type Message = Parameters<Parameters<ClientBridge['onStream']>[0]>[0]
-    const listeners = new Set<(/* 模拟主进程发出的带订阅编号、序号和事件的流消息。 */ message: Message) => void>()
+    const listeners = new Set<(message: Message) => void>()
     const finish: Array<() => void> = [], ids: string[] = []
-    const onStream = vi.fn((/* 适配器注册的流观察者，加入集合以验证先监听后 invoke。 */ listener: (/* 该观察者接收的带 watchId 和 sequence 的模拟流消息。 */ message: Message) => void) => {
+    const onStream = vi.fn((listener: (message: Message) => void) => {
       // 登记模拟流监听器并返回对应解除函数。
        listeners.add(listener); return () => /* 从监听集合中删除本次订阅回调。 */  listeners.delete(listener) })
-    const watch = vi.fn((/* 适配器生成的当前订阅编号，夹具用其发送并隔离事件。 */ watchId: string, /* 适配器请求的图编号，放入同步返回的首个快照。 */ mapId: string) => {
+    const watch = vi.fn((watchId: string, mapId: string) => {
       // 在 watch 调用期间立即发布首帧，验证适配器不会漏掉同步到达的消息。
       expect(listeners.size).toBeGreaterThan(0)
       ids.push(watchId)
       const event: GraphStreamEvent = { type: 'snapshot', snapshot: { mapId, workspaceId: 'workspace', revision: 1, name: mapId, nodes: [], edges: [], runs: [], ownershipRevision: 0, ownerships: [], runControls: [], updatedAt: '' } }
       for (const listener of listeners) listener({ watchId, sequence: 1, event })
-      return new Promise<ClientBridgeResult<null>>(/* 手动结束当前桥接订阅并返回空成功值的函数。 */ resolve => /* 保存手动完成订阅的函数，使测试能分别结束两条流。 */  finish.push(() => /* 将该条模拟订阅标记为正常完成。 */  resolve({ ok: true, value: null })))
+      return new Promise<ClientBridgeResult<null>>(resolve => /* 保存手动完成订阅的函数，使测试能分别结束两条流。 */  finish.push(() => /* 将该条模拟订阅标记为正常完成。 */  resolve({ ok: true, value: null })))
     })
     const cancel = vi.fn(), gateway = apiCreateGateway({ bridge: { onStream, watch, cancel } as unknown as ClientBridge })
     const first = vi.fn(), second = vi.fn()
@@ -270,7 +285,7 @@ describe('Renderer bridge adapter', () => {
     expect(first).toHaveBeenCalledOnce(); expect(second).toHaveBeenCalledOnce()
     expect(first).toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshot', snapshot: expect.objectContaining({ mapId: 'map-a' }) }))
     expect(second).toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshot', snapshot: expect.objectContaining({ mapId: 'map-b' }) }))
-    expect(watch.mock.calls.every(/* 一次 watch 替身调用的参数数组，检查未跨 IPC 传入额外信号。 */ call => /* 检查桥接订阅只传递订阅编号和图编号。 */  call.length === 2)).toBe(true)
+    expect(watch.mock.calls.every(call => /* 检查桥接订阅只传递订阅编号和图编号。 */  call.length === 2)).toBe(true)
     finish[0](); await a
     for (const listener of listeners) {
       listener({ watchId: ids[0], sequence: 2, event: { type: 'refresh', scope: 'settings' } })
@@ -285,11 +300,14 @@ describe('Renderer bridge adapter', () => {
   it('cancels broken stream sequences and removes listeners on caller abort', async () => {
     // 验证序号跳跃触发取消，调用者中止会卸载监听并丢弃迟到事件。
     type Message = Parameters<Parameters<ClientBridge['onStream']>[0]>[0]
-    let listener!: (/* 用于序号异常测试的流消息负载。 */ message: Message) => void, id = ''
+    /**
+     * @param message 用于序号异常测试的流消息负载。
+     */
+    let listener!: (message: Message) => void, id = ''
     const dispose = vi.fn(), cancel = vi.fn()
-    const bridge = { onStream: vi.fn((/* 适配器本次注册的流观察者，替换夹具保存的监听引用。 */ next: typeof listener) => {
+    const bridge = { onStream: vi.fn((next: typeof listener) => {
       // 保存当前流监听器，并提供可观察的卸载函数。
-       listener = next; return dispose }), watch: vi.fn((/* 本次挂起订阅的编号，保存后用于构造匹配或跳号消息。 */ watchId: string) => {
+       listener = next; return dispose }), watch: vi.fn((watchId: string) => {
       // 记录订阅编号并保持调用挂起，供异常序号与取消测试使用。
        id = watchId; return new Promise<never>(() => {
       // 故意不结束模拟订阅，使适配器必须主动处理取消。

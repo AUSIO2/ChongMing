@@ -5,17 +5,28 @@ import type { GraphOperation, GraphStageGroup, GraphWork, GraphWorkGrant, GraphW
 import { GraphError } from '../shared/domain-error'
 import type { GraphDocument } from './graph-record'
 
-export function workCreateId(/* Work 所属 Operation 身份。 */ operationId: string, /* 冻结阶段身份。 */ stageId: string, /* 本次阶段实例槽位身份。 */ slotId: string): string {
-  // Mongo 租约以 workId 作为字段键；阶段和槽位可含点，因此只把安全摘要放进持久化键。
+/**
+ * Mongo 租约以 workId 作为字段键；阶段和槽位可含点，因此只把安全摘要放进持久化键。
+ *
+ * @param operationId Work 所属 Operation 身份。
+ * @param stageId 冻结阶段身份。
+ * @param slotId 本次阶段实例槽位身份。
+ */
+export function workCreateId(operationId: string, stageId: string, slotId: string): string {
   const identity = createHash('sha256').update(stageId).update('\0').update(slotId).digest('hex').slice(0, 32)
   return `${operationId}:${identity}`
 }
 
+/**
+ * 只有全部依赖阶段封闭后才能派发；每个 expectedWorkId 恰好对应一份可独立领取的 Agent 工作。
+ *
+ * @param operation Work 所属 Operation。
+ * @param group Work 所属阶段组。
+ */
 function workReadStage(
-  /* Work 所属 Operation。 */ operation: GraphOperation,
-  /* Work 所属阶段组。 */ group: GraphStageGroup,
+  operation: GraphOperation,
+  group: GraphStageGroup,
 ): GraphWork[] {
-  // 只有全部依赖阶段封闭后才能派发；每个 expectedWorkId 恰好对应一份可独立领取的 Agent 工作。
   const spec = operation.executionSpec.stages.find(stage => stage.id === group.stageId)
   if (!spec || group.closed || !spec.dependsOn.every(stageId => operation.stages.some(stage => stage.stageId === stageId && stage.closed))) return []
   const accepted = new Set(group.results.map(result => result.workId))
@@ -36,8 +47,12 @@ function workReadStage(
   })
 }
 
-export function workReadItems(/* 用于推导当前可执行工作的完整图状态。 */ document: GraphDocument): GraphWork[] {
-  // Host 数量与槽数不改变工作推导；它们只并发领取这里返回的同一组 Work。
+/**
+ * Host 数量与槽数不改变工作推导；它们只并发领取这里返回的同一组 Work。
+ *
+ * @param document 用于推导当前可执行工作的完整图状态。
+ */
+export function workReadItems(document: GraphDocument): GraphWork[] {
   const priority = { high: 0, medium: 1, low: 2 }
   return document.runs.filter(run => run.status === 'running' && !run.paused).flatMap(run => run.operations.flatMap(operation => {
       if (operation.status !== 'running') return []
@@ -49,11 +64,16 @@ export function workReadItems(/* 用于推导当前可执行工作的完整图�
     }))
 }
 
+/**
+ * 核对工作凭证的持有者与栅栏版本，拒绝已被替换的授权；有效期由存储端另行检查。
+ *
+ * @param document 保存当前 Run 和授权记录的图状态。
+ * @param proof 调用者提供的 work、holder 和 fence 身份证明。
+ */
 export function workReadGrant(
-  /* 保存当前 Run 和授权记录的图状态。 */ document: GraphDocument,
-  /* 调用者提供的 work、holder 和 fence 身份证明。 */ proof: GraphWorkProof,
+  document: GraphDocument,
+  proof: GraphWorkProof,
 ): GraphWorkGrant {
-  // 核对工作凭证的持有者与栅栏版本，拒绝已被替换的授权；有效期由存储端另行检查。
   const grant = document.leases[proof.workId]
   if (!grant || grant.holderId !== proof.holderId || grant.fence !== proof.fence) {
     throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_GRANT_WAS_SUPERSEDED_OR_DOES_NOT_EXIST)

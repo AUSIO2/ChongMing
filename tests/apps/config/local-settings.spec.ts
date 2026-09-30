@@ -12,7 +12,7 @@ import { createGraphApi } from '../../backend/fixtures/graph-api'
 const directories: string[] = []
 afterEach(async () => {
   // 恢复环境变量替身并并行删除每个用例创建的配置目录。
-   vi.unstubAllEnvs(); await Promise.all(directories.splice(0).map(/* 当前用例创建并登记的临时配置目录。 */ dir => /* 删除单个临时配置目录及其文件。 */  rm(dir, { recursive: true, force: true }))) })
+   vi.unstubAllEnvs(); await Promise.all(directories.splice(0).map(dir => /* 删除单个临时配置目录及其文件。 */  rm(dir, { recursive: true, force: true }))) })
 
 it('keeps local secrets private and exposes only redacted configuration through the admin CLI', async () => {
   // 验证密钥仅落入私有文件，管理查询只暴露脱敏信息且删除与名称校验生效。
@@ -45,9 +45,9 @@ it('does not silently lose a successful concurrent secret update', async () => {
   directories.push(directory)
   vi.stubEnv('CHONGMING_CONFIG_DIR', directory)
   const names = ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']
-  const results = await Promise.allSettled(names.map(/* 本次并发测试要写入的允许密钥名称，用于形成各自测试值。 */ name => /* 为不同密钥同时发起写入以制造配置锁竞争。 */  localUpdateSecret(name, `fixture-${name}`)))
+  const results = await Promise.allSettled(names.map(name => /* 为不同密钥同时发起写入以制造配置锁竞争。 */  localUpdateSecret(name, `fixture-${name}`)))
   const { secrets } = await localReadConfiguration()
-  expect(results.some(/* 一次并发写入的 settled 结果，用于检查至少一项成功。 */ result => /* 检查至少一项并发更新成功完成。 */  result.status === 'fulfilled')).toBe(true)
+  expect(results.some(result => /* 检查至少一项并发更新成功完成。 */  result.status === 'fulfilled')).toBe(true)
   for (let index = 0; index < results.length; index++) {
     const result = results[index]
     if (result.status === 'fulfilled') expect(secrets[names[index]]).toBe(`fixture-${names[index]}`)

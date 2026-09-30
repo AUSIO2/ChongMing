@@ -536,7 +536,12 @@ export enum RuntimeMessage {
   X_WORK_FENCE_IS_REQUIRED = "x-work-fence is required",
 }
 
-export function messageFormat(/* 共享运行文案枚举中的模板，数字占位符从零开始索引。 */ template: RuntimeMessage, /* 按占位索引提供的实参列表；每项转为字符串，缺项会得到 undefined 文本。 */ ...values: unknown[]): string {
-  // 按数字占位符替换运行文案中的参数，不改变文案枚举本身。
-  return template.replace(/\{(\d+)\}/g, (/* 正则匹配到的完整占位符，此处仅使用捕获的索引。 */ _match, /* 占位符中的十进制数字文本，转换为数组索引。 */ index: string) => /* 将占位符索引对应的实参转换为字符串。 */  String(values[Number(index)]))
+/**
+ * 按数字占位符替换运行文案中的参数，不改变文案枚举本身。
+ *
+ * @param template 共享运行文案枚举中的模板，数字占位符从零开始索引。
+ * @param values 按占位索引提供的实参列表；每项转为字符串，缺项会得到 undefined 文本。
+ */
+export function messageFormat(template: RuntimeMessage, ...values: unknown[]): string {
+  return template.replace(/\{(\d+)\}/g, (_match, index: string) => /* 将占位符索引对应的实参转换为字符串。 */  String(values[Number(index)]))
 }

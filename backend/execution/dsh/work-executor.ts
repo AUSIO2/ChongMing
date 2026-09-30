@@ -28,7 +28,7 @@ export interface DshWorkInput {
   /** Bounded follow-up turns if the Agent stops before submitting this work's result. */
   maxRounds?: number
   // 同步接收经过 JSON 复制的本次执行事件。
-  onEvent?: (/* 经过 JSON 复制的单条 DSH 执行通知，供外部活动观察者使用。 */ event: DshEvent) => void
+  onEvent?: (event: DshEvent) => void
 }
 
 export interface DshWorkResult {
@@ -43,19 +43,30 @@ export interface DshWorkResult {
 
 /** Temporary loss of the data/lease authority, not a model or configuration failure. */
 export class WorkAccessError extends Error {
-  constructor(/* 解释工作 API 或租约暂时无法确认的错误文本。 */ message: string) {
-    // 标记数据访问或租约确认暂时失败，供 Host 区分于模型执行失败。
+  /**
+   * 标记数据访问或租约确认暂时失败，供 Host 区分于模型执行失败。
+   *
+   * @param message 解释工作 API 或租约暂时无法确认的错误文本。
+   */
+  constructor(message: string) {
     super(message)
     this.name = 'WorkAccessError'
   }
 }
+/**
+ * 携带内部令牌调用工作 API，并区分暂时不可访问与明确协议错误。
+ *
+ * @param input 当前工作的可信授权、内部令牌、API 地址及取消信号。
+ * @param path 相对于数据 API 的内部接口路径，由执行器固定选择。
+ * @param body 与该内部接口对应的请求载荷，发送前序列化为 JSON。
+ * @param headers 可选额外请求头，默认空对象，读取输入时用于携带租约凭证。
+ */
 async function dshReadWorkReply<T>(
-  /* 当前工作的可信授权、内部令牌、API 地址及取消信号。 */ input: DshWorkInput,
-  /* 相对于数据 API 的内部接口路径，由执行器固定选择。 */ path: string,
-  /* 与该内部接口对应的请求载荷，发送前序列化为 JSON。 */ body: unknown,
-  /* 可选额外请求头，默认空对象，读取输入时用于携带租约凭证。 */ headers: Record<string, string> = {},
+  input: DshWorkInput,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
 ): Promise<T> {
-  // 携带内部令牌调用工作 API，并区分暂时不可访问与明确协议错误。
   input.signal?.throwIfAborted()
   const url = new URL(path, input.dataApiUrl)
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error(RuntimeMessage.DATA_API_MUST_USE_HTTP_S)
@@ -88,8 +99,12 @@ async function dshReadWorkReply<T>(
   }
   return result.data as T
 }
-async function dshReadWorkStatus(/* 本次执行的工作配置，授权身份用于查询结果是否已被接纳。 */ input: DshWorkInput): Promise<'ready' | 'accepted'> {
-  // 查询指定授权的提交状态，拒绝返回其他工作或未知状态。
+/**
+ * 查询指定授权的提交状态，拒绝返回其他工作或未知状态。
+ *
+ * @param input 本次执行的工作配置，授权身份用于查询结果是否已被接纳。
+ */
+async function dshReadWorkStatus(input: DshWorkInput): Promise<'ready' | 'accepted'> {
   const grant = input.grant
   const data = await dshReadWorkReply<{ workId: string; status: 'ready' | 'accepted' }>(input, '/internal/v1/work', {
     method: 'read',
@@ -98,8 +113,12 @@ async function dshReadWorkStatus(/* 本次执行的工作配置，授权身份�
   if (data?.workId !== grant.workId || !['ready', 'accepted'].includes(data.status)) throw new Error(RuntimeMessage.WORK_API_RETURNED_ANOTHER_OR_INVALID_WORK_STATUS)
   return data.status
 }
-async function dshReadWork(/* 本次已领取工作配置，决定数据读取范围与须匹配的返回身份。 */ input: DshWorkInput): Promise<GraphDataRead> {
-  // 读取授权输入并逐项核对 Run、Operation、阶段、槽位及冻结执行规格。
+/**
+ * 读取授权输入并逐项核对 Run、Operation、阶段、槽位及冻结执行规格。
+ *
+ * @param input 本次已领取工作配置，决定数据读取范围与须匹配的返回身份。
+ */
+async function dshReadWork(input: DshWorkInput): Promise<GraphDataRead> {
   const grant = input.grant
   const data = await dshReadWorkReply<GraphDataRead>(input, '/internal/v1/data/read', {
     mapId: grant.mapId, operationId: grant.operationId,
@@ -114,11 +133,16 @@ async function dshReadWork(/* 本次已领取工作配置，决定数据读取�
   }
   return data
 }
-function dshReadWorkProfile(/* 从 API 读取并已核对工作身份的执行视图，包含冻结配置与批准路由。 */ data: GraphDataRead, /* 当前执行授权，角色与槽位决定采用哪个 Agent 配置。 */ grant: GraphWorkGrant): GraphAgentProfile {
-  // 使用数据服务返回的冻结阶段 Agent，拒绝阶段工具超出该配置能力或身份与授权不符。
+/**
+ * 使用数据服务返回的冻结阶段 Agent，拒绝阶段工具超出该配置能力或身份与授权不符。
+ *
+ * @param data 从 API 读取并已核对工作身份的执行视图，包含冻结配置与批准路由。
+ * @param grant 当前执行授权，角色与槽位决定采用哪个 Agent 配置。
+ */
+function dshReadWorkProfile(data: GraphDataRead, grant: GraphWorkGrant): GraphAgentProfile {
   if (data.stage.id !== grant.stageId || data.stage.slotId !== grant.slotId) throw new Error(RuntimeMessage.DATA_API_RETURNED_ANOTHER_WORK_GRANT)
   const profile = data.stage.agent.profile
-  if (!profile || data.stage.tools.some(/* 冻结阶段授予的工具声明，必须属于 Agent 能力集合。 */ tool =>
+  if (!profile || data.stage.tools.some(tool =>
     /* 检查该阶段工具是否超出 Agent 配置。 */ !profile.tools.includes(tool.name))) {
     throw new Error(RuntimeMessage.WORKER_HAS_NO_VALID_CONFIGURED_SLOT)
   }
@@ -126,8 +150,12 @@ function dshReadWorkProfile(/* 从 API 读取并已核对工作身份的执行�
 }
 
 /** One accepted work grant owns one DSH process. The caller owns claim, renew and release. */
-export async function dshRunWork(/* 调用方提供的单工作配置；执行器复制 grant，管理临时补丁和 DSH 进程。 */ options: DshWorkInput): Promise<DshWorkResult> {
-  // 为未完成工作启动独立 DSH 会话与可写目录，有限追问直到收据确认，最终关闭进程并清理本次尝试。
+/**
+ * 为未完成工作启动独立 DSH 会话与可写目录，有限追问直到收据确认，最终关闭进程并清理本次尝试。
+ *
+ * @param options 调用方提供的单工作配置；执行器复制 grant，管理临时补丁和 DSH 进程。
+ */
+export async function dshRunWork(options: DshWorkInput): Promise<DshWorkResult> {
   const input = { ...options, grant: structuredClone(options.grant) }
   const grant = input.grant
   input.signal?.throwIfAborted()
@@ -201,8 +229,8 @@ export async function dshRunWork(/* 调用方提供的单工作配置；执行�
       // 仅在 DSH 子进程确认关闭后删除本次尝试的 Home 与进程目录，绝不触碰其他并行尝试。
       const directories = attemptProcessDirectory.startsWith(attemptHome + path.sep)
         ? [attemptHome] : [attemptHome, attemptProcessDirectory]
-      await Promise.all(directories.map(/* 本次尝试独占的临时目录，运行时关闭后可并行移除。 */ directory =>
-        /* 递归删除一个本次尝试目录；不存在时视为已完成清理。 */ rm(directory, { recursive: true, force: true })))
+      // 递归删除本次尝试目录；不存在时视为已完成清理。
+      await Promise.all(directories.map(directory => rm(directory, { recursive: true, force: true })))
     }
   }
 }

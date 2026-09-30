@@ -15,7 +15,7 @@ function definitionTestAgents(): ExecutionAgentDefinition[] {
   const configuration = DEFAULT_RUN_CONFIGURATION
   const profiles = [configuration.parse, configuration.split.router, ...configuration.split.agents, configuration.split.merger,
     configuration.router, ...configuration.agents, configuration.merger]
-  return profiles.map(/* 当前需要补充精确版本的默认 Agent。 */ profile => /* 初始种子配置使用版本零。 */ ({ ref: { id: profile.id, version: 0 }, profile }))
+  return profiles.map(profile => /* 初始种子配置使用版本零。 */ ({ ref: { id: profile.id, version: 0 }, profile }))
 }
 
 describe('Registered data definitions', () => {
@@ -24,7 +24,7 @@ describe('Registered data definitions', () => {
     // 验证默认包的类型/转换引用完整，并让同一输入稳定生成自包含执行规格。
     const catalog = definitionsValidateCatalog([DEFAULT_DEFINITION_PACKAGE], definitionTestAgents(), 7)
     expect(catalog).toMatchObject({ revision: 7 })
-    expect(catalog.dataTypes.map(/* 当前提取身份以核对默认类型覆盖。 */ type => /* 返回注册类型身份。 */ type.id)).toEqual([
+    expect(catalog.dataTypes.map(type => /* 返回注册类型身份。 */ type.id)).toEqual([
       'factcheck.source', 'factcheck.news', 'factcheck.claim', 'factcheck.evidence', 'factcheck.opinion', 'factcheck.verification',
     ])
     const input = {
@@ -47,7 +47,7 @@ describe('Registered data definitions', () => {
       .toEqual({ content: '可核查陈述', category: null })
     expect(definitionsReadPayloadReferences(catalog, { id: 'factcheck.opinion', version: 1 }, {
       score: 0.5, reason: '待进一步核对', evidenceIds: ['evidence-a', 'evidence-b'],
-    }).map(/* 当前提取已展开的节点引用值。 */ reference => /* 返回星号路径展开后的节点身份。 */ reference.value)).toEqual(['evidence-a', 'evidence-b'])
+    }).map(reference => /* 返回星号路径展开后的节点身份。 */ reference.value)).toEqual(['evidence-a', 'evidence-b'])
     expect(() => /* category 未在默认定义枚举中，必须拒绝而不能强制转换。 */ definitionsValidatePayload(catalog,
       { id: 'factcheck.claim', version: 1 }, { content: '可核查陈述', category: 'other' })).toThrowError(/Payload/)
     const changed: DefinitionPackage = structuredClone(DEFAULT_DEFINITION_PACKAGE)
@@ -59,7 +59,7 @@ describe('Registered data definitions', () => {
   it('rejects output anchor cycles before a transition can be published', () => {
     // 验证同批输出锚点必须形成有向无环结构，防止发布关系自相依赖。
     const changed: DefinitionPackage = structuredClone(DEFAULT_DEFINITION_PACKAGE)
-    const transition = changed.transitions.find(/* 当前定位核查转换以注入输出锚点环。 */ item => /* 按稳定转换身份定位默认核查流程。 */ item.id === 'factcheck.verify-claim')
+    const transition = changed.transitions.find(item => /* 按稳定转换身份定位默认核查流程。 */ item.id === 'factcheck.verify-claim')
     if (!transition) throw new Error('Fixture transition is missing')
     transition.ports.output[0].successorOf = [{ source: 'output', port: 'verification' }]
     expect(() => /* 输出意见和结论互相作为结构锚点时发布必须失败。 */ definitionsValidateCatalog([changed], definitionTestAgents()))

@@ -43,9 +43,9 @@ const runNodes = computed(() =>
     && node.typeVersion === runTransition.value?.ports.input[0]?.inputType.version) ?? [])
 const runSelectionChanged = computed(() =>
   /* 检查已选运行节点是否因图或目标变化而失效。 */
-  runNodeIds.value.some(/* 已经勾选的起点身份，检查是否仍符合当前处理条件。 */ id =>
+  runNodeIds.value.some(id =>
     /* 检测所选标识是否已经不在可运行节点集合中。 */
-    !runNodes.value.some(/* 当前可处理节点，用身份匹配用户已选范围。 */ node =>
+    !runNodes.value.some(node =>
       /* 匹配仍可作为运行起点的节点标识。 */
       node.id === id)))
 const runCardinalityError = computed(() => {
@@ -67,14 +67,14 @@ const connectedAddress = computed(() => {
 })
 const activeTitle = computed(() =>
   /* 查找当前图名称作为画布区域标题。 */
-  session.mapList.find(/* 当前工作区的图摘要，用活动图身份查找标题。 */ map =>
+  session.mapList.find(map =>
     /* 匹配当前打开的数据图。 */
     map.id === session.activeMapId)?.name ?? '数据图')
 const syncLabel = computed(() =>
   /* 按事件流、错误和既有快照状态生成连接状态文案。 */
   session.streamState === 'live' ? '实时同步' : session.streamState === 'connecting' ? '正在连接实时更新' : session.streamState === 'reconnecting' ? '实时连接中断 · 自动重连' : session.streamError ? '连接中断' : session.lastSync ? '已同步' : session.bootstrap ? '已连接' : '未连接')
 
-watch(() => /* 观察当前连接的服务地址。 */ session.connection?.baseUrl, /* 会话恢复或切换后的服务地址；有值时同步到登录表单。 */ value => {
+watch(() => /* 观察当前连接的服务地址。 */ session.connection?.baseUrl, value => {
   // 将已恢复的服务地址写入登录表单。
   if (value) baseUrl.value = value
 }, { immediate: true })
@@ -91,20 +91,20 @@ watch(() => /* 观察当前图切换以清理图相关对话框。 */ session.ac
 })
 watch(runTransitionKey, () => {
   // 转换变化时移除已不符合输入类型的起点。
-  runNodeIds.value = runNodeIds.value.filter(/* 已选起点身份，处理终点变化时决定是否保留。 */ id =>
+  runNodeIds.value = runNodeIds.value.filter(id =>
     /* 仅保留仍在可运行节点集合中的选择。 */
-    runNodes.value.some(/* 当前符合终点条件的节点，用其身份核对选择。 */ node =>
+    runNodes.value.some(node =>
       /* 按标识匹配可运行节点。 */
       node.id === id))
 })
 onMounted(() => {
   // 挂载时订阅并读取本机服务状态，然后初始化客户端会话。
   if (window.chongmingClient) {
-    stopLocalState = window.chongmingClient.onLocalState(/* 桌面进程推送的本机服务状态，直接更新本地展示引用。 */ value => {
+    stopLocalState = window.chongmingClient.onLocalState(value => {
       // 接纳桌面桥接推送的本机服务状态。
       localState.value = value
     })
-    void window.chongmingClient.localState().then(/* 桌面桥接的初始状态结果包装，仅成功时接纳其 value。 */ result => {
+    void window.chongmingClient.localState().then(result => {
       // 仅在桥接读取成功时接纳初始本机状态。
       if (result.ok) localState.value = result.value
     })
@@ -130,7 +130,10 @@ function homeOpenMapDialog() {
   // 清除旧操作错误并打开创建数据图对话框。
   session.clearError(); mapDialog.value?.showModal()
 }
-function homeSelectNodeType(/* 新建表单选中的精确数据类型。 */ definition: DataTypeDefinition | undefined): void {
+/**
+ * @param definition 新建表单选中的精确数据类型。
+ */
+function homeSelectNodeType(definition: DataTypeDefinition | undefined): void {
   if (!definition) { nodeTypeKey.value = ''; nodePayload.value = {}; return }
   nodeTypeKey.value = definitionKey(definition)
   const initial = payloadCreateInitial(definition.schema)
@@ -163,7 +166,7 @@ async function homeCreateNode() {
 function homeOpenRunDialog() {
   // 选择第一个可用转换，默认选中它接受的全部输入节点。
   session.clearError(); runTransitionKey.value = runnableTransitions.value[0] ? definitionKey(runnableTransitions.value[0]) : ''; runRegenerate.value = false
-  runNodeIds.value = runNodes.value.map(/* 当前可处理节点，提取身份构造默认全选范围。 */ node => /* 提取可运行节点标识作为默认全选范围。 */ node.id)
+  runNodeIds.value = runNodes.value.map(node => /* 提取可运行节点标识作为默认全选范围。 */ node.id)
   runDialog.value?.showModal()
 }
 async function homeStartRun() {
@@ -172,16 +175,28 @@ async function homeStartRun() {
   if (!transition || runSelectionChanged.value || runCardinalityError.value || !runNodeIds.value.length) return
   if (await session.startRun({ scope: { nodeIds: [...runNodeIds.value] }, plan: graphCreateRunPlan(transition, runNodeIds.value), mode: runMode.value, regenerate: runRegenerate.value })) runDialog.value?.close()
 }
-async function homeRetryDialog(/* 触发重试的创建对话框引用，可能尚未挂载；仅重试成功后关闭。 */ dialog: HTMLDialogElement | null) {
-  // 重试会话保留的原操作，成功时关闭对应创建对话框。
+/**
+ * 重试会话保留的原操作，成功时关闭对应创建对话框。
+ *
+ * @param dialog 触发重试的创建对话框引用，可能尚未挂载；仅重试成功后关闭。
+ */
+async function homeRetryDialog(dialog: HTMLDialogElement | null) {
   if (await session.retry()) dialog?.close()
 }
-function homeReadMapTitle(/* 标签页记录的图身份，用于查找展示名称。 */ id: string) {
-  // 按图标识查找标签页名称，缺失时使用默认标题。
-  return session.mapList.find(/* 会话图列表中的摘要，用指定身份匹配。 */ map => /* 匹配指定标签页对应的图摘要。 */ map.id === id)?.name ?? '数据图'
+/**
+ * 按图标识查找标签页名称，缺失时使用默认标题。
+ *
+ * @param id 标签页记录的图身份，用于查找展示名称。
+ */
+function homeReadMapTitle(id: string) {
+  return session.mapList.find(map => /* 匹配指定标签页对应的图摘要。 */ map.id === id)?.name ?? '数据图'
 }
-async function homeOpenImport(/* 导入流程确认的新工作区身份，刷新列表后进入该工作区。 */ workspaceId: string) {
-  // 关闭管理面板，刷新工作区列表并进入刚导入的工作区。
+/**
+ * 关闭管理面板，刷新工作区列表并进入刚导入的工作区。
+ *
+ * @param workspaceId 导入流程确认的新工作区身份，刷新列表后进入该工作区。
+ */
+async function homeOpenImport(workspaceId: string) {
   managementOpen.value = false
   await session.loadWorkspaces()
   await session.selectWorkspace(workspaceId)
@@ -303,7 +318,7 @@ async function homeOpenImport(/* 导入流程确认的新工作区身份，刷�
         <h2 id="run-dialog-title">运行数据转换</h2>
         <label>转换<select v-model="runTransitionKey" :disabled="session.busy"><option v-for="item in runnableTransitions" :key="definitionKey(item)" :value="definitionKey(item)">{{ item.title }}</option></select></label>
         <label>处理方式<select v-model="runMode" :disabled="session.busy"><option value="human-in-loop">人工审核角度与结果</option><option value="auto">自动处理并保存结果</option></select></label>
-        <div class="run-node-heading"><strong>选择起点 · {{ runNodeIds.length }} / {{ runNodes.length }}</strong><button type="button" :disabled="session.busy" @click="runNodeIds = runNodes.map(/* 当前图的真实节点，用作批量处理起点候选。 */ node => /* 提取全部合格起点的节点标识。 */ node.id)">全选符合条件的节点</button><button type="button" :disabled="session.busy" @click="runNodeIds = []">清空</button></div>
+        <div class="run-node-heading"><strong>选择起点 · {{ runNodeIds.length }} / {{ runNodes.length }}</strong><button type="button" :disabled="session.busy" @click="runNodeIds = runNodes.map(node => node.id)">全选符合条件的节点</button><button type="button" :disabled="session.busy" @click="runNodeIds = []">清空</button></div>
         <div class="run-node-list"><label v-for="node in runNodes" :key="node.id" class="check"><input v-model="runNodeIds" type="checkbox" :value="node.id" :disabled="session.busy"><span><small>{{ graphReadNodeType(node, session.catalog) }}</small>{{ graphReadNodeText(node, session.catalog) }}</span></label></div>
         <p v-if="!runNodes.length" class="muted">图中没有符合这个转换输入类型的数据。</p>
         <p v-if="runSelectionChanged" class="error">所选节点已变化，请重新选择处理范围。</p>

@@ -2,8 +2,12 @@
 import type { ClientFile } from '../../../../contracts/client'
 
 /** 文件通过浏览器下载入口保存，渲染进程不直接访问文件系统。 */
-export function clientSaveFile(/* 网关已校验的下载文件，含文件名、媒体类型与字节；构造 Blob 时复制字节。 */ file: ClientFile): void {
-  // 用临时 Blob 地址触发浏览器下载，并移除链接和延迟释放地址。
+/**
+ * 用临时 Blob 地址触发浏览器下载，并移除链接和延迟释放地址。
+ *
+ * @param file 网关已校验的下载文件，含文件名、媒体类型与字节；构造 Blob 时复制字节。
+ */
+export function clientSaveFile(file: ClientFile): void {
   const url = URL.createObjectURL(new Blob([Uint8Array.from(file.bytes).buffer], { type: file.mediaType }))
   const link = document.createElement('a')
   link.href = url; link.download = file.filename; link.hidden = true

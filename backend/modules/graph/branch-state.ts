@@ -12,8 +12,12 @@ export interface GraphMutationImpact {
 
 interface BranchPayloadRelation { key: string; from: string; to: string; path: string }
 
-function branchReadPayloadRelations(/* 同一图中带服务端派生引用索引的节点。 */ nodes: readonly GraphNode[]): BranchPayloadRelation[] {
-  // payload reference 不扩大 successor scope，但像 reference edge 一样影响两端的分支版本和写入范围。
+/**
+ * payload reference 不扩大 successor scope，但像 reference edge 一样影响两端的分支版本和写入范围。
+ *
+ * @param nodes 同一图中带服务端派生引用索引的节点。
+ */
+function branchReadPayloadRelations(nodes: readonly GraphNode[]): BranchPayloadRelation[] {
   return nodes.flatMap(node => (node.payloadReferences ?? []).map(reference => ({
     key: `${node.id}\u0000${reference.path}\u0000${reference.targetId}`,
     from: node.id,
@@ -22,17 +26,27 @@ function branchReadPayloadRelations(/* 同一图中带服务端派生引用索�
   }))).sort((left, right) => left.key.localeCompare(right.key))
 }
 
-function branchReadUnique(/* 待规范并检查重复的身份。 */ ids: string[], /* 错误中使用的字段名称。 */ label: string): string[] {
-  // 排序前先拒绝重复身份，避免同一范围因输入次序或重复项形成不同版本。
+/**
+ * 排序前先拒绝重复身份，避免同一范围因输入次序或重复项形成不同版本。
+ *
+ * @param ids 待规范并检查重复的身份。
+ * @param label 错误中使用的字段名称。
+ */
+function branchReadUnique(ids: string[], label: string): string[] {
   if (new Set(ids).size !== ids.length) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTAINS_DUPLICATE_IDS, label))
   return [...ids].sort()
 }
 
+/**
+ * 沿 successor 正向计算含根闭包；reference 不扩大分支，环通过已访问集合有界收敛。
+ *
+ * @param document 包含真实节点和 successor/reference 关系的当前图。
+ * @param rootIds 用户选择的一个或多个实际分支根。
+ */
 export function branchReadScope(
-  /* 包含真实节点和 successor/reference 关系的当前图。 */ document: Pick<GraphDocument, 'nodes' | 'edges'>,
-  /* 用户选择的一个或多个实际分支根。 */ rootIds: string[],
+  document: Pick<GraphDocument, 'nodes' | 'edges'>,
+  rootIds: string[],
 ): GraphBranchScope {
-  // 沿 successor 正向计算含根闭包；reference 不扩大分支，环通过已访问集合有界收敛。
   const roots = branchReadUnique(rootIds, 'rootIds')
   if (!roots.length) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.BRANCH_ROOTS_MUST_NOT_BE_EMPTY)
   const nodes = new Set(document.nodes.map(node => node.id))
@@ -56,11 +70,16 @@ export function branchReadScope(
   return { rootIds: roots, nodeIds: [...visited].sort(), edgeIds }
 }
 
+/**
+ * 绑定范围成员、内容版本和所有相邻关系；无关分支与执行租约不会改变此版本。
+ *
+ * @param document 当前图内容；节点和关系版本均进入摘要。
+ * @param scope 已在相同图上计算的实际分支范围。
+ */
 export function branchReadVersion(
-  /* 当前图内容；节点和关系版本均进入摘要。 */ document: Pick<GraphDocument, 'nodes' | 'edges'>,
-  /* 已在相同图上计算的实际分支范围。 */ scope: GraphBranchScope,
+  document: Pick<GraphDocument, 'nodes' | 'edges'>,
+  scope: GraphBranchScope,
 ): string {
-  // 绑定范围成员、内容版本和所有相邻关系；无关分支与执行租约不会改变此版本。
   const members = new Set(scope.nodeIds)
   const nodes = document.nodes.filter(node => members.has(node.id)).map(node => ({
     id: node.id,
@@ -79,28 +98,43 @@ export function branchReadVersion(
   return storeCreateInputHash({ roots: scope.rootIds, members: scope.nodeIds, nodes, edges, payloadReferences })
 }
 
+/**
+ * 范围和摘要必须从同一份图快照计算，避免把旧成员集合与新内容版本拼在一起。
+ *
+ * @param document 需要生成同一时点范围、版本和公开快照序号的当前图。
+ * @param rootIds 调用方明确选择、共同构成一个授权范围的根。
+ */
 export function branchReadSnapshot(
-  /* 需要生成同一时点范围、版本和公开快照序号的当前图。 */ document: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
-  /* 调用方明确选择、共同构成一个授权范围的根。 */ rootIds: string[],
+  document: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
+  rootIds: string[],
 ): GraphBranchSnapshot {
-  // 范围和摘要必须从同一份图快照计算，避免把旧成员集合与新内容版本拼在一起。
   const scope = branchReadScope(document, rootIds)
   const revisions = new Map(document.nodes.map(node => [node.id, node.revision]))
   return { scope, version: branchReadVersion(document, scope), mapRevision: document.revision,
     rootRevisions: Object.fromEntries(scope.rootIds.map(id => [id, revisions.get(id)!])) }
 }
 
-function branchReadEdges(/* 待建立身份索引的关系集合。 */ edges: GraphEdge[]): Map<string, GraphEdge> {
-  // 以边身份索引当前或修改后的关系，用于同时处理换端点和删除。
+/**
+ * 以边身份索引当前或修改后的关系，用于同时处理换端点和删除。
+ *
+ * @param edges 待建立身份索引的关系集合。
+ */
+function branchReadEdges(edges: GraphEdge[]): Map<string, GraphEdge> {
   return new Map(edges.map(edge => [edge.id, edge]))
 }
 
+/**
+ * 模拟身份和端点变化以计算影响；payload/schema 等完整合法性仍由图服务验证。
+ *
+ * @param nodes 修改前的真实节点集合。
+ * @param edges 修改前的真实关系集合。
+ * @param changes 只需读取身份和端点的局部图修改。
+ */
 function branchApplyForImpact(
-  /* 修改前的真实节点集合。 */ nodes: GraphNode[],
-  /* 修改前的真实关系集合。 */ edges: GraphEdge[],
-  /* 只需读取身份和端点的局部图修改。 */ changes: GraphChanges,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  changes: GraphChanges,
 ): { nodeIds: Set<string>; edges: Map<string, GraphEdge> } {
-  // 模拟身份和端点变化以计算影响；payload/schema 等完整合法性仍由图服务验证。
   const nodeIds = new Set(nodes.map(node => node.id))
   const nextEdges = branchReadEdges(edges)
   for (const id of changes.nodes?.remove ?? []) {
@@ -121,11 +155,16 @@ function branchApplyForImpact(
   return { nodeIds, edges: nextEdges }
 }
 
+/**
+ * 汇总显式节点、旧/新边端点及删节点级联关系，供授权检查使用。
+ *
+ * @param document 修改前的当前图。
+ * @param changes 客户端提交的局部节点和关系变更。
+ */
 export function branchReadImpact(
-  /* 修改前的当前图。 */ document: Pick<GraphDocument, 'nodes' | 'edges'>,
-  /* 客户端提交的局部节点和关系变更。 */ changes: GraphChanges,
+  document: Pick<GraphDocument, 'nodes' | 'edges'>,
+  changes: GraphChanges,
 ): GraphMutationImpact {
-  // 汇总显式节点、旧/新边端点及删节点级联关系，供授权检查使用。
   const impactedNodes = new Set<string>(), impactedEdges = new Set<string>()
   const oldEdges = branchReadEdges(document.edges)
   for (const node of changes.nodes?.put ?? []) impactedNodes.add(node.id)
@@ -154,17 +193,27 @@ export function branchReadImpact(
   return { nodeIds: [...impactedNodes].sort(), edgeIds: [...impactedEdges].sort() }
 }
 
-export function branchScopesOverlap(/* 一侧实际闭包。 */ left: GraphBranchScope, /* 另一侧实际闭包。 */ right: GraphBranchScope): boolean {
-  // 只要共享任意真实数据节点就视为冲突；共享视觉投影或类型定义不构成冲突。
+/**
+ * 只要共享任意真实数据节点就视为冲突；共享视觉投影或类型定义不构成冲突。
+ *
+ * @param left 一侧实际闭包。
+ * @param right 另一侧实际闭包。
+ */
+export function branchScopesOverlap(left: GraphBranchScope, right: GraphBranchScope): boolean {
   const nodes = new Set(left.nodeIds)
   return right.nodeIds.some(id => nodes.has(id))
 }
 
+/**
+ * 过期 editor 不再阻塞；Run 占有无期限。根失效的异常记录不授予任何写权。
+ *
+ * @param document 当前图和持久占有根。
+ * @param now 存储端当前毫秒时间。
+ */
 export function branchReadOwnerships(
-  /* 当前图和持久占有根。 */ document: Pick<GraphDocument, 'nodes' | 'edges' | 'branchOwnerships'>,
-  /* 存储端当前毫秒时间。 */ now: number,
+  document: Pick<GraphDocument, 'nodes' | 'edges' | 'branchOwnerships'>,
+  now: number,
 ): GraphBranchOwnership[] {
-  // 过期 editor 不再阻塞；Run 占有无期限。根失效的异常记录不授予任何写权。
   const result: GraphBranchOwnership[] = []
   for (const ownership of Object.values(document.branchOwnerships ?? {})) {
     if (ownership.kind === 'control') continue
@@ -175,41 +224,63 @@ export function branchReadOwnerships(
   return result
 }
 
+/**
+ * @param document 修改前或修改后的完整图。
+ * @param requested 准备领取或扩充的实际范围。
+ * @param now 存储端当前时间。
+ * @param excludedLeaseId 当前授权自身，拓扑提交时不与自己冲突。
+ */
 export function branchFindOwnershipConflict(
-  /* 修改前或修改后的完整图。 */ document: Pick<GraphDocument, 'nodes' | 'edges' | 'branchOwnerships'>,
-  /* 准备领取或扩充的实际范围。 */ requested: GraphBranchScope,
-  /* 存储端当前时间。 */ now: number,
-  /* 当前授权自身，拓扑提交时不与自己冲突。 */ excludedLeaseId?: string,
+  document: Pick<GraphDocument, 'nodes' | 'edges' | 'branchOwnerships'>,
+  requested: GraphBranchScope,
+  now: number,
+  excludedLeaseId?: string,
 ): GraphBranchOwnership | undefined {
   return branchReadOwnerships(document, now).find(ownership => ownership.leaseId !== excludedLeaseId && branchScopesOverlap(requested, ownership.scope))
 }
 
+/**
+ * @param ownerships 当前持久占有字典。
+ * @param now 存储端当前时间。
+ */
 export function branchPruneOwnerships(
-  /* 当前持久占有字典。 */ ownerships: Record<string, GraphOwnershipRecord> | undefined,
-  /* 存储端当前时间。 */ now: number,
+  ownerships: Record<string, GraphOwnershipRecord> | undefined,
+  now: number,
 ): Record<string, GraphOwnershipRecord> {
   return Object.fromEntries(Object.entries(ownerships ?? {}).filter(([, ownership]) => ownership.kind === 'run'
     || ownership.expiresAt !== null && Date.parse(ownership.expiresAt) > now).map(([id, ownership]) => [id, structuredClone(ownership)]))
 }
 
+/**
+ * 修改及其级联副作用必须完全落在授权范围，不能只校验客户端显式节点列表。
+ *
+ * @param authorized 当前授权覆盖的实际闭包。
+ * @param impact 本次修改的真实影响节点和关系。
+ */
 export function branchValidateImpact(
-  /* 当前授权覆盖的实际闭包。 */ authorized: GraphBranchScope,
-  /* 本次修改的真实影响节点和关系。 */ impact: GraphMutationImpact,
+  authorized: GraphBranchScope,
+  impact: GraphMutationImpact,
 ): void {
-  // 修改及其级联副作用必须完全落在授权范围，不能只校验客户端显式节点列表。
   const nodes = new Set(authorized.nodeIds)
   if (impact.nodeIds.some(id => !nodes.has(id))) {
     throw new GraphError(409, 'BRANCH_SCOPE_CONFLICT', RuntimeMessage.GRAPH_CHANGE_AFFECTS_DATA_OUTSIDE_THE_ACQUIRED_BRANCH)
   }
 }
 
+/**
+ * 既有端点必须已在 before scope；新节点只能通过 successor 进入 after scope。删除全部根后分支消失。
+ *
+ * @param before 修改前、其版本已经与客户端 proof 匹配的图。
+ * @param after 已按 schema、关系和环不变式构造的修改后图。
+ * @param changes 本次局部修改，用于识别直接端点及新节点。
+ * @param authorized 修改前由 proof 根计算出的完整结构范围。
+ */
 export function branchValidateMutation(
-  /* 修改前、其版本已经与客户端 proof 匹配的图。 */ before: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
-  /* 已按 schema、关系和环不变式构造的修改后图。 */ after: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
-  /* 本次局部修改，用于识别直接端点及新节点。 */ changes: GraphChanges,
-  /* 修改前由 proof 根计算出的完整结构范围。 */ authorized: GraphBranchScope,
+  before: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
+  after: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
+  changes: GraphChanges,
+  authorized: GraphBranchScope,
 ): GraphBranchSnapshot | undefined {
-  // 既有端点必须已在 before scope；新节点只能通过 successor 进入 after scope。删除全部根后分支消失。
   const beforeIds = new Set(before.nodes.map(node => node.id))
   const afterIds = new Set(after.nodes.map(node => node.id))
   const allowedBefore = new Set(authorized.nodeIds)
@@ -244,13 +315,20 @@ export function branchValidateMutation(
   return next
 }
 
+/**
+ * 新根快捷路径不能更新旧节点、接触旧边或借 reference 把不相关数据塞进同一提交。
+ *
+ * @param before 新根创建前的图，节点身份必须从未在当前图中存在。
+ * @param after 已完成普通图不变式校验的创建后图。
+ * @param rootIds null 版本提交声明的独立新根。
+ * @param changes 只允许创建一棵完全由新节点组成的 successor 森林。
+ */
 export function branchValidateNewRoots(
-  /* 新根创建前的图，节点身份必须从未在当前图中存在。 */ before: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
-  /* 已完成普通图不变式校验的创建后图。 */ after: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
-  /* null 版本提交声明的独立新根。 */ rootIds: string[],
-  /* 只允许创建一棵完全由新节点组成的 successor 森林。 */ changes: GraphChanges,
+  before: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
+  after: Pick<GraphDocument, 'nodes' | 'edges' | 'revision'>,
+  rootIds: string[],
+  changes: GraphChanges,
 ): GraphBranchSnapshot {
-  // 新根快捷路径不能更新旧节点、接触旧边或借 reference 把不相关数据塞进同一提交。
   const oldIds = new Set(before.nodes.map(node => node.id))
   const puts = changes.nodes?.put ?? [], newIds = new Set(puts.map(node => node.id))
   if (!rootIds.length || rootIds.some(id => oldIds.has(id) || !newIds.has(id))

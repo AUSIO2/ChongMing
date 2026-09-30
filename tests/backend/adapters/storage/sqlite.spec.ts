@@ -26,8 +26,12 @@ async function sqliteCreateFixture() {
   cleanup.push(() => /* 关闭测试创建的 SQLite 持久化连接。 */  database.close())
   return { directory, database }
 }
-async function sqliteCreateApp(/* 夹具创建的 SQLite 持久化连接，应用共用它但清理由外层登记。 */ database: SqlitePersistence) {
-  // 基于给定数据库启动已初始化和配置的本机应用及消息服务。
+/**
+ * 基于给定数据库启动已初始化和配置的本机应用及消息服务。
+ *
+ * @param database 夹具创建的 SQLite 持久化连接，应用共用它但清理由外层登记。
+ */
+async function sqliteCreateApp(database: SqlitePersistence) {
   const app = applicationCreateLocalService(database, { leaseMs: 250 })
   cleanup.push(() => /* 停止夹具应用的进程内消息服务。 */  app.closeMessaging())
   await app.initialize(); await app.control.seed(verificationConfiguration()); await app.startMessaging()
@@ -42,24 +46,24 @@ describe('Independent SQLite persistence', () => {
     expect(() => /* 尝试重复打开同一数据库以验证独占锁。 */  sqliteCreatePersistence(directory)).toThrow()
     const records = database.records<{ _id: string; value: number }>('test')
     const changes: unknown[] = []
-    database.subscribe(/* 成功提交后发布的记录变更批次，保存以验证回滚不产生通知。 */ items => /* 记录提交后通知，供回滚不通知的断言使用。 */  changes.push(items))
-    await expect(database.transaction(async /* 故意失败事务的活动会话，插入必须在此会话中才能随异常回滚。 */ tx => {
+    database.subscribe(items => /* 记录提交后通知，供回滚不通知的断言使用。 */  changes.push(items))
+    await expect(database.transaction(async tx => {
       // 插入记录后抛错，验证事务整体回滚。
        await records.insert({ _id: 'a', value: 1 }, tx); throw new Error('rollback') })).rejects.toThrow('rollback')
     expect(await records.get('a')).toBeNull()
     expect(changes).toEqual([])
     let entered!: () => void, release!: () => void
-    const ready = new Promise<void>(/* 事务已写入但尚未提交的通知回调，用来协调外部读取时机。 */ resolve => {
+    const ready = new Promise<void>(resolve => {
       // 保存事务已写入的同步点通知回调。
-       entered = resolve }), gate = new Promise<void>(/* 允许挂起事务继续提交的回调，由用例断言隔离性后显式调用。 */ resolve => {
+       entered = resolve }), gate = new Promise<void>(resolve => {
       // 保存允许挂起事务继续提交的释放回调。
        release = resolve })
-    const writing = database.transaction(async /* 被用例暂停的写事务会话，记录插入保持未提交状态。 */ tx => {
+    const writing = database.transaction(async tx => {
       // 在事务内写入记录后暂停，让外部读取验证隔离性。
        await records.insert({ _id: 'a', value: 2 }, tx); entered(); await gate })
     await ready
     let readFinished = false
-    const reading = records.get('a').then(/* 外部读取完成后得到的记录副本，用于标记读取何时真正结束。 */ value => {
+    const reading = records.get('a').then(value => {
       // 标记外部读取实际结束并透传结果。
        readFinished = true; return value })
     await Promise.resolve()
@@ -108,7 +112,7 @@ describe('Independent SQLite persistence', () => {
     const { database, directory } = await sqliteCreateFixture(), app = await sqliteCreateApp(database)
     const user = await app.auth.createUser({ id: randomUUID(), displayName: 'Local', hostAdmin: true })
     const { token } = await app.auth.createToken(user.userId)
-    const workspace = await app.auth.transact(token, /* 拥有者令牌对应的授权事务上下文，工作区创建沿用其会话。 */ ctx => /* 在用户授权事务中创建本机工作区。 */  app.control.createWorkspace(ctx, { id: randomUUID(), name: 'Local', description: '', agentSource: 'library' }))
+    const workspace = await app.auth.transact(token, ctx => /* 在用户授权事务中创建本机工作区。 */  app.control.createWorkspace(ctx, { id: randomUUID(), name: 'Local', description: '', agentSource: 'library' }))
     const mapId = randomUUID(), claimId = randomUUID()
     const create = { requestId: randomUUID(), method: 'map.create' as const, params: { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Local graph' } }
     expect((await app.dispatch(token, create)).replayed).toBe(false)
@@ -130,7 +134,7 @@ describe('Independent SQLite persistence', () => {
     if (!('status' in first) || first.status !== 'claimed') throw new Error('Claim missing')
     const grant = first.grant
     const before = await app.readSnapshot(token, mapId)
-    await expect(app.auth.transact(token, async /* 准备主动失败的授权事务上下文，测试业务记录与身份写入一起回滚。 */ ctx => {
+    await expect(app.auth.transact(token, async ctx => {
       // 授权事务写入后主动失败，验证业务记录随事务回滚。
       await database.records<{ _id: string; marker?: boolean }>('test').insert({ _id: 'never', marker: true }, ctx.session)
       throw new Error('reject')
@@ -178,11 +182,11 @@ describe('Independent SQLite persistence', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'chongming-crash-'))
     cleanup.push(() => /* 清理强杀恢复用例的临时目录。 */  rm(directory, { recursive: true, force: true }))
     const child = spawn(process.execPath, ['--import', 'tsx', 'tests/backend/fixtures/sqlite-crash.ts', directory], { stdio: ['ignore', 'pipe', 'pipe'] })
-    const ended = new Promise<void>((/* 崩溃夹具子进程退出后兑现等待的回调。 */ resolve, /* 子进程启动出错时拒绝退出等待的回调。 */ reject) => {
+    const ended = new Promise<void>((resolve, reject) => {
       // 等待测试子进程退出，并传播启动失败。
        child.once('exit', () => /* 通知崩溃夹具进程已经结束。 */  resolve()); child.once('error', reject) })
     let output = ''
-    child.stdout.on('data', /* 崩溃夹具 stdout 字节块，累积后查找事务已打开的同步标记。 */ chunk => {
+    child.stdout.on('data', chunk => {
       // 收集夹具 stdout，等待事务打开的确定性标记。
        output += chunk })
     try {

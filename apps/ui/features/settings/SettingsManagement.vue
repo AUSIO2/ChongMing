@@ -23,29 +23,33 @@ const validation = computed(() => {
   // 校验模型默认值、槽位数量、工具名称和重复项，返回首条表单错误。
   if (!provider.value.trim() || !model.value.trim()) return '请填写默认供应方与模型。'
   if (!Number.isInteger(maxSlots.value) || maxSlots.value < 1 || maxSlots.value > 32) return '最大角度数必须是 1–32 的整数。'
-  if (tools.value.some(/* 草稿中的待校验工具条目，只检查名称和说明。 */ tool =>
+  if (tools.value.some(tool =>
     /* 检测工具名称格式或说明是否无效。 */
     !/^[a-zA-Z0-9_-]{1,64}$/.test(tool.name.trim()) || !tool.description.trim())) return '每个工具需填写有效名称和说明；名称只使用字母、数字、下划线或短横线。'
-  if (new Set(tools.value.map(/* 草稿中的工具条目，取规范化名称供重复检查。 */ tool => /* 提取去掉首尾空白的工具名称，用于检查重复。 */ tool.name.trim())).size !== tools.value.length) return '工具名称不能重复。'
+  if (new Set(tools.value.map(tool => /* 提取去掉首尾空白的工具名称，用于检查重复。 */ tool.name.trim())).size !== tools.value.length) return '工具名称不能重复。'
   return ''
 })
-function settingsReadDraft(/* 要载入的服务端设置；默认使用当前启动信息，复制工具条目后重置表单基线。 */ settings = props.bootstrap.settings) {
-  // 载入设置到编辑字段，复制工具项并重置版本和内容基线。
+/**
+ * 载入设置到编辑字段，复制工具项并重置版本和内容基线。
+ *
+ * @param settings 要载入的服务端设置；默认使用当前启动信息，复制工具条目后重置表单基线。
+ */
+function settingsReadDraft(settings = props.bootstrap.settings) {
   provider.value = settings.llm.provider; model.value = settings.llm.model; maxSlots.value = settings.limits.maxAgentSlots
-  tools.value = settings.tools.map(/* 服务端设置中的工具条目，复制后才交给表单编辑。 */ tool =>
+  tools.value = settings.tools.map(tool =>
     /* 复制工具条目，使表单修改不直接变动服务端设置对象。 */
     ({ ...tool })); revision.value = settings.revision; baseline.value = serialized.value
 }
-watch(() => /* 观察启动信息中的全局设置变动。 */ props.bootstrap.settings, /* 父组件刷新后的全局设置，只在没有未保存草稿时载入。 */ settings => {
+watch(() => /* 观察启动信息中的全局设置变动。 */ props.bootstrap.settings, settings => {
   // 仅在尚无基线或草稿未修改时接纳服务端设置。
   if (!baseline.value || !dirty.value) settingsReadDraft(settings)
 }, { immediate: true })
 async function settingsUpdate() {
   // 校验编辑权限、脏状态和版本后提交全局设置。
   if (!editable.value || !dirty.value || conflict.value || validation.value) return
-  await task.command('settings.update', { expectedRevision: revision.value, llm: { provider: provider.value.trim(), model: model.value.trim() }, tools: tools.value.map(/* 待提交的草稿工具条目，名称去空白后构造新对象。 */ tool =>
+  await task.command('settings.update', { expectedRevision: revision.value, llm: { provider: provider.value.trim(), model: model.value.trim() }, tools: tools.value.map(tool =>
     /* 去除工具名称首尾空白，并保留工具说明用于提交。 */
-    ({ name: tool.name.trim(), description: tool.description })), limits: { maxAgentSlots: maxSlots.value } }, /* 设置保存成功的响应，data 用作新的表单内容和版本基线。 */ result => {
+    ({ name: tool.name.trim(), description: tool.description })), limits: { maxAgentSlots: maxSlots.value } }, result => {
     // 用保存成功的设置重置草稿，并通知父组件刷新管理信息。
     settingsReadDraft(result.data); emit('changed')
   })

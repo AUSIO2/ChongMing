@@ -73,8 +73,8 @@ describe('RabbitMQ work transport', () => {
     // 验证工作直到确认才移出队列，变更广播可独立抵达多个订阅者。
     const f = await fixture(), producer = await f.open(), worker = await f.open(), peer = await f.open()
     const a: string[] = [], b: string[] = []
-    const stopA = await worker.subscribeChanges(/* 第一个 API 订阅者收到的合法图变更，记录其 mapId。 */ event => /* 记录第一个订阅者收到的图身份。 */  a.push(event.mapId!))
-    const stopB = await peer.subscribeChanges(/* 第二个独立订阅者收到的合法变更，记录其图身份用于比较广播结果。 */ event => /* 记录第二个订阅者收到的图身份。 */  b.push(event.mapId!))
+    const stopA = await worker.subscribeChanges(event => /* 记录第一个订阅者收到的图身份。 */  a.push(event.mapId!))
+    const stopB = await peer.subscribeChanges(event => /* 记录第二个订阅者收到的图身份。 */  b.push(event.mapId!))
     const item = notice()
     await producer.publishWork(item)
     const before = await f.channel.checkQueue(f.config.namespace + '.work')
@@ -84,7 +84,7 @@ describe('RabbitMQ work transport', () => {
       // 等待两个订阅者均收到同一图广播。
        expect(a).toEqual([item.mapId]); expect(b).toEqual(a) })
     const stop = new AbortController(), seen: QueueWork[] = []
-    const running = worker.consumeWork(async /* 真实 broker 投递并经协议解析的工作通知，记录后返回 ack。 */ work => {
+    const running = worker.consumeWork(async work => {
       // 记录消费到的工作并确认投递。
        seen.push(work); return 'ack' }, stop.signal)
     await vi.waitFor(() => /* 等待消费者收到唯一的目标工作。 */  expect(seen).toEqual([item]))
@@ -100,7 +100,7 @@ describe('RabbitMQ work transport', () => {
       // 统计真正进入业务处理器的变更提示。
        seen++ })
     f.channel.publish(f.config.namespace + '.events', '', Buffer.from('{"invalid":true}'))
-    await new Promise(/* 短暂投递观察窗口结束时的回调，允许畸形消息先被消费。 */ resolve => /* 等待短暂投递窗口，验证畸形提示没有被转交。 */  setTimeout(resolve, 50))
+    await new Promise(resolve => /* 等待短暂投递窗口，验证畸形提示没有被转交。 */  setTimeout(resolve, 50))
     expect(seen).toBe(0)
     expect(malformed.signal.aborted).toBe(false)
     const stopBroken = await broken.subscribeChanges(() => {
@@ -125,20 +125,20 @@ describe('RabbitMQ work transport', () => {
     const f = await fixture(), producer = await f.open(), worker = await f.open(), item = notice()
     await producer.publishWork(item)
     const stop = new AbortController(), order: string[] = []
-    const running = worker.consumeWork(async (/* 当前收到的工作通知，应与最初发布对象完全相同。 */ work, /* 本次投递的取消信号，用来验证关闭会等待处理器收尾。 */ signal) => {
+    const running = worker.consumeWork(async (work, signal) => {
       // 首次返回重试，第二次等待取消并模拟异步清理。
       expect(work).toEqual(item)
       if (!order.length) { order.push('retry'); return 'retry' }
       order.push('started')
-      await new Promise<void>(/* 收到投递取消后兑现处理器等待的回调。 */ resolve => /* 等待当前投递的取消信号。 */  signal.addEventListener('abort', () => /* 取消发生后解除处理器等待。 */  resolve(), { once: true }))
-      await new Promise(/* 模拟执行器清理延迟结束后的兑现函数。 */ resolve => /* 模拟执行器需要短暂时间释放资源。 */  setTimeout(resolve, 20))
+      await new Promise<void>(resolve => /* 等待当前投递的取消信号。 */  signal.addEventListener('abort', () => /* 取消发生后解除处理器等待。 */  resolve(), { once: true }))
+      await new Promise(resolve => /* 模拟执行器需要短暂时间释放资源。 */  setTimeout(resolve, 20))
       order.push('drained'); return 'ack'
     }, stop.signal)
     await vi.waitFor(() => /* 等待第一次重试完成且第二次投递已开始处理。 */  expect(order).toEqual(['retry', 'started']))
     stop.abort(); await running
     expect(order).toEqual(['retry', 'started', 'drained'])
     const replacement = await f.open(), finish = new AbortController(), delivered: QueueWork[] = []
-    const recovery = replacement.consumeWork(async /* 替代消费者收到的未确认原工作，记录后正常确认。 */ work => {
+    const recovery = replacement.consumeWork(async work => {
       // 记录新消费者恢复的未确认工作并发送确认。
        delivered.push(work); return 'ack' }, finish.signal)
     await vi.waitFor(() => /* 等待新消费者收到原来的工作消息。 */  expect(delivered).toEqual([item]))
@@ -152,10 +152,10 @@ describe('RabbitMQ work transport', () => {
     for (const item of items) await producer.publishWork(item)
     const stop = new AbortController(), started: QueueWork[] = [], releases = new Map<string, () => void>()
     let active = 0, maximum = 0
-    const running = worker.consumeWork(async (/* broker 在容量内投递的一份工作，按 workId 等待测试释放。 */ work) => {
+    const running = worker.consumeWork(async (work) => {
       // 记录活动处理器数并允许后启动项先确认，供独立 ACK 与关闭排空断言使用。
       started.push(work); active++; maximum = Math.max(maximum, active)
-      await new Promise<void>(/* 当前消息处理的完成开关，由用例按乱序释放。 */ resolve => {
+      await new Promise<void>(resolve => {
         // 保存当前 workId 对应的释放函数。
         releases.set(work.workId, resolve)
       })
@@ -176,13 +176,13 @@ describe('RabbitMQ work transport', () => {
       // 标记消费者完成全部在途清理，用于确认最早任务仍能阻止关闭完成。
       drained = true
     })
-    await new Promise<void>(/* 让出一个事件循环轮次观察排空状态。 */ resolve => /* 下一轮检查消费者仍未完成。 */ setImmediate(resolve))
+    await new Promise<void>(resolve => /* 下一轮检查消费者仍未完成。 */ setImmediate(resolve))
     expect(drained).toBe(false)
     releases.get(held.workId)!()
     await running
     expect(active).toBe(0)
     const replacement = await f.open(), finish = new AbortController(), recovered: QueueWork[] = []
-    const recovery = replacement.consumeWork(async /* 新连接收到的未确认投递，应只有停止时仍活动的第一项。 */ work => {
+    const recovery = replacement.consumeWork(async work => {
       // 保存恢复项并确认，已独立确认的另外两项不得再次出现。
       recovered.push(work); return 'ack'
     }, finish.signal, { concurrency: 2 })
@@ -194,14 +194,14 @@ describe('RabbitMQ work transport', () => {
     // 模拟 TCP 黑洞，验证发布确认超时后连接及 Promise 都在有界时间内结束。
     const f = await fixture(), broker = new URL(f.config.url), sockets = new Set<Socket>()
     let blackhole = false, producer: QueueLink | undefined
-    const proxy = createServer(/* 发布连接连入黑洞代理的客户端套接字，与 broker 上游成对管理。 */ client => {
+    const proxy = createServer(client => {
       // 建立可切换黑洞的双向 TCP 代理，跟踪所有套接字以验证释放。
       const upstream = connectTcp(Number(broker.port || 5672), broker.hostname)
       sockets.add(client); sockets.add(upstream)
-      client.on('data', /* 客户端发往 broker 的字节块，黑洞开启后故意不转发。 */ data => {
+      client.on('data', data => {
         // 黑洞关闭前转发客户端发往 broker 的字节。
          if (!blackhole) upstream.write(data) })
-      upstream.on('data', /* broker 发往客户端的字节块，黑洞开启后故意丢弃以阻断确认。 */ data => {
+      upstream.on('data', data => {
         // 黑洞关闭前转发 broker 发往客户端的字节。
          if (!blackhole) client.write(data) })
       for (const socket of [client, upstream]) {
@@ -213,11 +213,11 @@ describe('RabbitMQ work transport', () => {
            sockets.delete(socket); client.destroy(); upstream.destroy() })
       }
     })
-    await new Promise<void>(/* 黑洞代理绑定本地端口后的启动完成回调。 */ resolve => /* 等待黑洞代理绑定本地临时端口。 */  proxy.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>(resolve => /* 等待黑洞代理绑定本地临时端口。 */  proxy.listen(0, '127.0.0.1', resolve))
     cleanups.push(async () => {
       // 销毁代理连接并关闭监听，确保失败回归也不会卡在未完成连接上。
       for (const socket of sockets) socket.destroy()
-      await new Promise<void>((/* 代理正常停止监听后兑现清理等待的回调。 */ resolve, /* 代理关闭失败时拒绝清理等待的回调。 */ reject) => /* 把代理关闭回调转换为可等待清理。 */  proxy.close(/* TCP 代理关闭返回的可选错误，传给清理 Promise。 */ error => /* 传递代理关闭的错误或成功状态。 */  error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) => /* 把代理关闭回调转换为可等待清理。 */  proxy.close(error => /* 传递代理关闭的错误或成功状态。 */  error ? reject(error) : resolve()))
       // The regression itself is an unresolved close promise; destroyed sockets bound failure cleanup.
       void producer?.close()
     })
@@ -231,7 +231,7 @@ describe('RabbitMQ work transport', () => {
     producer.signal.addEventListener('abort', () => {
       // 记录连接被取消的单调时间，用于衡量发布收尾时限。
        abortedAt = performance.now() }, { once: true })
-    void producer.publishWork(notice()).catch(/* 发布在确认期限后产生的错误，保留用于核对超时错误码。 */ error => {
+    void producer.publishWork(notice()).catch(error => {
       // 保存未获确认发布的实际错误。
        failure = error }).finally(() => {
       // 记录发布 Promise 结束状态和时间。

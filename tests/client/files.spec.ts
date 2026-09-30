@@ -9,17 +9,24 @@ import { CLIENT_FILE_LIMIT } from '../../contracts/client'
 const servers: Server[] = []
 afterEach(async () => {
   // 每个用例结束后关闭测试 HTTP 服务及其存量连接。
-  for (const server of servers.splice(0)) { server.closeAllConnections(); await new Promise<void>(/* Promise 完成入口，测试服务器关闭后调用。 */ resolve =>
+  for (const server of servers.splice(0)) { server.closeAllConnections(); await new Promise<void>(resolve =>
     /* 把服务器关闭回调转换为可等待的 Promise。 */
     server.close(() =>
       /* 服务器关闭完成后结束清理等待。 */
       resolve())) }
 })
+/**
+ * @param bytes 待计算摘要的测试字节，只读。
+ */
 const digest = (
-  /* 待计算摘要的测试字节，只读。 */ bytes: Uint8Array
+  bytes: Uint8Array
 ) => /* 计算测试字节的 SHA-256 摘要，用于构造和核对文件响应。 */ createHash('sha256').update(bytes).digest('hex')
-function fileResponse(/* 要返回的文件字节；默认使用 fixture 文本的 UTF-8 编码。 */ bytes = new TextEncoder().encode('fixture')) {
-  // 构造带长度、摘要和中文下载文件名的有效文件响应。
+/**
+ * 构造带长度、摘要和中文下载文件名的有效文件响应。
+ *
+ * @param bytes 要返回的文件字节；默认使用 fixture 文本的 UTF-8 编码。
+ */
+function fileResponse(bytes = new TextEncoder().encode('fixture')) {
   return new Response(bytes, { headers: { 'content-type': 'text/plain', 'content-length': String(bytes.byteLength),
     'content-disposition': "attachment; filename*=UTF-8''%E6%96%87%E4%BB%B6.txt", etag: '"' + digest(bytes) + '"' } })
 }
@@ -29,14 +36,14 @@ describe('bounded authenticated file client', () => {
   it('validates the decoded file digest when HTTP compression changes the wire length', async () => {
     // 验证 HTTP 压缩改变传输长度后仍按解压字节校验摘要。
     const original = Buffer.from('可被代理压缩的来源文件'), compressed = gzipSync(original)
-    const server = createServer((/* Node 提供的 HTTP 请求，本压缩响应夹具不检查其内容。 */ _request, /* Node 提供的响应写入端，写入压缩头、内容及原文摘要后结束。 */ response) => {
+    const server = createServer((_request, response) => {
       // 返回压缩内容与原始字节摘要，模拟代理压缩文件响应。
       response.writeHead(200, { 'content-type': 'text/plain', 'content-encoding': 'gzip', 'content-length': compressed.length,
         'content-disposition': 'attachment; filename="source.txt"', etag: '"' + digest(original) + '"' })
       response.end(compressed)
     })
     servers.push(server)
-    await new Promise<void>(/* 服务绑定临时端口后调用的 Promise 完成入口。 */ resolve => /* 监听本机临时端口，服务就绪时结束等待。 */ server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>(resolve => /* 监听本机临时端口，服务就绪时结束等待。 */ server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('Missing fixture port')
     const client = clientCreateApi({ baseUrl: 'http://127.0.0.1:' + address.port, token: 'token' })
@@ -48,8 +55,8 @@ describe('bounded authenticated file client', () => {
     const workspaceId = randomUUID(), requestId = randomUUID(), assetId = randomUUID()
     const seen: Array<{ url: string; digest: unknown; key: unknown; bytes: Buffer; auth: unknown }> = []
     const server = createServer(async (
-      /* 客户端实际发出的上传请求，读取正文、身份、摘要和认证头供断言。 */ request,
-      /* 上传服务的响应写入端，返回与实际收到字节匹配的资产数据。 */ response
+      request,
+      response
     ) => {
       // 记录实际上传头和字节，再返回与文件匹配的资产响应。
       const chunks: Buffer[] = []
@@ -62,7 +69,7 @@ describe('bounded authenticated file client', () => {
       } }))
     })
     servers.push(server)
-    await new Promise<void>(/* 临时上传服务开始监听后调用的完成入口。 */ resolve => /* 监听本机临时端口，供真实上传请求访问。 */ server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>(resolve => /* 监听本机临时端口，供真实上传请求访问。 */ server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('Missing fixture port')
     const client = clientCreateApi({ baseUrl: 'http://127.0.0.1:' + address.port, token: 'file-token' })
@@ -89,7 +96,7 @@ describe('bounded authenticated file client', () => {
     const file = await client.download({ kind: 'asset', id })
     expect(file.filename).toBe('文件.txt'); expect(new TextDecoder().decode(file.bytes)).toBe('fixture')
     await client.download({ kind: 'map', id }); await client.download({ kind: 'workspace', id })
-    expect(fetcher.mock.calls.map(/* Vitest 记录的一次 Fetch 调用参数，首项是请求地址。 */ call => /* 提取已调用 URL，供固定下载路径断言。 */ String(call[0]))).toEqual([
+    expect(fetcher.mock.calls.map(call => /* 提取已调用 URL，供固定下载路径断言。 */ String(call[0]))).toEqual([
       'https://fixture.example/api/v1/assets/' + id + '/content',
       'https://fixture.example/api/v1/maps/' + id + '/export',
       'https://fixture.example/api/v1/workspaces/' + id + '/export',
@@ -114,8 +121,13 @@ describe('bounded authenticated file client', () => {
   it('rejects excess streamed bytes, checksum errors, malformed names and length mismatches', async () => {
     // 验证流式超限、摘要错误、危险文件名和长度不符均返回对应错误。
     const chunk = new Uint8Array(CLIENT_FILE_LIMIT / 2 + 1)
-    const streamed = new Response(new ReadableStream({ start(/* 测试可读流的生产端，追加超限字节后主动关闭。 */ controller) {
-      // 产生超过文件大小上限的两个数据块后结束响应流。
+    const streamed = new Response(new ReadableStream({
+                                                       /**
+                                                        * 产生超过文件大小上限的两个数据块后结束响应流。
+                                                        *
+                                                        * @param controller 测试可读流的生产端，追加超限字节后主动关闭。
+                                                        */
+                                                       start(controller) {
       controller.enqueue(chunk); controller.enqueue(chunk); controller.close()
     } }))
     const badHash = fileResponse(); badHash.headers.set('etag', '"' + '0'.repeat(64) + '"')
@@ -133,11 +145,11 @@ describe('bounded authenticated file client', () => {
   it('preserves cancellation and structured authorization errors on file requests', async () => {
     // 验证文件请求取消保留取消错误，服务端拒绝保留结构化权限错误。
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (
-      /* 被模拟 Fetch 接收到的地址；本用例只验证取消，故不使用。 */ _url,
-      /* 被模拟 Fetch 的请求选项，从中监听客户端传入的取消信号。 */ init
+      _url,
+      init
     ) => /* 模拟只有取消信号才结束的文件网络请求。 */ new Promise((
-      /* 网络 Promise 的完成入口，本用例让请求只因取消而失败。 */ _resolve,
-      /* 网络 Promise 的拒绝入口，取消时注入模拟网络错误。 */ reject
+      _resolve,
+      reject
     ) => {
       // 为测试网络请求安装取消拒绝回调。
       init!.signal!.addEventListener('abort', () => /* 收到取消后拒绝模拟网络请求。 */ reject(new Error('aborted')), { once: true })
@@ -152,12 +164,16 @@ describe('bounded authenticated file client', () => {
   })
 
   it('rejects a late download after the gateway disconnects', async () => {
-    // 验证网关断开后不会接纳迟到的下载结果。
-    let deliver!: (/* 测试稍后手动交付的文件 HTTP 响应。 */ response: Response) => void
+    /**
+     * 验证网关断开后不会接纳迟到的下载结果。
+     *
+     * @param response 测试稍后手动交付的文件 HTTP 响应。
+     */
+    let deliver!: (response: Response) => void
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ ok: true, requestId: randomUUID(), replayed: false, data: {
       identity: { userId: randomUUID(), displayName: 'Owner', hostAdmin: false },
       settings: { revision: 0, llm: {}, tools: [], limits: {} }, metadata: {},
-    } })).mockImplementationOnce(async () => /* 延迟文件响应，供测试在断开连接后手动交付。 */ new Promise(/* 延迟 Fetch 的完成入口，保存后供断开连接再交付响应。 */ resolve => {
+    } })).mockImplementationOnce(async () => /* 延迟文件响应，供测试在断开连接后手动交付。 */ new Promise(resolve => {
         // 保存延迟响应的完成函数。
         deliver = resolve
     }))

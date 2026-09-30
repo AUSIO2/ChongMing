@@ -79,19 +79,31 @@ export interface GraphDocument {
 
 export const GRAPH_COLLECTION = 'graphv3'
 
-function storeIsObject(/* 从持久化层读取、需要按记录字段检查的未知值。 */ value: unknown): value is Record<string, unknown> {
-  // 持久化协议中的记录必须是普通 JSON/BSON 对象，数组和 null 不属于记录。
+/**
+ * 持久化协议中的记录必须是普通 JSON/BSON 对象，数组和 null 不属于记录。
+ *
+ * @param value 从持久化层读取、需要按记录字段检查的未知值。
+ */
+function storeIsObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function storeRejectLegacy(/* 需要区分节点和运行迁移错误的协议错误码。 */ code: 'NODE_SCHEMA_UNSUPPORTED' | 'RUN_SCHEMA_UNSUPPORTED'): never {
-  // 旧节点与旧 Run 只能由停机迁移命令改写，读取路径绝不猜测其新类型或执行阶段。
+/**
+ * 旧节点与旧 Run 只能由停机迁移命令改写，读取路径绝不猜测其新类型或执行阶段。
+ *
+ * @param code 需要区分节点和运行迁移错误的协议错误码。
+ */
+function storeRejectLegacy(code: 'NODE_SCHEMA_UNSUPPORTED' | 'RUN_SCHEMA_UNSUPPORTED'): never {
   throw new GraphError(409, code, RuntimeMessage.STOP_HOSTS_AND_RUN_THE_EXPLICIT_DATA_MIGRATE_NODE_RUNS_COMMAND)
 }
 
 /** Refuse pre-077 node/run/work records instead of silently interpreting them as generic data. */
-export function storeAssertCurrentGraphSchema(/* Mongo BSON 或 SQLite JSON 解码出的完整图记录。 */ value: unknown): void {
-  // 浅检查所有决定数据含义和执行授权的字段；更深的业务合同由图服务和冻结定义验证。
+/**
+ * 浅检查所有决定数据含义和执行授权的字段；更深的业务合同由图服务和冻结定义验证。
+ *
+ * @param value Mongo BSON 或 SQLite JSON 解码出的完整图记录。
+ */
+export function storeAssertCurrentGraphSchema(value: unknown): void {
   if (!storeIsObject(value) || !Array.isArray(value.nodes)) storeRejectLegacy('NODE_SCHEMA_UNSUPPORTED')
   for (const node of value.nodes) {
     if (!storeIsObject(node) || 'data' in node || typeof node.typeId !== 'string' || !node.typeId
@@ -137,17 +149,25 @@ export function storeAssertCurrentGraphSchema(/* Mongo BSON 或 SQLite JSON 解�
   if (value.ownershipRevision !== undefined && (!Number.isSafeInteger(value.ownershipRevision) || Number(value.ownershipRevision) < 0)) storeRejectLegacy('RUN_SCHEMA_UNSUPPORTED')
 }
 
-function storeFormatCanonical(/* 需要生成稳定序列化表示的任意业务输入。 */ value: unknown): string {
-  // 递归排序对象键并保留数组顺序，生成不受对象字段插入顺序影响的摘要原文。
+/**
+ * 递归排序对象键并保留数组顺序，生成不受对象字段插入顺序影响的摘要原文。
+ *
+ * @param value 需要生成稳定序列化表示的任意业务输入。
+ */
+function storeFormatCanonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(storeFormatCanonical).join(',')}]`
   const object = value as Record<string, unknown>
-  return `{${Object.keys(object).sort().map(/* 规范化对象中当前按字典序处理的字段名。 */ key => /* 将排序后的键与其规范化值拼成稳定的对象成员表示。 */
+  return `{${Object.keys(object).sort().map(key => /* 将排序后的键与其规范化值拼成稳定的对象成员表示。 */
     `${JSON.stringify(key)}:${storeFormatCanonical(object[key])}`,
   ).join(',')}}`
 }
 
-export function storeCreateInputHash(/* 需要绑定到收据或配置比较的业务输入。 */ value: unknown): string {
-  // 对规范化输入计算 SHA-256，用于比较请求内容和执行配置是否相同。
+/**
+ * 对规范化输入计算 SHA-256，用于比较请求内容和执行配置是否相同。
+ *
+ * @param value 需要绑定到收据或配置比较的业务输入。
+ */
+export function storeCreateInputHash(value: unknown): string {
   return createHash('sha256').update(storeFormatCanonical(value)).digest('hex')
 }

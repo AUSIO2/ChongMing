@@ -21,10 +21,10 @@ describe('DSH display-only activity', () => {
     // 模拟活动端点停滞，验证高频更新仍只有一个请求且关闭能够取消等待。
     const controller = new AbortController()
     const calls: RequestInit[] = []
-    vi.stubGlobal('fetch', vi.fn((/* 被替换 fetch 收到的目标地址，此停滞模拟不按 URL 路由。 */ _url, /* 活动报告器发出的请求选项，用于记录载荷和监听取消信号。 */ init: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn((_url, init: RequestInit) => {
       // 记录显示请求并让其一直等待取消，模拟无响应端点。
       calls.push(init)
-      return new Promise((/* 挂起请求的成功回调，本用例刻意永不成功因此不使用。 */ _resolve, /* 请求被取消时的拒绝回调，以原取消原因结束挂起调用。 */ reject) => /* 将测试请求的取消信号连接到拒绝回调。 */  init.signal!.addEventListener('abort', () => /* 按取消原因结束挂起的显示请求。 */  reject(init.signal!.reason), { once: true }))
+      return new Promise((_resolve, reject) => /* 将测试请求的取消信号连接到拒绝回调。 */  init.signal!.addEventListener('abort', () => /* 按取消原因结束挂起的显示请求。 */  reject(init.signal!.reason), { once: true }))
     }))
     const grant = { workId: 'work', holderId: 'holder', fence: 1, mapId: 'map' } as GraphWorkGrant
     const reporter = activityCreateReporter({ dataApiUrl: 'http://localhost', token: 'private', grant, signal: controller.signal })

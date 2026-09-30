@@ -45,43 +45,74 @@ export const BUNDLE_BYTE_LIMIT = ASSET_BYTE_LIMIT
 
 const LEGACY_TYPE_IDS = ['source', 'news', 'claim', 'evidence', 'opinion', 'verification'] as const
 
-function bundlesInvalid(/* 可向导入用户报告且不回显包内私密内容的原因。 */ reason: string): never {
-  // 数据包结构、引用闭包和摘要错误都在这个边界拒绝。
+/**
+ * 数据包结构、引用闭包和摘要错误都在这个边界拒绝。
+ *
+ * @param reason 可向导入用户报告且不回显包内私密内容的原因。
+ */
+function bundlesInvalid(reason: string): never {
   throw new GraphError(422, 'BUNDLE_INVALID', reason)
 }
 
-export function bundlesAssertSize(/* 需要按完整 JSON 序列化大小检查上限的数据包输入。 */ value: unknown): void {
-  // 按 UTF-8 序列化后的完整 JSON 大小检查数据包上限，计入附件的 Base64 膨胀。
+/**
+ * 按 UTF-8 序列化后的完整 JSON 大小检查数据包上限，计入附件的 Base64 膨胀。
+ *
+ * @param value 需要按完整 JSON 序列化大小检查上限的数据包输入。
+ */
+export function bundlesAssertSize(value: unknown): void {
   if (Buffer.byteLength(JSON.stringify(value), 'utf8') > BUNDLE_BYTE_LIMIT) throw new GraphError(413, 'BUNDLE_LIMIT', RuntimeMessage.THE_COMPLETE_BASE64_BUNDLE_EXCEEDS_64_MIB)
 }
 
-function bundlesReadArray(/* 尚未确认数组类型和条目数量的包内字段。 */ value: unknown, /* 该数组允许包含的最大条目数。 */ max: number, /* 写入包错误信息的数组字段路径。 */ label: string): unknown[] {
+/**
+ * @param value 尚未确认数组类型和条目数量的包内字段。
+ * @param max 该数组允许包含的最大条目数。
+ * @param label 写入包错误信息的数组字段路径。
+ */
+function bundlesReadArray(value: unknown, max: number, label: string): unknown[] {
   const items = inputReadArray(value, label)
   if (items.length > max) throw new GraphError(413, 'BUNDLE_LIMIT', messageFormat(RuntimeMessage.VALUE_HAS_TOO_MANY_ENTRIES, label))
   return items
 }
 
-function bundlesReadText(/* 数据包中允许为空但必须为字符串的字段值。 */ value: unknown, /* 写入包错误信息的文本字段路径。 */ label: string): string {
+/**
+ * @param value 数据包中允许为空但必须为字符串的字段值。
+ * @param label 写入包错误信息的文本字段路径。
+ */
+function bundlesReadText(value: unknown, label: string): string {
   if (typeof value !== 'string') throw new GraphError(422, 'BUNDLE_INVALID', messageFormat(RuntimeMessage.VALUE_MUST_BE_TEXT, label))
   return value
 }
 
-function bundlesReadTime(/* 数据包中尚未验证和规范化的时间值。 */ value: unknown): string {
+/**
+ * @param value 数据包中尚未验证和规范化的时间值。
+ */
+function bundlesReadTime(value: unknown): string {
   const text = inputReadString(value, 'timestamp')
   if (!Number.isFinite(Date.parse(text))) throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.INVALID_TIMESTAMP)
   return new Date(text).toISOString()
 }
 
-function bundlesValidateIds(/* 必须在同类对象中互不重复的身份或路径列表。 */ ids: string[], /* 写入包错误信息的对象类型名称。 */ label: string): void {
+/**
+ * @param ids 必须在同类对象中互不重复的身份或路径列表。
+ * @param label 写入包错误信息的对象类型名称。
+ */
+function bundlesValidateIds(ids: string[], label: string): void {
   if (new Set(ids).size !== ids.length) throw new GraphError(422, 'BUNDLE_INVALID', messageFormat(RuntimeMessage.DUPLICATE_VALUE, label))
 }
 
-function bundlesRefKey(/* 需要用作闭包索引键的精确定义引用。 */ ref: DefinitionRef): string {
+/**
+ * @param ref 需要用作闭包索引键的精确定义引用。
+ */
+function bundlesRefKey(ref: DefinitionRef): string {
   return `${ref.id}\u0000${ref.version}`
 }
 
-function bundlesReadPackageDefinitionRefs(/* 需要找出实际类型/转换依赖的定义包。 */ packageItem: DefinitionPackage): DefinitionRef[] {
-  // 除显式 package dependencies 外，同时跟踪后继、节点引用和端口类型，防止旧包遗漏依赖声明时导出不完整。
+/**
+ * 除显式 package dependencies 外，同时跟踪后继、节点引用和端口类型，防止旧包遗漏依赖声明时导出不完整。
+ *
+ * @param packageItem 需要找出实际类型/转换依赖的定义包。
+ */
+function bundlesReadPackageDefinitionRefs(packageItem: DefinitionPackage): DefinitionRef[] {
   return [
     ...packageItem.dataTypes.flatMap(type => [...type.successorTypes,
       ...type.references.flatMap(reference => reference.target.kind === 'node' ? reference.target.types : [])]),
@@ -92,12 +123,20 @@ function bundlesReadPackageDefinitionRefs(/* 需要找出实际类型/转换依�
   ]
 }
 
-function bundlesReadStrings(/* 尚未验证的字符串数组。 */ value: unknown, /* 错误中的字段路径。 */ label: string): string[] {
+/**
+ * @param value 尚未验证的字符串数组。
+ * @param label 错误中的字段路径。
+ */
+function bundlesReadStrings(value: unknown, label: string): string[] {
   return bundlesReadArray(value, 512, label).map((item, index) => inputReadString(item, `${label}[${index}]`))
 }
 
-function bundlesReadAgent(/* v4 包中一个可编辑 Agent 及其原工作区版本。 */ value: unknown): BundleAgent {
-  // 把 revision 与现有 AgentInput 边界分开校验，导入后配置会在新工作区从版本零开始。
+/**
+ * 把 revision 与现有 AgentInput 边界分开校验，导入后配置会在新工作区从版本零开始。
+ *
+ * @param value v4 包中一个可编辑 Agent 及其原工作区版本。
+ */
+function bundlesReadAgent(value: unknown): BundleAgent {
   const item = inputReadObject(value, ['id', 'name', 'description', 'content', 'tools', 'provider', 'model', 'promptPath', 'kind',
     'promptVars', 'defaultPriority', 'claimCategory', 'role', 'bindings', 'revision'], 'agent')
   const revision = inputReadRevision(item.revision, 'agent.revision')
@@ -105,8 +144,12 @@ function bundlesReadAgent(/* v4 包中一个可编辑 Agent 及其原工作区�
   return { ...agent, revision }
 }
 
-function bundlesReadExecutionAgent(/* 定义闭包所依赖的精确 Agent 快照。 */ value: unknown): ExecutionAgentDefinition {
-  // 快照只包含执行所需公共字段，不使用可编辑 AgentInput 的管理字段。
+/**
+ * 快照只包含执行所需公共字段，不使用可编辑 AgentInput 的管理字段。
+ *
+ * @param value 定义闭包所依赖的精确 Agent 快照。
+ */
+function bundlesReadExecutionAgent(value: unknown): ExecutionAgentDefinition {
   const item = inputReadObject(value, ['ref', 'profile'], 'definition agent')
   const ref = graphInputReadAgentRef(item.ref, 'definition agent.ref')
   const profile = inputReadObject(item.profile, ['id', 'name', 'description', 'content', 'tools', 'provider', 'model',
@@ -130,8 +173,13 @@ function bundlesReadExecutionAgent(/* 定义闭包所依赖的精确 Agent 快�
   } }
 }
 
-function bundlesReadEditableExecutionProfile(/* 包中可编辑 Agent 的执行字段。 */ agent: BundleAgent, /* 同一精确引用的定义快照。 */ snapshot: ExecutionAgentDefinition): GraphAgentProfile {
-  // 当前可编辑版本必须显式固化模型提供方，不允许用 null 让包内隐藏快照决定执行内容。
+/**
+ * 当前可编辑版本必须显式固化模型提供方，不允许用 null 让包内隐藏快照决定执行内容。
+ *
+ * @param agent 包中可编辑 Agent 的执行字段。
+ * @param snapshot 同一精确引用的定义快照。
+ */
+function bundlesReadEditableExecutionProfile(agent: BundleAgent, snapshot: ExecutionAgentDefinition): GraphAgentProfile {
   if (agent.provider === null || agent.model === null) bundlesInvalid('Current Bundle Agent must explicitly match its execution snapshot provider and model')
   const profile: GraphAgentProfile = { id: agent.id, name: agent.name, description: agent.description, content: agent.content,
     tools: [...agent.tools], provider: agent.provider, model: agent.model, promptVars: [...agent.promptVars],
@@ -140,8 +188,13 @@ function bundlesReadEditableExecutionProfile(/* 包中可编辑 Agent 的执行�
   return profile
 }
 
-function bundlesValidateAgentSnapshots(/* 包中将在新工作区恢复的可编辑 Agent。 */ agents: readonly BundleAgent[], /* 定义闭包依赖的精确执行快照。 */ snapshots: readonly ExecutionAgentDefinition[]): void {
-  // 只对精确 id/revision 相同者要求全 profile 一致；同 id 的其他版本是独立历史快照。
+/**
+ * 只对精确 id/revision 相同者要求全 profile 一致；同 id 的其他版本是独立历史快照。
+ *
+ * @param agents 包中将在新工作区恢复的可编辑 Agent。
+ * @param snapshots 定义闭包依赖的精确执行快照。
+ */
+function bundlesValidateAgentSnapshots(agents: readonly BundleAgent[], snapshots: readonly ExecutionAgentDefinition[]): void {
   const index = new Map(snapshots.map(snapshot => [bundlesRefKey(snapshot.ref), snapshot]))
   for (const agent of agents) {
     const snapshot = index.get(bundlesRefKey({ id: agent.id, version: agent.revision }))
@@ -149,8 +202,12 @@ function bundlesValidateAgentSnapshots(/* 包中将在新工作区恢复的可�
   }
 }
 
-function bundlesReadDefinitions(/* v4 包中尚未验证的定义闭包。 */ value: unknown): { definitions: BundleDefinitions; catalog: DefinitionCatalog } {
-  // 先通过定义模块复核包体和跨包引用，再核对每个不可变包的摘要。
+/**
+ * 先通过定义模块复核包体和跨包引用，再核对每个不可变包的摘要。
+ *
+ * @param value v4 包中尚未验证的定义闭包。
+ */
+function bundlesReadDefinitions(value: unknown): { definitions: BundleDefinitions; catalog: DefinitionCatalog } {
   const item = inputReadObject(value, ['packages', 'agents', 'digests'], 'definitions')
   const packages = bundlesReadArray(item.packages, 512, 'definitions.packages').map(definitionsReadPackage)
   const agents = bundlesReadArray(item.agents, 2048, 'definitions.agents').map(bundlesReadExecutionAgent)
@@ -172,12 +229,18 @@ function bundlesReadDefinitions(/* v4 包中尚未验证的定义闭包。 */ va
   return { definitions: { packages, agents, digests }, catalog }
 }
 
-function bundlesReadImportedFrom(/* 节点上可选的历史包溯源标签。 */ value: unknown): GraphNode['importedFrom'] {
+/**
+ * @param value 节点上可选的历史包溯源标签。
+ */
+function bundlesReadImportedFrom(value: unknown): GraphNode['importedFrom'] {
   const source = inputReadObject(value, ['bundleId', 'nodeId', 'revision'], 'importedFrom')
   return { bundleId: inputReadId(source.bundleId, 'bundleId'), nodeId: inputReadId(source.nodeId, 'nodeId'), revision: inputReadRevision(source.revision, 'revision') }
 }
 
-function bundlesReadProducer(/* 包中可选的只读 Agent 产出来源。 */ value: unknown): NonNullable<GraphNode['producer']> {
+/**
+ * @param value 包中可选的只读 Agent 产出来源。
+ */
+function bundlesReadProducer(value: unknown): NonNullable<GraphNode['producer']> {
   const item = inputReadObject(value, ['operationId', 'transitionRef', 'stageId', 'workId', 'agentRef', 'agentName'], 'producer')
   return {
     operationId: inputReadString(item.operationId, 'producer.operationId'),
@@ -187,7 +250,11 @@ function bundlesReadProducer(/* 包中可选的只读 Agent 产出来源。 */ v
   }
 }
 
-function bundlesReadNode(/* 数据包中尚未按精确类型校验的通用节点记录。 */ value: unknown, /* 包含该类型不可变 schema 的定义目录。 */ catalog: DefinitionCatalog): GraphNode {
+/**
+ * @param value 数据包中尚未按精确类型校验的通用节点记录。
+ * @param catalog 包含该类型不可变 schema 的定义目录。
+ */
+function bundlesReadNode(value: unknown, catalog: DefinitionCatalog): GraphNode {
   const item = inputReadObject(value, ['id', 'revision', 'typeId', 'typeVersion', 'payload', 'createdAt', 'updatedAt', 'importedFrom', 'validity', 'producer'], 'node')
   const input = {
     id: inputReadId(item.id, 'node id'), typeId: inputReadString(item.typeId, 'node.typeId'),
@@ -205,7 +272,11 @@ function bundlesReadNode(/* 数据包中尚未按精确类型校验的通用节�
   return node
 }
 
-function bundlesReadMap(/* 数据包中尚未校验节点、关系和端点的图记录。 */ value: unknown, /* 包内已校验的精确定义闭包。 */ catalog: DefinitionCatalog): BundleMap {
+/**
+ * @param value 数据包中尚未校验节点、关系和端点的图记录。
+ * @param catalog 包内已校验的精确定义闭包。
+ */
+function bundlesReadMap(value: unknown, catalog: DefinitionCatalog): BundleMap {
   const item = inputReadObject(value, ['id', 'name', 'nodes', 'edges'], 'map')
   const nodes = bundlesReadArray(item.nodes, 10000, 'nodes').map(node => bundlesReadNode(node, catalog))
   bundlesValidateIds(nodes.map(node => node.id), 'node id')
@@ -226,8 +297,12 @@ function bundlesReadMap(/* 数据包中尚未校验节点、关系和端点的�
   const outgoing = new Map<string, string[]>()
   for (const edge of edges) if (edge.kind === 'successor') outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to])
   const visiting = new Set<string>(), visited = new Set<string>()
-  const visit = (/* 当前检查的节点身份。 */ id: string): void => {
-    // 与 graph-service 保持同一 DAG 不变式，reference 不参与环检查。
+  /**
+   * 与 graph-service 保持同一 DAG 不变式，reference 不参与环检查。
+   *
+   * @param id 当前检查的节点身份。
+   */
+  const visit = (id: string): void => {
     if (visiting.has(id)) throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.SUCCESSOR_RELATIONS_MUST_NOT_CONTAIN_A_CYCLE)
     if (visited.has(id)) return
     visiting.add(id)
@@ -238,7 +313,10 @@ function bundlesReadMap(/* 数据包中尚未校验节点、关系和端点的�
   return { id: inputReadId(item.id, 'map id'), name: inputReadString(item.name, 'map name'), nodes, edges }
 }
 
-function bundlesReadAsset(/* 数据包中尚未解码并核对摘要的附件记录。 */ value: unknown): BundleAsset {
+/**
+ * @param value 数据包中尚未解码并核对摘要的附件记录。
+ */
+function bundlesReadAsset(value: unknown): BundleAsset {
   const item = inputReadObject(value, ['id', 'filename', 'mediaType', 'size', 'sha256', 'contentBase64'], 'asset')
   const size = inputReadRevision(item.size, 'asset size')
   if (size > ASSET_BYTE_LIMIT) throw new GraphError(413, 'ASSET_LIMIT', RuntimeMessage.ASSET_EXCEEDS_64_MIB)
@@ -252,7 +330,11 @@ function bundlesReadAsset(/* 数据包中尚未解码并核对摘要的附件记
     mediaType: inputReadString(item.mediaType, 'mediaType'), size, sha256, contentBase64 }
 }
 
-function bundlesReadPointer(/* 已通过 schema 的 JSON 值。 */ value: JsonValue, /* 确定且不含通配符的 JSON Pointer。 */ pointer: string): JsonValue | undefined {
+/**
+ * @param value 已通过 schema 的 JSON 值。
+ * @param pointer 确定且不含通配符的 JSON Pointer。
+ */
+function bundlesReadPointer(value: JsonValue, pointer: string): JsonValue | undefined {
   let current: JsonValue | undefined = value
   for (const part of pointer.slice(1).split('/').map(item => item.replace(/~1/g, '/').replace(/~0/g, '~'))) {
     if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
@@ -261,8 +343,14 @@ function bundlesReadPointer(/* 已通过 schema 的 JSON 值。 */ value: JsonVa
   return current
 }
 
-function bundlesValidateReferences(/* 已解析的 v4 图。 */ maps: BundleMap[], /* 定义引用解析所需目录。 */ catalog: DefinitionCatalog, /* 包内附件。 */ assets: BundleAsset[]): void {
-  // 节点引用必须留在同一张图且类型精确匹配；资产引用必须指向包内唯一附件。
+/**
+ * 节点引用必须留在同一张图且类型精确匹配；资产引用必须指向包内唯一附件。
+ *
+ * @param maps 已解析的 v4 图。
+ * @param catalog 定义引用解析所需目录。
+ * @param assets 包内附件。
+ */
+function bundlesValidateReferences(maps: BundleMap[], catalog: DefinitionCatalog, assets: BundleAsset[]): void {
   const assetMap = new Map(assets.map(asset => [asset.id, asset])), referencedAssets = new Set<string>()
   for (const map of maps) {
     const nodeMap = new Map(map.nodes.map(node => [node.id, node]))
@@ -287,9 +375,16 @@ function bundlesValidateReferences(/* 已解析的 v4 图。 */ maps: BundleMap[
   if (assets.some(asset => !referencedAssets.has(asset.id))) throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.BUNDLE_CONTAINS_AN_UNREFERENCED_ASSET)
 }
 
-function bundlesValidateDefinitionClosure(/* 包声明的定义内容。 */ definitions: BundleDefinitions, /* 由该内容构建的目录。 */ catalog: DefinitionCatalog, /* 实际使用类型的节点。 */ maps: BundleMap[],
-  /* 包中可编辑 Agent，其显式转换绑定也是定义根。 */ agents: readonly Pick<BundleAgent, 'bindings'>[]): void {
-  // 从节点所属包开始沿 package dependencies 求精确闭包，拒绝缺失或夹带无关定义。
+/**
+ * 从节点所属包开始沿 package dependencies 求精确闭包，拒绝缺失或夹带无关定义。
+ *
+ * @param definitions 包声明的定义内容。
+ * @param catalog 由该内容构建的目录。
+ * @param maps 实际使用类型的节点。
+ * @param agents 包中可编辑 Agent，其显式转换绑定也是定义根。
+ */
+function bundlesValidateDefinitionClosure(definitions: BundleDefinitions, catalog: DefinitionCatalog, maps: BundleMap[],
+  agents: readonly Pick<BundleAgent, 'bindings'>[]): void {
   const packages = new Map(definitions.packages.map(item => [bundlesRefKey(item), item])), expected = new Set<string>(), queue: DefinitionRef[] = []
   for (const node of maps.flatMap(map => map.nodes)) {
     const entry = catalog.index.find(item => item.kind === 'dataType' && item.ref.id === node.typeId && item.ref.version === node.typeVersion)
@@ -328,8 +423,12 @@ function bundlesValidateDefinitionClosure(/* 包声明的定义内容。 */ defi
   }
 }
 
-export function bundlesReadWorkspace(/* 尚未区分单图或工作区格式的 v4 数据包输入。 */ value: unknown): WorkspaceBundle {
-  // v4 是唯一直接导入协议；v3 必须先经 bundlesConvertV3 显式转换。
+/**
+ * v4 是唯一直接导入协议；v3 必须先经 bundlesConvertV3 显式转换。
+ *
+ * @param value 尚未区分单图或工作区格式的 v4 数据包输入。
+ */
+export function bundlesReadWorkspace(value: unknown): WorkspaceBundle {
   bundlesAssertSize(value)
   const item = inputReadObject(value, ['format', 'version', 'id', 'exportedAt', 'workspace', 'maps', 'map', 'agents', 'definitions', 'assets'], 'bundle')
   if (item.version !== 4 || (item.format !== 'chongming-workspace' && item.format !== 'chongming-map')) bundlesInvalid('Only v4 ChongMing bundles can be imported directly')
@@ -364,7 +463,10 @@ interface LegacyReport {
   routeRevision: number; score: 0 | 0.5 | 1; reason: string; createdAt: string
 }
 
-function bundlesReadLegacyReport(/* v3 结论中嵌入的历史意见。 */ value: unknown): LegacyReport {
+/**
+ * @param value v3 结论中嵌入的历史意见。
+ */
+function bundlesReadLegacyReport(value: unknown): LegacyReport {
   const item = inputReadObject(value, ['id', 'slotId', 'agentId', 'agentName', 'angle', 'tools', 'routeRevision', 'score', 'reason', 'createdAt'], 'opinion')
   if (item.score !== 0 && item.score !== 0.5 && item.score !== 1) bundlesInvalid('Legacy opinion has an invalid score')
   return { id: inputReadString(item.id, 'opinion.id'), slotId: inputReadString(item.slotId, 'opinion.slotId'),
@@ -374,14 +476,21 @@ function bundlesReadLegacyReport(/* v3 结论中嵌入的历史意见。 */ valu
     reason: inputReadString(item.reason, 'opinion.reason'), createdAt: bundlesReadTime(item.createdAt) }
 }
 
-function bundlesCanonical(/* 用于检测同一旧报告身份矛盾内容的 JSON 值。 */ value: unknown): string {
+/**
+ * @param value 用于检测同一旧报告身份矛盾内容的 JSON 值。
+ */
+function bundlesCanonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(bundlesCanonical).join(',')}]`
   return `{${Object.keys(value as Record<string, unknown>).sort().map(key => `${JSON.stringify(key)}:${bundlesCanonical((value as Record<string, unknown>)[key])}`).join(',')}}`
 }
 
-function bundlesCreateLegacyDefinitions(/* 显式 v3 转换所依据的已发布事实核查目录。 */ catalog: DefinitionCatalog): BundleDefinitions {
-  // 转换包只承载解释旧节点所需的数据类型，不伪造原工作区的可执行转换或 Agent 绑定。
+/**
+ * 转换包只承载解释旧节点所需的数据类型，不伪造原工作区的可执行转换或 Agent 绑定。
+ *
+ * @param catalog 显式 v3 转换所依据的已发布事实核查目录。
+ */
+function bundlesCreateLegacyDefinitions(catalog: DefinitionCatalog): BundleDefinitions {
   const dataTypes = LEGACY_TYPE_IDS.map(id => definitionsReadType(catalog, { id: `factcheck.${id}`, version: 1 }))
   const packageItem: DefinitionPackage = { id: 'factcheck.portable-v3', version: 1, title: 'Fact-checking v3 portable migration',
     description: 'Data-only definitions created by the explicit v3 bundle conversion.',
@@ -390,7 +499,11 @@ function bundlesCreateLegacyDefinitions(/* 显式 v3 转换所依据的已发布
   return { packages: [packageItem], agents: [], digests: [{ ref: { id: packageItem.id, version: packageItem.version }, digest: definitionsDigest(packageItem) }] }
 }
 
-function bundlesConvertLegacyMap(/* 尚未转换的 v3 图。 */ value: unknown, /* 用来校验转换结果的数据类型目录。 */ catalog: DefinitionCatalog): BundleMap {
+/**
+ * @param value 尚未转换的 v3 图。
+ * @param catalog 用来校验转换结果的数据类型目录。
+ */
+function bundlesConvertLegacyMap(value: unknown, catalog: DefinitionCatalog): BundleMap {
   const item = inputReadObject(value, ['id', 'name', 'nodes', 'edges'], 'legacy map')
   const rawNodes = bundlesReadArray(item.nodes, 10000, 'nodes').map(value => {
     const node = inputReadObject(value, ['id', 'revision', 'data', 'createdAt', 'updatedAt', 'importedFrom', 'validity', 'producer'], 'legacy node')
@@ -465,8 +578,13 @@ function bundlesConvertLegacyMap(/* 尚未转换的 v3 图。 */ value: unknown,
   return bundlesReadMap({ id: inputReadId(item.id, 'legacy map.id'), name: inputReadString(item.name, 'legacy map.name'), nodes, edges }, catalog)
 }
 
-export function bundlesConvertV3(/* 尚未转换的旧数据包。 */ value: unknown, /* 显式选定的事实核查定义目录。 */ definitions: DefinitionCatalog): WorkspaceBundle {
-  // 把 v3 业务 kind 和嵌入意见一次性转成 v4；旧包不被当作 v4 宽松解析。
+/**
+ * 把 v3 业务 kind 和嵌入意见一次性转成 v4；旧包不被当作 v4 宽松解析。
+ *
+ * @param value 尚未转换的旧数据包。
+ * @param definitions 显式选定的事实核查定义目录。
+ */
+export function bundlesConvertV3(value: unknown, definitions: DefinitionCatalog): WorkspaceBundle {
   bundlesAssertSize(value)
   const item = inputReadObject(value, ['format', 'version', 'id', 'exportedAt', 'workspace', 'maps', 'map', 'agents', 'assets'], 'legacy bundle')
   if (item.version !== 3 || (item.format !== 'chongming-workspace' && item.format !== 'chongming-map')) bundlesInvalid('Expected an explicit v3 ChongMing bundle conversion input')
@@ -490,8 +608,12 @@ export function bundlesConvertV3(/* 尚未转换的旧数据包。 */ value: unk
   return bundlesReadWorkspace(converted)
 }
 
-export function bundlesReadAgents(/* 需要去除内部管理字段并保留精确源版本的 Agent 配置列表。 */ agents: AgentProfile[],
-  /* 定义闭包中已解析共享默认值的 Agent 快照。 */ snapshots: readonly ExecutionAgentDefinition[] = []): BundleAgent[] {
+/**
+ * @param agents 需要去除内部管理字段并保留精确源版本的 Agent 配置列表。
+ * @param snapshots 定义闭包中已解析共享默认值的 Agent 快照。
+ */
+export function bundlesReadAgents(agents: AgentProfile[],
+  snapshots: readonly ExecutionAgentDefinition[] = []): BundleAgent[] {
   const index = new Map(snapshots.map(snapshot => [bundlesRefKey(snapshot.ref), snapshot]))
   return agents.map(agent => {
     const snapshot = index.get(bundlesRefKey({ id: agent.id, version: agent.revision }))
@@ -505,21 +627,34 @@ export function bundlesReadAgents(/* 需要去除内部管理字段并保留精�
   })
 }
 
-export function bundlesReadMapDocument(/* 需要投影为便携图并排除运行内部状态的图文档。 */ document: GraphDocument): BundleMap {
-  // 只投影名称、数据实例和关系，Run、租约、审核候选与收据均不在包协议中。
+/**
+ * 只投影名称、数据实例和关系，Run、租约、审核候选与收据均不在包协议中。
+ *
+ * @param document 需要投影为便携图并排除运行内部状态的图文档。
+ */
+export function bundlesReadMapDocument(document: GraphDocument): BundleMap {
   return { id: document.id, name: document.name, nodes: document.nodes.map(({ payloadReferences: _references, ...node }) => structuredClone(node)),
     edges: structuredClone(document.edges) }
 }
 
+/**
+ * 从节点的精确类型反查所属包，并递归补齐包依赖及 Agent 依赖。
+ *
+ * @param workspaceId 已授权的工作区身份。
+ * @param nodes 实际要导出的节点。
+ * @param catalog 工作区定义目录。
+ * @param readPackage 按精确引用读取不可变包体的授权回调。
+ * @param availableAgents 可见的当前与历史 Agent 执行快照。
+ * @param editableAgents 导出包保留的可编辑 Agent，其转换绑定必须同时可解析。
+ */
 export async function bundlesReadDefinitionClosure(
-  /* 已授权的工作区身份。 */ workspaceId: string,
-  /* 实际要导出的节点。 */ nodes: readonly GraphNode[],
-  /* 工作区定义目录。 */ catalog: DefinitionCatalog,
-  /* 按精确引用读取不可变包体的授权回调。 */ readPackage: (workspaceId: string, ref: DefinitionRef) => Promise<DefinitionView>,
-  /* 可见的当前与历史 Agent 执行快照。 */ availableAgents: readonly ExecutionAgentDefinition[],
-  /* 导出包保留的可编辑 Agent，其转换绑定必须同时可解析。 */ editableAgents: readonly Pick<BundleAgent, 'bindings'>[] = [],
+  workspaceId: string,
+  nodes: readonly GraphNode[],
+  catalog: DefinitionCatalog,
+  readPackage: (workspaceId: string, ref: DefinitionRef) => Promise<DefinitionView>,
+  availableAgents: readonly ExecutionAgentDefinition[],
+  editableAgents: readonly Pick<BundleAgent, 'bindings'>[] = [],
 ): Promise<BundleDefinitions> {
-  // 从节点的精确类型反查所属包，并递归补齐包依赖及 Agent 依赖。
   const queue: DefinitionRef[] = []
   for (const node of nodes) {
     const owner = catalog.index.find(item => item.kind === 'dataType' && item.ref.id === node.typeId && item.ref.version === node.typeVersion)
@@ -566,7 +701,12 @@ export async function bundlesReadDefinitionClosure(
   return result
 }
 
-function bundlesRewriteAt(/* 将被重写的 payload 或其子值。 */ value: JsonValue, /* 剩余 JSON Pointer 段。 */ parts: string[], /* 引用身份替换函数。 */ replace: (value: string) => string): void {
+/**
+ * @param value 将被重写的 payload 或其子值。
+ * @param parts 剩余 JSON Pointer 段。
+ * @param replace 引用身份替换函数。
+ */
+function bundlesRewriteAt(value: JsonValue, parts: string[], replace: (value: string) => string): void {
   if (!parts.length || value === null || typeof value !== 'object') return
   const [head, ...rest] = parts
   if (head === '*') {
@@ -588,8 +728,14 @@ function bundlesRewriteAt(/* 将被重写的 payload 或其子值。 */ value: J
   } else bundlesRewriteAt(value[head], rest, replace)
 }
 
-function bundlesRewritePayload(/* 导入前的原节点。 */ node: GraphNode, /* 精确定义目录。 */ catalog: DefinitionCatalog,
-  /* 本图节点身份映射。 */ nodeIds: Map<string, string>, /* 整包资产身份映射。 */ assetIds: Map<string, string>): GraphPayload {
+/**
+ * @param node 导入前的原节点。
+ * @param catalog 精确定义目录。
+ * @param nodeIds 本图节点身份映射。
+ * @param assetIds 整包资产身份映射。
+ */
+function bundlesRewritePayload(node: GraphNode, catalog: DefinitionCatalog,
+  nodeIds: Map<string, string>, assetIds: Map<string, string>): GraphPayload {
   const payload = structuredClone(node.payload)
   const active = definitionsReadPayloadReferences(catalog, { id: node.typeId, version: node.typeVersion }, payload)
   const definitions = new Map(active.map(reference => [`${reference.definition.path}\u0000${reference.definition.target.kind}`, reference.definition]))
@@ -605,7 +751,11 @@ function bundlesRewritePayload(/* 导入前的原节点。 */ node: GraphNode, /
   return payload
 }
 
-function bundlesRemapPackageAgents(/* 需要绑定新工作区 Agent 身份的不可变包副本。 */ source: DefinitionPackage, /* 旧精确引用到新引用的映射。 */ refs: ReadonlyMap<string, DefinitionRef>): DefinitionPackage {
+/**
+ * @param source 需要绑定新工作区 Agent 身份的不可变包副本。
+ * @param refs 旧精确引用到新引用的映射。
+ */
+function bundlesRemapPackageAgents(source: DefinitionPackage, refs: ReadonlyMap<string, DefinitionRef>): DefinitionPackage {
   const packageItem = structuredClone(source)
   const remap = (ref: DefinitionRef) => structuredClone(refs.get(bundlesRefKey(ref)) ?? ref)
   packageItem.dependencies.agents = packageItem.dependencies.agents.map(remap)
@@ -616,8 +766,14 @@ function bundlesRemapPackageAgents(/* 需要绑定新工作区 Agent 身份的�
   return packageItem
 }
 
-export function bundlesCreateImport(/* 已通过 v4 包校验、准备重映射身份的工作区包。 */ bundle: WorkspaceBundle, /* 新导入工作区预先分配的稳定身份。 */ workspaceId: string, /* 用户指定的新工作区名称；null 表示沿用包内名称。 */ overrideName: string | null) {
-  // 先为所有对象分配身份，再根据定义重写 payload 引用；运行态从未进入 BundleMap。
+/**
+ * 先为所有对象分配身份，再根据定义重写 payload 引用；运行态从未进入 BundleMap。
+ *
+ * @param bundle 已通过 v4 包校验、准备重映射身份的工作区包。
+ * @param workspaceId 新导入工作区预先分配的稳定身份。
+ * @param overrideName 用户指定的新工作区名称；null 表示沿用包内名称。
+ */
+export function bundlesCreateImport(bundle: WorkspaceBundle, workspaceId: string, overrideName: string | null) {
   const now = new Date().toISOString()
   const agentIds = new Map(bundle.workspace.agents.map(agent => [agent.id, randomUUID()])), assetIds = new Map(bundle.assets.map(asset => [asset.id, randomUUID()]))
   const agents: AgentInput[] = bundle.workspace.agents.map(({ revision: _revision, ...agent }) => ({ ...agent, id: agentIds.get(agent.id)! }))

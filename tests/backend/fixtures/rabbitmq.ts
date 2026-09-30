@@ -36,8 +36,12 @@ async function rabbitReadEngine(): Promise<void> {
   throw new Error('Docker Desktop did not become ready for RabbitMQ tests')
 }
 
-async function rabbitReadReady(/* 包含测试代理凭据、需要等待可建立连接的 AMQP 地址。 */ url: string): Promise<void> {
-  // 在一分钟期限内反复建立并关闭 AMQP 连接，确认测试代理已可接受连接。
+/**
+ * 在一分钟期限内反复建立并关闭 AMQP 连接，确认测试代理已可接受连接。
+ *
+ * @param url 包含测试代理凭据、需要等待可建立连接的 AMQP 地址。
+ */
+async function rabbitReadReady(url: string): Promise<void> {
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
     try {
@@ -93,8 +97,12 @@ export async function rabbitCreateBroker(): Promise<TestBroker> {
 
 export async function rabbitCreateFixture(): Promise<{
   queue: QueueConfig;
-  // 删除本夹具拥有的测试命名空间，不允许影响其他测试的队列和交换器。
-  deleteNamespace(/* 调用方准备删除的测试队列命名空间。 */ namespace: string): Promise<void>;
+  /**
+   * 删除本夹具拥有的测试命名空间，不允许影响其他测试的队列和交换器。
+   *
+   * @param namespace 调用方准备删除的测试队列命名空间。
+   */
+  deleteNamespace(namespace: string): Promise<void>;
   // 结束底层代理的所属资源；外部传入的共享代理保持存活。
   close(): Promise<void>
 }> {
@@ -103,8 +111,12 @@ export async function rabbitCreateFixture(): Promise<{
   const queue = { url: broker.url, namespace: 'test-' + randomUUID() }
   return {
     queue,
-    async deleteNamespace(/* 实现方法收到、必须属于本夹具前缀的命名空间。 */ namespace) {
-      // 只删除本夹具命名空间内的队列和交换器，最后关闭管理连接。
+    /**
+     * 只删除本夹具命名空间内的队列和交换器，最后关闭管理连接。
+     *
+     * @param namespace 实现方法收到、必须属于本夹具前缀的命名空间。
+     */
+    async deleteNamespace(namespace) {
       if (namespace !== queue.namespace && !namespace.startsWith(queue.namespace + '.')) throw new Error('Cannot delete another fixture namespace')
       const connection = await connect(queue.url)
       connection.on('error', () => {

@@ -20,8 +20,12 @@ import { DEFAULT_DEFINITION_PACKAGE } from '../config/default-prompts'
 const reporter = diagnosticCreateReporter({ component: 'admin-cli' })
 processRegisterBoundary({ component: 'admin-cli', reporter })
 
-async function adminReadInput(/* 可选 JSON 文件路径；未提供时从标准输入读取，空输入视为空对象。 */ file?: string): Promise<unknown> {
-  // 从指定文件或标准输入解析 JSON；标准输入累计超过 1 MiB 时拒绝读取。
+/**
+ * 从指定文件或标准输入解析 JSON；标准输入累计超过 1 MiB 时拒绝读取。
+ *
+ * @param file 可选 JSON 文件路径；未提供时从标准输入读取，空输入视为空对象。
+ */
+async function adminReadInput(file?: string): Promise<unknown> {
   if (file) return JSON.parse(await readFile(file, 'utf8'))
   const chunks: Buffer[] = []
   let size = 0
@@ -47,7 +51,7 @@ async function adminRunCommand(): Promise<unknown> {
       dataApiUrl: process.env.CHONGMING_DATA_API ?? local.settings.dataApiUrl ?? 'http://127.0.0.1:4320',
       dshHome: process.env.CHONGMING_DSH_HOME ?? local.settings.dshHome ?? null,
       secrets: Object.fromEntries(['DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'TAVILY_API_KEY', 'CHONGMING_DATA_TOKEN', 'CHONGMING_AMQP_URL']
-        .map(/* 允许检查的密钥名称，只输出对应值是否已配置。 */ name => /* 只暴露密钥是否存在，不在设置查询中返回密钥原文。 */  [name, Boolean(process.env[name] ?? local.secrets[name])])),
+        .map(name => /* 只暴露密钥是否存在，不在设置查询中返回密钥原文。 */  [name, Boolean(process.env[name] ?? local.secrets[name])])),
     }
   }
   if (command === 'secret.set') {
@@ -147,7 +151,7 @@ async function adminRunCommand(): Promise<unknown> {
   } finally { await connection.close() }
 }
 
-adminRunCommand().then(/* 已完成管理命令的返回值，以 JSON 写入标准输出。 */ result => /* 将管理命令的结果格式化为 JSON 输出。 */  console.log(JSON.stringify(result, null, 2))).catch(/* 管理命令拒绝原因；领域错误可公开说明，其他错误只输出诊断编号。 */ error => {
+adminRunCommand().then(result => /* 将管理命令的结果格式化为 JSON 输出。 */  console.log(JSON.stringify(result, null, 2))).catch(error => {
   // 记录管理错误并输出关联诊断编号，同时设置失败退出码。
   const errorId = reporter.report({ name: 'admin.failed', severity: error instanceof GraphError ? 'warn' : 'error', error })
   console.error(error instanceof GraphError ? `${error.code}: ${error.message} (${errorId})` : `Admin command failed; check its input and local configuration (${errorId})`)

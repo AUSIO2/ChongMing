@@ -6,19 +6,39 @@ import type { GraphSnapshot } from '../../contracts/graph'
 import type { GraphStreamEvent } from '../../contracts/events'
 
 const mapId = randomUUID(), workspaceId = randomUUID()
-const snapshot = (/* 测试快照的版本号，默认 1，用于观察后续实时更新。 */ revision = 1): GraphSnapshot =>
+/**
+ * @param revision 测试快照的版本号，默认 1，用于观察后续实时更新。
+ */
+const snapshot = (revision = 1): GraphSnapshot =>
   /* 构造属于固定图与工作区、可指定版本的实时基线快照。 */
   ({ mapId, workspaceId, revision, ownershipRevision: 0, ownerships: [], runControls: [], name: '实时图', nodes: [], edges: [], runs: [], updatedAt: '' })
-const encode = (/* 待编码的 SSE 测试文本，包含刻意构造的换行边界。 */ text: string) => /* 将测试帧文本编码为 UTF-8 字节。 */ new TextEncoder().encode(text)
-function stream(/* 按顺序交付的字节块数组，可逐字节拆分 UTF-8 与 CRLF。 */ parts: Uint8Array[], /* 交付全部字节后是否关闭流，默认 true；false 用于空闲和取消测试。 */ end = true) {
-  // 按给定字节块构造 SSE 响应，可选择保持流不结束。
-  return new Response(new ReadableStream<Uint8Array>({ start(/* 可读流生产端，由夹具依次入队字节并按标记关闭。 */ controller) {
-    // 依次交付测试字节块，并按用例要求关闭流。
+/**
+ * @param text 待编码的 SSE 测试文本，包含刻意构造的换行边界。
+ */
+const encode = (text: string) => /* 将测试帧文本编码为 UTF-8 字节。 */ new TextEncoder().encode(text)
+/**
+ * 按给定字节块构造 SSE 响应，可选择保持流不结束。
+ *
+ * @param parts 按顺序交付的字节块数组，可逐字节拆分 UTF-8 与 CRLF。
+ * @param end 交付全部字节后是否关闭流，默认 true；false 用于空闲和取消测试。
+ */
+function stream(parts: Uint8Array[], end = true) {
+  return new Response(new ReadableStream<Uint8Array>({
+                                                       /**
+                                                        * 依次交付测试字节块，并按用例要求关闭流。
+                                                        *
+                                                        * @param controller 可读流生产端，由夹具依次入队字节并按标记关闭。
+                                                        */
+                                                       start(controller) {
     for (const part of parts) controller.enqueue(part); if (end) controller.close()
   } }), { headers: { 'content-type': 'text/event-stream; charset=utf-8' } })
 }
-function frame(/* 要编码的测试业务事件，类型写入 SSE event 字段。 */ event: GraphStreamEvent) {
-  // 把业务事件编码为带事件名和 JSON 数据的完整 SSE 帧。
+/**
+ * 把业务事件编码为带事件名和 JSON 数据的完整 SSE 帧。
+ *
+ * @param event 要编码的测试业务事件，类型写入 SSE event 字段。
+ */
+function frame(event: GraphStreamEvent) {
   return 'event: ' + event.type + '\ndata: ' + JSON.stringify(event) + '\n\n'
 }
 
@@ -28,12 +48,12 @@ describe('authenticated SSE client', () => {
     // 验证逐字节 UTF-8 与 CRLF 分块仍能解析基线、活动和刷新事件。
     const body = ': heartbeat\r\n\r\n' + frame({ type: 'snapshot', snapshot: snapshot() }).replaceAll('\n', '\r\n')
       + frame({ type: 'activity', items: [] }) + frame({ type: 'refresh', scope: 'workspace' }) + frame({ type: 'snapshot', snapshot: snapshot(2) })
-    const bytes = encode(body), fetcher = vi.fn<typeof fetch>().mockResolvedValue(stream([...bytes].map(/* 原始编码结果中的单个字节，用于构造最小分块。 */ byte =>
+    const bytes = encode(body), fetcher = vi.fn<typeof fetch>().mockResolvedValue(stream([...bytes].map(byte =>
       /* 把每个字节单独分块，模拟任意 UTF-8 和换行边界。 */
       new Uint8Array([byte]))))
     const client = clientCreateApi({ baseUrl: 'http://localhost:4320', token: 'stream-token', fetch: fetcher })
     const events: GraphStreamEvent[] = []
-    await expect(client.watch(mapId, /* 客户端已解码并校验的事件，按接纳顺序记录。 */ event =>
+    await expect(client.watch(mapId, event =>
       /* 记录客户端解码后的事件顺序。 */
       events.push(event))).rejects.toMatchObject({ code: 'STREAM_ENDED', retryable: true })
     expect(events).toEqual([{ type: 'snapshot', snapshot: snapshot() }, { type: 'activity', items: [] }, { type: 'refresh', scope: 'workspace' }, { type: 'snapshot', snapshot: snapshot(2) }])
@@ -92,7 +112,7 @@ describe('authenticated SSE client', () => {
       // 不记录事件，仅检查 HTTP 阶段的认证失败。
     })).rejects.toMatchObject(error)
     const events: GraphStreamEvent[] = []
-    await expect(client.watch(mapId, /* 客户端收到的基线或错误事件，用于核对结构化认证错误。 */ event => /* 记录基线和流内错误事件，供顺序及错误内容断言。 */ events.push(event))).rejects.toMatchObject(error)
+    await expect(client.watch(mapId, event => /* 记录基线和流内错误事件，供顺序及错误内容断言。 */ events.push(event))).rejects.toMatchObject(error)
     expect(events[1]).toEqual({ type: 'error', error }); client.close()
   })
 
@@ -103,7 +123,7 @@ describe('authenticated SSE client', () => {
       .mockResolvedValueOnce(stream([encode(frame({ type: 'snapshot', snapshot: snapshot() }))], false))
     const gateway = clientCreateGateway({ baseUrl: 'http://localhost:4320', fetch: fetcher })
     await gateway.connect({ baseUrl: 'http://localhost:4320', token: 'token', remember: false })
-    const events: GraphStreamEvent[] = [], pending = gateway.watch(mapId, /* 活跃订阅接纳的事件，用于确认首个快照已到达。 */ event => /* 记录实时基线以确认订阅已开始读取。 */ events.push(event))
+    const events: GraphStreamEvent[] = [], pending = gateway.watch(mapId, event => /* 记录实时基线以确认订阅已开始读取。 */ events.push(event))
     const rejected = expect(pending).rejects.toMatchObject({ code: 'DISCONNECTED' })
     await vi.waitFor(() => /* 等待首个快照事件到达后再退出网关。 */ expect(events).toHaveLength(1))
     await gateway.disconnect(); await rejected; gateway.close()

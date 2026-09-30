@@ -6,7 +6,7 @@ export type DshJson =
   | number
   | string
   | DshJson[]
-  | { [/* JSON 对象的字符串属性名，对应值仍须是递归 JSON 类型。 */ key: string]: DshJson }
+  | { [key: string]: DshJson }
 
 // 运行时进程、工作目录、模型及补丁配置，由调用入口提供。
 export interface DshRuntimeConfig {
@@ -45,8 +45,13 @@ export interface DshRunResult {
 export interface DshRuntimeAPI {
   // 启动运行时并完成可执行准备；关闭后的实例不能重新启动。
   start(): Promise<void>
-  // 执行一轮会话并可观察执行事件，返回会话编号、最终响应及累计事件。
-  run(/* 一轮提示词及可选会话编号；省略会话编号时由运行时建立会话。 */ input: DshRunInput, /* 可选事件观察者，不负责运行时资源释放。 */ onEvent?: (/* 执行过程中投影出的 DSH 方法名及 JSON 参数。 */ event: DshEvent) => void): Promise<DshRunResult>
+  /**
+   * 执行一轮会话并可观察执行事件，返回会话编号、最终响应及累计事件。
+   *
+   * @param input 一轮提示词及可选会话编号；省略会话编号时由运行时建立会话。
+   * @param onEvent 可选事件观察者，不负责运行时资源释放。
+   */
+  run(input: DshRunInput, onEvent?: (event: DshEvent) => void): Promise<DshRunResult>
   // 停止运行时及其资源，调用方可等待清理结束。
   close(): Promise<void>
 }

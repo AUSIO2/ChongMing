@@ -7,9 +7,15 @@ import { clientCreateStorage } from '../../../apps/desktop/credential-store'
 const directories: string[] = []
 afterEach(async () => {
   // 并行删除本轮测试创建的全部凭据目录。
-   await Promise.all(directories.splice(0).map(/* 当前用例登记的临时凭据目录，测试后递归删除。 */ directory => /* 删除单个临时凭据目录。 */  rm(directory, { recursive: true, force: true }))) })
-async function fixture(/* 被模拟的平台，默认 macOS；Linux 用于覆盖密钥后端限制。 */ platform: NodeJS.Platform = 'darwin', /* 系统加密可用性的测试开关，缺省为可用。 */ available = true, /* 模拟 Linux 密钥后端名称，缺省使用可信 libsecret。 */ backend = 'gnome_libsecret') {
-  // 按平台和密钥后端能力创建受控存储夹具，暴露加解密调用供断言。
+   await Promise.all(directories.splice(0).map(directory => /* 删除单个临时凭据目录。 */  rm(directory, { recursive: true, force: true }))) })
+/**
+ * 按平台和密钥后端能力创建受控存储夹具，暴露加解密调用供断言。
+ *
+ * @param platform 被模拟的平台，默认 macOS；Linux 用于覆盖密钥后端限制。
+ * @param available 系统加密可用性的测试开关，缺省为可用。
+ * @param backend 模拟 Linux 密钥后端名称，缺省使用可信 libsecret。
+ */
+async function fixture(platform: NodeJS.Platform = 'darwin', available = true, backend = 'gnome_libsecret') {
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-client-store-'))
   directories.push(directory)
   const secure = { isEncryptionAvailable: () => /* 返回用例指定的系统加密可用状态。 */  available, getSelectedStorageBackend: () => /* 返回用例指定的 Linux 密钥后端。 */  backend,

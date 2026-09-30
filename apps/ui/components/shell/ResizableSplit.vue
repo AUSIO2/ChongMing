@@ -8,8 +8,12 @@ const emit = defineEmits<{
   dragStart: [clientX: number]
 }>()
 
-function onMouseDown(/* 来自竖向分隔条的鼠标按下事件，clientX 提供视口像素起点。 */ e: MouseEvent) {
-  // 阻止拖动时选中文本，并向父组件发送侧栏拖动起点。
+/**
+ * 阻止拖动时选中文本，并向父组件发送侧栏拖动起点。
+ *
+ * @param e 来自竖向分隔条的鼠标按下事件，clientX 提供视口像素起点。
+ */
+function onMouseDown(e: MouseEvent) {
   e.preventDefault()
   document.body.style.userSelect = 'none'
   emit('dragStart', e.clientX)

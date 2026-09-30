@@ -3,12 +3,18 @@ import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
 import type { GraphAgentProfile, GraphDataRead, GraphWorkGrant } from '../../../contracts/graph'
 
 /** Render only variables produced from the authorized ExecutionSpec projection. */
+/**
+ * 阶段身份和 specHash 必须与授权一致；模板只执行一次替换，输入中的 {{...}} 保持字面值。
+ *
+ * @param profile 当前冻结阶段选定的 Agent 配置。
+ * @param data 数据服务按 Work 授权生成的输入投影和提示词变量。
+ * @param grant 当前租约绑定的阶段、槽位与执行规格。
+ */
 export function promptReadWork(
-  /* 当前冻结阶段选定的 Agent 配置。 */ profile: GraphAgentProfile,
-  /* 数据服务按 Work 授权生成的输入投影和提示词变量。 */ data: GraphDataRead,
-  /* 当前租约绑定的阶段、槽位与执行规格。 */ grant: GraphWorkGrant,
+  profile: GraphAgentProfile,
+  data: GraphDataRead,
+  grant: GraphWorkGrant,
 ): string {
-  // 阶段身份和 specHash 必须与授权一致；模板只执行一次替换，输入中的 {{...}} 保持字面值。
   if (grant.stageId !== data.stage.id || grant.slotId !== data.stage.slotId || grant.specHash !== data.specHash
     || data.work.stageId !== grant.stageId || data.work.slotId !== grant.slotId || data.work.specHash !== grant.specHash) {
     throw new Error(RuntimeMessage.DATA_API_RETURNED_ANOTHER_WORK_GRANT)
@@ -19,8 +25,8 @@ export function promptReadWork(
     throw new Error(messageFormat(RuntimeMessage.UNSUPPORTED_VALUE_PROMPT_VARIABLE_VALUE, data.stage.id, name))
   }
   const rendered = profile.content.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (
-    /* 正文中完整的占位符文本，变量未被声明时原样保留。 */ match,
-    /* 占位符中的变量名，仅替换 Agent promptVars 声明的名字。 */ name: string,
+    match,
+    name: string,
   ) => names.includes(name) ? variables[name] : match)
   return [rendered, ...names.map(name => `${name}:\n${variables[name]}`)].join('\n\n')
 }

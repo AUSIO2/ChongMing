@@ -13,14 +13,25 @@ afterAll(async () => {
   // 关闭身份测试创建的服务及持久化资源。
   await api?.close() })
 
-async function user(/* 新测试用户的显示名称。 */ name: string, /* 是否授予宿主管理员权限；默认普通用户。 */ hostAdmin = false) {
-  // 创建可指定管理员身份的用户并签发测试令牌。
+/**
+ * 创建可指定管理员身份的用户并签发测试令牌。
+ *
+ * @param name 新测试用户的显示名称。
+ * @param hostAdmin 是否授予宿主管理员权限；默认普通用户。
+ */
+async function user(name: string, hostAdmin = false) {
   const identity = await api.auth.createUser({ id: randomUUID(), displayName: name, hostAdmin })
   return { ...identity, ...await api.auth.createToken(identity.userId) }
 }
 
-function as(/* 发送公共请求时使用的用户令牌。 */ token: string, /* 选择公共查询还是写命令端点。 */ path: 'query' | 'command', /* 按 JSON 发送、由用例自行断言的请求体。 */ body: unknown) {
-  // 以指定用户令牌调用公共查询或命令，保留 HTTP 结果。
+/**
+ * 以指定用户令牌调用公共查询或命令，保留 HTTP 结果。
+ *
+ * @param token 发送公共请求时使用的用户令牌。
+ * @param path 选择公共查询还是写命令端点。
+ * @param body 按 JSON 发送、由用例自行断言的请求体。
+ */
+function as(token: string, path: 'query' | 'command', body: unknown) {
   return api.rawPost(`/api/v1/${path}`, body, { authorization: `Bearer ${token}` })
 }
 async function editLease(token: string, mapId: string, rootIds: string[]) {
@@ -48,26 +59,37 @@ async function makeMap() {
   return { workspaceId: workspace.id, mapId, claimId, plan }
 }
 
-async function member(/* 要修改成员列表的工作区身份。 */ workspaceId: string, /* 要新增、改权或移除的用户身份。 */ userId: string, /* 目标成员角色；null 表示移除成员。 */ role: 'editor' | 'viewer' | null) {
-  // 读取当前工作区版本再修改成员角色，断言成员变更成功。
+/**
+ * 读取当前工作区版本再修改成员角色，断言成员变更成功。
+ *
+ * @param workspaceId 要修改成员列表的工作区身份。
+ * @param userId 要新增、改权或移除的用户身份。
+ * @param role 目标成员角色；null 表示移除成员。
+ */
+async function member(workspaceId: string, userId: string, role: 'editor' | 'viewer' | null) {
   const workspace = await api.post('/api/v1/query', { method: 'workspace.get', params: { workspaceId } })
   const result = await api.command('member.set', { workspaceId, expectedRevision: workspace.body.data.revision, userId, role })
   expect(result.status).toBe(200)
   return result
 }
 
-function pauseAuthorizationRead(/* 需要拦截一次授权读取的 Mongo 集合名称。 */ collectionName: string, /* 触发暂停的目标令牌、用户或工作区记录身份。 */ id: string) {
-  // 暂停一次真实授权快照读取，让撤权能在原写请求触碰栅栏前提交。
+/**
+ * 暂停一次真实授权快照读取，让撤权能在原写请求触碰栅栏前提交。
+ *
+ * @param collectionName 需要拦截一次授权读取的 Mongo 集合名称。
+ * @param id 触发暂停的目标令牌、用户或工作区记录身份。
+ */
+function pauseAuthorizationRead(collectionName: string, id: string) {
   const prototype = Object.getPrototypeOf(api.connection.db!.collection(collectionName))
   const original = prototype.findOne
   let armed = true, enter!: () => void, release!: () => void
-  const entered = new Promise<void>(/* 授权读取到达断点时完成 entered Promise 的回调。 */ resolve => {
+  const entered = new Promise<void>(resolve => {
     // 保存授权读取到达暂停点的通知回调。
     enter = resolve })
-  const resumed = new Promise<void>(/* 用例允许原事务继续时完成 resumed Promise 的回调。 */ resolve => {
+  const resumed = new Promise<void>(resolve => {
     // 保存放行原事务的回调，以精确安排撤权竞争。
     release = resolve })
-  prototype.findOne = async function (/* Mongo 驱动绑定的集合接收者，用于限定只拦截目标集合。 */ this: { collectionName: string }, /* 原 findOne 调用的全部位置参数，保持驱动调用不变。 */ ...args: any[]) {
+  prototype.findOne = async function (this: { collectionName: string }, ...args: any[]) {
     // 先执行真实 Mongo 读取，再仅暂停目标事务的一次读取，保留其旧快照以触发写冲突。
     const result = await Reflect.apply(original, this, args)
     // 读取真实 Mongo 事务快照后暂停，让并发撤权先于本请求的授权栅栏写入提交。
@@ -173,7 +195,7 @@ describe('Authenticated public Graph API', () => {
     })
   })
 
-  it.each(['token', 'user', 'membership'] as const)('revalidates %s revocation after a real transaction conflict before writing the graph', async (/* 本轮竞争测试撤销的授权种类。 */ kind) => {
+  it.each(['token', 'user', 'membership'] as const)('revalidates %s revocation after a real transaction conflict before writing the graph', async (kind) => {
     // 在真实事务冲突中分别撤销令牌、用户和成员资格，确认写请求重新鉴权且不改变图。
     const context = await makeMap()
     const editor = await user(`Racing ${kind}`)
@@ -222,8 +244,8 @@ describe('Authenticated public Graph API', () => {
     // 并发停用两名管理员，验证恰有一项成功且系统始终保留一名启用管理员。
     const second = await user('Second HostAdmin', true)
     const results = await Promise.allSettled([api.auth.disableUser(api.owner.userId), api.auth.disableUser(second.userId)])
-    expect(results.filter(/* 并发停用结果中当前判断是否成功的项。 */ result => /* 统计成功的停用操作，确认并发请求没有全部提交。 */ result.status === 'fulfilled')).toHaveLength(1)
-    const failure = results.find(/* 并发停用结果中当前查找被拒绝操作的项。 */ result => /* 取出被拒绝的停用结果，核对最后管理员保护错误。 */ result.status === 'rejected') as PromiseRejectedResult
+    expect(results.filter(result => /* 统计成功的停用操作，确认并发请求没有全部提交。 */ result.status === 'fulfilled')).toHaveLength(1)
+    const failure = results.find(result => /* 取出被拒绝的停用结果，核对最后管理员保护错误。 */ result.status === 'rejected') as PromiseRejectedResult
     expect(failure.reason).toMatchObject({ status: 409, code: 'LAST_ADMIN' })
     expect(await api.connection.collection('control_users').countDocuments({ hostAdmin: true, disabled: false })).toBe(1)
   })

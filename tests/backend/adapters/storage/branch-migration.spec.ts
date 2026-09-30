@@ -32,12 +32,19 @@ async function databases(): Promise<FixtureDatabase[]> {
   return open
 }
 
-function report(/* 用于结论、Run 和矛盾用例的历史报告身份。 */ id: string, /* 可选替换理由以制造同身份矛盾。 */ reason = 'Checked evidence') {
+/**
+ * @param id 用于结论、Run 和矛盾用例的历史报告身份。
+ * @param reason 可选替换理由以制造同身份矛盾。
+ */
+function report(id: string, reason = 'Checked evidence') {
   return { id, slotId: 'slot-a', agentId: 'agent-a', agentName: 'Archive agent', angle: 'source quality', tools: ['search', 'search'],
     routeRevision: 2, score: 0.5, reason, createdAt: '2026-09-01T00:00:00.000Z' }
 }
 
-function legacyGraph(/* 用例图身份，每个存储后端独立。 */ mapId = randomUUID()) {
+/**
+ * @param mapId 用例图身份，每个存储后端独立。
+ */
+function legacyGraph(mapId = randomUUID()) {
   const sourceId = randomUUID(), newsId = randomUUID(), claimId = randomUUID(), verificationId = randomUUID()
   const finalReport = report('legacy-report'), candidate = { ...report('candidate-only'), slotId: 'slot-b' }
   const time = '2026-09-02T00:00:00.000Z', runId = randomUUID()
@@ -146,7 +153,10 @@ describe('Generic data and branch migration', () => {
     const legacy = legacyGraph()
     await database.records<any>('control_workspaces').insert({ _id: legacy.workspaceId, revision: 0, definitionPackages: [], definitionAgents: [], updatedAt: legacy.updatedAt })
     await database.records<any>(GRAPH_COLLECTION).insert(legacy)
-    async function command(/* 管理命令的输入 JSON。 */ input: unknown) {
+    /**
+     * @param input 管理命令的输入 JSON。
+     */
+    async function command(input: unknown) {
       const child = spawn(process.execPath, ['--import', 'tsx', path.resolve('apps/graph-server/admin.ts'), 'data.migrate-branches'], {
         cwd: path.resolve('.'), stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CHONGMING_MONGO_URI: uri,
           CHONGMING_CONFIG_DIR: path.join(tmpdir(), 'unused-branch-admin-' + randomUUID()) },
@@ -169,7 +179,10 @@ describe('Generic data and branch migration', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'branch-local-admin-')), database = sqliteCreatePersistence(directory), legacy = legacyGraph()
     await database.records<any>('control_workspaces').insert({ _id: legacy.workspaceId, revision: 0, definitionPackages: [], definitionAgents: [], updatedAt: legacy.updatedAt })
     await database.records<any>(GRAPH_COLLECTION).insert(legacy); await database.close()
-    async function command(/* 是否真正应用迁移。 */ apply: boolean) {
+    /**
+     * @param apply 是否真正应用迁移。
+     */
+    async function command(apply: boolean) {
       const child = spawn(process.execPath, ['--import', 'tsx', path.resolve('apps/local-server/main.ts'), '--directory', directory,
         '--migrate-branches', ...(apply ? ['--apply'] : [])], { cwd: path.resolve('.'), stdio: ['ignore', 'pipe', 'pipe'] })
       let output = '', errors = ''

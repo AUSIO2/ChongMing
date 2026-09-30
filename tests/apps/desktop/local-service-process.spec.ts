@@ -10,8 +10,13 @@ const cleanup: Array<() => Promise<unknown>> = []
 afterEach(async () => {
   // 逆序关闭测试服务，再移除其运行目录。
    for (const close of cleanup.splice(0).reverse()) await close() })
-async function serviceCreateFixture(/* 写入模拟随包服务入口的源码字符串，由各用例控制就绪和退出行为。 */ source: string, /* 等待子进程就绪的毫秒上限，缺省 2000，超时测试会缩短它。 */ startupMs = 2000) {
-  // 建立随包目录结构并写入指定子进程源码，收集状态用于生命周期断言。
+/**
+ * 建立随包目录结构并写入指定子进程源码，收集状态用于生命周期断言。
+ *
+ * @param source 写入模拟随包服务入口的源码字符串，由各用例控制就绪和退出行为。
+ * @param startupMs 等待子进程就绪的毫秒上限，缺省 2000，超时测试会缩短它。
+ */
+async function serviceCreateFixture(source: string, startupMs = 2000) {
   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-service-'))
   cleanup.push(() => /* 删除当前用例的临时服务目录。 */  rm(directory, { recursive: true, force: true }))
   await mkdir(path.join(directory, 'bin')); await mkdir(path.join(directory, 'service'))
@@ -21,7 +26,11 @@ async function serviceCreateFixture(/* 写入模拟随包服务入口的源码�
   await writeFile(path.join(directory, 'service/main.mjs'), source)
   const states: LocalServiceState[] = []
   const input = { runtimeDirectory: directory, dataDirectory: path.join(directory, 'data'), configDirectory: path.join(directory, 'config'),
-    startupMs, shutdownMs: 100, onState: (/* 被测服务控制器发布的无凭据状态，保存以核对状态转换和脱敏。 */ state: LocalServiceState) => /* 记录服务状态变化，以检查凭据未进入对外状态。 */  states.push(state) }
+    startupMs, shutdownMs: 100,
+                                /**
+                                 * @param state 被测服务控制器发布的无凭据状态，保存以核对状态转换和脱敏。
+                                 */
+                                onState: (state: LocalServiceState) => /* 记录服务状态变化，以检查凭据未进入对外状态。 */  states.push(state) }
   const service = clientCreateService(input)
   cleanup.push(() => /* 确保用例结束后等待服务子进程关闭。 */  service.close())
   return { directory, states, service, input }

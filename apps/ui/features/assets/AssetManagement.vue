@@ -32,19 +32,32 @@ onScopeDispose(() => {
   alive = false
 })
 
-function assetFormatSize(/* 文件实际大小，单位字节。 */ size: number) {
-  // 按字节数选择 B、KiB 或 MiB 单位显示文件大小。
+/**
+ * 按字节数选择 B、KiB 或 MiB 单位显示文件大小。
+ *
+ * @param size 文件实际大小，单位字节。
+ */
+function assetFormatSize(size: number) {
   return size < 1024 ? `${size} B` : size < 1024 * 1024 ? `${(size / 1024).toFixed(1)} KiB` : `${(size / 1024 / 1024).toFixed(1)} MiB`
 }
-function assetUpdateList(/* 服务端确认的资产记录，将替换列表中的同身份旧记录。 */ asset: Asset) {
-  // 把新资产放到列表首位，同时替换已有同标识条目。
-  assets.value = [asset, ...assets.value.filter(/* 当前资产列表中的只读条目，按身份去重。 */ item => /* 移除列表中与新资产同标识的旧记录。 */ item.id !== asset.id)]
+/**
+ * 把新资产放到列表首位，同时替换已有同标识条目。
+ *
+ * @param asset 服务端确认的资产记录，将替换列表中的同身份旧记录。
+ */
+function assetUpdateList(asset: Asset) {
+  assets.value = [asset, ...assets.value.filter(item => /* 移除列表中与新资产同标识的旧记录。 */ item.id !== asset.id)]
 }
+/**
+ * 读取上传或导入文件选择，拒绝超限文件并清空相应输入。
+ *
+ * @param event 文件输入框的选择事件，从 target.files 取得用户选择的文件。
+ * @param importing 是否选择导入包，默认 false 表示普通资产上传。
+ */
 function assetUpdateFileSelection(
-  /* 文件输入框的选择事件，从 target.files 取得用户选择的文件。 */ event: Event,
-  /* 是否选择导入包，默认 false 表示普通资产上传。 */ importing = false
+  event: Event,
+  importing = false
 ) {
-  // 读取上传或导入文件选择，拒绝超限文件并清空相应输入。
   const file = (event.target as HTMLInputElement).files?.[0] ?? null
   localError.value = ''
   if (importing) importFile.value = null
@@ -53,21 +66,29 @@ function assetUpdateFileSelection(
   if (importing) importFile.value = file
   else selectedFile.value = file
 }
-async function assetReadList(/* 是否追加下一页，默认 false 表示重载首批资产。 */ more = false) {
-  // 读取当前工作区首批或下一批资产，并更新分页状态。
+/**
+ * 读取当前工作区首批或下一批资产，并更新分页状态。
+ *
+ * @param more 是否追加下一页，默认 false 表示重载首批资产。
+ */
+async function assetReadList(more = false) {
   if (!props.workspace || (more && !nextCursor.value)) return
-  await task.read('asset.list', { workspaceId: props.workspace.id, limit: 20, ...(more && nextCursor.value ? { cursor: nextCursor.value } : {}) }, /* 服务端返回的资产页，包含条目及下一页游标。 */ value => {
+  await task.read('asset.list', { workspaceId: props.workspace.id, limit: 20, ...(more && nextCursor.value ? { cursor: nextCursor.value } : {}) }, value => {
     // 接纳资产页，追加时按标识去重，并保存下一页游标。
-    assets.value = more ? [...assets.value, ...value.items.filter(/* 新一页中的资产条目，只追加尚未显示的身份。 */ item =>
+    assets.value = more ? [...assets.value, ...value.items.filter(item =>
       /* 只追加尚未存在于当前资产列表的条目。 */
-      !assets.value.some(/* 已显示的资产条目，作为分页去重比较对象。 */ existing =>
+      !assets.value.some(existing =>
         /* 匹配当前列表中的同标识资产。 */
         existing.id === item.id))] : value.items
     nextCursor.value = value.nextCursor; loaded.value = true
   })
 }
-async function assetCreateUpload(/* 是否上传暂存导入包，默认 false；导入时额外要求所有者权限。 */ importing = false) {
-  // 读取已选文件字节并上传，成功后记录普通资产或待导入包，忽略卸载后的结果。
+/**
+ * 读取已选文件字节并上传，成功后记录普通资产或待导入包，忽略卸载后的结果。
+ *
+ * @param importing 是否上传暂存导入包，默认 false；导入时额外要求所有者权限。
+ */
+async function assetCreateUpload(importing = false) {
   const file = importing ? importFile.value : selectedFile.value
   if (!file || !props.workspace || !canUpload.value || locked.value || (importing && !owner.value)) return
   localError.value = ''; readingFile.value = true
@@ -80,10 +101,10 @@ async function assetCreateUpload(/* 是否上传暂存导入包，默认 false�
   const extension = file.name.toLowerCase().match(/\.(txt|md|markdown|html|htm|json)$/)?.[1] ?? ''
   await task.run({ workspaceId: props.workspace.id, filename: file.name, mediaType: file.type || mediaTypes[extension] || 'application/octet-stream', bytes },
     (
-      /* 管理任务复制的上传参数，含工作区身份、文件元信息与独立字节。 */ input,
-      /* 管理任务分配的上传幂等标识，重试保持不变。 */ requestId,
-      /* 管理任务生命周期的取消信号，卸载时中断上传。 */ signal
-    ) => /* 将文件参数、稳定请求标识和取消信号交给网关上传。 */ props.gateway.upload(requestId, input, signal), /* 上传成功响应，含服务端确认的资产身份及元信息。 */ result => {
+      input,
+      requestId,
+      signal
+    ) => /* 将文件参数、稳定请求标识和取消信号交给网关上传。 */ props.gateway.upload(requestId, input, signal), result => {
       // 接纳上传资产，重置相应文件输入并展示后续引用或导入入口。
       assetUpdateList(result.data)
       if (importing) { importStage.value = { targetId, asset: result.data, result: null, name: '' }; importFile.value = null; if (importInput.value) importInput.value.value = ''; message.value = '导入包已暂存。确认下方目标名称后创建新工作区。' }
@@ -91,8 +112,12 @@ async function assetCreateUpload(/* 是否上传暂存导入包，默认 false�
       emit('changed')
     })
 }
-function assetIsSourceReference(/* 待检查的资产记录，只用其身份查找已存在或刚确认的来源引用。 */ asset: Asset) {
-  // 判断资产是否已有来源节点，或其新增来源结果已确认但新快照尚未到达。
+/**
+ * 判断资产是否已有来源节点，或其新增来源结果已确认但新快照尚未到达。
+ *
+ * @param asset 待检查的资产记录，只用其身份查找已存在或刚确认的来源引用。
+ */
+function assetIsSourceReference(asset: Asset) {
   const map = currentMap.value
   if (!map) return false
   const submittedRevision = createdSources.value[map.mapId + ':' + asset.id]
@@ -104,7 +129,12 @@ function assetIsSourceReference(/* 待检查的资产记录，只用其身份查
         && (!reference.when || payloadReadPointer(node.payload, reference.when.path) === reference.when.equals))
     })
 }
-function assetSetPointer(/* 要更新的通用 payload。 */ payload: GraphPayload, /* 已发布定义中的 JSON Pointer。 */ pointer: string, /* 写入的 JSON 值。 */ value: JsonValue): void {
+/**
+ * @param payload 要更新的通用 payload。
+ * @param pointer 已发布定义中的 JSON Pointer。
+ * @param value 写入的 JSON 值。
+ */
+function assetSetPointer(payload: GraphPayload, pointer: string, value: JsonValue): void {
   const parts = pointer.split('/').slice(1).map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'))
   if (!parts.length) return
   let target: Record<string, JsonValue> = payload
@@ -115,7 +145,11 @@ function assetSetPointer(/* 要更新的通用 payload。 */ payload: GraphPaylo
   }
   target[parts[parts.length - 1]] = value
 }
-function assetSchemaHasPointer(/* 根数据 schema。 */ root: DataSchema, /* 要检查的 JSON Pointer。 */ pointer: string): boolean {
+/**
+ * @param root 根数据 schema。
+ * @param pointer 要检查的 JSON Pointer。
+ */
+function assetSchemaHasPointer(root: DataSchema, pointer: string): boolean {
   let candidates: DataSchema[] = [root]
   for (const part of pointer.split('/').slice(1).map(value => value.replace(/~1/g, '/').replace(/~0/g, '~'))) {
     candidates = candidates.flatMap(schema => {
@@ -126,7 +160,11 @@ function assetSchemaHasPointer(/* 根数据 schema。 */ root: DataSchema, /* �
   }
   return true
 }
-function assetCreatePayload(/* 提供内容元数据的已上传资产。 */ asset: Asset, /* 类型声明中的资产引用。 */ reference: DataReferenceDefinition): GraphPayload {
+/**
+ * @param asset 提供内容元数据的已上传资产。
+ * @param reference 类型声明中的资产引用。
+ */
+function assetCreatePayload(asset: Asset, reference: DataReferenceDefinition): GraphPayload {
   const type = sourceType.value!
   const initial = payloadCreateInitial(type.schema)
   const payload: GraphPayload = initial && typeof initial === 'object' && !Array.isArray(initial) ? initial : {}
@@ -137,15 +175,19 @@ function assetCreatePayload(/* 提供内容元数据的已上传资产。 */ ass
   if (type.presentation?.titlePath && assetSchemaHasPointer(type.schema, type.presentation.titlePath)) assetSetPointer(payload, type.presentation.titlePath, asset.filename)
   return payload
 }
-async function assetCreateSource(/* 用户要引用的已上传资产，其身份、媒体类型和文件名写入新来源节点。 */ asset: Asset) {
-  // 在图可编辑且未引用该资产时创建来源节点，并记录服务端确认版本防止重复添加。
+/**
+ * 在图可编辑且未引用该资产时创建来源节点，并记录服务端确认版本防止重复添加。
+ *
+ * @param asset 用户要引用的已上传资产，其身份、媒体类型和文件名写入新来源节点。
+ */
+async function assetCreateSource(asset: Asset) {
   const map = currentMap.value
   const type = sourceType.value
   const reference = type?.references.find(item => item.target.kind === 'asset')
   if (!map || !type || !reference || !canUpload.value || assetIsSourceReference(asset)) return
   const nodeId = crypto.randomUUID()
   await task.command('graph.apply', { mapId: map.mapId, branch: { rootIds: [nodeId], expectedVersion: null },
-    changes: { nodes: { put: [{ id: nodeId, typeId: type.id, typeVersion: type.version, payload: assetCreatePayload(asset, reference) }] } } }, /* 来源节点保存成功的响应，用图版本记录刚确认的引用。 */ result => {
+    changes: { nodes: { put: [{ id: nodeId, typeId: type.id, typeVersion: type.version, payload: assetCreatePayload(asset, reference) }] } } }, result => {
     // 记录来源新增结果对应的图版本，并通知父组件刷新。
     const confirmed = result.data.snapshot
     createdSources.value[confirmed.mapId + ':' + asset.id] = confirmed.revision
@@ -160,12 +202,16 @@ async function assetRefresh() {
   await assetReadDefinitions()
   if (!canRetry.value) await assetReadList()
 }
-async function assetReadFile(/* 用户选择的下载对象，限定为资产、图或工作区及其身份。 */ input: ClientDownloadInput) {
-  // 下载指定文件，并在成功后通过浏览器保存。
+/**
+ * 下载指定文件，并在成功后通过浏览器保存。
+ *
+ * @param input 用户选择的下载对象，限定为资产、图或工作区及其身份。
+ */
+async function assetReadFile(input: ClientDownloadInput) {
   await task.run(input, (
-    /* 管理任务复制后的下载选择，传给网关，不修改。 */ payload,
-    /* 通用任务传入的请求标识；下载不产生业务写入，此处不使用。 */ _requestId,
-    /* 管理任务生命周期的取消信号，用于中止下载。 */ signal
+    payload,
+    _requestId,
+    signal
   ) => /* 使用管理任务的取消信号下载所选资产或导出包。 */ props.gateway.download(payload, signal), clientSaveFile)
 }
 async function assetDeleteFile() {
@@ -174,7 +220,7 @@ async function assetDeleteFile() {
   const asset = deleteTarget.value
   await task.command('asset.delete', { assetId: asset.id, expectedSha256: asset.sha256 }, () => {
     // 删除成功后移除列表和上传、导入缓存中的资产并通知父组件。
-    assets.value = assets.value.filter(/* 当前资产列表条目，删除确认后按身份排除。 */ item => /* 从资产列表中排除刚删除的资产。 */ item.id !== asset.id)
+    assets.value = assets.value.filter(item => /* 从资产列表中排除刚删除的资产。 */ item.id !== asset.id)
     if (uploaded.value?.id === asset.id) uploaded.value = null
     if (importStage.value?.asset.id === asset.id && !importStage.value.result) importStage.value = null
     deleteTarget.value = null; message.value = `已删除资产“${asset.filename}”。`; emit('changed')
@@ -186,15 +232,15 @@ async function assetCreateWorkspace() {
   if (!stage || stage.result || !props.workspace || !owner.value) return
   await task.run({ id: stage.targetId, stagingWorkspaceId: props.workspace.id,
     bundleAssetId: stage.asset.id, name: importName.value.trim() || null }, async (
-      /* 管理任务冻结的导入参数，含暂存包和固定目标工作区身份。 */ params,
-      /* 此次导入的幂等请求标识，整个重试过程保持不变。 */ requestId,
-      /* 管理任务的取消信号，同时用于导入与新工作区查询。 */ signal
+      params,
+      requestId,
+      signal
     ) => {
     // 使用原请求标识执行导入，再查询新工作区名称；重试保留导入目标身份。
     const result = await props.gateway.dispatch(requestId, 'workspace.import', params, signal)
     const workspace = await props.gateway.read('workspace.get', { workspaceId: result.data.workspaceId }, signal)
     return { imported: result.data, name: workspace.name }
-  }, /* 导入及随后查询得到的结果，提供工作区身份、导入统计和名称。 */ result => {
+  }, result => {
     // 记录导入结果和名称，展示打开新工作区入口并通知父组件。
     stage.result = result.imported; stage.name = result.name; message.value = '新工作区已创建，原工作区保持原样。'; emit('changed')
   })

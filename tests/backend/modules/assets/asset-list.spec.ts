@@ -20,8 +20,13 @@ async function workspace(): Promise<WorkspaceView> {
   return result.body.data
 }
 
-async function upload(/* 测试资产应归属的工作区身份。 */ workspaceId: string, /* 同时作为确定性文件内容和显示名称的测试文件名。 */ filename: string): Promise<Asset> {
-  // 以文件名作为确定性内容上传资产，返回用于排序与删除的公开元数据。
+/**
+ * 以文件名作为确定性内容上传资产，返回用于排序与删除的公开元数据。
+ *
+ * @param workspaceId 测试资产应归属的工作区身份。
+ * @param filename 同时作为确定性文件内容和显示名称的测试文件名。
+ */
+async function upload(workspaceId: string, filename: string): Promise<Asset> {
   const bytes = Buffer.from(filename)
   const result = await api.application.assets.upload(api.userToken, { workspaceId, filename, mediaType: 'text/plain',
     size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), requestId: randomUUID(),
@@ -29,13 +34,23 @@ async function upload(/* 测试资产应归属的工作区身份。 */ workspace
   return result.data
 }
 
-function query(/* 直接发送给 asset.list 查询边界的测试参数。 */ params: unknown, /* 查询使用的用户令牌；省略时使用夹具所有者。 */ token = api.userToken) {
-  // 使用指定用户身份发起资产列表查询，保留错误响应以测试边界。
+/**
+ * 使用指定用户身份发起资产列表查询，保留错误响应以测试边界。
+ *
+ * @param params 直接发送给 asset.list 查询边界的测试参数。
+ * @param token 查询使用的用户令牌；省略时使用夹具所有者。
+ */
+function query(params: unknown, token = api.userToken) {
   return api.rawPost('/api/v1/query', { method: 'asset.list', params }, { authorization: `Bearer ${token}` })
 }
 
-async function page(/* 已经按列表协议构造的工作区、游标和页大小。 */ params: { workspaceId: string; cursor?: string; limit?: number }, /* 分页读取使用的用户令牌；省略时使用夹具所有者。 */ token = api.userToken): Promise<Page<Asset>> {
-  // 读取一页资产并断言成功，供用例组合多页结果。
+/**
+ * 读取一页资产并断言成功，供用例组合多页结果。
+ *
+ * @param params 已经按列表协议构造的工作区、游标和页大小。
+ * @param token 分页读取使用的用户令牌；省略时使用夹具所有者。
+ */
+async function page(params: { workspaceId: string; cursor?: string; limit?: number }, token = api.userToken): Promise<Page<Asset>> {
   const result = await query(params, token)
   expect(result).toMatchObject({ status: 200, body: { ok: true } })
   return result.body.data
@@ -55,7 +70,7 @@ describe('Workspace asset listing', () => {
       assets.push(asset)
     }
     await upload(other.id, 'another-workspace.txt')
-    assets.sort((/* 预期排序比较中位于左侧的资产元数据。 */ a, /* 预期排序比较中位于右侧的资产元数据。 */ b) => /* 按协议的创建时间和身份顺序构造预期资产列表。 */ b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+    assets.sort((a, b) => /* 按协议的创建时间和身份顺序构造预期资产列表。 */ b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
     const first = await page({ workspaceId: ws.id, limit: 2 })
     expect(first.items).toEqual(assets.slice(0, 2))
     expect(Object.keys(first.items[0]).sort()).toEqual(['id', 'workspaceId', 'filename', 'mediaType', 'size', 'sha256', 'createdAt'].sort())
@@ -67,10 +82,10 @@ describe('Workspace asset listing', () => {
     const newest = await upload(ws.id, 'arrived-after-first-page.txt')
     const second = await page({ workspaceId: ws.id, limit: 2, cursor: first.nextCursor! })
     const third = await page({ workspaceId: ws.id, limit: 2, cursor: second.nextCursor! })
-    expect([...first.items, ...second.items, ...third.items].map(/* 跨页结果中当前提取身份的资产。 */ item => /* 提取跨页结果身份，以检查完整覆盖及排序。 */ item.id)).toEqual(assets.map(/* 完整预期列表中当前提取身份的资产。 */ item => /* 提取原始预期资产身份，与跨页结果逐项比较。 */ item.id))
+    expect([...first.items, ...second.items, ...third.items].map(item => /* 提取跨页结果身份，以检查完整覆盖及排序。 */ item.id)).toEqual(assets.map(item => /* 提取原始预期资产身份，与跨页结果逐项比较。 */ item.id))
     expect(third.nextCursor).toBeNull()
     const current = await page({ workspaceId: ws.id, limit: 200 })
-    expect(current.items.map(/* 重新查询结果中当前提取身份的资产。 */ item => /* 提取新一轮查询身份，以检查新上传项和删除项的可见性。 */ item.id)).toEqual([newest.id, ...assets.filter(/* 当前判断是否为已删除游标资产的预期项。 */ item => /* 从预期结果排除已逻辑删除的游标资产。 */ item.id !== cursorAsset.id).map(/* 删除项过滤后当前提取身份的预期资产。 */ item => /* 把剩余预期资产转换为身份列表。 */ item.id)])
+    expect(current.items.map(item => /* 提取新一轮查询身份，以检查新上传项和删除项的可见性。 */ item.id)).toEqual([newest.id, ...assets.filter(item => /* 从预期结果排除已逻辑删除的游标资产。 */ item.id !== cursorAsset.id).map(item => /* 把剩余预期资产转换为身份列表。 */ item.id)])
   })
 
   it('defaults to 50 items and enforces the public limit bounds', async () => {
@@ -82,7 +97,7 @@ describe('Workspace asset listing', () => {
     const second = await page({ workspaceId: ws.id, cursor: first.nextCursor! })
     expect(second.items).toHaveLength(1)
     expect(second.nextCursor).toBeNull()
-    expect(new Set([...first.items, ...second.items].map(/* 两页结果中当前提取身份、用于检查去重的资产。 */ item => /* 汇总两页身份，检查所有 51 项只出现一次。 */ item.id)).size).toBe(51)
+    expect(new Set([...first.items, ...second.items].map(item => /* 汇总两页身份，检查所有 51 项只出现一次。 */ item.id)).size).toBe(51)
     expect((await page({ workspaceId: ws.id, limit: 200 })).items).toHaveLength(51)
     for (const limit of [0, -1, 201, 1.5, '2']) {
       expect(await query({ workspaceId: ws.id, limit })).toMatchObject({ status: 400, body: { error: { code: 'INVALID_ARGUMENT' } } })
@@ -95,7 +110,10 @@ describe('Workspace asset listing', () => {
     await upload(ws.id, 'first.txt'); await upload(ws.id, 'second.txt')
     const first = await page({ workspaceId: ws.id, limit: 1 })
     expect(await query({ workspaceId: other.id, cursor: first.nextCursor })).toMatchObject({ status: 400, body: { error: { code: 'INVALID_CURSOR' } } })
-    const encode = (/* 需要编码为规范 Base64URL 游标的测试对象。 */ value: unknown) => /* 将用例构造的游标对象编码为协议格式，用于注入不同非法字段。 */ Buffer.from(JSON.stringify(value)).toString('base64url')
+    /**
+     * @param value 需要编码为规范 Base64URL 游标的测试对象。
+     */
+    const encode = (value: unknown) => /* 将用例构造的游标对象编码为协议格式，用于注入不同非法字段。 */ Buffer.from(JSON.stringify(value)).toString('base64url')
     const cursor = JSON.parse(Buffer.from(first.nextCursor!, 'base64url').toString())
     for (const invalid of ['not-json', '%%%invalid', first.nextCursor + '=', encode({}), encode({ ...cursor, createdAt: 'not-a-date' }),
       encode({ ...cursor, id: { $gt: '' } }), encode({ ...cursor, extra: true })]) {
@@ -130,10 +148,10 @@ describe('Workspace asset listing', () => {
     const ws = await workspace()
     const bytes = Buffer.alloc(300_000, 'a')
     let enter!: () => void, release!: () => void
-    const entered = new Promise<void>(/* 上传流到达断点时完成 entered Promise 的回调。 */ resolve => {
+    const entered = new Promise<void>(resolve => {
       // 保存上传已到达中断点的通知回调，避免依靠固定等待猜测上传进度。
       enter = resolve })
-    const resumed = new Promise<void>(/* 用例允许上传继续时完成 resumed Promise 的回调。 */ resolve => {
+    const resumed = new Promise<void>(resolve => {
       // 保存恢复上传的控制回调，供断言完成或 finally 清理时放行。
       release = resolve })
     async function* chunks() {

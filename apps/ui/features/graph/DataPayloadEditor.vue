@@ -9,7 +9,10 @@ const props = defineProps<{ schema: DataSchema; modelValue: JsonValue; label?: s
 const emit = defineEmits<{ 'update:modelValue': [value: JsonValue] }>()
 const root = computed(() => props.rootSchema ?? props.schema)
 
-function editorResolveSchema(/* 可能引用当前类型 definitions 的字段 schema。 */ schema: DataSchema): DataSchema {
+/**
+ * @param schema 可能引用当前类型 definitions 的字段 schema。
+ */
+function editorResolveSchema(schema: DataSchema): DataSchema {
   return payloadResolveSchema(schema, root.value)
 }
 
@@ -26,12 +29,21 @@ const arrayValue = computed<JsonValue[]>(() => Array.isArray(props.modelValue) ?
 const knownFields = computed(() => Object.entries(resolved.value.properties ?? {}))
 const dynamicFields = computed(() => Object.keys(objectValue.value).filter(key => !resolved.value.properties?.[key]))
 
-function editorUpdateObject(/* 被修改的对象属性名。 */ key: string, /* 新的 JSON 字段值。 */ value: JsonValue): void {
-  // 复制当前对象再更新单字段，避免递归组件直接修改父级传入的对象。
+/**
+ * 复制当前对象再更新单字段，避免递归组件直接修改父级传入的对象。
+ *
+ * @param key 被修改的对象属性名。
+ * @param value 新的 JSON 字段值。
+ */
+function editorUpdateObject(key: string, value: JsonValue): void {
   emit('update:modelValue', { ...objectValue.value, [key]: value })
 }
-function editorRemoveObject(/* 待删除的可扩展字典键。 */ key: string): void {
-  // required 的固定字段不会进入此操作；动态字典项可由用户显式移除。
+/**
+ * required 的固定字段不会进入此操作；动态字典项可由用户显式移除。
+ *
+ * @param key 待删除的可扩展字典键。
+ */
+function editorRemoveObject(key: string): void {
   const next = { ...objectValue.value }
   delete next[key]
   emit('update:modelValue', next)
@@ -43,8 +55,13 @@ function editorAddObject(): void {
   const child = typeof resolved.value.additionalProperties === 'object' ? resolved.value.additionalProperties : { type: 'string' as const }
   editorUpdateObject(key, payloadCreateInitial(editorResolveSchema(child), root.value))
 }
-function editorRenameObject(/* 原字典键。 */ oldKey: string, /* 用户输入的新字典键。 */ nextKey: string): void {
-  // 空名称或与另一项冲突时保持旧键，由服务端 schema 继续完成最终校验。
+/**
+ * 空名称或与另一项冲突时保持旧键，由服务端 schema 继续完成最终校验。
+ *
+ * @param oldKey 原字典键。
+ * @param nextKey 用户输入的新字典键。
+ */
+function editorRenameObject(oldKey: string, nextKey: string): void {
   const key = nextKey.trim()
   if (!key || (key !== oldKey && Object.prototype.hasOwnProperty.call(objectValue.value, key))) return
   const next = { ...objectValue.value }
@@ -53,8 +70,13 @@ function editorRenameObject(/* 原字典键。 */ oldKey: string, /* 用户输�
   next[key] = value
   emit('update:modelValue', next)
 }
-function editorUpdateArray(/* 被修改的数组位置。 */ index: number, /* 新的元素值。 */ value: JsonValue): void {
-  // 数组更新复制容器，保持 Vue 单向数据流。
+/**
+ * 数组更新复制容器，保持 Vue 单向数据流。
+ *
+ * @param index 被修改的数组位置。
+ * @param value 新的元素值。
+ */
+function editorUpdateArray(index: number, value: JsonValue): void {
   const next = [...arrayValue.value]
   next[index] = value
   emit('update:modelValue', next)
@@ -64,15 +86,23 @@ function editorAddArray(): void {
   if (resolved.value.maxItems !== undefined && arrayValue.value.length >= resolved.value.maxItems) return
   emit('update:modelValue', [...arrayValue.value, payloadCreateInitial(editorResolveSchema(resolved.value.items ?? { type: 'string' }), root.value)])
 }
-function editorReadScalar(/* 原生表单输入事件。 */ event: Event): JsonValue {
-  // 按 schema 类型转换原生字符串；不做隐式业务默认或复杂对象解析。
+/**
+ * 按 schema 类型转换原生字符串；不做隐式业务默认或复杂对象解析。
+ *
+ * @param event 原生表单输入事件。
+ */
+function editorReadScalar(event: Event): JsonValue {
   const input = event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
   if (type.value === 'boolean') return (input as HTMLInputElement).checked
   if (type.value === 'number' || type.value === 'integer') return input.value === '' ? 0 : Number(input.value)
   return input.value
 }
-function editorSelectVariant(/* oneOf 当前选择的零基位置。 */ index: number): void {
-  // 切换判别联合会建立该分支的最小新值，避免残留另一分支的非法字段。
+/**
+ * 切换判别联合会建立该分支的最小新值，避免残留另一分支的非法字段。
+ *
+ * @param index oneOf 当前选择的零基位置。
+ */
+function editorSelectVariant(index: number): void {
   const variant = resolved.value.oneOf?.[index]
   if (variant) emit('update:modelValue', payloadCreateInitial(editorResolveSchema(variant), root.value))
 }

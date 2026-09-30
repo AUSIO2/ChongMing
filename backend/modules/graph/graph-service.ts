@@ -19,41 +19,75 @@ import { workReadGrant, workReadItems } from './work-state'
 import { branchFindOwnershipConflict, branchPruneOwnerships, branchReadOwnerships, branchReadSnapshot, branchValidateMutation, branchValidateNewRoots } from './branch-state'
 import { graphReadPayloadReferenceIndex, graphRefreshPayloadReferenceIndexes } from '../shared/data-reference-index'
 
-export function graphReadSnapshot(/* 包含通用节点、关系和当前运行状态的持久化图。 */ document: GraphDocument, /* 用于过滤过期 editor 的当前时间。 */ now = Date.now(),
-  /* 本机不展示此前存储的客户端租约。 */ clientLeasesRequired = true): GraphSnapshot {
-  // 租约、内部收据和历史 Run 不进入公开快照；节点已经保存可信 producer 投影。
+/**
+ * 租约、内部收据和历史 Run 不进入公开快照；节点已经保存可信 producer 投影。
+ *
+ * @param document 包含通用节点、关系和当前运行状态的持久化图。
+ * @param now 用于过滤过期 editor 的当前时间。
+ * @param clientLeasesRequired 本机不展示此前存储的客户端租约。
+ */
+export function graphReadSnapshot(document: GraphDocument, now = Date.now(),
+  clientLeasesRequired = true): GraphSnapshot {
   return { mapId: document.id, workspaceId: document.workspaceId, revision: document.revision, name: document.name,
     nodes: structuredClone(document.nodes), edges: structuredClone(document.edges), runs: structuredClone(document.runs),
     ownershipRevision: document.ownershipRevision ?? 0, ownerships: branchReadOwnerships(document, now).filter(item => clientLeasesRequired || item.kind === 'run'),
     runControls: clientLeasesRequired ? graphReadRunControls(document, now) : [], updatedAt: document.updatedAt }
 }
 
-function graphReadRunControls(/* 当前图。 */ document: GraphDocument, /* 存储端当前时间。 */ now: number): GraphRunControl[] {
+/**
+ * @param document 当前图。
+ * @param now 存储端当前时间。
+ */
+function graphReadRunControls(document: GraphDocument, now: number): GraphRunControl[] {
   return Object.values(document.branchOwnerships ?? {}).filter((item): item is GraphRunControlRecord => item.kind === 'control'
     && Date.parse(item.expiresAt) > now && document.runs.some(run => run.id === item.runId && ['running', 'waiting'].includes(run.status)))
     .map(item => { const { kind: _kind, ...control } = structuredClone(item); return control })
 }
 
-function graphReadReceipt(/* 当前图及其已接受收据。 */ document: GraphDocument, /* 幂等身份。 */ requestId: string,
-  /* 公共命令或内部动作。 */ method: string, /* 当前输入的稳定摘要。 */ inputHash: string): GraphReceipt | null {
-  // 相同身份只有方法和输入摘要也相同才可重放，避免将新意图误认为旧成功。
+/**
+ * 相同身份只有方法和输入摘要也相同才可重放，避免将新意图误认为旧成功。
+ *
+ * @param document 当前图及其已接受收据。
+ * @param requestId 幂等身份。
+ * @param method 公共命令或内部动作。
+ * @param inputHash 当前输入的稳定摘要。
+ */
+function graphReadReceipt(document: GraphDocument, requestId: string,
+  method: string, inputHash: string): GraphReceipt | null {
   const receipt = document.receipts.find(item => item.requestId === requestId)
   if (!receipt) return null
   if (receipt.method !== method || receipt.inputHash !== inputHash) throw new GraphError(409, 'IDEMPOTENCY_CONFLICT', RuntimeMessage.REQUESTID_WAS_ALREADY_USED_WITH_DIFFERENT_INPUT)
   return receipt
 }
 
-function graphCreateReceipt(/* 业务动作的幂等身份。 */ requestId: string, /* 收据动作。 */ method: string,
-  /* 输入摘要。 */ inputHash: string, /* 服务端时间。 */ now: string, /* 新建节点。 */ createdNodeIds: string[] = [],
-  /* 新建关系。 */ createdEdgeIds: string[] = [], /* 分支写入成功时固定的提交后范围与版本。 */ branch?: GraphBranchSnapshot): GraphReceipt {
-  // 收据与业务状态同次提交，响应丢失后可返回同一组正式身份。
+/**
+ * 收据与业务状态同次提交，响应丢失后可返回同一组正式身份。
+ *
+ * @param requestId 业务动作的幂等身份。
+ * @param method 收据动作。
+ * @param inputHash 输入摘要。
+ * @param now 服务端时间。
+ * @param createdNodeIds 新建节点。
+ * @param createdEdgeIds 新建关系。
+ * @param branch 分支写入成功时固定的提交后范围与版本。
+ */
+function graphCreateReceipt(requestId: string, method: string,
+  inputHash: string, now: string, createdNodeIds: string[] = [],
+  createdEdgeIds: string[] = [], branch?: GraphBranchSnapshot): GraphReceipt {
   return { requestId, method, inputHash, createdNodeIds, createdEdgeIds, ...(branch ? { branch: structuredClone(branch) } : {}), createdAt: now }
 }
 
-function graphCreateWriteResult(/* 提交或重放后的当前图。 */ document: GraphDocument, /* 对应已接受收据。 */ receipt: GraphReceipt,
-  /* run.start 同次取得的控制权。 */ runControl?: GraphRunControlGrant,
-  /* 服务端客户端租约策略。 */ clientLeasesRequired = true): GraphWriteResult {
-  // 当前快照反映最新状态；只有仍与该快照同次的分支证明才返回，避免把旧 receipt proof 拼到新快照上。
+/**
+ * 当前快照反映最新状态；只有仍与该快照同次的分支证明才返回，避免把旧 receipt proof 拼到新快照上。
+ *
+ * @param document 提交或重放后的当前图。
+ * @param receipt 对应已接受收据。
+ * @param runControl run.start 同次取得的控制权。
+ * @param clientLeasesRequired 服务端客户端租约策略。
+ */
+function graphCreateWriteResult(document: GraphDocument, receipt: GraphReceipt,
+  runControl?: GraphRunControlGrant,
+  clientLeasesRequired = true): GraphWriteResult {
   let branch: GraphBranchSnapshot | undefined
   if (receipt.branch && receipt.branch.mapRevision === document.revision) {
     try {
@@ -65,28 +99,48 @@ function graphCreateWriteResult(/* 提交或重放后的当前图。 */ document
     ...(branch ? { branch: structuredClone(branch) } : {}), ...(runControl ? { runControl: structuredClone(runControl) } : {}) }
 }
 
-function graphReadUnique(/* 待拒绝重复的身份。 */ values: string[], /* 错误字段名。 */ label: string): Set<string> {
-  // 同一补丁中的重复身份含义不清，必须在修改图前拒绝。
+/**
+ * 同一补丁中的重复身份含义不清，必须在修改图前拒绝。
+ *
+ * @param values 待拒绝重复的身份。
+ * @param label 错误字段名。
+ */
+function graphReadUnique(values: string[], label: string): Set<string> {
   const ids = new Set(values)
   if (ids.size !== values.length) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_CONTAINS_DUPLICATE_IDS, label))
   return ids
 }
 
-function graphRef(/* 数据实例的精确类型。 */ node: Pick<GraphNode, 'typeId' | 'typeVersion'>): DefinitionRef {
-  // 将实例字段组合成目录引用。
+/**
+ * 将实例字段组合成目录引用。
+ *
+ * @param node 数据实例的精确类型。
+ */
+function graphRef(node: Pick<GraphNode, 'typeId' | 'typeVersion'>): DefinitionRef {
   return { id: node.typeId, version: node.typeVersion }
 }
 
-function graphValidateSuccessor(/* 精确定义目录。 */ definitions: DefinitionCatalog, /* 上游数据。 */ from: GraphNode, /* 正式产物。 */ to: GraphNode): void {
-  // successor 必须被上游精确类型版本许可；reference 不进入此规则。
+/**
+ * successor 必须被上游精确类型版本许可；reference 不进入此规则。
+ *
+ * @param definitions 精确定义目录。
+ * @param from 上游数据。
+ * @param to 正式产物。
+ */
+function graphValidateSuccessor(definitions: DefinitionCatalog, from: GraphNode, to: GraphNode): void {
   const definition = definitionsReadType(definitions, graphRef(from))
   if (!definition.successorTypes.some(ref => ref.id === to.typeId && ref.version === to.typeVersion)) {
     throw new GraphError(422, 'TRANSITION_NOT_ALLOWED', RuntimeMessage.GRAPH_SUCCESSOR_TYPE_IS_NOT_ALLOWED)
   }
 }
 
-function graphValidateSuccessorAcyclic(/* 修改后的节点索引。 */ nodes: Map<string, GraphNode>, /* 修改后的关系索引。 */ edges: Map<string, GraphEdge>): void {
-  // successor 定义结构分支并保持无环；reference 允许普通关系环。
+/**
+ * successor 定义结构分支并保持无环；reference 允许普通关系环。
+ *
+ * @param nodes 修改后的节点索引。
+ * @param edges 修改后的关系索引。
+ */
+function graphValidateSuccessorAcyclic(nodes: Map<string, GraphNode>, edges: Map<string, GraphEdge>): void {
   const outgoing = new Map<string, string[]>()
   for (const edge of edges.values()) if (edge.kind === 'successor') {
     if (!nodes.has(edge.from) || !nodes.has(edge.to)) throw new GraphError(422, 'INVALID_RELATION', RuntimeMessage.EDGE_REFERENCES_A_MISSING_NODE)
@@ -104,8 +158,13 @@ function graphValidateSuccessorAcyclic(/* 修改后的节点索引。 */ nodes: 
   for (const id of nodes.keys()) visit(id)
 }
 
-function graphValidateNodeReferences(/* 修改后的完整节点索引。 */ nodes: Map<string, GraphNode>, /* 精确类型目录。 */ definitions: DefinitionCatalog): void {
-  // 用户修改或删除节点后，所有声明的节点引用都必须仍存在且匹配允许类型版本。
+/**
+ * 用户修改或删除节点后，所有声明的节点引用都必须仍存在且匹配允许类型版本。
+ *
+ * @param nodes 修改后的完整节点索引。
+ * @param definitions 精确类型目录。
+ */
+function graphValidateNodeReferences(nodes: Map<string, GraphNode>, definitions: DefinitionCatalog): void {
   for (const node of nodes.values()) for (const reference of definitionsReadPayloadReferences(definitions, graphRef(node), node.payload)) {
     if (reference.definition.target.kind !== 'node') continue
     const target = nodes.get(reference.value)
@@ -115,9 +174,15 @@ function graphValidateNodeReferences(/* 修改后的完整节点索引。 */ nod
   }
 }
 
-function graphUpdateChanges(/* 修改前的当前图。 */ document: GraphDocument, /* 局部补丁。 */ changes: GraphChanges,
-  /* 当前工作区定义目录。 */ definitions: DefinitionCatalog): { document: GraphDocument; createdNodeIds: string[]; createdEdgeIds: string[] } {
-  // 应用局部变化，按定义验证 payload/后继及结构无环，返回待提交草稿。
+/**
+ * 应用局部变化，按定义验证 payload/后继及结构无环，返回待提交草稿。
+ *
+ * @param document 修改前的当前图。
+ * @param changes 局部补丁。
+ * @param definitions 当前工作区定义目录。
+ */
+function graphUpdateChanges(document: GraphDocument, changes: GraphChanges,
+  definitions: DefinitionCatalog): { document: GraphDocument; createdNodeIds: string[]; createdEdgeIds: string[] } {
   const now = new Date().toISOString()
   const nodePuts = changes.nodes?.put ?? [], nodeRemoves = graphReadUnique(changes.nodes?.remove ?? [], 'nodes.remove')
   const edgePuts = changes.edges?.put ?? [], edgeRemoves = graphReadUnique(changes.edges?.remove ?? [], 'edges.remove')
@@ -176,30 +241,51 @@ export interface GraphServiceOptions {
 }
 export interface GraphDispatchContext { definitions: DefinitionCatalog; run?: GraphRunStartContext; actorUserId?: string }
 
-export function graphCreateService(/* 图状态及最终写入条件。 */ store: GraphStore, /* 租期和受限来源读取器。 */ options: GraphServiceOptions = {}) {
-  // 用户命令和 Work 复用同一图状态与最终裁决，队列只提供唤醒。
+/**
+ * 用户命令和 Work 复用同一图状态与最终裁决，队列只提供唤醒。
+ *
+ * @param store 图状态及最终写入条件。
+ * @param options 租期和受限来源读取器。
+ */
+export function graphCreateService(store: GraphStore, options: GraphServiceOptions = {}) {
   const leaseMs = options.leaseMs ?? 15_000
   const branchLeaseMs = options.branchLeaseMs ?? 30_000
   const runControlLeaseMs = options.runControlLeaseMs ?? 30_000
   const readNow = options.now ?? (async () => Date.now())
   const clientLeasesRequired = options.clientLeases !== 'none'
-  function graphWriteResult(/* 当前图。 */ document: GraphDocument, /* 写入收据。 */ receipt: GraphReceipt,
-    /* 协作模式启动时授予的控制权。 */ runControl?: GraphRunControlGrant): GraphWriteResult {
+  /**
+   * @param document 当前图。
+   * @param receipt 写入收据。
+   * @param runControl 协作模式启动时授予的控制权。
+   */
+  function graphWriteResult(document: GraphDocument, receipt: GraphReceipt,
+    runControl?: GraphRunControlGrant): GraphWriteResult {
     return graphCreateWriteResult(document, receipt, runControl, clientLeasesRequired)
   }
   if (!Number.isSafeInteger(leaseMs) || leaseMs < 100 || leaseMs > 300_000) throw new Error(RuntimeMessage.LEASEMS_MUST_BE_BETWEEN_100_AND_300000)
   if (!Number.isSafeInteger(branchLeaseMs) || branchLeaseMs < 1_000 || branchLeaseMs > 300_000) throw new Error(RuntimeMessage.BRANCH_LEASEMS_MUST_BE_BETWEEN_1000_AND_300000)
   if (!Number.isSafeInteger(runControlLeaseMs) || runControlLeaseMs < 1_000 || runControlLeaseMs > 300_000) throw new Error(RuntimeMessage.RUN_CONTROL_LEASEMS_MUST_BE_BETWEEN_1000_AND_300000)
-  async function graphReadMap(/* 未删除图身份。 */ mapId: string): Promise<GraphDocument> {
+  /**
+   * @param mapId 未删除图身份。
+   */
+  async function graphReadMap(mapId: string): Promise<GraphDocument> {
     const document = await store.read(mapId)
     if (!document || document.deletedAt) throw new GraphError(404, 'MAP_NOT_FOUND', messageFormat(RuntimeMessage.MAP_NOT_FOUND_VALUE, mapId))
     if (!clientLeasesRequired) document.branchOwnerships = Object.fromEntries(
       Object.entries(document.branchOwnerships ?? {}).filter(([, item]) => item.kind === 'run'))
     return document
   }
-  async function graphCommit(/* 原状态。 */ original: GraphDocument, /* 业务草稿。 */ updated: GraphDocument, /* 同次收据。 */ receipt: GraphReceipt,
-    /* 可选最终 Work 授权。 */ grant?: GraphWorkGrant, /* 最终分支占有条件。 */ guard?: GraphCommitGuard): Promise<{ document: GraphDocument; receipt: GraphReceipt; replayed: boolean }> {
-    // CAS 未命中后先查收据，区分响应丢失和真实竞争。
+  /**
+   * CAS 未命中后先查收据，区分响应丢失和真实竞争。
+   *
+   * @param original 原状态。
+   * @param updated 业务草稿。
+   * @param receipt 同次收据。
+   * @param grant 可选最终 Work 授权。
+   * @param guard 最终分支占有条件。
+   */
+  async function graphCommit(original: GraphDocument, updated: GraphDocument, receipt: GraphReceipt,
+    grant?: GraphWorkGrant, guard?: GraphCommitGuard): Promise<{ document: GraphDocument; receipt: GraphReceipt; replayed: boolean }> {
     if (await store.commit(updated, original.revision, receipt, grant, guard ?? { ownershipRevision: original.ownershipRevision ?? 0 })) {
       const committed = await store.read(updated.id)
       if (!committed) throw new Error(messageFormat(RuntimeMessage.COMMITTED_MAP_DISAPPEARED_VALUE, updated.id))
@@ -212,16 +298,29 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
     throw new GraphError(409, 'REVISION_CONFLICT', messageFormat(RuntimeMessage.MAP_REVISION_CHANGED_VALUE, updated.id), latest.revision)
   }
 
-  function graphReadOwnershipReceipt(/* 当前图。 */ document: GraphDocument, /* 用户身份。 */ actorUserId: string,
-    /* 请求身份。 */ requestId: string, /* 方法。 */ method: GraphOwnershipReceipt['method'], /* 输入摘要。 */ inputHash: string): GraphOwnershipReceipt | null {
+  /**
+   * @param document 当前图。
+   * @param actorUserId 用户身份。
+   * @param requestId 请求身份。
+   * @param method 方法。
+   * @param inputHash 输入摘要。
+   */
+  function graphReadOwnershipReceipt(document: GraphDocument, actorUserId: string,
+    requestId: string, method: GraphOwnershipReceipt['method'], inputHash: string): GraphOwnershipReceipt | null {
     const receipt = (document.ownershipReceipts ?? []).find(item => item.actorUserId === actorUserId && item.requestId === requestId)
     if (!receipt) return null
     if (receipt.method !== method || receipt.inputHash !== inputHash) throw new GraphError(409, 'IDEMPOTENCY_CONFLICT', RuntimeMessage.REQUESTID_WAS_ALREADY_USED_WITH_DIFFERENT_INPUT)
     return receipt
   }
 
-  function graphReadEditorOwnership(/* 当前图。 */ document: GraphDocument, /* 用户身份。 */ actorUserId: string,
-    /* 客户端租约 proof。 */ proof: GraphBranchLeaseProof, /* 存储端当前时间。 */ now: number): GraphBranchOwnershipRecord {
+  /**
+   * @param document 当前图。
+   * @param actorUserId 用户身份。
+   * @param proof 客户端租约 proof。
+   * @param now 存储端当前时间。
+   */
+  function graphReadEditorOwnership(document: GraphDocument, actorUserId: string,
+    proof: GraphBranchLeaseProof, now: number): GraphBranchOwnershipRecord {
     const ownership = document.branchOwnerships?.[proof.leaseId]
     if (!ownership || ownership.kind !== 'editor' || ownership.ownerUserId !== actorUserId || ownership.holderId !== proof.holderId
       || ownership.fence !== proof.fence || ownership.expiresAt === null || Date.parse(ownership.expiresAt) <= now) {
@@ -230,17 +329,32 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
     return ownership
   }
 
-  function graphSameRoots(/* 一侧根集合。 */ left: readonly string[], /* 另一侧根集合。 */ right: readonly string[]): boolean {
+  /**
+   * @param left 一侧根集合。
+   * @param right 另一侧根集合。
+   */
+  function graphSameRoots(left: readonly string[], right: readonly string[]): boolean {
     return left.length === right.length && [...left].sort().every((id, index) => id === [...right].sort()[index])
   }
 
-  function graphReadBranchGrant(/* 已提交占有后的图状态。 */ document: GraphDocument, /* editor 占有。 */ ownership: GraphBranchOwnershipRecord): GraphBranchGrant {
+  /**
+   * @param document 已提交占有后的图状态。
+   * @param ownership editor 占有。
+   */
+  function graphReadBranchGrant(document: GraphDocument, ownership: GraphBranchOwnershipRecord): GraphBranchGrant {
     const branch = branchReadSnapshot(document, ownership.rootIds)
     return { ...structuredClone(ownership), kind: 'editor', expiresAt: ownership.expiresAt!, leaseMs: ownership.leaseMs!,
       scope: branch.scope, branch, ownershipRevision: document.ownershipRevision ?? 0 }
   }
-  function graphReadRunControl(/* 当前图。 */ document: GraphDocument, /* 用户身份。 */ actorUserId: string, /* Run 身份。 */ runId: string,
-    /* 客户端控制 proof。 */ proof: GraphRunControlProof, /* 存储端当前时间。 */ now: number): GraphRunControlRecord {
+  /**
+   * @param document 当前图。
+   * @param actorUserId 用户身份。
+   * @param runId Run 身份。
+   * @param proof 客户端控制 proof。
+   * @param now 存储端当前时间。
+   */
+  function graphReadRunControl(document: GraphDocument, actorUserId: string, runId: string,
+    proof: GraphRunControlProof, now: number): GraphRunControlRecord {
     if (!proof) throw new GraphError(409, 'RUN_CONTROL_LEASE_REQUIRED', RuntimeMessage.A_VALID_RUN_CONTROL_LEASE_IS_REQUIRED)
     const control = document.branchOwnerships?.[proof.leaseId]
     if (!control || control.kind !== 'control' || control.runId !== runId || control.ownerUserId !== actorUserId
@@ -249,11 +363,19 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
     }
     return control
   }
-  function graphReadRunControlGrant(/* 已提交协调状态。 */ document: GraphDocument, /* 控制租约。 */ control: GraphRunControlRecord): GraphRunControlGrant {
+  /**
+   * @param document 已提交协调状态。
+   * @param control 控制租约。
+   */
+  function graphReadRunControlGrant(document: GraphDocument, control: GraphRunControlRecord): GraphRunControlGrant {
     const { kind: _kind, ...grant } = structuredClone(control)
     return { ...grant, ownershipRevision: document.ownershipRevision ?? 0 }
   }
-  function graphReleaseRunOwnerships(/* 待提交文档。 */ document: GraphDocument, /* 终态 Run。 */ runId: string): boolean {
+  /**
+   * @param document 待提交文档。
+   * @param runId 终态 Run。
+   */
+  function graphReleaseRunOwnerships(document: GraphDocument, runId: string): boolean {
     let changed = false
     for (const [id, ownership] of Object.entries(document.branchOwnerships ?? {})) {
       if ((ownership.kind === 'run' || ownership.kind === 'control') && ownership.runId === runId) {
@@ -262,17 +384,26 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
     }
     return changed
   }
-  function graphRequireRunOwnership(/* 当前图。 */ document: GraphDocument, /* Work 所属 Run。 */ runId: string): void {
+  /**
+   * @param document 当前图。
+   * @param runId Work 所属 Run。
+   */
+  function graphRequireRunOwnership(document: GraphDocument, runId: string): void {
     const ownership = document.branchOwnerships?.[runId]
     if (!ownership || ownership.kind !== 'run' || ownership.runId !== runId) {
       throw new GraphError(409, 'RUN_OWNERSHIP_LOST', RuntimeMessage.RUN_BRANCH_OWNERSHIP_IS_MISSING)
     }
   }
 
+  /**
+   * @param command 已解析的领取、续租或释放命令。
+   * @param actorUserId 由认证事务绑定的用户身份。
+   * @param inputHash 稳定输入摘要。
+   */
   async function graphDispatchOwnership(
-    /* 已解析的领取、续租或释放命令。 */ command: Extract<GraphCommand, { method: 'branch.claim' | 'branch.renew' | 'branch.release' }>,
-    /* 由认证事务绑定的用户身份。 */ actorUserId: string,
-    /* 稳定输入摘要。 */ inputHash: string,
+    command: Extract<GraphCommand, { method: 'branch.claim' | 'branch.renew' | 'branch.release' }>,
+    actorUserId: string,
+    inputHash: string,
   ): Promise<{ data: GraphBranchClaimResult | GraphBranchGrant | { released: boolean; ownershipRevision: number }; replayed: boolean }> {
     for (let attempt = 0; attempt < 64; attempt++) {
       const document = await graphReadMap(command.params.mapId), replay = graphReadOwnershipReceipt(document, actorUserId,
@@ -316,9 +447,14 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
     throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_BRANCH_OWNERSHIP_AFTER_CONCURRENT_UPDATES_SETTLE)
   }
 
+  /**
+   * @param command 控制权领取、续租或释放。
+   * @param actorUserId 认证用户。
+   * @param inputHash 稳定输入摘要。
+   */
   async function graphDispatchRunControl(
-    /* 控制权领取、续租或释放。 */ command: Extract<GraphCommand, { method: 'run.control.claim' | 'run.control.renew' | 'run.control.release' }>,
-    /* 认证用户。 */ actorUserId: string, /* 稳定输入摘要。 */ inputHash: string,
+    command: Extract<GraphCommand, { method: 'run.control.claim' | 'run.control.renew' | 'run.control.release' }>,
+    actorUserId: string, inputHash: string,
   ): Promise<{ data: GraphRunControlClaimResult | GraphRunControlGrant | { released: boolean; ownershipRevision: number }; replayed: boolean }> {
     for (let attempt = 0; attempt < 64; attempt++) {
       const document = await graphReadMap(command.params.mapId), replay = graphReadOwnershipReceipt(document, actorUserId,
@@ -365,7 +501,11 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
   }
 
   return {
-    async read(/* 已授权图查询。 */ query: GraphQuery, /* branch.get 可用的当前工作区定义，用于兼容重建派生引用索引。 */ definitions?: DefinitionCatalog): Promise<GraphSnapshot | GraphMapSummary[] | GraphRun | GraphBranchSnapshot> {
+    /**
+     * @param query 已授权图查询。
+     * @param definitions branch.get 可用的当前工作区定义，用于兼容重建派生引用索引。
+     */
+    async read(query: GraphQuery, definitions?: DefinitionCatalog): Promise<GraphSnapshot | GraphMapSummary[] | GraphRun | GraphBranchSnapshot> {
       if (query.method === 'map.list') return store.list(query.params.workspaceId)
       const stored = await graphReadMap(query.params.mapId)
       const document = query.method === 'branch.get' && definitions
@@ -379,7 +519,11 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
       return graphReadSnapshot(document, await readNow(), clientLeasesRequired)
     },
 
-    async dispatch(/* 用户级幂等图命令。 */ command: GraphCommand, /* 定义及可选冻结 Run 上下文。 */ context?: GraphDispatchContext): Promise<{
+    /**
+     * @param command 用户级幂等图命令。
+     * @param context 定义及可选冻结 Run 上下文。
+     */
+    async dispatch(command: GraphCommand, context?: GraphDispatchContext): Promise<{
       data: GraphWriteResult | { mapId: string; deleted: true } | GraphBranchClaimResult | GraphBranchGrant | GraphRunControlClaimResult | GraphRunControlGrant
         | { released: boolean; ownershipRevision: number }; replayed: boolean
     }> {
@@ -589,7 +733,10 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
       throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_GRAPH_CHANGE_AFTER_CONCURRENT_UPDATES_SETTLE)
     },
 
-    async dispatchWork(/* 内部 Host 工作命令。 */ command: GraphWorkCommand) {
+    /**
+     * @param command 内部 Host 工作命令。
+     */
+    async dispatchWork(command: GraphWorkCommand) {
       if (command.method === 'claim') {
         const input = command.params
         for (let attempt = 0; attempt < 64; attempt++) {
@@ -647,8 +794,14 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
       throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_CLAIM_AFTER_CONCURRENT_UPDATES_SETTLE)
     },
 
-    async readData(/* 内部 data_read 参数。 */ mapId: string, /* Operation 身份。 */ operationId: string, /* 当前 Work 凭证。 */ proof: GraphWorkProof): Promise<GraphDataRead> {
-      // 来源正文只在缺失时通过受限读取器获取，并在返回模型前持久化到 Operation。
+    /**
+     * 来源正文只在缺失时通过受限读取器获取，并在返回模型前持久化到 Operation。
+     *
+     * @param mapId 内部 data_read 参数。
+     * @param operationId Operation 身份。
+     * @param proof 当前 Work 凭证。
+     */
+    async readData(mapId: string, operationId: string, proof: GraphWorkProof): Promise<GraphDataRead> {
       const fetched = new Map<string, string>()
       for (let attempt = 0; attempt < 64; attempt++) {
         let document = await graphReadMap(mapId), grant = workReadGrant(document, proof)
@@ -698,9 +851,16 @@ export function graphCreateService(/* 图状态及最终写入条件。 */ store
       throw new GraphError(503, 'WRITE_CONTENTION', RuntimeMessage.RETRY_CLAIM_AFTER_CONCURRENT_UPDATES_SETTLE)
     },
 
-    async propose(/* 图身份。 */ mapId: string, /* Operation 身份。 */ operationId: string, /* 通用阶段提案。 */ proposal: GraphDataProposal,
-      /* 当前 Work 凭证。 */ proof: GraphWorkProof): Promise<GraphWriteResult> {
-      // 按冻结定义、输入版本和最终租约复验；合法 CAS 竞争重放同一提案，不重跑模型。
+    /**
+     * 按冻结定义、输入版本和最终租约复验；合法 CAS 竞争重放同一提案，不重跑模型。
+     *
+     * @param mapId 图身份。
+     * @param operationId Operation 身份。
+     * @param proposal 通用阶段提案。
+     * @param proof 当前 Work 凭证。
+     */
+    async propose(mapId: string, operationId: string, proposal: GraphDataProposal,
+      proof: GraphWorkProof): Promise<GraphWriteResult> {
       if (proposal.operationId !== operationId) throw new GraphError(409, 'PROPOSAL_CONFLICT', RuntimeMessage.PROPOSAL_DOES_NOT_BELONG_TO_THIS_WORK_GRANT)
       const inputHash = storeCreateInputHash(proposal)
       for (let attempt = 0; attempt < 64; attempt++) {

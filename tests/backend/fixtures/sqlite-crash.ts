@@ -6,7 +6,7 @@ async function sqliteRunCrashFixture() {
   const database = sqliteCreatePersistence(process.argv[2])
   const records = database.records<{ _id: string; value: string }>('crash_test')
   await records.insert({ _id: 'committed', value: 'retained' })
-  await database.transaction(async /* 保持未提交写入活动、等待父进程强杀的 SQLite 事务会话。 */ session => {
+  await database.transaction(async session => {
     // 写入尚未提交的数据并发出就绪标记，使父测试能精确在事务中断时终止进程。
     await records.insert({ _id: 'pending', value: 'must roll back' }, session)
     setInterval(() => {
@@ -18,6 +18,6 @@ async function sqliteRunCrashFixture() {
       })
   })
 }
-sqliteRunCrashFixture().catch(/* 夹具自身启动或持久化失败的原始原因。 */ error => {
+sqliteRunCrashFixture().catch(error => {
   // 将夹具启动错误写到标准错误并设置失败退出码，避免误判为预期崩溃。
   console.error(error); process.exitCode = 1 })

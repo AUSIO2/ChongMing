@@ -22,19 +22,28 @@ afterEach(() => {
 })
 afterAll(async () => {
   // 退出所有测试连接并释放真实验收环境。
-  await Promise.all(connections.map(/* 用例登记的已登录网关，由清理流程调用退出。 */ connection => /* 退出一个登记过的客户端连接。 */ connection.disconnect()))
+  await Promise.all(connections.map(connection => /* 退出一个登记过的客户端连接。 */ connection.disconnect()))
   await fixture?.close()
 }, 30_000)
-async function connect(/* 测试用户的访问令牌，来自验收后端签发接口。 */ token: string) {
-  // 使用指定用户令牌登录并登记连接，供统一清理。
+/**
+ * 使用指定用户令牌登录并登记连接，供统一清理。
+ *
+ * @param token 测试用户的访问令牌，来自验收后端签发接口。
+ */
+async function connect(token: string) {
   const connection = clientCreateGateway({ baseUrl: fixture.baseUrl, timeoutMs: 5000 })
   await connection.connect({ baseUrl: fixture.baseUrl, token, remember: false }); connections.push(connection)
   return connection
 }
-function management(/* 管理任务使用的客户端连接，默认采用本文件已登录网关。 */ connection = gateway, /* 可选的认证失效观察回调，默认空操作。 */ onUnauthorized = () => {
+/**
+ * 在可清理的 Vue 作用域中创建管理任务。
+ *
+ * @param connection 管理任务使用的客户端连接，默认采用本文件已登录网关。
+ * @param onUnauthorized 可选的认证失效观察回调，默认空操作。
+ */
+function management(connection = gateway, onUnauthorized = () => {
     // 未指定认证失效观察行为时不执行额外操作。
 }) {
-  // 在可清理的 Vue 作用域中创建管理任务。
   const scope = effectScope(); scopes.push(scope)
   return scope.run(() => /* 让管理任务的请求生命周期归属于当前测试作用域。 */ useManagementTask({ gateway: connection, onUnauthorized }))!
 }
@@ -42,13 +51,21 @@ async function workspace() {
   // 创建拥有共享库配置副本的独立管理验收工作区。
   return (await gateway.dispatch(randomUUID(), 'workspace.create', { id: randomUUID(), name: '管理验收工作区', description: '', agentSource: 'library' })).data
 }
-async function createMap(/* 作为新图所属范围的工作区，只使用其身份并重新读取最新版本。 */ value: WorkspaceView) {
-  // 取得工作区最新版本后创建用于文件流转测试的数据图。
+/**
+ * 取得工作区最新版本后创建用于文件流转测试的数据图。
+ *
+ * @param value 作为新图所属范围的工作区，只使用其身份并重新读取最新版本。
+ */
+async function createMap(value: WorkspaceView) {
   const current = await gateway.read('workspace.get', { workspaceId: value.id })
   return (await gateway.dispatch(randomUUID(), 'map.create', { workspaceId: value.id, expectedRevision: current.revision, id: randomUUID(), name: '文件流转图' })).data.snapshot
 }
-function input(/* 已保存的只读 Agent 配置，复制可编辑字段与数组供测试提交。 */ profile: AgentProfile): AgentInput {
-  // 复制已保存 Agent 的可编辑字段和数组，供更新请求使用。
+/**
+ * 复制已保存 Agent 的可编辑字段和数组，供更新请求使用。
+ *
+ * @param profile 已保存的只读 Agent 配置，复制可编辑字段与数组供测试提交。
+ */
+function input(profile: AgentProfile): AgentInput {
   return { id: profile.id, kind: profile.kind, promptPath: profile.promptPath, name: profile.name, description: profile.description,
     content: profile.content, provider: profile.provider, model: profile.model, tools: [...profile.tools], promptVars: [...profile.promptVars],
     defaultPriority: profile.defaultPriority, claimCategory: profile.claimCategory,
@@ -68,13 +85,13 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const bootstrap = await gateway.read('app.bootstrap', {})
     const kinds: PromptKind[] = ['parseExtract', 'splitRoute', 'splitSubAgent', 'splitMerge', 'verifyRoute', 'verifySubAgent', 'verifyMerge']
     for (const kind of kinds) {
-      const profile = list.items.find(/* 目录中的配置项，用本轮待验收角色匹配。 */ agent => /* 查找当前待验证角色的智能体。 */ agent.kind === kind)!
+      const profile = list.items.find(agent => /* 查找当前待验证角色的智能体。 */ agent.kind === kind)!
       const agent = reactive({ ...input(profile), content: profile.content + '\n管理页自定义配置', provider: null, model: null,
         promptVars: [...bootstrap.metadata.variables[kind]].reverse(), defaultPriority: 'low' as const, claimCategory: kind === 'splitSubAgent' ? 'data' as const : null })
       const saved = await task.command('agent.update', { scope, expectedRevision: list.revision, agentId: profile.id, expectedAgentRevision: profile.revision, agent })
       expect(saved, task.error.value?.message).not.toBeNull()
       list = saved!.data
-      expect(list.items.find(/* 更新后的配置项，用原 Agent 身份核对保存结果。 */ item => /* 按原标识查找保存后的配置进行字段核对。 */ item.id === profile.id)).toMatchObject(agent)
+      expect(list.items.find(item => /* 按原标识查找保存后的配置进行字段核对。 */ item.id === profile.id)).toMatchObject(agent)
     }
     const map = await createMap(ws), claimId = randomUUID()
     await gateway.dispatch(randomUUID(), 'graph.apply', { mapId: map.mapId, branch: { rootIds: [claimId], expectedVersion: null },
@@ -91,11 +108,11 @@ describe('Management tasks against authenticated API and file endpoints', () => 
       scope: { nodeIds: [claimId] }, plan: graphCreateRunPlan(verify, [claimId]), mode: 'human-in-loop' })
     const frozen = structuredClone(started.data.snapshot.runs.find(run => run.id === runId)!.agents)
     const currentList = await gateway.read('agent.list', { scope })
-    const original = currentList.items.find(/* 当前目录中的配置项，用类型选择可更改的核查子 Agent。 */ agent => /* 选择核查子 Agent，验证后续配置变更不影响已启动运行。 */ agent.kind === 'verifySubAgent')!
+    const original = currentList.items.find(agent => /* 选择核查子 Agent，验证后续配置变更不影响已启动运行。 */ agent.kind === 'verifySubAgent')!
     await task.command('agent.update', { scope, expectedRevision: currentList.revision, agentId: original.id,
       expectedAgentRevision: original.revision, agent: { ...input(original), content: '以后运行使用的新提示词' } })
     expect((await gateway.read('map.get', { mapId: map.mapId })).runs.find(run => run.id === runId)!.agents).toEqual(frozen)
-    const fixed = currentList.items.find(/* 当前目录中的配置项，用不可删除标记选择固定角色。 */ agent => /* 选取不可删除的固定角色供拒绝删除断言。 */ !agent.deletable)!
+    const fixed = currentList.items.find(agent => /* 选取不可删除的固定角色供拒绝删除断言。 */ !agent.deletable)!
     const latest = await gateway.read('agent.list', { scope })
     await expect(gateway.dispatch(randomUUID(), 'agent.delete', { scope, expectedRevision: latest.revision,
       agentId: fixed.id, expectedAgentRevision: fixed.revision })).rejects.toMatchObject({ code: 'FIXED_ROLE' })
@@ -108,32 +125,32 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const token = await fixture.application.auth.createToken(admin.userId)
     const adminGateway = await connect(token.token), libraryScope = { kind: 'library' as const }
     const library = await adminGateway.read('agent.list', { scope: libraryScope })
-    const fixed = library.items.find(/* 共享库中的配置项，用解析角色类型选择更新目标。 */ agent => /* 选择共享库的固定解析角色进行更新。 */ agent.kind === 'parseExtract')!
+    const fixed = library.items.find(agent => /* 选择共享库的固定解析角色进行更新。 */ agent.kind === 'parseExtract')!
     const update = { scope: libraryScope, expectedRevision: library.revision, agentId: fixed.id,
       expectedAgentRevision: fixed.revision, agent: { ...input(fixed), content: fixed.content + '\n库中明确更新' } }
     await expect(gateway.dispatch(randomUUID(), 'agent.update', update)).rejects.toMatchObject({ status: 403 })
     const changedLibrary = (await adminGateway.dispatch(randomUUID(), 'agent.update', update)).data
     const scope = { kind: 'workspace' as const, workspaceId: ws.id }
     const list = await gateway.read('agent.list', { scope })
-    const source = list.items.find(/* 工作区中的配置项，用核查子 Agent 类型选择自定义副本来源。 */ agent => /* 选取可复制为工作区自定义配置的核查子 Agent。 */ agent.kind === 'verifySubAgent')!
+    const source = list.items.find(agent => /* 选取可复制为工作区自定义配置的核查子 Agent。 */ agent.kind === 'verifySubAgent')!
     const customId = randomUUID()
     const custom = await gateway.dispatch(randomUUID(), 'agent.create', { scope, expectedRevision: list.revision,
       agent: { ...input(source), id: customId, promptPath: 'custom/' + customId, name: '仅当前工作区' } })
-    const oldFixed = list.items.find(/* 原工作区配置项，用解析角色类型追踪被覆盖身份。 */ agent => /* 找到工作区已有的解析角色，核对复制覆盖保持身份。 */ agent.kind === 'parseExtract')!
+    const oldFixed = list.items.find(agent => /* 找到工作区已有的解析角色，核对复制覆盖保持身份。 */ agent.kind === 'parseExtract')!
     const task = management()
     const merged = await task.command('agent.copy', { workspaceId: ws.id, expectedRevision: custom.data.revision,
-      libraryRevision: changedLibrary.revision, agentIds: changedLibrary.items.map(/* 更新后的共享库配置，提取全部身份供合并复制。 */ agent =>
+      libraryRevision: changedLibrary.revision, agentIds: changedLibrary.items.map(agent =>
         /* 提取全部共享库配置标识作为合并复制范围。 */
         agent.id), mode: 'merge' })
-    expect(merged!.data.agents.some(/* 合并后的工作区配置，用自定义身份确认未选配置保留。 */ agent => /* 检查合并后工作区自定义配置仍被保留。 */ agent.id === customId)).toBe(true)
-    expect(merged!.data.agents.find(/* 合并后的工作区配置，用原路径确认覆盖仍保留目标身份。 */ agent =>
+    expect(merged!.data.agents.some(agent => /* 检查合并后工作区自定义配置仍被保留。 */ agent.id === customId)).toBe(true)
+    expect(merged!.data.agents.find(agent =>
       /* 按配置路径查找被共享库覆盖的原工作区角色。 */
       agent.promptPath === oldFixed.promptPath)).toMatchObject({ id: oldFixed.id, content: update.agent.content })
     const replaced = await task.command('agent.copy', { workspaceId: ws.id, expectedRevision: merged!.data.revision,
-      libraryRevision: changedLibrary.revision, agentIds: changedLibrary.items.map(/* 更新后的共享库配置，提取全部身份供替换复制。 */ agent => /* 提取全部共享库配置标识作为替换范围。 */ agent.id), mode: 'replace' })
+      libraryRevision: changedLibrary.revision, agentIds: changedLibrary.items.map(agent => /* 提取全部共享库配置标识作为替换范围。 */ agent.id), mode: 'replace' })
     expect(replaced!.data.id).toBe(ws.id)
-    expect(replaced!.data.agents.some(/* 替换后的工作区配置，用自定义身份检查它已被移除。 */ agent => /* 检查替换后原自定义配置是否已经移除。 */ agent.id === customId)).toBe(false)
-    expect(replaced!.data.agents.filter(/* 替换后的工作区配置，用不可删除标记统计固定角色。 */ agent => /* 统计替换后仍保留的固定角色。 */ !agent.deletable)).toHaveLength(5)
+    expect(replaced!.data.agents.some(agent => /* 检查替换后原自定义配置是否已经移除。 */ agent.id === customId)).toBe(false)
+    expect(replaced!.data.agents.filter(agent => /* 统计替换后仍保留的固定角色。 */ !agent.deletable)).toHaveLength(5)
   })
 
   it('publishes and reads back an immutable data definition package', async () => {
@@ -157,16 +174,16 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const uploadIds: string[] = []
     let first = true, asset: Asset | null = null
     const pending = task.run(draft, async (
-      /* 管理任务生成的上传输入副本，需保持原文件名和原始字节。 */ payload,
-      /* 本轮上传的稳定幂等身份，记录后用于比较两次尝试。 */ requestId,
-      /* 管理任务提供的取消信号，原样交给真实上传网关。 */ signal
+      payload,
+      requestId,
+      signal
     ) => {
       // 记录上传请求身份，实际提交后仅丢弃首个响应以测试幂等重试。
       uploadIds.push(requestId)
       const result = await gateway.upload(requestId, payload, signal)
       if (first) { first = false; throw lostReply() }
       return result
-    }, /* 幂等上传确认后的响应，取服务端资产记录用于后续引用。 */ result => {
+    }, result => {
       // 接纳重试确认后的资产对象。
       asset = result.data
     })
@@ -205,13 +222,13 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const page = await gateway.read('asset.list', { workspaceId: ws.id, limit: 2 })
     expect(page.items).toHaveLength(2); expect(page.nextCursor).not.toBeNull()
     const next = await gateway.read('asset.list', { workspaceId: ws.id, limit: 2, cursor: page.nextCursor! })
-    expect(new Set([...page.items, ...next.items].map(/* 分页合并后的资产条目，用身份检查没有重复或遗漏。 */ item => /* 提取跨页资产标识以检查分页去重。 */ item.id)).size).toBe(3)
+    expect(new Set([...page.items, ...next.items].map(item => /* 提取跨页资产标识以检查分页去重。 */ item.id)).size).toBe(3)
     const file = await gateway.download({ kind: 'map', id: map.mapId })
     const bundle = JSON.parse(new TextDecoder().decode(file.bytes))
     expect(bundle).toMatchObject({ format: 'chongming-map', version: 4,
       definitions: { packages: expect.any(Array), agents: expect.any(Array), digests: expect.any(Array) } })
     expect(bundle.map).not.toHaveProperty('run'); expect(bundle.map).not.toHaveProperty('leases')
-    expect(bundle.assets.map((/* 导出包中的资产记录，提取身份核对被引用文件已包含。 */ item: Asset) => /* 提取导出包资产标识，确认引用文件被包含。 */ item.id)).toContain(saved.id)
+    expect(bundle.assets.map((item: Asset) => /* 提取导出包资产标识，确认引用文件被包含。 */ item.id)).toContain(saved.id)
     expect(JSON.parse(new TextDecoder().decode((await gateway.download({ kind: 'workspace', id: ws.id })).bytes)).format).toBe('chongming-workspace')
   })
 
@@ -222,20 +239,28 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const task = management()
     const staged = await task.run({ workspaceId: ws.id, filename: 'map-package.json', mediaType: 'application/json', bytes: file.bytes },
       (
-        /* 暂存导入包的参数副本，含目标暂存工作区和导出字节。 */ payload,
-        /* 暂存上传的稳定请求身份，由管理任务负责重试复用。 */ requestId,
-        /* 管理任务取消信号，交给真实文件上传。 */ signal
+        payload,
+        requestId,
+        signal
       ) => /* 用管理任务保存的请求身份上传待导入包。 */ gateway.upload(requestId, payload, signal))
     expect(staged).not.toBeNull()
     let lost = false, imported: ImportResult | null = null, importedName = ''
     const ids: string[] = [], bodies: string[] = []
-    const dropReply: ClientGateway = { ...gateway, async dispatch(
-      /* 被包装命令的业务请求身份，记录后核对重试保持一致。 */ requestId,
-      /* 被包装的公开命令方法，原样转发给真实网关。 */ method,
-      /* 被包装命令的参数副本，序列化记录用于重试内容比较。 */ params,
-      /* 被包装调用的可选取消信号，原样转发。 */ signal
+    const dropReply: ClientGateway = { ...gateway,
+                                                   /**
+                                                    * 记录导入请求身份和参数，实际提交后丢弃第一次成功响应。
+                                                    *
+                                                    * @param requestId 被包装命令的业务请求身份，记录后核对重试保持一致。
+                                                    * @param method 被包装的公开命令方法，原样转发给真实网关。
+                                                    * @param params 被包装命令的参数副本，序列化记录用于重试内容比较。
+                                                    * @param signal 被包装调用的可选取消信号，原样转发。
+                                                    */
+                                                   async dispatch(
+      requestId,
+      method,
+      params,
+      signal
     ) {
-      // 记录导入请求身份和参数，实际提交后丢弃第一次成功响应。
       ids.push(requestId); bodies.push(JSON.stringify(params))
       const result = await gateway.dispatch(requestId, method, params, signal)
       if (!lost) { lost = true; throw lostReply() }
@@ -245,15 +270,15 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const params = reactive({ id: randomUUID(), bundleAssetId: staged!.data.id, stagingWorkspaceId: ws.id, name: '仅创建一次的新工作区' })
     const targetId = params.id
     const pending = importing.run(params, async (
-      /* 管理任务保留的导入参数副本，包含固定的新工作区身份和名称。 */ payload,
-      /* 整个导入操作的稳定幂等身份，模拟响应丢失后仍复用。 */ requestId,
-      /* 管理任务取消信号，同时用于导入和名称查询。 */ signal
+      payload,
+      requestId,
+      signal
     ) => {
       // 执行导入后查询新工作区名称，使重试验证整个接纳流程。
       const result = await dropReply.dispatch(requestId, 'workspace.import', payload, signal)
       const workspace = await dropReply.read('workspace.get', { workspaceId: result.data.workspaceId }, signal)
       return { imported: result.data, name: workspace.name }
-    }, /* 导入及名称查询成功的组合结果，作为界面接纳观察值。 */ result => {
+    }, result => {
       // 记录成功导入的结果和工作区名称。
       imported = result.imported; importedName = result.name
     })
@@ -265,7 +290,7 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     expect(importedName).toBe('仅创建一次的新工作区')
     expect(new Set(ids).size).toBe(1); expect(new Set(bodies).size).toBe(1)
     expect((await gateway.read('workspace.get', { workspaceId: targetId })).name).toBe('仅创建一次的新工作区')
-    expect((await gateway.read('workspace.list', {})).items.filter(/* 后端工作区列表条目，用目标身份验证仅创建一次。 */ item => /* 筛选目标工作区，断言重试没有重复创建。 */ item.id === targetId)).toHaveLength(1)
+    expect((await gateway.read('workspace.list', {})).items.filter(item => /* 筛选目标工作区，断言重试没有重复创建。 */ item.id === targetId)).toHaveLength(1)
     expect((await gateway.read('map.list', { workspaceId: targetId }))).toHaveLength(1)
     expect((await gateway.read('asset.get', { assetId: staged!.data.id })).id).toBe(staged!.data.id)
   })
@@ -284,7 +309,7 @@ describe('Management tasks against authenticated API and file endpoints', () => 
     const upload = { workspaceId: ws.id, filename: 'permissions.txt', mediaType: 'text/plain', bytes: new TextEncoder().encode('权限验收') }
     await expect(viewerGateway.upload(randomUUID(), upload)).rejects.toMatchObject({ status: 403 })
     const asset = (await editorGateway.upload(randomUUID(), upload)).data
-    expect((await viewerGateway.read('asset.list', { workspaceId: ws.id })).items.some(/* 只读成员可见的资产条目，用已上传资产身份验证读取权限。 */ item =>
+    expect((await viewerGateway.read('asset.list', { workspaceId: ws.id })).items.some(item =>
       /* 检查只读成员仍能在资产列表中看到已上传文件。 */
       item.id === asset.id)).toBe(true)
     expect((await viewerGateway.download({ kind: 'asset', id: asset.id })).bytes).toEqual(upload.bytes)

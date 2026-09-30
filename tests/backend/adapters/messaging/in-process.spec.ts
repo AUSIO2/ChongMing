@@ -28,8 +28,13 @@ async function localCreateFixture() {
   return messaging.queue
 }
 
-function localNotice(/* 用例指定的稳定工作后缀，用于产生同图内不同工作。 */ workId: string, /* 可选图身份；省略时创建独立 UUID。 */ mapId = randomUUID()): QueueWork {
-  // 构造符合队列协议的本机工作通知。
+/**
+ * 构造符合队列协议的本机工作通知。
+ *
+ * @param workId 用例指定的稳定工作后缀，用于产生同图内不同工作。
+ * @param mapId 可选图身份；省略时创建独立 UUID。
+ */
+function localNotice(workId: string, mapId = randomUUID()): QueueWork {
   return { version: 1, deploymentId: randomUUID(), mapId, workId }
 }
 
@@ -38,15 +43,15 @@ describe('in-process work transport', () => {
   it('bounds concurrency, coalesces duplicate pending/in-flight work and drains every handler on close', async () => {
     // 以容量 2 启动三份工作，先完成后一项，并验证关闭仍等待最早任务完成。
     const queue = await localCreateFixture(), mapId = randomUUID()
-    const notices = ['one', 'two', 'three'].map(/* 三个不同工作编号，映射成同图通知。 */ id => /* 建立当前编号的合法工作通知。 */ localNotice(id, mapId))
+    const notices = ['one', 'two', 'three'].map(id => /* 建立当前编号的合法工作通知。 */ localNotice(id, mapId))
     await queue.publishWork(notices[0]); await queue.publishWork(notices[0])
     await queue.publishWork(notices[1]); await queue.publishWork(notices[2])
     const releases = new Map<string, () => void>(), started: string[] = []
     let active = 0, maximum = 0
-    const running = queue.consumeWork(async /* 本机队列交付的一份工作，等待用例按编号释放。 */ work => {
+    const running = queue.consumeWork(async work => {
       // 记录并发数并挂起当前工作，返回确认前归还活动计数。
       started.push(work.workId); active++; maximum = Math.max(maximum, active)
-      await new Promise<void>(/* 保存当前工作的完成开关，由用例控制乱序结束。 */ resolve => {
+      await new Promise<void>(resolve => {
         // 按工作编号登记释放函数。
         releases.set(work.workId, resolve)
       })
@@ -58,7 +63,7 @@ describe('in-process work transport', () => {
     await queue.publishWork(notices[0])
     releases.get('two')!()
     await vi.waitFor(() => /* 等待第二项结束后第三项取得刚归还的容量。 */ expect(started).toContain('three'))
-    expect(started.filter(/* 已启动工作编号，筛选重复通知对应的第一项。 */ id => /* 统计第一项实际启动次数。 */ id === 'one')).toHaveLength(1)
+    expect(started.filter(id => /* 统计第一项实际启动次数。 */ id === 'one')).toHaveLength(1)
     releases.get('three')!()
     const closing = queue.close()
     let closed = false
@@ -66,7 +71,7 @@ describe('in-process work transport', () => {
       // 标记通道完成全部排空，供关闭不得提前结束的断言使用。
       closed = true
     })
-    await new Promise<void>(/* 让出一个事件循环轮次以观察关闭是否提前完成。 */ resolve => /* 在下一轮检查仍挂起的第一项。 */ setImmediate(resolve))
+    await new Promise<void>(resolve => /* 在下一轮检查仍挂起的第一项。 */ setImmediate(resolve))
     expect(closed).toBe(false)
     releases.get('one')!()
     await closing; await running
@@ -79,11 +84,11 @@ describe('in-process work transport', () => {
     await queue.publishWork(item)
     const stop = new AbortController()
     let attempts = 0, finish!: () => void
-    const completed = new Promise<void>(/* 第二次处理完成时的同步回调。 */ resolve => {
+    const completed = new Promise<void>(resolve => {
       // 保存测试完成通知函数。
       finish = resolve
     })
-    const running = queue.consumeWork(async /* 被重试的同一工作通知。 */ work => {
+    const running = queue.consumeWork(async work => {
       // 首次要求重投，第二次确认并通知用例结束。
       expect(work).toEqual(item)
       attempts++

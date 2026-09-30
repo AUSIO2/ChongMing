@@ -7,8 +7,13 @@ import { inputReadArray, inputReadNames, inputReadObject, inputReadRevision, inp
 import { GRAPH_COLLECTION, storeCreateInputHash } from '../../../modules/graph/graph-record'
 
 /** Explicit repair for empty News contexts omitted by pre-056 Mongoose serialization. */
-export async function repairUpdateNewsContext(/* 管理员显式提供的 Mongo 连接，修复只操作该库的图集合。 */ connection: Connection, /* 是否真正写回修复；默认 false 仅统计匹配图数量。 */ apply = false) {
-  // 统计缺失新闻上下文的图，仅在显式应用时补空对象并推进图版本。
+/**
+ * 统计缺失新闻上下文的图，仅在显式应用时补空对象并推进图版本。
+ *
+ * @param connection 管理员显式提供的 Mongo 连接，修复只操作该库的图集合。
+ * @param apply 是否真正写回修复；默认 false 仅统计匹配图数量。
+ */
+export async function repairUpdateNewsContext(connection: Connection, apply = false) {
   const graphs = connection.collection(GRAPH_COLLECTION)
   const filter = { deletedAt: { $exists: false }, nodes: { $elemMatch: { 'data.kind': 'news', 'data.context': { $exists: false } } } }
   const matchedMaps = await graphs.countDocuments(filter)
@@ -23,23 +28,37 @@ export async function repairUpdateNewsContext(/* 管理员显式提供的 Mongo 
   } }])
   return { matchedMaps, modifiedMaps: result.modifiedCount }
 }
-function repairReadTimestamp(/* 历史记录中的未经验证时间值，仅接受 Date 或可解析字符串。 */ value: unknown, /* 时间字段在历史结构中的路径，用于说明具体错误位置。 */ label: string): string {
-  // 验证历史时间戳可解析，并统一输出 UTC ISO 字符串。
+/**
+ * 验证历史时间戳可解析，并统一输出 UTC ISO 字符串。
+ *
+ * @param value 历史记录中的未经验证时间值，仅接受 Date 或可解析字符串。
+ * @param label 时间字段在历史结构中的路径，用于说明具体错误位置。
+ */
+function repairReadTimestamp(value: unknown, label: string): string {
   if (!(value instanceof Date) && typeof value !== 'string') throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_TIMESTAMP, label))
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) throw new Error(messageFormat(RuntimeMessage.VALUE_MUST_BE_A_VALID_TIMESTAMP, label))
   return date.toISOString()
 }
 type LegacyRunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
-function repairReadStatus(/* 旧 Run 或 Operation 的原始状态字段，需要限制在支持集合。 */ value: unknown): LegacyRunStatus {
-  // 把历史 Run 状态限制在当前支持的状态集合。
+/**
+ * 把历史 Run 状态限制在当前支持的状态集合。
+ *
+ * @param value 旧 Run 或 Operation 的原始状态字段，需要限制在支持集合。
+ */
+function repairReadStatus(value: unknown): LegacyRunStatus {
   if (typeof value !== 'string' || !['running', 'waiting', 'completed', 'failed', 'cancelled'].includes(value)) throw new Error(RuntimeMessage.INVALID_LEGACY_RUN_STATUS)
   return value as LegacyRunStatus
 }
 
 /** Read the retired single-operation schema only at this explicit maintenance boundary. */
-function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构；混用新旧结构会被拒绝。 */ value: unknown, /* 所属图已验证的节点身份、版本和种类，用于定位原核查产物。 */ nodes: Array<{ id: string; revision: number; kind: unknown }>): { run: unknown; legacy: boolean; active: boolean } {
-  // 严格解析旧单 Operation 核查结构，保留身份与产物，并让活动 Run 暂停后迁移。
+/**
+ * 严格解析旧单 Operation 核查结构，保留身份与产物，并让活动 Run 暂停后迁移。
+ *
+ * @param value 待迁移的原始 Run，可能已是新结构；混用新旧结构会被拒绝。
+ * @param nodes 所属图已验证的节点身份、版本和种类，用于定位原核查产物。
+ */
+function repairReadLegacyRun(value: unknown, nodes: Array<{ id: string; revision: number; kind: unknown }>): { run: unknown; legacy: boolean; active: boolean } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(RuntimeMessage.INVALID_STORED_RUN)
   if ('operations' in value) {
     if ('operation' in value || !Array.isArray(value.operations)) throw new Error(RuntimeMessage.AMBIGUOUS_STORED_RUN_SCHEMA)
@@ -54,25 +73,25 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
   if (source.kind !== 'verify') throw new Error(RuntimeMessage.ONLY_THE_LEGACY_VERIFY_OPERATION_CAN_BE_MIGRATED)
   const operationId = inputReadString(source.id, 'operation.id')
   const targetId = inputReadString(source.targetId, 'operation.targetId')
-  const inputRefs = inputReadArray(source.inputRefs, 'operation.inputRefs').map(/* 旧 Operation 中单条原始输入引用，需验证节点身份与版本。 */ value => {
+  const inputRefs = inputReadArray(source.inputRefs, 'operation.inputRefs').map(value => {
     // 校验旧输入引用的节点身份与版本。
     const ref = inputReadObject(value, ['id', 'revision'], 'inputRef')
     return { id: inputReadString(ref.id, 'inputRef.id'), revision: inputReadRevision(ref.revision, 'inputRef.revision') }
-  }).sort((/* 排序比较左侧的已验证输入引用，按节点身份规范顺序。 */ a, /* 排序比较右侧的已验证输入引用，用于与左侧身份比较。 */ b) => /* 固定历史输入引用顺序，保持配置复用哈希稳定。 */  a.id.localeCompare(b.id))
-  if (!inputRefs.some(/* 已验证的历史输入引用，检查其中是否包含目标节点。 */ ref => /* 确认目标节点包含在旧 Operation 的输入引用中。 */  ref.id === targetId) || new Set(inputRefs.map(/* 已验证的历史输入引用，提取身份以检测重复。 */ ref => /* 提取输入身份以检测重复引用。 */  ref.id)).size !== inputRefs.length) throw new Error(RuntimeMessage.INVALID_LEGACY_INPUT_REFERENCES)
+  }).sort((a, b) => /* 固定历史输入引用顺序，保持配置复用哈希稳定。 */  a.id.localeCompare(b.id))
+  if (!inputRefs.some(ref => /* 确认目标节点包含在旧 Operation 的输入引用中。 */  ref.id === targetId) || new Set(inputRefs.map(ref => /* 提取输入身份以检测重复引用。 */  ref.id)).size !== inputRefs.length) throw new Error(RuntimeMessage.INVALID_LEGACY_INPUT_REFERENCES)
   let route: Record<string, unknown> | null = null
   if (source.route !== null) {
     const row = inputReadObject(source.route, ['revision', 'reason', 'slots', 'approved'], 'route')
     if (typeof row.approved !== 'boolean') throw new Error(RuntimeMessage.INVALID_LEGACY_ROUTE_APPROVAL)
     const slots = configurationReadSlots(row.slots)
-    if (!slots.length || slots.length > configuration.maxSlots || new Set(slots.map(/* 已解析的历史路由槽位，提取身份以检测重复槽位。 */ slot => /* 提取路由槽位身份以检测重复槽位。 */  slot.id)).size !== slots.length) throw new Error(RuntimeMessage.INVALID_LEGACY_ROUTE_SLOTS)
+    if (!slots.length || slots.length > configuration.maxSlots || new Set(slots.map(slot => /* 提取路由槽位身份以检测重复槽位。 */  slot.id)).size !== slots.length) throw new Error(RuntimeMessage.INVALID_LEGACY_ROUTE_SLOTS)
     for (const slot of slots) {
-      const agent = configuration.agents.find(/* 旧 Run 冻结配置中的 Agent 候选，按槽位 agentId 查找。 */ agent => /* 查找旧槽位所引用的配置 Agent。 */  agent.id === slot.agentId)
-      if (!agent || slot.tools.some(/* 旧槽位所选工具名，必须属于其 Agent 的声明能力。 */ tool => /* 判断旧槽位工具是否超出 Agent 声明的能力。 */  !agent.tools.includes(tool))) throw new Error(RuntimeMessage.INVALID_LEGACY_ROUTE_CAPABILITIES)
+      const agent = configuration.agents.find(agent => /* 查找旧槽位所引用的配置 Agent。 */  agent.id === slot.agentId)
+      if (!agent || slot.tools.some(tool => /* 判断旧槽位工具是否超出 Agent 声明的能力。 */  !agent.tools.includes(tool))) throw new Error(RuntimeMessage.INVALID_LEGACY_ROUTE_CAPABILITIES)
     }
     route = { revision: inputReadRevision(row.revision, 'route.revision'), reason: inputReadString(row.reason, 'route.reason'), slots, approved: row.approved }
   }
-  const reports = inputReadArray(source.reports, 'operation.reports').map(/* 原始旧核查报告条目，需逐项验证身份、分数和时间。 */ value => {
+  const reports = inputReadArray(source.reports, 'operation.reports').map(value => {
     // 校验并复制旧核查报告的身份、分数、能力和时间字段。
     const row = inputReadObject(value, ['id', 'slotId', 'agentId', 'agentName', 'angle', 'tools', 'routeRevision', 'score', 'reason', 'createdAt'], 'report')
     return { id: inputReadString(row.id, 'report.id'), slotId: inputReadString(row.slotId, 'report.slotId'),
@@ -81,7 +100,7 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
       routeRevision: inputReadRevision(row.routeRevision, 'report.routeRevision'), score: inputReadScore(row.score),
       reason: inputReadString(row.reason, 'report.reason'), createdAt: repairReadTimestamp(row.createdAt, 'report.createdAt') }
   })
-  if (new Set(reports.map(/* 已验证旧报告，提取报告身份检查重复记录。 */ report => /* 提取报告身份以检查重复报告。 */  report.id)).size !== reports.length || new Set(reports.map(/* 已验证旧报告，提取槽位身份检查重复提交。 */ report => /* 提取报告槽位身份以检查同一槽位重复提交。 */  report.slotId)).size !== reports.length) throw new Error(RuntimeMessage.DUPLICATE_LEGACY_REPORTS)
+  if (new Set(reports.map(report => /* 提取报告身份以检查重复报告。 */  report.id)).size !== reports.length || new Set(reports.map(report => /* 提取报告槽位身份以检查同一槽位重复提交。 */  report.slotId)).size !== reports.length) throw new Error(RuntimeMessage.DUPLICATE_LEGACY_REPORTS)
   let draft: Record<string, unknown> | null = null
   if (source.draft !== null) {
     const row = inputReadObject(source.draft, ['id', 'routeRevision', 'reportIds', 'score', 'reason'], 'draft')
@@ -98,7 +117,7 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
       answeredAt: row.answeredAt === null ? null : repairReadTimestamp(row.answeredAt, 'review.answeredAt') }
   }
   const resultNodeId = source.resultNodeId === null ? null : inputReadString(source.resultNodeId, 'operation.resultNodeId')
-  const output = nodes.find(/* 所属图节点摘要，匹配旧结果身份与核查类型。 */ node => /* 查找旧结果身份对应的核查节点，以恢复可复用产物引用。 */  node.id === resultNodeId && node.kind === 'verification')
+  const output = nodes.find(node => /* 查找旧结果身份对应的核查节点，以恢复可复用产物引用。 */  node.id === resultNodeId && node.kind === 'verification')
   const { router, merger, agents, tools, maxSlots } = configuration
   const operation = { id: operationId, kind: 'verify', targetId, status: repairReadStatus(source.status), inputRefs,
     configurationHash: storeCreateInputHash({ router, merger, agents, tools, maxSlots }),
@@ -118,10 +137,15 @@ function repairReadLegacyRun(/* 待迁移的原始 Run，可能已是新结构�
 }
 
 /** Offline, all-or-nothing upgrade; dry runs only inspect and never write application state. */
-export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库连接，迁移在其事务中执行。 */ connection: Connection, /* 是否应用迁移；默认 false 仅读取检查，true 要求整批可安全转换。 */ apply = false) {
-  // 在显式维护事务中检查旧数据与有效租约，按预览或应用模式迁移全部候选图。
+/**
+ * 在显式维护事务中检查旧数据与有效租约，按预览或应用模式迁移全部候选图。
+ *
+ * @param connection 管理员提供的目标数据库连接，迁移在其事务中执行。
+ * @param apply 是否应用迁移；默认 false 仅读取检查，true 要求整批可安全转换。
+ */
+export async function repairMigrateNodeRuns(connection: Connection, apply = false) {
   if (!connection.db) throw new Error(RuntimeMessage.MONGO_CONNECTION_IS_NOT_READY)
-  const graphs = connection.db.collection<{ _id: string; [/* 原始 Mongo 图文档中除 _id 外的存储字段名。 */ key: string]: unknown }>(GRAPH_COLLECTION)
+  const graphs = connection.db.collection<{ _id: string; [key: string]: unknown }>(GRAPH_COLLECTION)
   const filter = { $or: [
     { 'run.operation': { $exists: true } },
     { run: { $ne: null }, 'run.operations': { $exists: false } },
@@ -136,7 +160,7 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
   try {
     return await session.withTransaction(async () => {
       // 使用同一数据库快照完成校验与迁移，任何不支持结构或竞争使应用整体回滚。
-      const rows = await graphs.aggregate<{ document: { _id: string; [/* 聚合返回的原始图文档字段名，用于读取未知形状的旧存储数据。 */ key: string]: unknown }; activeLeases: boolean }>([
+      const rows = await graphs.aggregate<{ document: { _id: string; [key: string]: unknown }; activeLeases: boolean }>([
         { $match: filter }, { $project: { document: '$$ROOT', activeLeases } },
       ], { session }).toArray()
       const summary = { matchedMaps: rows.length, matchedRuns: 0, activeRuns: 0, blockedMaps: 0, modifiedMaps: 0 }
@@ -147,7 +171,7 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
           inputReadString(document._id, 'Map.id')
           revision = inputReadRevision(document.revision, 'Map.revision')
           if (revision === Number.MAX_SAFE_INTEGER) throw new Error(RuntimeMessage.MAP_REVISION_CANNOT_BE_INCREMENTED)
-          const nodes = inputReadArray(document.nodes, 'Map.nodes').map(/* 原始图节点，需先确认对象与 data 结构再提取迁移信息。 */ value => {
+          const nodes = inputReadArray(document.nodes, 'Map.nodes').map(value => {
             // 读取迁移所需节点身份、版本与类型，拒绝畸形历史节点。
             if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(RuntimeMessage.INVALID_MAP_NODE)
             const node = value as Record<string, unknown>
@@ -155,7 +179,7 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
             const data = node.data as Record<string, unknown>
             return { id: inputReadString(node.id, 'node.id'), revision: inputReadRevision(node.revision, 'node.revision'), kind: data.kind }
           })
-          if (new Set(nodes.map(/* 已验证节点摘要，提取身份检查图内重复节点。 */ node => /* 提取图节点身份以检查迁移前数据是否重复。 */  node.id)).size !== nodes.length) throw new Error(RuntimeMessage.DUPLICATE_MAP_NODE_IDENTITIES)
+          if (new Set(nodes.map(node => /* 提取图节点身份以检查迁移前数据是否重复。 */  node.id)).size !== nodes.length) throw new Error(RuntimeMessage.DUPLICATE_MAP_NODE_IDENTITIES)
           if (document.leases !== undefined && (!document.leases || typeof document.leases !== 'object' || Array.isArray(document.leases))) throw new Error(RuntimeMessage.INVALID_LEGACY_LEASES)
           for (const lease of Object.values(document.leases ?? {})) {
             const grant = inputReadObject(lease, ['workId', 'mapId', 'runId', 'operationId', 'actor', 'routeRevision', 'hostId', 'holderId', 'fence', 'expiresAt', 'leaseMs'], 'lease')
@@ -168,8 +192,12 @@ export async function repairMigrateNodeRuns(/* 管理员提供的目标数据库
             else if (actor.slotId !== undefined) throw new Error(RuntimeMessage.INVALID_LEASE_SLOT)
             repairReadTimestamp(grant.expiresAt, 'lease.expiresAt')
           }
-          const migrate = (/* 当前或历史 Run 的原始值，转换后同时更新迁移统计。 */ value: unknown) => {
-            // 转换当前或历史 Run，并累计旧结构与活动运行数量。
+          /**
+           * 转换当前或历史 Run，并累计旧结构与活动运行数量。
+           *
+           * @param value 当前或历史 Run 的原始值，转换后同时更新迁移统计。
+           */
+          const migrate = (value: unknown) => {
             const migrated = repairReadLegacyRun(value, nodes)
             summary.matchedRuns += Number(migrated.legacy)
             summary.activeRuns += Number(migrated.active)

@@ -12,18 +12,22 @@ const cleanup: Array<() => Promise<unknown>> = []
 afterEach(async () => {
   // 按创建顺序的逆序释放网关、HTTP 服务和临时目录。
    for (const close of cleanup.splice(0).reverse()) await close() })
-async function desktopCreateServer(/* 模拟 API 返回的用户身份标签，用来区分本地和远程服务。 */ name: string) {
-  // 创建具有指定身份的模拟 API，并登记服务清理。
-  const server: Server = createServer((/* 模拟 API 收到的请求，本用例不按路径区分响应。 */ _req, /* 由模拟服务器拥有的 HTTP 响应，写入对应身份的引导数据。 */ res) => {
+/**
+ * 创建具有指定身份的模拟 API，并登记服务清理。
+ *
+ * @param name 模拟 API 返回的用户身份标签，用来区分本地和远程服务。
+ */
+async function desktopCreateServer(name: string) {
+  const server: Server = createServer((_req, res) => {
     // 返回带指定用户身份的应用引导响应，用于区分本地和远程目标。
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ ok: true, requestId: 'fixture', replayed: false, data: { identity: { userId: name, displayName: name, hostAdmin: false },
       settings: { revision: 0, llm: {}, tools: [], limits: {} }, metadata: {} } }))
   })
-  await new Promise<void>(/* 模拟 API 成功监听后的完成回调。 */ resolve => /* 等待模拟 API 绑定本机随机端口。 */  server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>(resolve => /* 等待模拟 API 绑定本机随机端口。 */  server.listen(0, '127.0.0.1', resolve))
   cleanup.push(async () => {
     // 断开所有模拟连接并等待 HTTP 服务关闭。
-     server.closeAllConnections(); await new Promise<void>(/* 模拟 API 完全关闭后的清理完成回调。 */ resolve => /* 把服务关闭回调转换为清理等待。 */  server.close(() => /* 确认模拟 HTTP 服务已关闭。 */  resolve())) })
+     server.closeAllConnections(); await new Promise<void>(resolve => /* 把服务关闭回调转换为清理等待。 */  server.close(() => /* 确认模拟 HTTP 服务已关闭。 */  resolve())) })
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Missing server port')
   return 'http://127.0.0.1:' + address.port

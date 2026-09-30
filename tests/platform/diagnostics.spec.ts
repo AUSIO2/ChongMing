@@ -6,17 +6,21 @@ import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { diagnosticCreateReporter, diagnosticReadLine } from '../../platform/node/diagnostics'
 
-function diagnosticsRunChild(/* 选择未捕获异常、未处理拒绝、启动失败或关闭挂起的子进程场景。 */ mode: string) {
-  // 启动指定故障模式的子进程，暴露退出等待和累计日志给测试断言。
+/**
+ * 启动指定故障模式的子进程，暴露退出等待和累计日志给测试断言。
+ *
+ * @param mode 选择未捕获异常、未处理拒绝、启动失败或关闭挂起的子进程场景。
+ */
+function diagnosticsRunChild(mode: string) {
   const child = spawn(process.execPath, ['--import', 'tsx', path.resolve('tests/fixtures/process-boundary.ts'), mode], { stdio: ['ignore', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
-  child.stdout.on('data', /* 故障子进程标准输出字节，用于观察就绪标记。 */ chunk => {
+  child.stdout.on('data', chunk => {
     // 收集子进程标准输出以观察就绪信号。
      stdout += chunk })
-  child.stderr.on('data', /* 故障子进程错误输出字节，用于验证诊断类型和敏感信息未泄漏。 */ chunk => {
+  child.stderr.on('data', chunk => {
     // 收集子进程诊断输出以检查故障类型与脱敏。
      stderr += chunk })
-  const exited = new Promise<number | null>((/* 子进程退出时接收退出码的完成函数。 */ resolve, /* 子进程未能创建时拒绝等待的函数。 */ reject) => {
+  const exited = new Promise<number | null>((resolve, reject) => {
     // 等待真实子进程退出，并传播进程创建错误。
      child.once('error', reject); child.once('exit', resolve) })
   return { child, exited, output: () => /* 返回当前累计的标准输出和错误输出。 */  ({ stdout, stderr }) }
@@ -57,7 +61,7 @@ describe('fatal process and diagnostic boundaries', () => {
     } finally { await rm(directory, { recursive: true, force: true }) }
   })
 
-  it.each(['uncaught', 'rejection', 'startup'])('exits a real child nonzero for %s without leaking its error message', async /* 参数化用例给出的故障场景名，用于选择夹具及预期诊断事件。 */ mode => {
+  it.each(['uncaught', 'rejection', 'startup'])('exits a real child nonzero for %s without leaking its error message', async mode => {
     // 验证未捕获异常、未处理拒绝及启动失败均使真实进程非零退出且隐藏敏感消息。
     const child = diagnosticsRunChild(mode)
     expect(await child.exited).toBe(1)

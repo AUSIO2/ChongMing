@@ -39,21 +39,37 @@ export interface CanvasLayout {
   columns: Array<{ key: string; kind: CanvasKind; label: string; x: number; count: number }>
 }
 
-export function graphReadNodeText(/* 通用数据实例。 */ node: GraphNode, /* 当前工作区定义目录。 */ catalog?: DefinitionCatalog | null): string {
+/**
+ * @param node 通用数据实例。
+ * @param catalog 当前工作区定义目录。
+ */
+export function graphReadNodeText(node: GraphNode, catalog?: DefinitionCatalog | null): string {
   return payloadText(node, payloadFindType(catalog, node))
 }
 
-export function graphReadNodeType(/* 通用数据实例。 */ node: GraphNode, /* 当前工作区定义目录。 */ catalog?: DefinitionCatalog | null): string {
+/**
+ * @param node 通用数据实例。
+ * @param catalog 当前工作区定义目录。
+ */
+export function graphReadNodeType(node: GraphNode, catalog?: DefinitionCatalog | null): string {
   return payloadFindType(catalog, node)?.title ?? node.typeId
 }
 
-export function graphCanProcessNode(/* 候选输入实例。 */ node: GraphNode, /* 用户选择的精确转换定义。 */ transition: TransitionDefinition): boolean {
+/**
+ * @param node 候选输入实例。
+ * @param transition 用户选择的精确转换定义。
+ */
+export function graphCanProcessNode(node: GraphNode, transition: TransitionDefinition): boolean {
   return transition.ports.input.some(port => port.inputType.id === node.typeId && port.inputType.version === node.typeVersion)
 }
 
+/**
+ * @param nodes 当前选择；空选择不产生可运行转换。
+ * @param catalog 工作区已发布定义目录。
+ */
 export function graphReadAvailableTransitions(
-  /* 当前选择；空选择不产生可运行转换。 */ nodes: GraphNode[],
-  /* 工作区已发布定义目录。 */ catalog?: DefinitionCatalog | null
+  nodes: GraphNode[],
+  catalog?: DefinitionCatalog | null
 ): TransitionDefinition[] {
   if (!nodes.length || !catalog) return []
   return catalog.transitions.filter(transition => {
@@ -66,7 +82,11 @@ export function graphReadAvailableTransitions(
   })
 }
 
-export function graphCreateRunPlan(/* 要实例化的精确转换。 */ transition: TransitionDefinition, /* 已验证的输入节点身份。 */ nodeIds: string[]): GraphRunPlan {
+/**
+ * @param transition 要实例化的精确转换。
+ * @param nodeIds 已验证的输入节点身份。
+ */
+export function graphCreateRunPlan(transition: TransitionDefinition, nodeIds: string[]): GraphRunPlan {
   const input = transition.ports.input[0]
   if (!input) return { steps: [] }
   const grouped = transition.cardinality === 'N:1' || transition.cardinality === 'N:M'
@@ -81,11 +101,17 @@ export function graphCreateRunPlan(/* 要实例化的精确转换。 */ transiti
   }] }
 }
 
-export function graphReadOperationLabel(/* 冻结执行规格所属 Operation。 */ operation: GraphOperation): string {
+/**
+ * @param operation 冻结执行规格所属 Operation。
+ */
+export function graphReadOperationLabel(operation: GraphOperation): string {
   return operation.executionSpec.transition.title
 }
 
-export function graphReadOperationProgress(/* 当前 Operation 的阶段与审核状态。 */ operation: GraphOperation): string {
+/**
+ * @param operation 当前 Operation 的阶段与审核状态。
+ */
+export function graphReadOperationProgress(operation: GraphOperation): string {
   const label = graphReadOperationLabel(operation)
   if (operation.status === 'completed') return `${label}已完成`
   if (operation.status === 'failed') return `${label}未完成`
@@ -99,7 +125,10 @@ export function graphReadOperationProgress(/* 当前 Operation 的阶段与审�
   return expected > 1 ? `${current.stageId} · ${accepted} / ${expected} 项完成` : `正在执行 ${current.stageId}`
 }
 
-export function graphReadRunProgress(/* 当前图的 Run。 */ run: GraphRun | null): string {
+/**
+ * @param run 当前图的 Run。
+ */
+export function graphReadRunProgress(run: GraphRun | null): string {
   if (!run) return '尚未开始处理'
   const completed = run.operations.filter(operation => operation.status === 'completed' || operation.status === 'skipped').length
   const progress = `${completed} / ${run.operations.length} 项已完成`
@@ -127,9 +156,13 @@ function graphReadDepths(nodes: GraphNode[], snapshot: Pick<GraphSnapshot, 'edge
   return depths
 }
 
+/**
+ * @param snapshot 图快照；运行定义用于保证历史类型仍有稳定名称。
+ * @param catalog 工作区当前定义目录；运行冻结目录优先补齐历史精确版本。
+ */
 export function graphReadCanvasLayout(
-  /* 图快照；运行定义用于保证历史类型仍有稳定名称。 */ snapshot: Pick<GraphSnapshot, 'nodes' | 'edges'> & { runs?: GraphRun[] },
-  /* 工作区当前定义目录；运行冻结目录优先补齐历史精确版本。 */ catalog?: DefinitionCatalog | null
+  snapshot: Pick<GraphSnapshot, 'nodes' | 'edges'> & { runs?: GraphRun[] },
+  catalog?: DefinitionCatalog | null
 ): CanvasLayout {
   const width = 204, height = 112, gap = 62, rowGap = 30, pad = 40
   const frozen = snapshot.runs?.[snapshot.runs.length - 1]?.definitions
@@ -196,10 +229,15 @@ export function graphReadCanvasLayout(
   }
 }
 
+/**
+ * @param layout 已完成布局。
+ * @param id 当前焦点节点。
+ * @param direction 方向键。
+ */
 export function graphReadCanvasNeighbor(
-  /* 已完成布局。 */ layout: CanvasLayout,
-  /* 当前焦点节点。 */ id: string,
-  /* 方向键。 */ direction: 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
+  layout: CanvasLayout,
+  id: string,
+  direction: 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
 ): string | null {
   const current = layout.nodes.find(node => node.id === id)
   if (!current) return null

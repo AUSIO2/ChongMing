@@ -18,9 +18,9 @@ async function testRunSuite(): Promise<void> {
       child.kill('SIGTERM') }
     process.once('SIGINT', interrupt); process.once('SIGTERM', terminate)
     try {
-      const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((/* 子进程触发 exit 后接收退出码和信号的完成函数；创建错误走 reject。 */ resolve, /* 子进程创建失败时拒绝等待的回调。 */ reject) => {
+      const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
         // 等待测试子进程创建失败或退出，并保存退出码及终止信号。
-        child.once('error', reject); child.once('exit', (/* Vitest 子进程返回的退出码；被信号终止时为 null。 */ code, /* Vitest 子进程收到的终止信号；正常退出时为 null。 */ signal) => /* 把子进程的退出信息交给包装器计算最终退出码。 */ resolve({ code, signal }))
+        child.once('error', reject); child.once('exit', (code, signal) => /* 把子进程的退出信息交给包装器计算最终退出码。 */ resolve({ code, signal }))
       })
       process.exitCode = result.code ?? (result.signal === 'SIGINT' ? 130 : 1)
     } finally { process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', terminate) }

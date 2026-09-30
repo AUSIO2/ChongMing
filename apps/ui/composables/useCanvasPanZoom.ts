@@ -15,8 +15,12 @@ export interface CanvasPanZoomOptions {
   contentHeight: Ref<number>
 }
 
-export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸引用；这里只读引用值，变换状态由本组合函数管理。 */ options: CanvasPanZoomOptions) {
-  // 持有画布缩放和平移状态，处理指针与滚轮交互，并提供适应内容和聚焦区域操作。
+/**
+ * 持有画布缩放和平移状态，处理指针与滚轮交互，并提供适应内容和聚焦区域操作。
+ *
+ * @param options 组件持有的容器、SVG 与内容尺寸引用；这里只读引用值，变换状态由本组合函数管理。
+ */
+export function useCanvasPanZoom(options: CanvasPanZoomOptions) {
   const scale = ref(1)
   const translateX = ref(0)
   const translateY = ref(0)
@@ -28,16 +32,25 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
 
   const scalePercent = computed(() => /* 把当前缩放比例格式化为工具栏显示的百分比。 */ `${Math.round(scale.value * 100)}%`)
 
-  function clampScale(/* 尚未限幅的目标缩放倍数，无单位。 */ next: number): number {
-    // 将缩放比例限制在 0.25 到 3 之间。
+  /**
+   * 将缩放比例限制在 0.25 到 3 之间。
+   *
+   * @param next 尚未限幅的目标缩放倍数，无单位。
+   */
+  function clampScale(next: number): number {
     return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
   }
 
+  /**
+   * 按倍率缩放，并在提供锚点时调整平移量，使锚点对应的内容保持原位。
+   *
+   * @param factor 相对当前比例的乘数，大于 1 放大、小于 1 缩小。
+   * @param anchor 可选的 SVG 边界相对像素位置；指定后固定其内容位置，省略则只更新缩放比例。
+   */
   function zoomAt(
-    /* 相对当前比例的乘数，大于 1 放大、小于 1 缩小。 */ factor: number,
-    /* 可选的 SVG 边界相对像素位置；指定后固定其内容位置，省略则只更新缩放比例。 */ anchor?: { x: number; y: number }
+    factor: number,
+    anchor?: { x: number; y: number }
   ) {
-    // 按倍率缩放，并在提供锚点时调整平移量，使锚点对应的内容保持原位。
     const nextScale = clampScale(scale.value * factor)
     if (nextScale === scale.value) return
 
@@ -53,8 +66,12 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
     scale.value = nextScale
   }
 
-  function localPoint(/* 带视口像素坐标的指针信息，只读取位置字段。 */ e: { clientX: number; clientY: number }): { x: number; y: number } | null {
-    // 将指针的屏幕位置换算为相对 SVG 边界的位置。
+  /**
+   * 将指针的屏幕位置换算为相对 SVG 边界的位置。
+   *
+   * @param e 带视口像素坐标的指针信息，只读取位置字段。
+   */
+  function localPoint(e: { clientX: number; clientY: number }): { x: number; y: number } | null {
     const svg = options.svgRef.value
     if (!svg) return null
     const rect = svg.getBoundingClientRect()
@@ -74,8 +91,12 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
     }
   }
 
-  function onWheel(/* 容器派发的滚轮事件；修饰键决定缩放或平移，并阻止默认滚动。 */ e: WheelEvent) {
-    // 阻止默认滚动，按修饰键选择锚点缩放或水平、垂直平移。
+  /**
+   * 阻止默认滚动，按修饰键选择锚点缩放或水平、垂直平移。
+   *
+   * @param e 容器派发的滚轮事件；修饰键决定缩放或平移，并阻止默认滚动。
+   */
+  function onWheel(e: WheelEvent) {
     e.preventDefault()
     // 捏合 / Ctrl·Cmd+滚轮 → 缩放；双指滑动 / 普通滚轮 → 平移
     if (e.ctrlKey || e.metaKey) {
@@ -94,8 +115,12 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
   let panOriginX = 0
   let panOriginY = 0
 
-  function onPointerDown(/* 容器派发的按下事件，目标和按键用于排除节点操作，pointerId 用于捕获指针。 */ e: PointerEvent) {
-    // 在画布空白区域按下左键或中键时开始平移，并捕获当前指针。
+  /**
+   * 在画布空白区域按下左键或中键时开始平移，并捕获当前指针。
+   *
+   * @param e 容器派发的按下事件，目标和按键用于排除节点操作，pointerId 用于捕获指针。
+   */
+  function onPointerDown(e: PointerEvent) {
     const target = e.target as Element
     if (
       target.closest('.fm-node')
@@ -111,15 +136,23 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
     options.containerRef.value?.setPointerCapture(e.pointerId)
   }
 
-  function onPointerMove(/* 窗口位置持续变化的指针事件，仅在已开始平移时使用其视口坐标。 */ e: PointerEvent) {
-    // 平移期间按指针相对起点的位移更新画布偏移。
+  /**
+   * 平移期间按指针相对起点的位移更新画布偏移。
+   *
+   * @param e 窗口位置持续变化的指针事件，仅在已开始平移时使用其视口坐标。
+   */
+  function onPointerMove(e: PointerEvent) {
     if (!panning) return
     translateX.value = panOriginX + (e.clientX - panStartX)
     translateY.value = panOriginY + (e.clientY - panStartY)
   }
 
-  function onPointerUp(/* 结束或取消平移的指针事件，pointerId 用于释放捕获。 */ e: PointerEvent) {
-    // 结束画布平移并释放捕获的指针。
+  /**
+   * 结束画布平移并释放捕获的指针。
+   *
+   * @param e 结束或取消平移的指针事件，pointerId 用于释放捕获。
+   */
+  function onPointerUp(e: PointerEvent) {
     if (!panning) return
     panning = false
     options.containerRef.value?.releasePointerCapture(e.pointerId)
@@ -142,13 +175,20 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
     translateY.value = 0
   }
 
+  /**
+   * 计算容器内可用区域，将指定布局矩形等比缩放并居中显示。
+   *
+   * @param x 待适应矩形左边界的缩放前布局坐标。
+   * @param y 待适应矩形上边界的缩放前布局坐标。
+   * @param cw 待适应矩形的布局宽度；非正数时恢复原始视图。
+   * @param ch 待适应矩形的布局高度；非正数时恢复原始视图。
+   */
   function fitLayoutRect(
-    /* 待适应矩形左边界的缩放前布局坐标。 */ x: number,
-    /* 待适应矩形上边界的缩放前布局坐标。 */ y: number,
-    /* 待适应矩形的布局宽度；非正数时恢复原始视图。 */ cw: number,
-    /* 待适应矩形的布局高度；非正数时恢复原始视图。 */ ch: number
+    x: number,
+    y: number,
+    cw: number,
+    ch: number
   ) {
-    // 计算容器内可用区域，将指定布局矩形等比缩放并居中显示。
     const container = options.containerRef.value
     if (!container) {
       resetView()
@@ -176,13 +216,20 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
     fitLayoutRect(0, 0, options.contentWidth.value, options.contentHeight.value)
   }
 
+  /**
+   * 通过 SVG 屏幕变换矩阵，将布局矩形的四角换算为容器内的可见边界。
+   *
+   * @param x 矩形左上角的 SVG 用户空间横坐标。
+   * @param y 矩形左上角的 SVG 用户空间纵坐标。
+   * @param width 矩形在 SVG 用户空间中的宽度。
+   * @param height 矩形在 SVG 用户空间中的高度。
+   */
   function layoutRectScreenBounds(
-    /* 矩形左上角的 SVG 用户空间横坐标。 */ x: number,
-    /* 矩形左上角的 SVG 用户空间纵坐标。 */ y: number,
-    /* 矩形在 SVG 用户空间中的宽度。 */ width: number,
-    /* 矩形在 SVG 用户空间中的高度。 */ height: number,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
   ): { left: number, top: number, right: number, bottom: number } | null {
-    // 通过 SVG 屏幕变换矩阵，将布局矩形的四角换算为容器内的可见边界。
     const svg = options.svgRef.value
     const container = options.containerRef.value
     if (!svg || !container) return null
@@ -217,13 +264,20 @@ export function useCanvasPanZoom(/* 组件持有的容器、SVG 与内容尺寸�
     return { left, top, right, bottom }
   }
 
+  /**
+   * 在目标矩形超出可见区域时仅调整必要的平移量，保留当前缩放。
+   *
+   * @param x 待聚焦矩形左上角的布局横坐标。
+   * @param y 待聚焦矩形左上角的布局纵坐标。
+   * @param width 待聚焦矩形的布局宽度，供可见边界检查。
+   * @param height 待聚焦矩形的布局高度，供可见边界检查。
+   */
   function focusLayoutRect(
-    /* 待聚焦矩形左上角的布局横坐标。 */ x: number,
-    /* 待聚焦矩形左上角的布局纵坐标。 */ y: number,
-    /* 待聚焦矩形的布局宽度，供可见边界检查。 */ width: number,
-    /* 待聚焦矩形的布局高度，供可见边界检查。 */ height: number
+    x: number,
+    y: number,
+    width: number,
+    height: number
   ) {
-    // 在目标矩形超出可见区域时仅调整必要的平移量，保留当前缩放。
     const container = options.containerRef.value
     if (!container) return
 

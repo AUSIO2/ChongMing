@@ -2,8 +2,12 @@
 import type { App } from 'vue'
 import type { Router } from 'vue-router'
 
-function uiShowFailure(/* 异常入口类别，随诊断编号传给桌面进程，不包含原始异常正文。 */ source: 'vue' | 'window' | 'promise' | 'router'): void {
-  // 上报带诊断编号的界面错误，并建立或更新可重新加载页面的全局错误面板。
+/**
+ * 上报带诊断编号的界面错误，并建立或更新可重新加载页面的全局错误面板。
+ *
+ * @param source 异常入口类别，随诊断编号传给桌面进程，不包含原始异常正文。
+ */
+function uiShowFailure(source: 'vue' | 'window' | 'promise' | 'router'): void {
   const errorId = crypto.randomUUID()
   window.chongmingClient?.reportError({ errorId, source })
   let panel = document.getElementById('global-error')
@@ -19,20 +23,33 @@ function uiShowFailure(/* 异常入口类别，随诊断编号传给桌面进程
   panel.querySelector('[data-error-id]')!.textContent = `错误编号：${errorId}`
 }
 
+/**
+ * 注册 Vue、窗口、Promise 和路由错误边界，并返回窗口与路由监听的清理函数。
+ *
+ * @param app 正在启动的 Vue 应用实例，本函数会设置其全局错误处理器。
+ * @param router 应用路由实例，用于注册并返回可移除的路由错误监听。
+ */
 export function uiRegisterErrors(
-  /* 正在启动的 Vue 应用实例，本函数会设置其全局错误处理器。 */ app: App,
-  /* 应用路由实例，用于注册并返回可移除的路由错误监听。 */ router: Router
+  app: App,
+  router: Router
 ): () => void {
-  // 注册 Vue、窗口、Promise 和路由错误边界，并返回窗口与路由监听的清理函数。
   let showing = false
-  const show = (/* 首次触发错误的入口类别，用于统一错误面板和诊断上报。 */ source: 'vue' | 'window' | 'promise' | 'router') => {
-    // 只在首次未处理错误时展示全局错误面板。
+  /**
+   * 只在首次未处理错误时展示全局错误面板。
+   *
+   * @param source 首次触发错误的入口类别，用于统一错误面板和诊断上报。
+   */
+  const show = (source: 'vue' | 'window' | 'promise' | 'router') => {
     if (!showing) { showing = true; uiShowFailure(source) }
   }
   app.config.errorHandler = () => /* 把 Vue 组件异常交给统一错误展示入口。 */ show('vue')
   const error = () => /* 把窗口运行时异常交给统一错误展示入口。 */ show('window')
-  const rejection = (/* 浏览器派发的未处理 Promise 拒绝事件，本函数会阻止其默认处理。 */ event: PromiseRejectionEvent) => {
-    // 阻止未处理拒绝的默认展示，并显示带诊断编号的错误面板。
+  /**
+   * 阻止未处理拒绝的默认展示，并显示带诊断编号的错误面板。
+   *
+   * @param event 浏览器派发的未处理 Promise 拒绝事件，本函数会阻止其默认处理。
+   */
+  const rejection = (event: PromiseRejectionEvent) => {
     event.preventDefault(); show('promise')
   }
   window.addEventListener('error', error)

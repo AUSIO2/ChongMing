@@ -17,8 +17,13 @@ afterAll(async () => {
   // 关闭图 API 并删除命令行测试目录。
    await api?.close(); await rm(directory, { recursive: true, force: true }) }, 30_000)
 
-function cliCreateProcess(/* 传给被测 CLI 的子命令和选项列表，不含 Node 与脚本路径。 */ args: string[], /* 子进程使用的测试用户令牌；省略时用夹具用户，空字符串用于验证无凭据行为。 */ token = api.userToken) {
-  // 拉起使用测试 API 的命令行进程，并将数据库地址设为不可达以发现错误依赖。
+/**
+ * 拉起使用测试 API 的命令行进程，并将数据库地址设为不可达以发现错误依赖。
+ *
+ * @param args 传给被测 CLI 的子命令和选项列表，不含 Node 与脚本路径。
+ * @param token 子进程使用的测试用户令牌；省略时用夹具用户，空字符串用于验证无凭据行为。
+ */
+function cliCreateProcess(args: string[], token = api.userToken) {
   return spawn(process.execPath, ['--import', 'tsx', 'apps/cli/main.ts', ...args], {
     cwd: path.resolve('.'), stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, CHONGMING_GRAPH_API: api.url, CHONGMING_USER_TOKEN: token,
@@ -26,20 +31,26 @@ function cliCreateProcess(/* 传给被测 CLI 的子命令和选项列表，不�
       MONGO_URI: 'mongodb://127.0.0.1:1/forbidden', CHONGMING_MONGO_URI: 'mongodb://127.0.0.1:1/forbidden' },
   })
 }
-async function cliReadResult(/* 本次子进程要执行的 CLI 参数列表。 */ args: string[], /* 可选标准输入对象，提供时编码为 JSON，省略时发送空输入。 */ input?: unknown, /* 可选测试令牌，省略时由进程创建助手选择夹具默认用户。 */ token?: string) {
-  // 向命令行输入 JSON，收集输出与退出码，并为子进程设置运行上限。
+/**
+ * 向命令行输入 JSON，收集输出与退出码，并为子进程设置运行上限。
+ *
+ * @param args 本次子进程要执行的 CLI 参数列表。
+ * @param input 可选标准输入对象，提供时编码为 JSON，省略时发送空输入。
+ * @param token 可选测试令牌，省略时由进程创建助手选择夹具默认用户。
+ */
+async function cliReadResult(args: string[], input?: unknown, token?: string) {
   const child = cliCreateProcess(args, token)
   const timer = setTimeout(() => /* 子进程超时后强制退出，避免用例无限等待。 */  child.kill('SIGKILL'), 8000)
   let stdout = '', stderr = ''
-  child.stdout.on('data', /* 子进程标准输出的一段字节，累计以解析 JSON 结果。 */ chunk => {
+  child.stdout.on('data', chunk => {
     // 累积命令行标准输出以解析结果。
      stdout += chunk })
-  child.stderr.on('data', /* 子进程错误输出的一段字节，累计以核对错误协议。 */ chunk => {
+  child.stderr.on('data', chunk => {
     // 累积命令行错误输出以核对错误协议。
      stderr += chunk })
   child.stdin.end(input === undefined ? '' : JSON.stringify(input))
   try {
-    const code = await new Promise<number | null>((/* 接收子进程退出码并完成等待的函数。 */ resolve, /* 进程创建失败时拒绝等待的函数。 */ reject) => {
+    const code = await new Promise<number | null>((resolve, reject) => {
       // 等待子进程退出，创建失败时拒绝等待。
        child.once('error', reject); child.once('exit', resolve) })
     return { code, stdout, stderr }
@@ -118,10 +129,10 @@ describe('Headless authenticated client', () => {
     const child = cliCreateProcess(['watch', mapId])
     child.stdin.end()
     let stdout = ''
-    child.stdout.on('data', /* 订阅子进程新输出的字节，累计供快照与版本断言轮询。 */ chunk => {
+    child.stdout.on('data', chunk => {
       // 持续收集订阅进程输出供异步断言检查。
        stdout += chunk })
-    const ended = new Promise<number | null>(/* 接收订阅进程退出码，验证 SIGINT 产生预期取消状态。 */ resolve => /* 等待订阅进程退出并取得取消退出码。 */  child.once('exit', resolve))
+    const ended = new Promise<number | null>(resolve => /* 等待订阅进程退出并取得取消退出码。 */  child.once('exit', resolve))
     try {
       await expect.poll(() => /* 读取当前输出，等待首个快照到达。 */  stdout, { timeout: 5000 }).toContain('"type":"snapshot"')
       const prior = await api.snapshot(mapId)

@@ -17,7 +17,7 @@ const conflict = computed(() => /* 判断未保存资料所依据的工作区版
 const memberId = ref(''), memberRole = ref<Role>('viewer'), memberAction = ref<'set' | 'remove'>('set'), memberRevision = ref(0)
 const member = computed(() =>
   /* 按表单中的用户标识查找现有成员。 */
-  props.workspace?.members.find(/* 当前工作区的一条成员记录，只用于匹配用户身份。 */ item =>
+  props.workspace?.members.find(item =>
     /* 匹配去掉首尾空白的成员用户标识。 */
     item.userId === memberId.value.trim()))
 const memberConflict = computed(() => /* 判断成员表单所依据的工作区版本是否已变化。 */ !!memberId.value && memberRevision.value !== props.workspace?.revision)
@@ -30,17 +30,22 @@ function workspaceReadDraft() {
   name.value = props.workspace.name; description.value = props.workspace.description
   revision.value = props.workspace.revision; baseline.value = serialized.value
 }
-watch(() => /* 观察当前工作区资料和权限变化。 */ props.workspace, /* 父组件传入的最新工作区；空值表示当前没有可编辑工作区。 */ workspace => {
+watch(() => /* 观察当前工作区资料和权限变化。 */ props.workspace, workspace => {
   // 未修改资料时接纳服务端版本，并为空白成员表单更新版本基线。
   if (!workspace) return
   if (!baseline.value || !dirty.value) workspaceReadDraft()
   if (!memberId.value) memberRevision.value = workspace.revision
 }, { immediate: true })
+/**
+ * 把所选成员和操作类型载入成员表单，并记住工作区版本。
+ *
+ * @param item 从成员列表选择的只读记录，将身份和角色复制进编辑表单。
+ * @param action 本次成员操作为设定角色或移除，用于确定表单模式。
+ */
 function workspaceReadMember(
-  /* 从成员列表选择的只读记录，将身份和角色复制进编辑表单。 */ item: Member,
-  /* 本次成员操作为设定角色或移除，用于确定表单模式。 */ action: 'set' | 'remove'
+  item: Member,
+  action: 'set' | 'remove'
 ) {
-  // 把所选成员和操作类型载入成员表单，并记住工作区版本。
   memberId.value = item.userId; memberRole.value = item.role; memberAction.value = action
   memberRevision.value = props.workspace!.revision
 }
@@ -51,7 +56,7 @@ function workspaceResetMember() {
 async function workspaceUpdateDetails() {
   // 仅在所有者有有效改动且版本未冲突时保存工作区资料。
   if (!props.workspace || !owner.value || !dirty.value || conflict.value || !name.value.trim()) return
-  await task.command('workspace.update', { workspaceId: props.workspace.id, expectedRevision: revision.value, name: name.value.trim(), description: description.value }, /* 资料保存成功的响应，提供服务端确认的名称、说明与版本。 */ result => {
+  await task.command('workspace.update', { workspaceId: props.workspace.id, expectedRevision: revision.value, name: name.value.trim(), description: description.value }, result => {
     // 接纳保存后的名称、说明与版本，重置脏状态并通知父组件。
     name.value = result.data.name; description.value = result.data.description; revision.value = result.data.revision; baseline.value = serialized.value
     emit('changed')

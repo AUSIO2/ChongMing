@@ -19,8 +19,12 @@ function loadHeight(): number {
   }
 }
 
-function saveHeight(/* 拖动结束后的面板高度，单位为 CSS 像素。 */ height: number) {
-  // 保存底部面板高度；存储不可用时保留本次界面的调整结果。
+/**
+ * 保存底部面板高度；存储不可用时保留本次界面的调整结果。
+ *
+ * @param height 拖动结束后的面板高度，单位为 CSS 像素。
+ */
+function saveHeight(height: number) {
   try {
     localStorage.setItem(STORAGE_KEY, String(height))
   } catch {
@@ -32,11 +36,19 @@ export function useBottomDockResize() {
   // 持有底部面板高度，提供拖动调整与结束后保存的操作。
   const dockHeight = ref(loadHeight())
 
-  function startResizeBottom(/* 分隔条按下时的视口纵坐标，单位为 CSS 像素。 */ startY: number) {
-    // 记录拖动起始高度，并安装窗口级鼠标移动和松开监听。
+  /**
+   * 记录拖动起始高度，并安装窗口级鼠标移动和松开监听。
+   *
+   * @param startY 分隔条按下时的视口纵坐标，单位为 CSS 像素。
+   */
+  function startResizeBottom(startY: number) {
     const startHeight = dockHeight.value
-    function onMove(/* 窗口派发的拖动事件，用纵坐标与起点之差调整面板高度。 */ e: MouseEvent) {
-      // 按向上拖动距离增加面板高度，同时限制最大值不超过窗口高度的 45%。
+    /**
+     * 按向上拖动距离增加面板高度，同时限制最大值不超过窗口高度的 45%。
+     *
+     * @param e 窗口派发的拖动事件，用纵坐标与起点之差调整面板高度。
+     */
+    function onMove(e: MouseEvent) {
       const max = Math.min(MAX_HEIGHT, Math.floor(window.innerHeight * 0.45))
       dockHeight.value = Math.min(
         max,

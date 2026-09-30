@@ -4,13 +4,13 @@ import { lookup } from 'node:dns/promises'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sourceReadUrl } from '../../../../backend/adapters/sources/http-source'
 
-vi.mock('node:http', async /* Vitest 提供的原模块加载器，先取得真实 HTTP 实现再只代理 request。 */ importOriginal => {
+vi.mock('node:http', async importOriginal => {
   // 保留真实 HTTP 模块并代理 request，以检测是否越过地址校验提前联网。
   const original = await importOriginal<typeof import('node:http')>()
   const guardedRequest = vi.fn(original.request)
   return { ...original, request: guardedRequest, default: { ...original.default, request: guardedRequest } }
 })
-vi.mock('node:dns/promises', async /* Vitest 原模块加载器，取得真实 DNS API 后替换 lookup 以注入地址集合。 */ importOriginal => {
+vi.mock('node:dns/promises', async importOriginal => {
   // 代理 DNS 查询，允许测试注入公私混合的地址结果。
   const original = await importOriginal<typeof import('node:dns/promises')>()
   return { ...original, lookup: vi.fn(original.lookup) }
@@ -22,7 +22,7 @@ const text = '多来源新闻 — café'
 
 beforeAll(async () => {
   // 建立只监听回环地址的来源夹具，并记录实际访问路径。
-  server = createServer((/* 本地来源夹具收到的请求，根据 URL 路径选择测试响应并记录访问。 */ incoming, /* 夹具响应流，可写正常正文、重定向、非法媒体或超限字节。 */ response) => {
+  server = createServer((incoming, response) => {
     // 按路径返回重定向、二进制、大响应、错误编码或正常文本。
     visits.push(incoming.url!)
     if (incoming.url === '/redirect') {
@@ -38,7 +38,7 @@ beforeAll(async () => {
     if (incoming.url === '/invalid-utf8') { response.end(Buffer.from([0xff, 0xfe])); return }
     response.end(text)
   })
-  await new Promise<void>(/* 本地来源服务器监听成功后的启动兑现回调。 */ resolve => /* 等待本地来源服务绑定临时端口。 */  server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>(resolve => /* 等待本地来源服务绑定临时端口。 */  server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Source fixture did not bind')
   baseUrl = `http://127.0.0.1:${address.port}`
@@ -50,7 +50,7 @@ beforeEach(() => {
 afterAll(async () => {
   // 关闭来源服务及存量连接，等待监听端口释放。
   server.closeAllConnections()
-  await new Promise<void>((/* 来源服务成功关闭后的清理完成回调。 */ resolve, /* 来源服务关闭失败后的清理拒绝回调。 */ reject) => /* 把 HTTP 服务关闭回调转换为可等待的 Promise。 */  server.close(/* HTTP 服务器关闭返回的可选错误，转为清理 Promise 的失败。 */ error => /* 根据服务关闭结果完成或拒绝测试清理。 */  error ? reject(error) : resolve()))
+  await new Promise<void>((resolve, reject) => /* 把 HTTP 服务关闭回调转换为可等待的 Promise。 */  server.close(error => /* 根据服务关闭结果完成或拒绝测试清理。 */  error ? reject(error) : resolve()))
 })
 
 describe('Source URL network boundary', () => {

@@ -8,9 +8,14 @@ import { sessionCreateState } from '../../apps/ui/state/client-session'
 
 vi.mock('../../apps/ui/transport/client-gateway', () => /* 替换应用默认网关，避免单元测试触发真实连接装配。 */ ({ api: {} }))
 function deferred<T>() {
-  // 创建可由测试手动完成或拒绝的 Promise，以安排迟到结果。
-  let resolve!: (/* 测试手动交付给延迟 Promise 的成功值。 */ value: T) => void, reject!: (/* 测试手动注入的任意拒绝原因。 */ error: unknown) => void
-  const promise = new Promise<T>((/* Promise 构造器提供的完成函数，保存供用例安排成功返回。 */ yes, /* Promise 构造器提供的拒绝函数，保存供用例安排失败返回。 */ no) => {
+  /**
+   * 创建可由测试手动完成或拒绝的 Promise，以安排迟到结果。
+   *
+   * @param value 测试手动交付给延迟 Promise 的成功值。
+   * @param error 测试手动注入的任意拒绝原因。
+   */
+  let resolve!: (value: T) => void, reject!: (error: unknown) => void
+  const promise = new Promise<T>((yes, no) => {
     // 保存 Promise 的完成和拒绝入口。
     resolve = yes; reject = no
   })
@@ -35,11 +40,11 @@ describe('Management request lifetime and mutation identity', () => {
     const draft = reactive({ members: [{ userId: 'member', role: 'editor' }], bytes: new Uint8Array([1, 2, 3]) })
     const calls: Array<{ input: typeof draft; requestId: string }> = []
     const execute = vi.fn(async (
-      /* 管理任务交给本次尝试的独立输入副本；测试故意修改它以检查隔离。 */ input: typeof draft,
-      /* 管理任务分配的稳定操作身份，记录并比较重试是否复用。 */ requestId: string
+      input: typeof draft,
+      requestId: string
     ) => {
       // 记录独立提交参数，修改收到的副本并令首次调用失败，以检验原操作重试。
-      calls.push({ input: { members: input.members.map(/* 本次提交副本中的成员记录，再复制一份保留断言基线。 */ member =>
+      calls.push({ input: { members: input.members.map(member =>
         /* 复制成员条目，保留调用时输入以供两次提交比较。 */
         ({ ...member })), bytes: input.bytes.slice() }, requestId })
       input.members[0].role = 'mutated inside transport'; input.bytes[0] = 99
@@ -144,12 +149,12 @@ async function openedManagement() {
     const dispatch = vi.fn(), disconnect = vi.fn()
     const gateway = {
       watch: vi.fn((
-        /* 订阅的图身份；此刷新夹具只关注取消，不区分图。 */ _mapId: string,
-        /* 订阅事件回调；此夹具不推送事件，故不使用。 */ _onEvent: unknown,
-        /* 可选的订阅取消信号，触发后拒绝长连接 Promise。 */ signal?: AbortSignal
+        _mapId: string,
+        _onEvent: unknown,
+        signal?: AbortSignal
       ) =>
         /* 模拟持续到取消信号到达才结束的图订阅。 */
-        new Promise<void>((/* 订阅 Promise 的成功入口，此夹具只通过取消结束。 */ _resolve, /* 订阅 Promise 的拒绝入口，取消时注入停止错误。 */ reject) => {
+        new Promise<void>((_resolve, reject) => {
           // 为模拟订阅安装取消拒绝回调。
           signal?.addEventListener('abort', () => /* 收到取消后结束模拟订阅。 */ reject(new Error('Stopped')), { once: true })
       })),
@@ -157,7 +162,7 @@ async function openedManagement() {
       getConnection: vi.fn(async () =>
         /* 返回已配置且不记住凭据的连接信息。 */
         ({ baseUrl: 'http://fixture', configured: true, remembered: false, canRemember: false })),
-      read: vi.fn(async (/* 公开查询方法名，选择对应的启动信息、工作区或图夹具。 */ method: string, /* 分支查询使用的目标参数。 */ params?: any) => {
+      read: vi.fn(async (method: string, params?: any) => {
         // 按查询方法返回可变夹具的独立快照，供测试模拟服务端刷新。
         if (method === 'app.bootstrap') return structuredClone(bootstrap)
         if (method === 'workspace.list') return { items: [structuredClone(workspace)], nextCursor: null }
@@ -184,9 +189,9 @@ describe('Management refresh preserves the current graph', () => {
     const oldBootstrap = structuredClone(f.bootstrap), late = deferred<any>()
     let intercept = true
     f.read.mockImplementation(((
-      /* 被拦截查询的方法名，只延迟首个启动信息请求。 */ method: string,
-      /* 查询业务参数，非拦截分支原样转给原模拟实现。 */ params: any,
-      /* 查询的取消信号，非拦截分支原样保留。 */ signal: any
+      method: string,
+      params: any,
+      signal: any
     ) => {
       // 仅延迟首次启动信息查询，其他请求沿用夹具实现。
       if (method === 'app.bootstrap' && intercept) { intercept = false; return late.promise }
@@ -219,9 +224,9 @@ describe('Management refresh preserves the current graph', () => {
     const initialRun = f.session.snapshot.value!.runs[0], oldWorkspace = structuredClone(f.workspace), late = deferred<any>()
     let intercept = true
     f.read.mockImplementation(((
-      /* 被拦截查询的方法名，只延迟首个工作区详情请求。 */ method: string,
-      /* 查询业务参数，其他查询保持原夹具行为。 */ params: any,
-      /* 查询的取消信号，其他查询继续使用原生命周期。 */ signal: any
+      method: string,
+      params: any,
+      signal: any
     ) => {
       // 仅延迟首次工作区读取，制造新旧版本交错到达。
       if (method === 'workspace.get' && intercept) { intercept = false; return late.promise }

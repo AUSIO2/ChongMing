@@ -14,11 +14,18 @@ import { workReadItems } from '../../modules/graph/work-state'
 import type { DiagnosticReporter } from '../../../contracts/diagnostics'
 
 /** One broker connection and one fanout subscription per API instance. */
-export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从中读取部署身份并建立变更流。 */ connection: Connection, /* 用于恢复可执行工作及清理待发布标记的图存储接口。 */ store: GraphStore, /* 可选 RabbitMQ 部署配置；缺省时只初始化身份，不启动消息连接。 */ config?: QueueConfig, /* 可选诊断报告器，记录重连警告和处理器终止故障。 */ reporter?: DiagnosticReporter) {
-  // 维护单个 API 实例的队列连接、Mongo 变更流与活动缓存，负责断线后补发。
+/**
+ * 维护单个 API 实例的队列连接、Mongo 变更流与活动缓存，负责断线后补发。
+ *
+ * @param connection 已连接的 Mongo 实例；本服务从中读取部署身份并建立变更流。
+ * @param store 用于恢复可执行工作及清理待发布标记的图存储接口。
+ * @param config 可选 RabbitMQ 部署配置；缺省时只初始化身份，不启动消息连接。
+ * @param reporter 可选诊断报告器，记录重连警告和处理器终止故障。
+ */
+export function outboxCreateService(connection: Connection, store: GraphStore, config?: QueueConfig, reporter?: DiagnosticReporter) {
   const deployment = connection.collection<{ _id: string; deploymentId: string }>('control_deployment')
   const activities = new Map<string, QueueChange>()
-  const listeners = new Set<(/* 业务刷新提示；null 通知调用方当前消息连接已断开。 */ change: QueueChange | null) => void>()
+  const listeners = new Set<(change: QueueChange | null) => void>()
   const lifetime = new AbortController()
   let connected = false
   let deploymentId: string, link: QueueLink | undefined, task: Promise<void> | undefined
@@ -30,17 +37,25 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
     if (!deploymentId) throw new Error(RuntimeMessage.INITIALIZE_APPLICATION_BEFORE_READING_MESSAGING_IDENTITY)
     return { version: 1 as const, deploymentId, namespace: `${config?.namespace ?? 'chongming'}.${deploymentId}`, enabled: !!config }
   }
-  function outboxUpdateListeners(/* 传递给所有监听者的变更，null 表示需要结束实时订阅。 */ change: QueueChange | null) {
-    // 向所有实时订阅者发送变更或连接关闭通知。
+  /**
+   * 向所有实时订阅者发送变更或连接关闭通知。
+   *
+   * @param change 传递给所有监听者的变更，null 表示需要结束实时订阅。
+   */
+  function outboxUpdateListeners(change: QueueChange | null) {
     for (const listener of listeners) listener(change)
   }
-  async function outboxRunConnection(/* 本轮已经建立的队列连接，出错或断线后由外层关闭并重建。 */ current: QueueLink) {
-    // 建立队列订阅与 Mongo 变更流，补发未完成工作并等待连接结束。
+  /**
+   * 建立队列订阅与 Mongo 变更流，补发未完成工作并等待连接结束。
+   *
+   * @param current 本轮已经建立的队列连接，出错或断线后由外层关闭并重建。
+   */
+  async function outboxRunConnection(current: QueueLink) {
     const outboxCloseSubscribers = () => {
       // 标记队列断开并通知实时订阅者重新连接。
        connected = false; outboxUpdateListeners(null) }
     current.signal.addEventListener('abort', outboxCloseSubscribers, { once: true })
-    await current.subscribeChanges(/* 经队列协议校验的变更消息，仍需过滤部署身份及过时活动。 */ change => {
+    await current.subscribeChanges(change => {
       // 忽略其他部署及过时活动，缓存最新活动后通知本机订阅者。
       if (change.deploymentId !== deploymentId) return
       if (change.kind === 'activity') {
@@ -64,11 +79,11 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
       ] },
       { 'ns.coll': 'control_users', $or: [
         { operationType: { $in: ['insert', 'replace', 'delete'] } },
-        ...['disabled', 'hostAdmin', 'displayName'].map(/* 会影响用户身份或可见信息的 Mongo 文档字段名。 */ field => /* 将影响用户身份的字段变更加入 Mongo 订阅条件。 */  ({ [`updateDescription.updatedFields.${field}`]: { $exists: true } })),
+        ...['disabled', 'hostAdmin', 'displayName'].map(field => /* 将影响用户身份的字段变更加入 Mongo 订阅条件。 */  ({ [`updateDescription.updatedFields.${field}`]: { $exists: true } })),
       ] },
       { 'ns.coll': 'control_tokens', $or: [
         { operationType: { $in: ['insert', 'replace', 'delete'] } },
-        ...['revoked', 'expiresAt', 'userId'].map(/* 会影响令牌使用权的 Mongo 文档字段名。 */ field => /* 将影响令牌有效性的字段变更加入 Mongo 订阅条件。 */  ({ [`updateDescription.updatedFields.${field}`]: { $exists: true } })),
+        ...['revoked', 'expiresAt', 'userId'].map(field => /* 将影响令牌有效性的字段变更加入 Mongo 订阅条件。 */  ({ [`updateDescription.updatedFields.${field}`]: { $exists: true } })),
       ] },
       { 'ns.coll': 'control_assets', $or: [
         { operationType: { $in: ['insert', 'replace', 'delete'] } },
@@ -86,8 +101,12 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
         await store.clearDispatch(document.id, document.dispatchVersion)
       }
     }
-    async function outboxPublishChange(/* Mongo 变更流原始事件，按集合及操作类型转换为刷新提示。 */ change: ChangeStreamDocument) {
-      // 把集合变更转换为图补发、工作区刷新、设置刷新或访问权限刷新。
+    /**
+     * 把集合变更转换为图补发、工作区刷新、设置刷新或访问权限刷新。
+     *
+     * @param change Mongo 变更流原始事件，按集合及操作类型转换为刷新提示。
+     */
+    async function outboxPublishChange(change: ChangeStreamDocument) {
       if (change.operationType !== 'insert' && change.operationType !== 'replace' && change.operationType !== 'update' && change.operationType !== 'delete') return
       const collection = change.ns.coll
       if (collection === GRAPH_COLLECTION) { await outboxRunDispatch(); return }
@@ -177,9 +196,17 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
       deploymentId = identity.deploymentId
     },
     messaging: outboxReadIdentity,
-    readActivities: (/* 本次查询活动缓存所属的图身份。 */ mapId: string) => /* 从临时缓存取得目标图的最新活动消息。 */  [...activities.values()].filter(/* 缓存活动消息，按 mapId 过滤到目标图。 */ change => /* 按图身份筛选活动缓存。 */  change.mapId === mapId),
-    async publishActivity(/* 已验证工作身份的临时活动摘要，发送失败不写入持久图。 */ activity: import('../../../contracts/activity').GraphActivity, /* 活动发布者的租约持有者身份，随提示传给后续授权检查。 */ holderId: string) {
-      // 仅在队列已连接时发布活动，并携带用于后续授权复核的持有者身份。
+    /**
+     * @param mapId 本次查询活动缓存所属的图身份。
+     */
+    readActivities: (mapId: string) => /* 从临时缓存取得目标图的最新活动消息。 */  [...activities.values()].filter(change => /* 按图身份筛选活动缓存。 */  change.mapId === mapId),
+    /**
+     * 仅在队列已连接时发布活动，并携带用于后续授权复核的持有者身份。
+     *
+     * @param activity 已验证工作身份的临时活动摘要，发送失败不写入持久图。
+     * @param holderId 活动发布者的租约持有者身份，随提示传给后续授权检查。
+     */
+    async publishActivity(activity: import('../../../contracts/activity').GraphActivity, holderId: string) {
       if (!connected || !link || link.signal.aborted) throw new GraphError(503, 'MESSAGING_UNAVAILABLE', RuntimeMessage.ACTIVITY_MESSAGING_IS_RECONNECTING)
       await link.publishChange({ version: 1, deploymentId, kind: 'activity', mapId: activity.mapId, activity, holderId })
     },
@@ -187,7 +214,7 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
       // 按需启动唯一的重连循环，并等待首轮恢复流程完成。
       if (!config) return Promise.resolve()
       if (!ready) {
-        ready = new Promise<void>(/* 首轮连接补发完成的兑现函数，也供终止时解除启动等待。 */ resolve => {
+        ready = new Promise<void>(resolve => {
           // 保存首轮恢复完成的通知回调。
            resolveReady = resolve })
         task = outboxRunLoop()
@@ -198,8 +225,12 @@ export function outboxCreateService(/* 已连接的 Mongo 实例；本服务从�
       // 等待消息循环停止并返回终止原因。
        await task; return failure },
     closeMessaging: outboxClose,
-    watchChanges(/* 调用者提供的同步变更接收器，返回清理函数可解除注册。 */ listener: (/* 业务刷新提示或空关闭通知，null 要求监听方结束现有流。 */ change: QueueChange | null) => void): () => void {
-      // 在有效队列连接上注册实时变更监听，拒绝断线期订阅。
+    /**
+     * 在有效队列连接上注册实时变更监听，拒绝断线期订阅。
+     *
+     * @param listener 调用者提供的同步变更接收器，返回清理函数可解除注册。
+     */
+    watchChanges(listener: (change: QueueChange | null) => void): () => void {
       if (!config || !connected || !link || link.signal.aborted) throw new GraphError(503, 'MESSAGING_UNAVAILABLE', RuntimeMessage.REALTIME_MESSAGING_IS_RECONNECTING)
       listeners.add(listener)
       return () => {
