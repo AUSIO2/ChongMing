@@ -1,0 +1,9 @@
+- id: web
+  config:
+    searchProvider: chongming-deepseek-search
+- insert:
+    - id: chongming-deepseek-search
+      name: ./dsh-deepseek-search-plugin.mjs
+    - id: chongming-data-tools
+      name: ./dsh-business-plugin.mjs
+      config: {}

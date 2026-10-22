@@ -1,0 +1,9 @@
+{"id":"E01-target-enum","acceptedArray":true,"executionModel":["remote"]}
+{"id":"E02-cleanup-primary","thrown":"Evidence UI fixture cleanup failed.","includesPrimary":false,"includesSecondary":true}
+{"id":"E03-preview-init-window","file":"ui-preview.ts","error":"MKTEMP_FAILURE","fixtureCloseCalls":0}
+{"id":"E03-preview-init-window","file":"relations-preview.ts","error":"MKTEMP_FAILURE","fixtureCloseCalls":0}
+{"id":"E03-preview-init-window","file":"usage-preview.ts","error":"MKTEMP_FAILURE","fixtureCloseCalls":0}
+{"id":"E03-usage-init-window","error":"APP_CONSTRUCTOR_FAILURE","sharedCloseCalls":0}
+{"id":"E04-retired-opinion-shape","currentField":true,"retiredField":false}
+{"id":"E05-error-dictionary","code":"constructor","failed":1,"hasOwnCounter":true,"counterType":"string"}
+{"id":"E05-error-dictionary","code":"__proto__","failed":1,"hasOwnCounter":false,"counterType":"object"}

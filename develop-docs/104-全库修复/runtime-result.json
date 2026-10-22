@@ -1,0 +1,587 @@
+{
+  "scope": "runtime-104",
+  "status": "implemented-cross-reviewed-root-validation-recorded",
+  "updatedAt": "2026-10-20T07:09:47.490915+00:00",
+  "productionFrozen": true,
+  "baseArchive": "/var/folders/hp/ptsjk88d4fv17r_wj8lkwtc00000gn/T/chongming-104-baseline-4xcmjbjh/workspace.tar.gz",
+  "sourceChanges": [
+    {
+      "rawId": "R01",
+      "status": "implemented",
+      "kind": "redundancy",
+      "files": [
+        "backend/execution/host-worker.ts"
+      ],
+      "change": "续租不再完整hostReadGrant或创建/丢弃冻结副本。每轮仍核host/holder、单次hostReadDuration及所有不可变字段精确相等。",
+      "preserved": "非法leaseMs仍普通Error→本次取消/可重投；身份改变仍HostProtocolError→终止Host。初领完整解析、保守单调deadline、异步续租/释放不变。",
+      "verification": [
+        "runtime-boundary-final.txt",
+        "runtime-host-queue.txt"
+      ]
+    },
+    {
+      "rawId": "R02",
+      "status": "implemented-with-coordinated-owners",
+      "kind": "redundancy",
+      "files": [
+        "backend/modules/shared/input-validation.ts",
+        "backend/adapters/http/graph-http-server.ts",
+        "backend/modules/evidence-library/evidence-input.ts"
+      ],
+      "change": "共享InputQueryEnvelope/InputCommandEnvelope表明已验证信封；HTTP只扫一次外层白名单/命令UUID，交给各owner解析方法与params。evidence typed HTTP入口与独立unknown服务入口共用授权params解析。",
+      "preserved": "method保unknown，未知方法分类未强化。evidence unknown入口仍plain对象/完整白名单/请求身份/262144字节预算；固定业务字段留收据后。query/command业务params仍真实unknown。",
+      "coordination": "domain修改workspace-input.ts/asset-service.ts接typed信封；root修改evidence-input下段业务解析、collect返回overload及record。runtime仅拥有outer接口和HTTP接线。原evidence failInput本为400 INVALID_ARGUMENT，HTTP非法UUIDstatus/code未变，消息改为共享requestId UUID具体文案。",
+      "verification": [
+        "runtime-config-encoding-full.txt",
+        "runtime-boundaries.txt",
+        "runtime-typecheck-final.txt"
+      ],
+      "rootIntegration": [
+        "evidence-core.txt",
+        "evidence-core-http.txt"
+      ]
+    },
+    {
+      "rawId": "R03",
+      "status": "implemented",
+      "kind": "behavior",
+      "files": [
+        "backend/adapters/http/graph-http-server.ts",
+        "backend/adapters/http/dsh-diagnostic-server.ts",
+        "apps/config/local-settings.ts",
+        "apps/cli/main.ts",
+        "apps/graph-server/admin.ts",
+        "backend/adapters/messaging/rabbitmq.ts",
+        "apps/desktop/credential-store.ts",
+        "apps/desktop/connection-manager.ts",
+        "backend/execution/host-worker.ts",
+        "backend/execution/dsh/work-executor.ts",
+        "backend/execution/dsh/dsh-business-plugin.mjs",
+        "backend/execution/dsh/runtime.ts"
+      ],
+      "change": "在真实JSON字节边界使用fatal UTF-8解码。包括HTTP/诊断、配置/CLI/admin/桌面文件、AMQP与实际Host/DSH/plugin/endpoint响应、SDK安装清单。DSH回复先读字节，再单独解码/JSON：真实读取失败仍WorkAccessError，完整坏字节在正常HTTP状态是协议错误，5xx/429仍访问故障。",
+      "preserved": "原Buffer.toString/readFile utf8→JSON的入口设置ignoreBOM:true，保BOM原本拒绝；原response.json入口保持Fetch去BOM语义。保HTTP字节大小、FS错误/ENOENT、诊断流前后差异、credential坏内容可重新登录与真实FS故障传播。原有source HTTP文字解码不属于JSON，本轮未改。",
+      "verification": [
+        "runtime-boundary-final.txt",
+        "runtime-config-encoding-full.txt",
+        "runtime-dsh-bytes.txt",
+        "runtime-host-queue.txt"
+      ]
+    },
+    {
+      "rawId": "R04",
+      "status": "implemented",
+      "kind": "redundancy",
+      "files": [
+        "backend/adapters/storage/branch-migration.ts"
+      ],
+      "change": "legacyNodes同次迁移解析一次payload与去重reportIds；发布集合、转换payload、payloadReferences和关系复用已确认数组。sourceEdges首次数组边界结果复用。去掉clone后的score重复检查及自建引用数组重验。",
+      "preserved": "显式旧格式、score/reason/报告身份第一次验证、矛盾报告、节点/关系端点、活动Run/lease阻断、apply新快照与事务CAS都保留。源对象不修改。",
+      "verification": [
+        "runtime-migration-full.txt"
+      ]
+    },
+    {
+      "rawId": "R05",
+      "status": "implemented",
+      "kind": "behavior",
+      "files": [
+        "backend/adapters/storage/branch-migration.ts"
+      ],
+      "change": "legacyProducers收集实际[id,producer副本]条目，Object.fromEntries创建自有字典；合法__proto__/constructor均保留。",
+      "preserved": "producer完整归档及独立副本、未知旧schema解析和迁移blocked规则、reportIds现有安全构造。",
+      "verification": [
+        "runtime-migration-full.txt"
+      ]
+    },
+    {
+      "rawId": "R06",
+      "status": "implemented",
+      "kind": "behavior",
+      "files": [
+        "backend/execution/host-worker.ts"
+      ],
+      "change": "首次HTTP授权对runId/operationId/stageId/slotId/specHash建立非空string形状。map/work继续由queue notice精确绑定，host/holder/fence/leaseMs原约束保留。",
+      "preserved": "未知首次响应仍真实边界；新的DSH data响应必须再次绑定冻结grant。",
+      "verification": [
+        "runtime-boundary-final.txt",
+        "runtime-host-queue.txt"
+      ]
+    },
+    {
+      "rawId": "R07",
+      "status": "implemented-with-root-related-site",
+      "kind": "behavior",
+      "files": [
+        "apps/graph-server/main.ts",
+        "apps/local-server/runtime.ts"
+      ],
+      "change": "graph固定reporter记录connection清理原错再抛原始startup对象；各关闭阶段尝试全部资源并逐个记录真实失败。local close保全部失败Aggregate，双失败始终有序保留原startup+cleanup，不随reporter有无改变reject类型；实际诊断器另收原startup及逐资源原错，避免只看到Aggregate栈。",
+      "preserved": "资源实际释放、关闭幂等、正常关闭失败非成功、主/次诊断、关库顺序。无可选reporter时不添加console回落。",
+      "coordination": "tests/browser/workspace-recovery.spec.ts同类站点root已确认在G02修复，runtime未编辑。",
+      "verification": [
+        "runtime-entry-fixture.txt",
+        "runtime-diagnostic-renewal.txt",
+        "runtime-unit-final.txt"
+      ]
+    },
+    {
+      "rawId": "E01",
+      "status": "implemented",
+      "kind": "behavior",
+      "files": [
+        "experiments/evidence-library-tests/load-target.ts"
+      ],
+      "change": "executionModel直接比较三个标量枚举，删除String(unknown)宽松转换。",
+      "preserved": "未知模块工厂、隔离声明、后端身份、必需方法能力；拒绝坏工厂仍释放已取得资源。",
+      "verification": [
+        "runtime-unit-final.txt",
+        "runtime-byte-driver-green.txt"
+      ]
+    },
+    {
+      "rawId": "E02",
+      "status": "implemented",
+      "kind": "behavior",
+      "files": [
+        "experiments/evidence-library-tests/ui-fixture.ts",
+        "experiments/evidence-library-tests/relations-fixture.ts",
+        "experiments/evidence-library-tests/usage-fixture.ts",
+        "experiments/evidence-library-tests/ui-preview.ts",
+        "experiments/evidence-library-tests/relations-preview.ts",
+        "experiments/evidence-library-tests/usage-preview.ts"
+      ],
+      "change": "startup catch清理失败时有序Aggregate保留主错与清理原错。preview close逐项收集fixture/目录错误，控制台输出Error对象保留原生Aggregate.errors诊断，退出清理移除自有signal监听。",
+      "preserved": "所有资源继续尝试释放、幂等close Promise、认证临时文件移除、正常失败退出。",
+      "verification": [
+        "runtime-unit-final.txt",
+        "runtime-lifecycle-initial.txt"
+      ],
+      "rootIntegration": [
+        "evidence-relations.txt",
+        "evidence-usage.txt"
+      ]
+    },
+    {
+      "rawId": "E03",
+      "status": "implemented-confirmed-sites-only",
+      "kind": "behavior",
+      "files": [
+        "experiments/evidence-library-tests/ui-preview.ts",
+        "experiments/evidence-library-tests/relations-preview.ts",
+        "experiments/evidence-library-tests/usage-preview.ts"
+      ],
+      "change": "取得自有fixture即建立close责任，再把真实可拒绝mkdtemp纳入try；directory仅在成功取得后删除。",
+      "preserved": "没有为未证明的usage-fixture同步application构造器增加catch；不关闭借用部署资源。",
+      "verification": [
+        "runtime-unit-final.txt",
+        "runtime-lifecycle-initial.txt"
+      ]
+    },
+    {
+      "rawId": "E04",
+      "status": "implemented",
+      "kind": "redundancy",
+      "files": [
+        "experiments/evidence-library-tests/relations-fixture.ts",
+        "experiments/evidence-library-tests/usage-fixture.ts"
+      ],
+      "change": "当前工厂固定使用发布Opinion.evidenceClaimIds；删退役evidenceIds二选一，usage.outputProposal删除仅为该二选一存在的目录重读。",
+      "preserved": "通用nodeInput/readType仍查真实精确type/version；未知HTTP响应解析不删。",
+      "verification": [],
+      "rootIntegration": [
+        "evidence-relations.txt",
+        "evidence-usage.txt",
+        "evidence-local-usage.txt"
+      ]
+    },
+    {
+      "rawId": "E05",
+      "status": "implemented",
+      "kind": "behavior",
+      "files": [
+        "experiments/evidence-library-tests/stress.ts"
+      ],
+      "change": "错误码counter字典以无原型对象创建，constructor/__proto__作为普通自有数值计数；报告JSON保留原码。",
+      "preserved": "真实失败仍failed，不改变timeout/pending、阈值拒绝和真实调用追踪。新增测试只运行受控失败驱动，临时报告status必须failed，未伪造业务/性能成绩。",
+      "verification": [
+        "runtime-unit-final.txt",
+        "runtime-byte-driver-green.txt"
+      ]
+    },
+    {
+      "rawId": "E06",
+      "status": "implemented",
+      "kind": "minor",
+      "files": [
+        "experiments/evidence-library-tests/stress.ts"
+      ],
+      "change": "非空稠密样本的固定0.5/.95/.99最近秩索引直接取样，删恒不可达Math.max与??null。",
+      "preserved": "真正无样本仍null，实际样本排序和最近秩语义不变。纯删未加镜像测试。",
+      "verification": [
+        "runtime-unit-final.txt"
+      ]
+    }
+  ],
+  "relatedCleanup": {
+    "group": "G02/P05-related",
+    "files": [
+      "tests/backend/fixtures/rabbitmq.ts"
+    ],
+    "change": "broker初始化失败时保原始对象；close再失败时Aggregate保主次。正常close即使Docker删除失败仍删自有目录，聚合两阶段全部失败。",
+    "verification": [
+      "runtime-entry-fixture.txt"
+    ],
+    "rootOwned": [
+      "scripts/check-desktop-runtime.ts",
+      "tests/backend/fixtures/graph-api.ts",
+      "tests/browser/workspace-recovery.spec.ts"
+    ]
+  },
+  "sourceFiles": [
+    "apps/cli/main.ts",
+    "apps/config/local-settings.ts",
+    "apps/desktop/connection-manager.ts",
+    "apps/desktop/credential-store.ts",
+    "apps/graph-server/admin.ts",
+    "apps/graph-server/main.ts",
+    "apps/local-server/runtime.ts",
+    "backend/adapters/http/dsh-diagnostic-server.ts",
+    "backend/adapters/http/graph-http-server.ts",
+    "backend/adapters/messaging/rabbitmq.ts",
+    "backend/adapters/storage/branch-migration.ts",
+    "backend/execution/dsh/dsh-business-plugin.mjs",
+    "backend/execution/dsh/runtime.ts",
+    "backend/execution/dsh/work-executor.ts",
+    "backend/execution/host-worker.ts",
+    "backend/modules/evidence-library/evidence-input.ts",
+    "backend/modules/shared/input-validation.ts",
+    "contracts/messages.ts",
+    "experiments/evidence-library-tests/load-target.ts",
+    "experiments/evidence-library-tests/relations-fixture.ts",
+    "experiments/evidence-library-tests/relations-preview.ts",
+    "experiments/evidence-library-tests/stress.ts",
+    "experiments/evidence-library-tests/ui-fixture.ts",
+    "experiments/evidence-library-tests/ui-preview.ts",
+    "experiments/evidence-library-tests/usage-fixture.ts",
+    "experiments/evidence-library-tests/usage-preview.ts",
+    "tests/backend/fixtures/rabbitmq.ts"
+  ],
+  "testFiles": [
+    "tests/backend/execution/host-protocol.spec.ts",
+    "tests/backend/execution/dsh.spec.ts",
+    "tests/backend/adapters/http/request-encoding.spec.ts",
+    "tests/backend/adapters/storage/branch-migration.spec.ts",
+    "tests/backend/adapters/messaging/queue.spec.ts",
+    "tests/backend/fixtures/rabbitmq-lifecycle.spec.ts",
+    "tests/apps/config/local-settings.spec.ts",
+    "tests/apps/desktop/credential-store.spec.ts",
+    "tests/apps/graph-server/startup-lifecycle.spec.ts",
+    "tests/apps/local-server/runtime-lifecycle.spec.ts",
+    "tests/experiments/evidence-fixture-lifecycle.spec.ts",
+    "tests/experiments/evidence-preview-lifecycle.spec.ts",
+    "tests/experiments/load-target.spec.ts",
+    "tests/experiments/stress-errors.spec.ts"
+  ],
+  "verification": [
+    {
+      "command": "npx vitest run tests/backend/execution/host-protocol.spec.ts tests/backend/execution/dsh.spec.ts tests/backend/adapters/http/request-encoding.spec.ts tests/apps/desktop/credential-store.spec.ts",
+      "exitCode": 0,
+      "result": "4 files / 26 passed",
+      "output": "runtime-boundary-final.txt"
+    },
+    {
+      "command": "npx vitest run tests/apps/graph-server/startup-lifecycle.spec.ts tests/backend/fixtures/rabbitmq-lifecycle.spec.ts tests/backend/execution/host-protocol.spec.ts",
+      "exitCode": 0,
+      "result": "3 files / 12 passed",
+      "output": "runtime-entry-fixture.txt"
+    },
+    {
+      "command": "npx vitest run tests/backend/execution/host-protocol.spec.ts tests/backend/adapters/http/request-encoding.spec.ts tests/apps/graph-server/startup-lifecycle.spec.ts tests/apps/local-server/runtime-lifecycle.spec.ts tests/experiments/evidence-fixture-lifecycle.spec.ts tests/experiments/evidence-preview-lifecycle.spec.ts tests/experiments/load-target.spec.ts tests/experiments/stress-errors.spec.ts tests/apps/desktop/credential-store.spec.ts tests/apps/desktop/connection-manager.spec.ts",
+      "exitCode": 0,
+      "result": "10 files / 31 passed (before final BOM test additions; final boundary/config runs validate those)",
+      "output": "runtime-unit-final.txt"
+    },
+    {
+      "command": "npx vitest run tests/backend/adapters/storage/branch-migration.spec.ts -t \"admitted node identity|invalid|blocks|migrat\"",
+      "exitCode": 0,
+      "result": "1 file / 23 passed (no skipped cases), real SQLite and Mongo",
+      "output": "runtime-migration-full.txt"
+    },
+    {
+      "command": "node --import tsx tests/run.ts tests/backend/execution/host.spec.ts tests/backend/adapters/messaging/queue.spec.ts",
+      "exitCode": 0,
+      "result": "2 files / 30 passed, real isolated RabbitMQ and fault proxy",
+      "output": "runtime-host-queue.txt"
+    },
+    {
+      "command": "npx vitest run tests/backend/adapters/http/request-encoding.spec.ts tests/apps/config/local-settings.spec.ts tests/apps/desktop/credential-store.spec.ts",
+      "exitCode": 0,
+      "result": "3 files / 15 passed; full config CLI/Mongo tests plus UTF/BOM/FS counterparts",
+      "output": "runtime-config-encoding-full.txt"
+    },
+    {
+      "command": "npx vue-tsc --noEmit",
+      "exitCode": 0,
+      "result": "production typecheck passed; tests not claimed typechecked",
+      "output": "runtime-typecheck-final.txt"
+    },
+    {
+      "command": "npm run test:boundaries",
+      "exitCode": 0,
+      "result": "architecture and runtime messages passed",
+      "output": "runtime-boundaries.txt"
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0,
+      "result": "passed",
+      "output": "runtime-diff-check.txt"
+    }
+  ],
+  "failuresAndCorrections": [
+    {
+      "artifact": "runtime-byte-initial.txt",
+      "result": "new HTTP regression expected200 for workspace.create; actual existing protocol201. Corrected test expectation only; malformed-byte assertion was already passing."
+    },
+    {
+      "artifact": "runtime-byte-and-driver.txt",
+      "result": "new load-target regression expected the wrong Chinese fragment. Changed assertion to existing HarnessMessage.TARGET_INVALID; product rejected the bad array as intended."
+    },
+    {
+      "artifact": "runtime-typecheck-initial.txt",
+      "result": "parallel in-progress ES lib declarations/UI/domain errors; root updated supported lib and owners completed code. Later full vue-tsc passes."
+    },
+    {
+      "topic": "R01 implementation review",
+      "result": "first draft classified bad renewed leaseMs as HostProtocolError. Before final freeze restored original single hostReadDuration Error and added ordinary-vs-fatal regression; no final error-class change."
+    },
+    {
+      "topic": "G26 baseline correction",
+      "result": "initial coordination message guessed old evidence UUID422. Actual104 baseline is400 INVALID_ARGUMENT, same finalstatus/code. Only shared UUID public message is more specific."
+    }
+  ],
+  "notChanged": [
+    "apps/config/local-settings.ts lock.close/unlink ownership (double failure unproven)",
+    "backend/adapters/messaging/mongo-outbox.ts stream.close (double failure unproven)",
+    "Host message.includes LEASE_LOST (no stable cross-process replacement evidence)",
+    "independent DSH4320 defaults",
+    "usage-fixture synchronous application constructor before try (not a confirmed throwing boundary)",
+    "explicit migration entry/CAS and unknown storage parsing",
+    "103 audit artifacts, root docs/counter, commits/push/deployment"
+  ],
+  "limits": [
+    "No full npm test or browser/desktop suite run by runtime; root owns those and their final evidence.",
+    "Multiple scoped commands overlap; counts are not summed as unique tests.",
+    "Existing experimental business configurations run by root; runtime unit mocks only lifecycle/transport/driver seams and never count as real business or performance validation."
+  ],
+  "sourceHashChecks": [
+    {
+      "file": "apps/cli/main.ts",
+      "baselineSha256": "4fe8da4d47f0047c699936e5a6a23c9f104b9d77ba02e897f4f945f7b6911469",
+      "currentSha256": "f44d47f678012c3e6d3a8147737bad11660b17e15b79f1ca2c36b015af237e6f"
+    },
+    {
+      "file": "apps/config/local-settings.ts",
+      "baselineSha256": "0b63dee5b8aa5f6adc59f891f7d9d1e4bd9af0bde1e9c7721b8b33f0944bc38b",
+      "currentSha256": "43f7b392f9c8d5622e9976722b2ecdecd3e8dd9d9e5557802268bd428b490abe"
+    },
+    {
+      "file": "apps/desktop/connection-manager.ts",
+      "baselineSha256": "cba012db8f96eb3b5b61b3a0410887c5ad5ebfb9dfc8e12cc90623e8f5a513a3",
+      "currentSha256": "012b03e150e8f1ca53bdb5b1e2307b007ceb57827b1c5a9202cd3b35b7f6572d"
+    },
+    {
+      "file": "apps/desktop/credential-store.ts",
+      "baselineSha256": "106d1657fb84441e8da0f35706a45353c6ee36b1fdcb2d9f408b5a57638fe247",
+      "currentSha256": "0fc130398a1fa9377d43cb4a9d315cd9b37d9dfff47da430f010c99356718402"
+    },
+    {
+      "file": "apps/graph-server/admin.ts",
+      "baselineSha256": "bdb3fd451c52944520b241137b182514b3c1a62ca04f2ff9df027833ec6ca9f7",
+      "currentSha256": "4125b124e83c4282647b3f06143780eaa9de513eebd74ed8bcc54a601a4d72a7"
+    },
+    {
+      "file": "apps/graph-server/main.ts",
+      "baselineSha256": "c8e253e3d7d9d89864ee85e4dac68a6b85896e60ba677e20e8bbf2bea0defbdc",
+      "currentSha256": "b687eb3379b46e42594fce96e40d06ae942926b7b7d9080416ecb8da20bee6c0"
+    },
+    {
+      "file": "apps/local-server/runtime.ts",
+      "baselineSha256": "dd8aa967b5ec50a3ce7306e715bcfb91c8e9b914f6e07dc6f0ce044db27ca8cf",
+      "currentSha256": "08dc8e6205574acb933e5a5b349e2ab489f486fff107ae78753b980dc0e6e14f"
+    },
+    {
+      "file": "backend/adapters/http/dsh-diagnostic-server.ts",
+      "baselineSha256": "7e0b7d55149fd59a98caa836e50dc82f64ebece26f0d130f435750ea6d2c3d17",
+      "currentSha256": "8a8a987b4f2408636ab26005fd768d9e7585e70265bef2d3e1ea3829e7500783"
+    },
+    {
+      "file": "backend/adapters/http/graph-http-server.ts",
+      "baselineSha256": "1eb93c95d030359a2ec71171eddd3a13355e014b40376fd65115c266cb50a8a2",
+      "currentSha256": "5ae9f0c1e7779e26a21fd4e35548f39a8d239ec51d31f61f432e3f84a148658f"
+    },
+    {
+      "file": "backend/adapters/messaging/rabbitmq.ts",
+      "baselineSha256": "64ce80a5d1da54de342ca6147df34f4ac4b50a27507d953d3bb8477ca216f28b",
+      "currentSha256": "37a9bf366b71eabe31fdc8f9492209709108855cb3d5c5a175edc5744fb75661"
+    },
+    {
+      "file": "backend/adapters/storage/branch-migration.ts",
+      "baselineSha256": "b9abd3b549427e92a930da18e42fdd9f1325e7aada2892d9e4244d6f9b6619aa",
+      "currentSha256": "60d21edc88a964dd2950040dea6653bafc3b266413e4c8d0d5dd14e0eb0ba0a4"
+    },
+    {
+      "file": "backend/execution/dsh/dsh-business-plugin.mjs",
+      "baselineSha256": "b030ce7543603129d6d1b49b88b8fc81d90528a3d8c2b1f0dde5b1775f8e26b0",
+      "currentSha256": "435e244b53e23d6a91a9d6f65a79a858af1953e6d4373e39c9a3f98f4ca551f0"
+    },
+    {
+      "file": "backend/execution/dsh/runtime.ts",
+      "baselineSha256": "f74e17e30996a08acce4ffe01da5ce8ecd3e1968475a34bd85e27032ef051674",
+      "currentSha256": "814b805e8a86028156c8bed6ae5d5b9195566932682872a391a3761e294c347b"
+    },
+    {
+      "file": "backend/execution/dsh/work-executor.ts",
+      "baselineSha256": "9ff6da0d3264b335fd07470b525460e2c237a75d98bc3f3abd2f6baf0b5211b2",
+      "currentSha256": "0e559079bb604aa2a842016e95e21206112c457eff9b167b73422af8e3c73154"
+    },
+    {
+      "file": "backend/execution/host-worker.ts",
+      "baselineSha256": "069fb2edecce9d1dff635f200e8fdf6fb8f56ef42573e1167c9cacb5d0bafcfd",
+      "currentSha256": "3043698e1d57e24b50c513484910c06013ab6e0bc7f4e185d78ceeec7e637ce4"
+    },
+    {
+      "file": "backend/modules/evidence-library/evidence-input.ts",
+      "baselineSha256": "f1956542de275880c3303795f1d7d6268da9b5e0d0fc0431359f9fac335d9d73",
+      "currentSha256": "39fdd62e62faf3027f75d1f301360c44d8b196dcbc29e0badb6cf39d60874b84"
+    },
+    {
+      "file": "backend/modules/shared/input-validation.ts",
+      "baselineSha256": "e3d8922da3b21beb1f8f8e676b0847e1f292c11791db2d5eab2b6898fb6286dc",
+      "currentSha256": "0c0e30c2837e99991bdca46e6a33ef4ef158476beb7487c5562e8d6b52279829"
+    },
+    {
+      "file": "contracts/messages.ts",
+      "baselineSha256": "527ba094d5dbdd37f0e5effb6fa4a9137ccaac28acb3099b4776bdb2e78ce233",
+      "currentSha256": "aa142c68073f3ab7bf17bf9405aaf284ebd67ff9828f9710dd5c6a149adbbc6b"
+    },
+    {
+      "file": "experiments/evidence-library-tests/load-target.ts",
+      "baselineSha256": "ababd8aabc9928bc7011f26af8f373372003a5a61a93a8f336c828b5b5622080",
+      "currentSha256": "22ebd09c524983671a2997816331733adf06d0b7e925550da4d8a9e41ddfdf00"
+    },
+    {
+      "file": "experiments/evidence-library-tests/relations-fixture.ts",
+      "baselineSha256": "ecb11005ce4a616499d93022af8af88420dcc8f03c7358536ebafd2f403fa439",
+      "currentSha256": "cb4d497bb5f5b2e4ed64250dd826cedaa4cfd49624b89a1d6350b88933830b97"
+    },
+    {
+      "file": "experiments/evidence-library-tests/relations-preview.ts",
+      "baselineSha256": "23ebe4db590be664ba1424db6660b006ccbfef98efae39e68c9eddccb63a4349",
+      "currentSha256": "fc50dd97418a6e36db8971f7ba9c45fafaf99c9f4ea29ec10d39a46bf2f92f70"
+    },
+    {
+      "file": "experiments/evidence-library-tests/stress.ts",
+      "baselineSha256": "88a603eda76ce8da35114557221fc817a78d28b7644a2078ae3d881d58a40ba0",
+      "currentSha256": "8f47d07f8dd0e1c5f797513a9c9ccfd3c34150a8798be50c6f2ee4b7d9b6fae2"
+    },
+    {
+      "file": "experiments/evidence-library-tests/ui-fixture.ts",
+      "baselineSha256": "f36b7ab473d57c60e851d23f8b1c95f37ab1a987e34bed75a075f412736705d3",
+      "currentSha256": "4ff4a60911f616ddd9f1635d92c1a9b00d75de6f45cb44f1c5e1d7418b2be809"
+    },
+    {
+      "file": "experiments/evidence-library-tests/ui-preview.ts",
+      "baselineSha256": "ec42e713fd6e20a8203e25d7dbc7308d6492bf6596ccf0b68346e8b98ee3c52f",
+      "currentSha256": "025c86b0b4b8f1b9485b909fe2f3613bf9db95395b5302e908801eca6ff292c7"
+    },
+    {
+      "file": "experiments/evidence-library-tests/usage-fixture.ts",
+      "baselineSha256": "d5d0cb8fc659c4c1ce066ec43018c7ce1e70e56404727501da540a4e26fc2521",
+      "currentSha256": "2243f07028de48dbcfa4b0c74c8b14076a20815e8f532319f48a278c8420ffbb"
+    },
+    {
+      "file": "experiments/evidence-library-tests/usage-preview.ts",
+      "baselineSha256": "2c10f14394b08349d848b973bca8e62f89bd08afb4c5ff5c579167145189d8be",
+      "currentSha256": "b9269e38acb80444288d7c6e3e1a8c701400a25717ffc86682dd5f1ac21dbb18"
+    },
+    {
+      "file": "tests/apps/config/local-settings.spec.ts",
+      "baselineSha256": "a8468cac6cbcfe818128d4d986efcf8ae7470e59f206f800cf8c083b092a23d9",
+      "currentSha256": "da5bd4c1e6f2ae529675617342f5c0cb218720ee95b928208fd554f000c271fa"
+    },
+    {
+      "file": "tests/apps/desktop/credential-store.spec.ts",
+      "baselineSha256": "408e3de762ff62ca5242ec40ab9aba650c1865f71aa10b86376c1bd9635b26e0",
+      "currentSha256": "f157a81303ab304712c25c67fc83019d7ffca24e009a86aba49f0c45ea5a796f"
+    },
+    {
+      "file": "tests/apps/graph-server/startup-lifecycle.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "e1422020804b8789dea49fd4f05eef8fff5f9d674eeb16e0e63bff2a6d24733c"
+    },
+    {
+      "file": "tests/apps/local-server/runtime-lifecycle.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "b24301af032dafe5c7f5ad29da10cc3748fe9f3777523c4dd00b032392f76690"
+    },
+    {
+      "file": "tests/backend/adapters/http/request-encoding.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "7c349ce4b98f859ab7d2d9f23b3b18bc60f295c83d2dd93a507d9d7540568dda"
+    },
+    {
+      "file": "tests/backend/adapters/messaging/queue.spec.ts",
+      "baselineSha256": "ea6df8a48ef12b30be375c96573f123e07a00ed67b1fdcaa58d8e9ccfce1f4fa",
+      "currentSha256": "ce10f9465936c60fe5e5d3cd7fd76b8943c8666e97f7bbf7d3d68021dfdaf8b3"
+    },
+    {
+      "file": "tests/backend/adapters/storage/branch-migration.spec.ts",
+      "baselineSha256": "54a8daac167a863b11ce31ce7517cb9b184497199a6c96c3f81b7611f490764a",
+      "currentSha256": "13cd20de0495f25898a4c75f62e16d979ab06e9055d9ec59985f6402160b1da0"
+    },
+    {
+      "file": "tests/backend/execution/dsh.spec.ts",
+      "baselineSha256": "e56fd6b99b792cfaf3d6e28c573f0886ae216e2f74f45f0556c6a933c4237426",
+      "currentSha256": "16f7b4569ed80da64e425f83d2d4ed09ebb434b3cada611bae90813967b69d5f"
+    },
+    {
+      "file": "tests/backend/execution/host-protocol.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "4c97920484fadf7fef47f380e522667dc25cc858a280c70ff02f84f7d4c34e56"
+    },
+    {
+      "file": "tests/backend/fixtures/rabbitmq-lifecycle.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "c41bf49e00ddce58d710a33c6a564708b512d25a7e3db78b5ec5060de2c46254"
+    },
+    {
+      "file": "tests/backend/fixtures/rabbitmq.ts",
+      "baselineSha256": "b76dd92b3ce480c06099f8a4899f20b9f87a8c70bd1f824231800bc076356bd1",
+      "currentSha256": "cbc46d8965bbe863215a51d2d3d633e94eb543137abee40a745ff3113fbf843a"
+    },
+    {
+      "file": "tests/experiments/evidence-fixture-lifecycle.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "5988d5f4f82ede18c34a5788786d327e27a2146f8e63d2ab13ad1f61071c91de"
+    },
+    {
+      "file": "tests/experiments/evidence-preview-lifecycle.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "7a4e1716af5975173ffa2b05d27244dd6d5ef3abe221957f24f024fa6a991d37"
+    },
+    {
+      "file": "tests/experiments/load-target.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "c4fcaaad7e5689703c5726e6dc65b3e95c82e22430c46bce9cb2966ddb971e37"
+    },
+    {
+      "file": "tests/experiments/stress-errors.spec.ts",
+      "baselineSha256": null,
+      "currentSha256": "fc2482242564991f198061c2057b60e7c5333448adfa4aea7448c35684da384a"
+    }
+  ],
+  "rootFinalValidation": "validation.json",
+  "rootFinalSourceSnapshot": "source-snapshot.json"
+}

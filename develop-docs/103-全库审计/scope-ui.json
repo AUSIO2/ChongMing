@@ -1,0 +1,6171 @@
+{
+  "scope": "ui",
+  "status": "owned-scope-complete",
+  "scopeCount": 114,
+  "method": "逐文件完整读取，按F/E/V/S/P/K/L记录实际函数与调用链；候选索引仅导航，非完成依据。",
+  "files": [
+    {
+      "file": "apps/ui/App.vue",
+      "lines": 13,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "仅router-view与根高度样式，没有值转换或默认值。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "没有函数、I/O或异常分支；统一错误入口在main注册。"
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "路由出口无输入解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "唯一router-view由router/index.ts当前home路由装配，无兼容分支。"
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "无解析、集合遍历或读取。"
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "无动态键或指针。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "根组件仅承载路由；资源生命周期由main/errors/页面所有者负责。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "2c49475953b88695c35100cdb1def13443fa0d465306c4b05116aaab608ba712",
+        "ranges": [
+          [
+            1,
+            12
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/components/shell/AppShell.vue",
+      "lines": 204,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "showRightPanel可省参数默认true是实际组件公开用法；CSS bottom-dock fallback与脚本同132px初始值，无业务成功fallback。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "组件无catch或I/O，尺寸存储错误归composables。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "toggleCompactPanel只接受left/right固定按钮，尺寸约束归usePanelResize/useBottomDockResize。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "左右compact打开状态互斥；showRightPanel变false时同步关右compact。插槽存在决定dock渲染是正常可选布局。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "mainStyle仅投影三尺寸；不重复读取localStorage。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定CSS变量、slot名及side固定枚举，不解释业务动态键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "调用尺寸composable持有拖动资源；本文件无额外监听。记录横扫拖动卸载清理在L主题。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "efca53e033aa3e4f27b256343d3ecd0e23f25f8d319539a7d6d76104247d5d42",
+        "ranges": [
+          [
+            1,
+            203
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/components/shell/ResizableRowSplit.vue",
+      "lines": 44,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "clientY原生数值直接emit，没有默认转换。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/文件或网络失败。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "仅原生mousedown入口preventDefault；不重复业务校验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "onMouseDown建立一次拖动，mouseup恢复userSelect；没有legacy模式。"
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "无parse/遍历。"
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "固定dragStart事件和body样式。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "每次按下安装window mouseup并在onUp移除；没有卸载/blur收尾，纳入拖动生命周期横扫待证实际影响。 U24已通过真实Vue卸载复现收口：直到mouseup仍保留监听、修改已卸载ref并写布局，正常mouseup后清理不称永久泄漏。"
+        }
+      },
+      "notes": [
+        "L横扫：与ResizableSplit及usePanelResize/useBottomDockResize共同核对卸载期间活动拖动。",
+        "U24 lifecycle confirmed in 103/reproduce-ui-output.jsonl"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "fa66ff33fb574536873f425ec068af248f364e7b0fb9dae2e92ea80d7bd8ec87",
+        "ranges": [
+          [
+            1,
+            43
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/components/shell/ResizableSplit.vue",
+      "lines": 52,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "原生clientX直接emit。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "side仅左右class；真正宽度范围由usePanelResize约束，组件不重复检查。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "onMouseDown→onUp单次拖动，side没有第三种兼容分支。"
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "无parse/读取/遍历。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "side固定枚举映射class，不是外部字典。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "window mouseup只在onUp移除，没有卸载/blur收尾，纳入与横向分隔条的同类生命周期核对。 U24已通过真实Vue卸载复现收口：直到mouseup仍保留监听、修改已卸载ref并写布局，正常mouseup后清理不称永久泄漏。"
+        }
+      },
+      "notes": [
+        "U24 lifecycle confirmed in 103/reproduce-ui-output.jsonl"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "25e17425987ddbc18b478cb65d633df96950111262ec242ec2099593326f7217",
+        "ranges": [
+          [
+            1,
+            51
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/components/shell/WorkspaceSidebar.vue",
+      "lines": 96,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "可选evidenceActive/evidenceAvailable默认为false；未选择workspace用空select值是正常UI状态。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无异步、catch或资源清理。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "Workspace/Map列表由session网关边界提供；模板只提交真实option.id，权限最终归session/backend。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "空工作区、未选工作区、空Map与viewer文案分别可达；role固定联合显示。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "列表遍历和typeCounts键计数是展示所需；无重复parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "role使用固定owner/editor/viewer对象；Map typeCounts只Object.keys不解释值。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "无自有监听/请求；选择只emit意图。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "121c430bdf38259b59a290a5f214443096d78eb0867151e9b2fbeac378b0b720",
+        "ranges": [
+          [
+            1,
+            95
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/components/shell/WorkspaceViews.vue",
+      "lines": 93,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "active默认true是可选可见性输入；snapshot为空时显示工作区/加载状态。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "异步focusSelectedNode无局部catch，真实组件异常交全局边界。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实NodeIdentity/GraphSnapshot由页面传入，不重新验证业务payload；页面打开意图交父级。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "Map用v-show常驻，page用NodeReader；mode/active组合用于恢复焦点，非历史兼容。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "复制activities仅向子组件传可变数组接口，不parse内容；watch只针对模式/可见性。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定mode class和事件名，无动态业务字典。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "watch等待nextTick后通过当前graphCanvas ref恢复焦点；子组件active管理隐藏后的捕获/渲染。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "b770b4d32a628a587206c471d73cedaced3206fc7b44d384c8071caf6acbcbb7",
+        "ranges": [
+          [
+            1,
+            92
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/composables/useBottomDockResize.ts",
+      "lines": 70,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "loadHeight缺失/非有限数值用132，恢复夹72–420；拖动额外受window高度45%约束，属真实布局限制。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "localStorage读写catch只保留会话内偏好，存储不可用正常可达。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "Number(raw)与finite检查在本地持久化边界；不得因TS number删掉。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "dockHeight从唯一loadHeight建立；mousedown保存起点，onUp持久化。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "仅初始化读取一次；mouseMove每次计算当前窗口可用高度必要。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定bottomDockHeight键，无业务动态字典。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "window mousemove/mouseup仅onUp移除，无scope卸载处理；与usePanelResize/分隔条统一核对。 U24已通过真实Vue卸载复现收口：直到mouseup仍保留监听、修改已卸载ref并写布局，正常mouseup后清理不称永久泄漏。"
+        }
+      },
+      "notes": [
+        "U24 lifecycle confirmed in 103/reproduce-ui-output.jsonl"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "44ace13ccc993589754b3aa6ba9ef327babb48a25c005ea290d9a76e4fcdb321",
+        "ranges": [
+          [
+            1,
+            69
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/composables/useCanvasPanZoom.ts",
+      "lines": 361,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "scale范围0.25–3、fit尺寸正数及真实DOM不存在时返回均为实际布局状态；localPoint/viewCenterPoint null转undefined满足可选锚点协议。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch，DOM/CTM失败未伪装网络或业务成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "鼠标button、target.closest、pointerId用于真实用户手势；尺寸/CTM可在隐藏或未挂载时缺失。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "panning与panPointerId在cancelPan统一结束；active=false允许v-show隐藏Map时禁止交互。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "focusLayoutRect先可见性检查再平移；四角CTM遍历是计算边界所需，不重复业务parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定CSS命中类/变换字段；无JSON动态键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "wheel监听mounted安装/unmounted移除；active watcher停用、cancelPan释放捕获。没有window全局拖动资源残留。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "4a1f88c1fc063c9ccb58a5a6ef3f59526112e88bad868f311f89bb36dfa36c32",
+        "ranges": [
+          [
+            1,
+            360
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/composables/usePanelResize.ts",
+      "lines": 121,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "loadWidths对缺localStorage/缺left/right使用默认，兼容两个宽度可分别保存；拖动限制左160–400右260–520像素。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "JSON/localStorage恢复与写入catch是浏览器存储可能禁用/损坏的真实边界；内存尺寸保留。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "localStorage JSON as Partial仅信任本应用保存格式，缺值fallback非内部冗余；未将其当已验证业务数据。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "左右拖动分支方向不同；onMounted/onUnmounted重置body userSelect，尚无过时协议分支。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "loadWidths只调用一次供两栏共用，persist一次保存二字段，无重复读取。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定STORAGE_KEY，left/right为固定字段，不将外部键写业务对象。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "startResize左右各安装window mousemove/mouseup且只onUp移除；卸载只重置userSelect，活动拖动清理纳入横扫。 U24已通过真实Vue卸载复现收口：直到mouseup仍保留监听、修改已卸载ref并写布局，正常mouseup后清理不称永久泄漏。"
+        }
+      },
+      "notes": [
+        "U24 lifecycle confirmed in 103/reproduce-ui-output.jsonl"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "53229e0916d535cfcc4132e8d589c60eb11f320bfba570528b465d996a96e8f0",
+        "ranges": [
+          [
+            1,
+            120
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/errors.ts",
+      "lines": 63,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "source固定联合及首次错误门禁；reportError可选是浏览器无桌面bridge真实环境。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "Vue/window/unhandledrejection/router统一最后出口，不吞原业务Promise用于恢复；只上报errorId/source。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "固定source联合与本模块生成UUID来自内部，桌面接收端另有IPC验证；不重复验证异常正文。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "showing只展示首个全局错误；uiShowFailure可重用已存在DOM以更新诊断编号，固定innerHTML建立button/error-id。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "DOM查询用于创建或更新固定错误面板；没有业务JSON解析。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定global-error/data-error-id选择器，innerHTML不插入外部异常正文。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "注册window两监听+router监听，返回对称清理；main窗口单例与browser fixture各自拥有注册。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "fa20b2888e04c6b9cf582f3f33dbbc12d3ad31141d1638317823e989874ddade",
+        "ranges": [
+          [
+            1,
+            62
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/agents/AgentManagement.vue",
+      "lines": 341,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "list/draft/definitions初始可空，baseRevision0用于新建；变量目录不足保留原promptVars；模型空白→null为公开继承语义。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "查询/命令失败交useManagementTask，组件不catch重复；成功接纳后更新草稿基线。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "名称/id/变量/工具校验来自真实可编辑草稿；dirty/stale保留用户修改与CAS依据，后端仍作权限与定义验证。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "workspace/library范围确实不同权限；已有kind readonly、新建仅两个可创建角色；copyPreview固定目标/版本并禁止删除固定角色。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "dirty JSON比较与copy新增/覆盖/删除预览各有用途；agentReadList并行读当前workspace定义，不用bootstrap其他目录解释。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "发现kinds[draft.kind]查普通对象继承项：PromptKind实际string，可合法toString/constructor，fallback option被错误抑制；纳入同名键读取横扫。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "任务由management keyed窗口拥有；scope切换locked与dirty确认是实际异步/草稿保护，onMounted读与props.workspace即时投影分工。"
+        }
+      },
+      "notes": [
+        "新增K确证候选：模板kinds[draft.kind]用于存在性，不具有自有键语义，需与ui-labels Map路径横扫。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "b07927fd83535ff51dd57480625cd07bf34ffa9327d88ed49c99bdf16f8ca668",
+        "ranges": [
+          [
+            1,
+            340
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/agents/agent-editor.ts",
+      "lines": 79,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无agent返回空选择；bindings缺省走已有配置变量，catalog不可用/精确绑定缺失返回variables:null让服务端验证，真实共享库不返回目录。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "纯投影，没有catch或I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "按transition id/version+stageId解析发布绑定；未知/缺目录标unresolved不猜另版本。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "未绑定旧配置与显式绑定配置均生产支持；outputPorts未解析完整不伪造合同。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "各绑定交集变量与端口合同需要遍历；cloneDraft隔离tools/promptVars/精确引用，未重复parse同文。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "legacyVariables先Object.entries再Map避免继承名；stage.promptBindings真实可省；精确身份比较不使用字符串容错。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数、不持有异步资源；输入草稿与服务端配置复制隔离。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "ad7bf57b26fc8d0ba6c01e2377497759464490f90ded346f597116040352ffca",
+        "ranges": [
+          [
+            1,
+            78
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/assets/AssetManagement.vue",
+      "lines": 309,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "file.type→受限扩展名→octet-stream实际文件元信息可缺；initial非object处理图payload对象边界；包name空→null是导入协议。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "file.arrayBuffer真实外部读取catch并alive隔离；网关失败交management task；下载不加额外吞错。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "文件64MiB选择阶段阻大文件且公共upload仍检查实际字节，两个不同边界；owner/当前workspace/map/引用存在条件可达。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "上传成功资产/暂存导入/已确认新workspace分阶段保持固定targetId；删除冲突靠服务端引用检查。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "资产分页去重兼容同一live列表新增；source引用查找不同于schema元数据探测；import成功后查询新名称是实际后续需求。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "assetSetPointer原型同名中间键和leaf赋值确证丢键/写继承对象，前轮行为组复核；assetSchemaHasPointer的properties普通索引另纳入同名读横扫。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "alive+同一file检查覆盖arrayBuffer迟到；useManagementTask固定上传/导入参数和requestId；URL保存归file-save。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "3699c93a08fe29b7008a8bd3f2a7873083aa8d9fa773f3528bf2a03eaad2a7d1",
+        "ranges": [
+          [
+            1,
+            308
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/assets/file-save.ts",
+      "lines": 18,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "Uint8Array.from建立独立可交Blob的字节buffer；filename/mediaType来自已验证ClientFile，不加猜测默认。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "finally删除临时a并调度revoke，无catch掩盖link.click异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "本函数接已校验下载结果，格式/内容完整性归公共client，未重复校验。"
+        },
+        "S": {
+          "status": "not-applicable",
+          "basis": "单次保存动作无兼容或状态分支。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "字节复制供Blob，非重复JSON解析。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定a.href/download属性赋值，文件名不作为对象动态键/HTML。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "ObjectURL创建后触发保存，1000ms延迟释放保证浏览器消费；链接立即移除。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f9507c0a2f632df179fd7faa1e2992077227cb3ae9e8993a7c91f6bbf9be0b8c",
+        "ranges": [
+          [
+            1,
+            17
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceBasisEditor.vue",
+      "lines": 255,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未选Map/Node/Asset/Library为空正常；labels缓存缺项用固定身份描述；manual原文保留，空白拒绝。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实Map/资产读取catch当前错误并通知401，不清已选依据；地图/资产身份失配明确报错。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "只读已授权目录Map、精确注册node类型、当前活动库条目与资产同workspace，client未绑定map.get/asset.list请求身份所以UI仍需校验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "四类依据生产均支持；candidate同时携带固定ref+显示，加入不静默升级版本；同材料允许原顺序重复。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "nodeOptions/候选computed缓存；copyBasis隔离嵌套ref，labels仅展示；assetSchema无关。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "labels以JSON.stringify完整basis对象为键，开头为{不是裸prototype名；引用路径只传typed依据，不写任意payload。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "identity含用户/服务/workspace/target，kind/Map/ready变动cancelRead推进generation；readIsCurrent检查owner+signal，卸载取消；库请求由evidence-state另持有。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "a4f26f18758bed3d962125b14bbbffcc04f771faa718e79151d423710bdd9292",
+        "ranges": [
+          [
+            1,
+            254
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceCollectDialog.vue",
+      "lines": 98,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "草稿confidence空表示未替用户决定；无claim不打开；时间按本机输入转ISO在presentation负责。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "显示受控props.error；没有额外catch掩盖程序错。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "submit使用evidenceBuildCollectParams真实用户边界；busy/canRetry期间不能替换原意图输入；claim版本key重新挂载依据编辑。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "native dialog open/close与props同步，acceptNativeClose忽略旧关闭事件抵达已重开实例；不是多余close兜底。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "只在提交建参数，不每次render整包parse；每次打开重设草稿符合用户意图。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定input字段；claim完整元组作为组件key，不写业务动态字典。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "synchronizeDialog nextTick后读当前props和ref；busy保持目标，关闭后父页面清草稿，凭据/重试仍归session。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "32c5dc1e1b8115512d64fc8c7b43c707f6a196c73b9cd1239e6b64e54870fea0",
+        "ranges": [
+          [
+            1,
+            97
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceEntryDetails.vue",
+      "lines": 122,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "entry/relationNode/catalog/gateway/usesContext可省为侧栏与固定页复用；无依据/范围null正常。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "props.error受控展示；撤回错误由状态模块处理，组件无吞错catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "withdraw需真实active根/编辑权限/非空理由，邻域材料不可撤回；basis打开绑定库根id+digest+原index。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "邻域与库根分支严格分开；切id/revision/relation key清撤回理由；uses只在真实根可见时active。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "scope/basis/presentation独立computed；不读取当前来源数据来重建历史。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "依据key由index/kind组成，实际引用以typed元组emit；无普通对象任意键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "侧栏与固定页v-show并存，用usesContext.active保证只有可见根发请求；节点跳转由父级代次管理。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "57cf1f4425c2b161fd0e969136dbd09f1f00af18cc464b7669cfedcbf297afe1",
+        "ranges": [
+          [
+            1,
+            121
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceLibraryView.vue",
+      "lines": 206,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "空选择/加载/旧无快照/截断均真实状态；Outcome.replayed与existing独立，不能合并成成功布尔。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "显示state的独立读取/关系/命令错误；不增catch重解释后端业务。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "场景事件按当前layout节点表和库摘要/邻域映射确认；根与邻域身份不同，不能省略范围关联。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "map常驻、page固定历史正文；selectedId清空回map，workspaceKey换作用域重设模式；可见页uses active避免双读。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "submitSearch/loadMore/retryCommand/retryRelationRead/withdrawEntry只转发state方法属低影响包装主题；真正layout/presentation只依固定快照computed。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "关系sceneId通过完整JSON元组key匹配，无反向猜nodeId；collection conflicts只按结果entryId导航。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "openPage/returnToLibrary nextTick前后核对workspace/选择/模式；readPromise和焦点分别处理；状态模块持请求与清理。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "00157ea4d3b9d17cf1e55fd537bcdeb76bee29955d803260a6503a7aa8502d8d",
+        "ranges": [
+          [
+            1,
+            205
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceSelectionPanel.vue",
+      "lines": 27,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "description可省提示是当前运行/节点引用不同文案复用；空候选/已选为空是正常状态。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "不捕获请求错误，显示selection.browser当前受控错误。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "checkbox容量禁用只作用户反馈，toggle owner验证实际当前候选、唯一与32上限；不是重复完整DTO校验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "已选列表独立于当前页，点击可明确移除旧项，不默认选择全库。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "selectedIds computed一次Set供模板重复查，避免每行重新扫描选择数组。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "Set持entryId，模板key不作为普通对象property。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "请求/取消交selection.browser；父fieldset disabled保原操作重试输入，组件本身无资源。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "e64df4d3e50758794f1780a84d7189db6187cc607579ed176d9242898b8ec637",
+        "ranges": [
+          [
+            1,
+            26
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceUsesPanel.vue",
+      "lines": 72,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无detail/presentation正常；endedAt null区分当前引用与历史；不以现在Map替原消费者正文。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "请求失败交evidenceCreateUses显示，组件不重复catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "openConsumer仍检查当前active/workspace/entry，防旧按钮导航当前版本；原snapshot字段解析已在client。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "历史filter显式刷新，detail可关闭；使用选择watch通知父页面过期旧消费者跳转。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "refresh/loadMore/selectUsage仅await对应state方法，归纯转发minor主题；presentation用一次readerFindDefinition/fields投影。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "只用usage.id作模板key，完整consumer ref emit给父级，不以nodeId猜Map。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "state持controller/代次；组件watch当前身份/active/selectedUsageId使父级导航代次同步，必须保留。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "3400ee81c858010a5203ae4c4fe675a0423fc897827bd56499f9ba3872b99ca6",
+        "ranges": [
+          [
+            1,
+            71
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+      "lines": 211,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "旧libraryClaimRefs可省→[]保留；新增reason空让用户填写，不填默认理由；清空[]是明确合法意图。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "读取错误显示browser/error，不catch假装移除旧引用；保存/重试交session。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "理由非空/UTF8 64KiB、32容量、目标版本改变锁定均需保留；原引用撤回/失效仍不静默删除。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "新增/原有引用保固定摘要，pendingRetry阻换输入；可取消原草稿而保session原请求。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "U16：additions来自selection.refs（selected映射）后addSelected又反向selected精确join+length check，同步同源，不能不等；可直接携带已选summary一次投影。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "引用集合按entryId Set去重，摘要按id+digest关联；无动态对象键写。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "父页面每次目标重新挂载；dialog mounted打开/beforeUnmount关闭；selection scope清请求，原node版本被固定。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "9ea0052eca46f4279a5f2e6edadc27b25c37a82ab200531b2e05ee6904312e10",
+        "ranges": [
+          [
+            1,
+            210
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-presentation.ts",
+      "lines": 268,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "固定confidence严格0/1，null范围表示未注明不扩大适用；缺定义保原JSON，缺快照/截断分别提示。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "草稿校验用判别结果返回首条枚举消息，不throw后再catch；场景投影纯函数不吞异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "判断未预选、理由/时间起止/依据64条/manual空白都是真实用户输入；固定依据节点需原basisIndex+完整ref绑定。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "根条目与邻域材料分开判断/状态，历史无snapshot合法；旧依据不从当前Map补正文。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "scene nodes/edges投影复用graphArrangeScene；四类依据clone只隔离引用；查固定依据与当前导航是不同语义。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "scene节点与ids用Map，复合key JSON元组；colors用已校验role枚举；draft按字段投影不写任意键。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯投影，不持请求；冻结内容与当前管理状态分别显示，不替换历史引用。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "4afe9eb01250214e64bb3815930dbccf7f77e4e2c560864fa75dcc03d59c9b3b",
+        "ranges": [
+          [
+            1,
+            267
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-selection.ts",
+      "lines": 73,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "空refs明确清除材料；无当前选择为[]，未预选整个库。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "候选错误委托evidenceCreateState，401回调传原会话；本模块不额外catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "toggle只接当前活动页精确id+digest且status active，唯一entry和32容量由本owner建立；取消旧项不要求仍在当前页。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "selected独立于浏览页；targetKey或身份改变清空，防把上一运行材料默认给新目标。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "refs由selected排序后map同字段，NodeEvidenceEditor又反向join产生U16；bindClaimsToStep102前轮已直接绑定实际step。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "选择身份用数组/Set语义，refs只显式entryId/contentDigest，不写普通原型字典。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "自身watch目标和browser请求分别清理；dispose可重复，scope负责取消所有候选。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "0ee1757edf1e0a4672ee6305bac254277bdb5acddcaed0642280721a7a0886b9",
+        "ranges": [
+          [
+            1,
+            72
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-state.ts",
+      "lines": 738,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "library/entry/relations未载入为null；confidence已0/1不再递归clone；collectedOutcome单独副本保留重放/业务existing语义。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "acceptError分类401/409/不可用并维护原命令优先；readDetail/readPage已先clientReadError后acceptError再归一化，归U09同类站点；失败不覆盖未确认命令。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "evidence.get目前公共client未绑定请求id，UI result.id/workspace/digest检查必要；relations形状由client、与get根原版本和摘要跨DTO绑定由bindRelations负责。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "pendingRelations/detailRejected支持关系先到及get失败；read retry与command retry优先级不同，viewer权限和非active浏览保持。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "查询基线JSON比较用有限过滤对象，防换筛选拼页；复制payload首次冻结、每次传输新副本用途不同；同cause重复归一化纳入小项。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "EVIDENCE_UI_MESSAGES为Map；relations节点key只数组find；过滤字段固定，cloneBasis保四种协议形态。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "身份/工作区清读写，隐藏仅取消读保Map命令确认；独立search/detail/relation/command controllers与代次；acceptCommandEntry只在原选择代次更新详情。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "1b4d89050bda8ad8bb0678ef9cc66cef33315a2465c94ecdfff6a5adf36e063b",
+        "ranges": [
+          [
+            1,
+            737
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-uses.ts",
+      "lines": 185,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "null游标/基线/使用选择为真实未加载状态；includeHistory草稿只显式search提交。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "使用目录/详情当前失败统一acceptError；U09同cause在readPage:103反复clientReadError，acceptError再一次；认证通知异常的外层catch有真实可拒绝callback接口理由。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "网关完整summary/detail解析后不再重复DTO身份字段校验；append usageRevision与原筛选比较是跨请求关系边界。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前/历史使用不同目录，切筛选后游标无效提示必须保留；selectedUsageId null允许关闭正文。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "列表合并不重复parse；同cause归一化2–3次是低影响冗余U09。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "baseline固定workspace/entry/filter，未知consumer身份交公开协议；无业务动态对象键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "identity+列表/详情generation+独立controller隔离迟到成功/401；隐藏取消读取、返回同身份重读；dispose统一结束watch。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "11fee7a7c1ed0d5bd846fd9f2f3aaedb1319b77f7d75e439e806a466ee9fc15f",
+        "ranges": [
+          [
+            1,
+            184
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+      "lines": 308,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "可选items/additionalProperties为合法JSON-schema子集，不能全部删；editorAddObject唯一caller已判schema对象，其string fallback是U06；enum String(item)碰撞新行为U14。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch，发布schema错误交全局；不把失败转空文本成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实checkbox/输入类型、maxItems、旧引用保留及显式移除是用户编辑边界；已发布引用解析与节点精确type匹配不能删除。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "nullable null保留、oneOf切换建立新分支、缺引用显示旧值均真实状态；variant索引在DOM/props变化时可暂不匹配。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "computed缓存schema解析与节点引用列表；字段更新复制容器保持单向流；未重跑整schema validator。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "U10：rename next[key]触发__proto__；dynamicFields通过继承properties误吞constructor/toString；knownFields读取缺省同名payload字段也会读继承值。editorUpdateObject计算属性spread则安全。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "组件只emit更新，不写props；父级session负责意图冻结、授权与异步结果，disabled避免仍有效的手势改草稿。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f2dd87e74aa622bdd099223863b75bac6aa159a180892fd12c8aa97d144c1d9b",
+        "ranges": [
+          [
+            1,
+            307
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/GraphCanvas.vue",
+      "lines": 139,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "catalog/activities/active可省；focus target缺失转容器、空图默认尺寸与根节点定位均正常可达。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "异步nextTick测量不catch程序错，交全局UI边界；本组件无网络失败降级。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "canvasOpen核对当前snapshot节点避免旧DOM事件跨快照打开；键盘事件缩窄四方向。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "pendingReset/pendingFocusId支持v-show初始隐藏与空→首节点；不可因首次通常可测删门禁。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "layout单computed，status对活动与真实显式边计数用途不同；neighbor返回ID再find为内部小额重复未计主发现。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "CSS.escape编码节点ID选择器；markerId每组件UUID隔离SVG定义。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "nextTick后canvasCanMeasure检查active/容器正尺寸；平移捕获和wheel由useCanvasPanZoom负责。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "d7516e8138578fd5ca732ddf2fc7af15a5c46d275e9d5b71a154a21e639c9ead",
+        "ranges": [
+          [
+            1,
+            138
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/GraphScene.vue",
+      "lines": 553,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "仅WebGLRenderer构造失败才SVG降级，paperBackground/devicePixelRatio来自真实浏览器环境；空图相机范围合理。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "构造catch仅图形能力边界；初始化后catch先releaseScene再重抛，保留程序异常。未把catch字面视为冗余。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "raycaster结果可无instanceId/命中，窗口/布局更新使nodePosition可能缺失；实际关系端点过滤不补造。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "renderer/camera/content从mounted建立、release清空；failed切换fallback。selection更新不重置camera，sceneKey/首次扩展才fit。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "批量instanced meshes与有限35+选中/悬停标签是性能边界；rebuild统一重置索引，非重复业务parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "nodeIndex/nodePosition为Map；布局ID不写普通原型对象，图例复合键仅显示分类。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "releaseScene断ResizeObserver、OrbitControls、五DOM监听，dispose几何材质与renderer；活动隐藏停控制与点击，卸载可重复释放。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "44d8abb020c2b952b38c87f93e94c0f6a1a6ede61843dcca3e49d5e22e73d4a9",
+        "ranges": [
+          [
+            1,
+            552
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/GraphScene3D.vue",
+      "lines": 57,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "可选catalog/activities/active真实复用接口；默认active=true。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "WebGL不可用的实际降级由GraphScene拥有，本包装不catch或复制异常规则。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "openNode确认当前Map还含id，给共用场景字符串身份映射真实Workspace/Map/Node。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "fallbackCanvas存在选择SVG否则scene，取决于真实WebGL初始化结果。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "graphRead3DLayout computed只按snapshot/catalog更新；不构造第二份业务snapshot。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "sceneKey用JSON.stringify完整workspace/map元组，避免简单分隔碰撞。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "focusSelectedNode在nextTick后读当前fallback/scene ref，避免隐藏画布焦点丢失；资源归具体场景。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f7e1b9805c2f27e843d0c2d224aa4701976edb06780744dac652729f3f848ba1",
+        "ranges": [
+          [
+            1,
+            56
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/GraphSceneFallback.vue",
+      "lines": 243,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "默认label/emptyLabel为复用场景接口；空投影边界保留520x330；未载入关系端点不补造。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/网络，本组件不将程序异常降级。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "openNode可见性+当前nodes成员检查防旧事件；布局边端点解析排除缺失节点。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "mounted/pendingFit/active记录隐藏零尺寸待适应；sceneKey或首批扩展改变才自动fit。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "二维投影/尺寸/键盘导航是展示计算；readNodeColor只return node.color的单调用包装是低影响简化候选。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "positionsById为Map，CSS.escape用于DOM身份；marker UUID防跨实例冲突。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "ResizeObserver mounted建立/beforeUnmount断开；nextTick后检查mounted/active；平移资源由共用composable释放。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "7630eb91286dd992469e555a580006fe4e2c7c70f7113af9a7aae18a444ee890",
+        "ranges": [
+          [
+            1,
+            242
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/NodeInspector.vue",
+      "lines": 253,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未选择/无catalog/无精确类型为空正常；transition fallback第一可用项由实际变化重选；JSON复制只隔离草稿。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/网络；emit将命令/失败所有权交session。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "proofReady核对根版本及branchLoading建立当前草稿基线，dirty冲突需保留；owned根集合匹配与公开占用期限是真实授权状态。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "活动Run/只读/分支待载入/无定义都可达；保存、删除、新后继、证据编辑分别保留脏稿和版本条件。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "incoming/outgoing只解析另一端真实存在的边；scope遍历比较活动Run范围非重复response parse；serialized用于草稿确认。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "payload动态字段委托DataPayloadEditor；节点/边ID仅数组查找，精确type版本不猜最新。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "watch选择/内容/证明同时维护基线，外部删除保留旧草稿；pendingPayload只在自己已确认保存后接纳，避免异步证明抢先升级脏稿。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "d1a51b26d6720668ba12cbf064e13215778c2d1aea8750e4c603ec37d6c1b438",
+        "ranges": [
+          [
+            1,
+            252
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/branch-baseline.ts",
+      "lines": 84,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "successor邻接Map空数组表示真实无后继；payloadReferences确可省，不能当默认冗余。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "构造不匹配返回null表示不可编辑，不将不匹配版本伪装成功；无catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "branchCreateBaseline核对同次mapRevision、单根版本、闭包和真实边是跨快照证明关系；必须保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "baseline只有session.acceptSelectedBranch从本构造者建立；MatchesSnapshot重复rootIds.length===1属于前轮小项U08，当前selectedId比较仍必要。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "content比较跨入/出显式边与派生引用，防无关全图revision锁编辑；不是重算服务端version或重复parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "Map/Set持有节点边身份，content用稳定排序JSON；没有对象继承键匹配。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "readonly baseline由session持有，选择/图变化和迟到proof在session验证；本文件不写旧proof版本。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "fc5c38d4a90edd8a4ea98cb8b79da1a16bf303c250cf4f364741d0d1fcd6cce6",
+        "ranges": [
+          [
+            1,
+            83
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/data-payload.ts",
+      "lines": 156,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "default/const深复制、nullable初值和空对象/数组是递归表单真实形态；required按声明顺序直接取已发布字段，102已消逐项skip。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "$ref目标缺失明确抛schema既有枚举错误，不再回原schema假成功；无catch吞错。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "仅接已发布DataSchema和表单JSON；通用pointer接受optional声明路径，数组数字段检查不能当内部schema验证删除。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "类型定义精确id/version；unknown类型在显示端保留原id，不猜业务模板。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "初值递归构造与标题/摘要读取用途不同；payloadFirstText字段顺序去重非同份JSON重复parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "102 Object.fromEntries初值正确保留__proto__；新复核payloadReadPointer对象分支current[key]会从合法{}读到继承constructor/function，归U10同类读取站点。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数，不持有资源；clone默认值隔离多个表单。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "11312df558f7626fd1424b78b3f6a2bd9a20428a5cc52c821ae082c8e4f1730f",
+        "ranges": [
+          [
+            1,
+            155
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/graph-3d-layout.ts",
+      "lines": 153,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未知type用稳定hash颜色是真实已发布自定义类型场景；空层分组首次建立数组必要。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "输入关系可能端点未载入，接入拓扑和输出边各过滤自己用途，不按边名字猜节点。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "SceneNodeState统一depth/indegree/outgoing；环留基础层而不无限松弛；99已删除初始化后反复数值fallback。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "拓扑一轮消费state引用；分层/螺旋排序分别决定真实坐标，无重复parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "TYPE_COLORS、byId、groups均Map；未知字符串类型不读对象原型。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "计算不持资源，不修改输入，输出副本归场景。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "fd07695ff39b13aa1598ec4a342f03c57b35e928f7068524bc1f4203c128bf4b",
+        "ranges": [
+          [
+            1,
+            152
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/graph-layout.ts",
+      "lines": 287,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无catalog/空选择/无注册类型/空图均可达；99已改完整depth/column状态，父节点排序还留byId.get(parentId)?.y??0同类遗留U12。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "纯投影不catch外部错误。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "可直接运行转换需唯一输入端口、无必需context、精确type和数量；graphCreateRunPlan接筛选结果构建一个真实step。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "运行终态/暂停/待plan或result审核分别显示；历史definitions与当前catalog合并按不可变精确版本。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "graphReadCanvasLayout在每节点内重复flatMap相同snapshot.runs.operations，属重复遍历候选需按实际规模/所有权复核；depth与布局不是重复JSON校验。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "类型/列/节点身份用Map/Set；父id来自已过滤actual端点，byId覆盖全部节点，内部父lookup缺失fallback不可达。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数；不改snapshot，排序先复制数组，布局状态独占。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "d92b2961695b71c64092abd065fecf08396390a383576087aa3c8cce2ba598d9",
+        "ranges": [
+          [
+            1,
+            286
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/node-identity.ts",
+      "lines": 27,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "null是没有选中目标，左右均null相等；没有缺省拼接。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无异常边界/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "NodeIdentity由session/view上下文建立，比较完整workspace/map/node，不能只用nodeId。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "两空/单空/两有效身份三种关系真实可达。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "JSON.stringify元组只作为稳定比较键，非payload重复解析。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份元组编码防分隔符碰撞，不使用普通对象动态键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "身份key用于各步异步/书签隔离；纯函数不拥有取消。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "71208f03011a593513dfa0e2bc42abbd9448d14a548c2dae7b9bcc81bf1f6db5",
+        "ranges": [
+          [
+            1,
+            26
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/node-origin.ts",
+      "lines": 14,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺producer/manualOrigin的历史记录显示来源未知，不能默认人工。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "输入只读创建元信息，按真实字段解释不重新parse。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "importedFrom优先于包内producer/manualOrigin是当前导入语义；三种来源都仍生产支持。"
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "常量次字段检查，无parse/遍历。"
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "固定元数据字段。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "无资源；编辑不改写创建来源。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "9628df704fb64457f5c0cd8bb893f3cd274b57896d4fbfc6d230b86090c78b9b",
+        "ranges": [
+          [
+            1,
+            13
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/graph/payload-labels.ts",
+      "lines": 72,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未标注字段保留解码原名；null/boolean/object/空字符串各有明确展示，不改变option原值。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "纯展示函数无catch/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "labels来自已发布presentation，精确与单段通配路径匹配；空label回schemaTitle/常用名是允许声明。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "最具体通配优先，未知字段/枚举保原文；不是已退役业务模板分支。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "只遍历声明找最具体label；enumLabels先收当前value声明，非重复验证payload。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "fieldLabels用Map；声明和内置valueLabels均hasOwnProperty读取。合法constructor/toString缺label已实际复现返回原值，保护必要；declarations键为发布JSON Pointer不等于裸__proto__。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数，无资源/异步状态。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "1fe53797b2e358c9b13150889f1476c35a69e0b5587d32d05d5b6066c96bc619",
+        "ranges": [
+          [
+            1,
+            71
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/management/ManagementPanel.vue",
+      "lines": 38,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "workspace可null时名称显示未选择工作区；tab从固定workspace初值建立。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无局部catch，mounted showModal异常交全局UI边界。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "固定tabs只发送管理意图，业务表单各自验证；不重复DTO解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "v-show保持四子页草稿，管理窗口以身份/workspace key由WorkspacePage重建。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "tabs为常量；没有重复目录读取，本组件仅装配。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定tab id，无用户动态键写入。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "dialog close向父层emit卸载，子页useManagementTask在scope dispose取消；DOM ref在mounted建立。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "3dd6c3c80606c5274f83ce4f8fca40c893ed86df8bd4b04db0eb4b436c248e34",
+        "ranges": [
+          [
+            1,
+            37
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/management/use-management.ts",
+      "lines": 138,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "run用null表示关闭/忙碌/失败，与命令成功对象不同；可选accept和scope注册支持Node测试，非假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "attempt统一ClientError分类、401通知、retryable保留原操作；finally忙碌状态只写有效作用域。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "managementReadPayload递归toRaw/数组/Uint8Array复制是Vue草稿与重试隔离，不是重复未知数据parse。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "busy/canRetry/closed互斥操作门禁；clearError只在空闲放弃重试；retry闭包保留requestId和payload。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "第一次克隆冻结草稿，每次执行再复制防execute修改重试基线，两次用途不同；不可替为root-only toRaw。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "Object.fromEntries保留包括原型同名键的自有项；本模块不解释业务指针。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "作用域拥有AbortController和closed；await execute/accept前后均检查closed，处置取消并清busy/retry。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "a9a5670665ba4fdcb33e10f3eeba6589753f0e75be952688b923fc1264fa2ee6",
+        "ranges": [
+          [
+            1,
+            137
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/reader/DataPayloadView.vue",
+      "lines": 77,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无字段、markers/focus/sourceNoteNumbers缺省都实际复用；空行零宽占位仅排版，不覆盖正文。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "primary的字符串关系在ReaderField构造已建立，102删首查typeof；showLines仍需检查非primary字段真实类型。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "正文排版/JSON排版/行定位依真实字段和markers选择；首普通字符串fallback在没有primary时必要。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "markerIndex一次建Map；lineMarkers在模板同一行读两次属低额UI getter未计主要发现，不重新parse正文。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "marker key用JSON.stringify(path,line)，DOM data属性与事件目标为独立NodeIdentity，原型同名字段作为key值不写对象。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "本展示组件无自有资源；emit脚注/打开身份由父层处理当前性。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "47656544ffe8e108b99121df62ae30ef2dcaef1b4a76aeaf87e0f67461cc2a19",
+        "ranges": [
+          [
+            1,
+            76
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/reader/NodeReader.vue",
+      "lines": 371,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无identity/snapshot/catalog/node为空是真实正常状态；bookmark缺省从0恢复并夹实际最大滚动。ready再find+??null的内部保证重复归U03。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "schema/DOM程序错误不catch假装空页；网关错误由props.errorMessage受控显示。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "readerState和node分别重复确定ready条件U03；openRelation对当前Map和节点仍存在的事件检查防迟到点击，必须保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "单页状态完整覆盖；visibleSourceFocus精确三身份，旧摘录另显示；editingRevision与edge变化关编辑器防给新版边提交旧草稿。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "ready先some后find、notes/relations重组ready上下文可由一致状态携带；readerDisposeRestore仅转调readerCancelRestore为低影响包装候选。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "CSS.escape path进DOM选择器；line-number为既有整数；paths/markers用Set，不以外部字段名写原型对象。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "restoreRevision在nextTick前后隔离user/map/node/active；scope dispose取消恢复代次，099死RAF未回引；滚动不写共享snapshot。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "0da0901931ef18f44ba2cab553532f144fc705f615bcb5c977def28d2cb13399",
+        "ranges": [
+          [
+            1,
+            370
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/reader/SourceAnchorEditor.vue",
+      "lines": 220,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "selectedPath从原anchors/真实文本首项/空状态建立；缺文本显示不可用而不删旧定位。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "输入行号parse失败在整体/当前字段显示受控提示；不把原文读取失败当网络重试。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "sourceChanged锁定原id/revision，旧定位未修改时保留原版本；行范围/重复检查必须保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "字段不存在/文本/旧版本三种编辑状态真实；关闭窗口不会把原定位无意清空。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "U02确认：已修改当前字段同时在validation:86与selectedValidation:99解析同一originalSource/path/ranges，模板消费两者，可共享每字段解析结果。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "fields来自JSON自有文本递归和已有anchor路径；drafts键是完整JSON Pointer，以/开始或根空字符串，无裸prototype键；schema标签读取归U10横扫。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "originalSource/anchors打开时固定副本，props更新只锁定不把行号套新版；父组件key固定edge/revision负责卸载。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "ffbd51dc298b0e12518eb127f89a54fc94a7f40bed0da4fdc4c356d4644b03eb",
+        "ranges": [
+          [
+            1,
+            219
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/reader/reader-content.ts",
+      "lines": 321,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无精确schema时保完整JSON；短/长标题、null/0/false/空字符串展示区分真实值；ReaderField primary:true联合已由102建立。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "纯投影不catchschema错误；$ref解析错误沿既有错误边界暴露。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "readerReadState完整确认身份/快照/节点存在，关系helper另可被直接调用；其与NodeReader重复ready证明是U03，不能删所有公开helper边界。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "inactive/unselected/loading/empty/missing/error/ready可达；精确定义优先当前catalog再历史Run，不做每次JSON指纹比较。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "readerReadState.some后NodeReader.find同节点重复；orderedPaths101已只整理顺序、实际字段统一读取，不再重复检查。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "ordered自有Object.keys和pointer编码安全；readerReadFieldLabel.properties[key]可能读继承schema而忽略additionalProperties标签，归U10读路径；payloadReadPointer已复现继承值。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数，不持有I/O；输入snapshot/candidate共享只读呈现，不创建业务身份。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "d6976d1e5f0752b12a17b4c98400ad084d0217098ce1fc3abf050b99fb733d9e",
+        "ranges": [
+          [
+            1,
+            320
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/reader/reader-sources.ts",
+      "lines": 121,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "source缺失/stale/invalid/current与旧sourceAnchors可省均真实历史状态；空输入表示清除定位。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "readerCreateSourceAnchors对格式、范围、重复、字段非文本抛现有枚举Error，属于真实用户输入边界。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "sourceRevision、quote、实际文本行范围核对防把旧摘录高亮新正文；Map身份检查在公开helper真实需要。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "incoming来源/outgoing衍生区分方向；旧版本保摘录但不投影line marker，非无用兼容。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "同一文本每段sourceTextReadQuote是不同区间；UI SourceAnchorEditor同输入重复调用归U02，不删本函数必要校验。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "路径由payloadReadPointer解释，markers使用JSON.stringify元组Map去同边同path同line重复；无普通对象动态写。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数；ReaderSourceFocus带完整目标身份用于迟到定位隔离。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "197c0449c61b44e7a42222e0735d98c5d9730d95128803967eb6c0ac89034b85",
+        "ranges": [
+          [
+            1,
+            120
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/run/OperationReview.vue",
+      "lines": 324,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺精确历史定义保unknown type和原JSON，动态slot/冻结agent查不到显示原slot身份；输入正文错版不补当前值。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "显示preview.error并显式重读；错误和批准原请求恢复归session，组件不catch重试别的版本。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "approvablePreview保输入版本、完整冻结材料数量、实际uses材料可核对；102直接消费ready携带结果，不再joined.ok或nullable版本二验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "readOnly历史禁止pending/preview/action；历史published只认outputRefs，不能用selection推测真实发布；plan/result审核合同分别保持。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "published/otherCandidates共用候选呈现；模板每port some+filter数量+filter渲染重复扫描是局部展示性能候选，无重复业务parse/新读取。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "候选身份用完整workId/key元组；保存payload只读，字段由Reader保JSON类型；冻结材料原key不写对象字典。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "批准固定已展示publicationVersion后invalidate；emit附review id/revision，session await授权前后复核。新run-history readOnly props保留，无控制写入副作用。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "38fbe9617c210c69e7029ae5cd423ee08bd529d4d9f585a5bf1e9b3e8a7b26ac",
+        "ranges": [
+          [
+            1,
+            323
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/run/RunHistoryPanel.vue",
+      "lines": 148,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "selectedSummary可缺适用于detail不在当前分页；readDecision answered+null在未收严历史GraphReview存储下保留，未以类型猜必然approve/reject。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "目录/详情各显示受控错误；显式重读详情不提交命令或控制权。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "detail仅在snapshot.mapId=context.mapId展示，避免当前页面异步切图；OperationReview强制readOnly false edit/control。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "归档是目录读取时物理归属，不以运行终态推断；详情Operation即使待审也只读显示原决定。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "selectedSummary只在当前有限页find；historyReadTime只展示浏览器日期，不重排目录；无重复全量读取。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "runId仅作为按钮身份，完整用户/connection/workspace从context传递；不将历史节点投影进session。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "原生dialog mounted showModal、close父层卸载；useRunHistory清请求，关闭不改变当前运行选择/control。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "0dd72d460ddfc3d7d0e86758e32e65208ef175ffc431e0389d18e333eaae8cf6",
+        "ranges": [
+          [
+            1,
+            147
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/run/RunReview.vue",
+      "lines": 86,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未选择run真实可空；activities可省；local服务leasesRequired=false与协作grant两种生产模式。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "仅显示run.error，控制失败交session；无catch假成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "控制按钮与handler检查当前run/active/权限/control/busy，防UI渲染后状态变动提交旧意图；不能删真实租约归属。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "running/waiting包含暂停控制；completed/failed/cancelled不显示操作；operation已完成默认折叠，不丢已保存审核。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "run/active/hasControl是不同展示投影；活动some后filter为局部重复显示扫描，不误标外部校验。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "ACTIVITY_LABELS以已验证status枚举索引；运行和operation模板key组成稳定身份，不解析任意对象键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "会话拥有运行选择、control续租/释放；组件只emit当前map/run，OperationReview各自拥有preview。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "772f9bc1019ad6a2d43f6b9c988f8db6d469a630cafad220f85f251bc2a05a39",
+        "ranges": [
+          [
+            1,
+            85
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/run/publication-preview.ts",
+      "lines": 292,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "unsupported服务、非待结果审核、历史readOnly operation:null均为真实能力/状态；冻结材料libraryClaimSets/旧digests确可省，未仅凭当前类型删旧记录兼容。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "reload分类当前401与读错；candidate mismatch转既有INVALID_RESPONSE；无泛化catch降级成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "client负责预览DTO形状与请求身份，reviewJoinCandidates负责实际Operation候选正文和stage/slot/type/specHash关联；102已删preview重复键检查，候选自身重复仍需保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "102 ready联合携带preview/published，组件不重查joined.ok；当前正文变动仍动态变stale，不能缓存初次成功后永远ready。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "102 dead unselected/Set已删；loading computed仅测试消费且与state.status重复，作为公开投影收口候选；不算已修102新主组。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "candidateKey用JSON.stringify(workId,key)，Map不受分隔符/原型名碰撞；引用材料按entryId+digest。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "requestKey/generation/AbortSignal/closed覆盖换用户、图revision、审核身份、卸载；ownership续租不触发重读；invalidate仅显式重读不偷偷替批准版本。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "08ea64c31b97f4295829799d93b58ab1e6118893c9a301e6f264ea165649fa0a",
+        "ranges": [
+          [
+            1,
+            291
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/run/run-history.ts",
+      "lines": 223,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "无完整身份/active/支持能力不读取；null详情/游标/版本是实际未选或未成功目录。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "目录、详情错误独立归一化；过期游标要求刷新，当前401通知会话；不自动把旧页重试成新目录。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "U01 Map身份二验已由clientAssertRunPage提供；append directoryVersion与跨页重复需保留；run.get公共client未绑定runId，result.id检查仍必要。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "目录与当前session.run选择完全独立，刷新清详情；cursorExpired和loading门禁是实际续页控制。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "只读单页+当前一份详情，不拉全档案；公开directoryVersion仅测试观察为投影收口候选，内部同目录比较仍必要。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "previousIds Set只查跨页重复，客户端只查页内，非同一保证；目录version是opaque，不客户端重算。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "identity/listGeneration/detailGeneration/独立controllers隔离旧成功/401；context watcher不依图revision/控制续租，关闭清所有面板状态。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "2af0ac0d1a78660930b65348ce888cd09684ac05ccbd8364f09ba3f1a8acbd4c",
+        "ranges": [
+          [
+            1,
+            222
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/settings/SettingsManagement.vue",
+      "lines": 84,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "provider/model/maxSlots初值在immediate watcher中由真实settings替换；空模型/工具名被表单validation阻止，非业务fallback。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "所有请求交useManagementTask统一分类与重试；无额外catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "模型必填、槽位1–32、工具格式/去空白后唯一是真实用户输入规则；CAS冲突需显式选择版本。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "hostAdmin编辑与readonly展示都可达；dirty时不自动覆盖外部settings，baseline空首次载入正常。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "serialized计算一份用于dirty；保存trim名称、clone工具数组隔离草稿，不重复parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "工具名只数组查重与显示，未用普通对象按外部名字索引。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "scope任务取消；成功回调重设基线，watch刷新保持脏草稿；不存在绕过重试的新requestId。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "7335861e20d260668156fc05d06344bd60fd089b4d30b6b2bc7c5c126b205b6e",
+        "ranges": [
+          [
+            1,
+            83
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/workspace/WorkspaceManagement.vue",
+      "lines": 118,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "workspace可空正常；member缺失显示用户输入ID适用于新增/移除目标；memberRole默认viewer为新成员表单选择。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败统一归useManagementTask，无局部吞错。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "所有者、名称非空、成员ID、删除名称匹配是真实表单与危险操作门禁；revision/memberRevision分别保护资料/成员草稿。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "无workspace模板不渲染按钮；props.workspace非空断言依赖真实template分支，未改成新运行guard；成员set/remove真实意图。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "serialized仅用于dirty；成员find用于输入ID对应现有成员；无重复DTO parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "roleLabels只已验证Role三枚举索引，memberId不作为字典property。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "管理窗口跨workspace key重建，任务closed阻迟到成功；props.workspace watch未覆盖脏资料，成员表单版本仅空输入时跟新。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f221a252303567359b9455a38b09db2b04b02a91d04ad2e86803fe893843ae80",
+        "ranges": [
+          [
+            1,
+            117
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/features/workspace/use-workspace-view.ts",
+      "lines": 127,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "null表示没有页面/焦点/书签；Map仅退出page而同用户workspace仍保书签是实际本地导航语义。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无catch/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "saveBookmark限制当前page完整身份+finite非负scrollTop，真实DOM输入边界；openPage只能打开当前选中且存在节点。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "workspaceCreateSelectedIdentity已拒loading，canOpenPage再!loading归U07；非immediate watch previous保护疑似小额死分支不计主要发现。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "书签只复制一个scrollTop对象，读取不会重复parse；完整identity key复用同一函数。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "bookmarks为Map，key=JSON.stringify(userId,完整节点身份key)，不受冒号/对象原型影响。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "user/workspace切换清全部；map切换只清页面；scope dispose清书签，异步正文恢复在NodeReader另管。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "6ceab0d356a18678c26fd92e05ece0142f30e356102f02807a2f35bbd41e5042",
+        "ranges": [
+          [
+            1,
+            126
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/main.ts",
+      "lines": 14,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "没有环境fallback或转换。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "uiRegisterErrors在mount之前注册Vue/window/promise/router真实最后错误边界，必须保留。"
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "只装配Vue/Pinia/router，不解析业务输入。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "依赖按createApp→注册错误→usePinia→useRouter→mount固定顺序建立。"
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "无重复parse/遍历。"
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "固定#app挂载点。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "应用单例直到窗口关闭；错误清理返回值在此不接纳是窗口级生命周期，非每个页面重复注册。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "9e8298e3f802b6eff8dedbfe0601d370aea4e162eddb2386dfa0e23aa7b4c35e",
+        "ranges": [
+          [
+            1,
+            13
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/presentation/ui-labels.ts",
+      "lines": 114,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未知正常业务标签保原字符串，未指定role单独提示；未知系统错误输出通用提示，已有中文原模块负责。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "错误翻译只呈现不决定重试/取消，分类仍凭code；不解析文案作控制流。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "uiReadKnownLabel用hasOwnProperty防外部kind/stage/port继承名；errorMessages部分枚举可无对应翻译，fallback合理。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "旧7 Agent kind是展示词典而非当前执行白名单，自定义值需保留原值。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "标量字典查找无重复parse；小型uiRead*包装各绑定不同业务字典，有真实语义，不当纯转发删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "所有已知字典读取均hasOwnProperty，toString/constructor/__proto__未知值不当原型函数；与AgentManagement直接kinds读取区别已复核。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯标量展示函数，不拥有异步资源或身份。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "2f3d1a1b063fc6443ef914a40c01368e316b0c451e342331c28e089efd70141b",
+        "ranges": [
+          [
+            1,
+            113
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/router/index.ts",
+      "lines": 16,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "固定哈希历史与根路径，无fallback。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "路由懒加载拒绝交uiRegisterErrors的router.onError真实边界，不加局部catch。"
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "只有固定home路由，无动态参数。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "唯一home→WorkspacePage路由；未发现旧页面兼容入口。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "懒加载只在路由进入时请求组件；不是重复业务读取。"
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "固定路由名和文件路径。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "路由单例由main应用持有，无局部计时器/订阅。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "aae76c765c6407a311e4a7c45072e6a92b6fbd922cc4f9f6e42c18fa2892c19d",
+        "ranges": [
+          [
+            1,
+            15
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/shims-vue.d.ts",
+      "lines": 17,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "纯Vite/Vue声明，无运行默认或强转执行。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "纯类型声明。"
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "DefineComponent通配声明是SFC编译支持，不是未知业务数据验证。"
+        },
+        "S": {
+          "status": "not-applicable",
+          "basis": "没有运行分支。"
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "没有运行解析。"
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "声明模块*.vue，不访问动态字典。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "没有运行资源。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f86c8effd14813f93803f3c2e501280adc7f0d38c369f20db581836f12a54e80",
+        "ranges": [
+          [
+            1,
+            16
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/state/client-session.ts",
+      "lines": 1685,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "selected node/run、snapshot、definitions空与local/collab leasesRequired默认兼容均真实；ownershipRevision公开字段不再内部补0，当前snapshot缺失的0比较基线合理。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "handleFailure归401退出、403/404失权刷新；偏好不确定/冲突与业务命令重试分开；lease释放catch为明确次要清理。相同cause先sessionReadProblem再handleFailure的重复归一化归U09横扫。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "公共client负责DTO形状；session仍必须绑定map/workspace/root请求身份、R/O版本与branch同次正文关系。refs类型/旧新目标联合授权、历史source anchors原样保留规则不能删。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "current snapshot只接版本未倒退；分支baseline单份而非缓存历史；unknown command保留原requestId；map管理归workspace epoch而其他命令归view。split后!parts.length恒false为低影响候选U19。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "U18确证saveNode比较old/new refs后saveReferencedPayload对同两payload各再展开一次，同步无await；另saveNodeReferences caller仍需各一次。快照/定义缓存读取与实际版本检查不混算重复。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "偏好和version对象键为真实Map/Node UUID；typeCounts键含@version。saveNodeReferences末字段Object.defineProperty保留合法原型同名键；通用路径读取与U10同类但refs只接受string输出，目前未另证独立失效。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "完整核对session/view/preference/selection/runSelection/read序号、SSE重连、偏好固定请求、branch claim/release交接、续租到期和临时授权finally；新U17 Run claim漏run选择归属，A迟到被B视图接纳并持续续租，已内存复现。"
+        }
+      },
+      "notes": [
+        "实际函数完整读1–1685；证据流含initialize/connect/refresh/select、preferences CAS、branch claim/renew/release、scoped editing、run review/control。",
+        "U17内存复现复用现有session完整Run/Map/Workspace fixture；不运行Vitest、不接服务。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "bc66917f2a2deed769d6579a2c0e02caa94ec479bfb57734e42c1393b147d181",
+        "ranges": [
+          [
+            1,
+            1684
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/transport/client-gateway.ts",
+      "lines": 208,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "显式bridge优先、浏览器origin/Node测试初址fallback是真实入口；file协议无preload明确拒绝，不能静默HTTP。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "IPC wrapper失败转ClientError，业务回调异常终止订阅；watch finally取消并移除监听，非空catch假成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "apiReadResult只验证跨IPC wrapper，业务DTO由main公共HTTP client处理；seq/watchId用于当前IPC流不是重复HTTP内容校验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "started区分取消在IPC发出前/后，closed拒迟到事件；不同环境装配都实际使用。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "read/dispatch/upload/download共享apiRunCall具有多个真实caller，非单纯无收益包装；不重复parse JSON内容。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "callId/watchId UUID、连续sequence；业务params不字符串化/白名单重造，交真正边界。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "AbortSignal→bridge.cancel与本地Promise竞争，二次pre-start检查覆盖微任务间取消；finally移除abort；watch先onStream再bridge.watch防首帧丢失。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "990abbc991fefef124ec416d0ef2c2f63896f878d26bcb5a8e805869bee5539d",
+        "ranges": [
+          [
+            1,
+            207
+          ]
+        ]
+      }
+    },
+    {
+      "file": "apps/ui/views/WorkspacePage.vue",
+      "lines": 918,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "desktop/HTTP、本机服务状态和可选capabilities按真实装配；connectedAddress只对网关规范origin取host，99宽URL catch未回引。nullable/default表单保留原JSON语义。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "本地source行号错误保草稿；固定依据下载catch仅当前目标显示，401统一disconnect；全局程序错未降级假成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "创建/后继/引用/收录/依据打开都绑定原Map/节点/版本，UI权限门禁与最终backend原子鉴权用途不同；fixed basis下载核对冻结SHA不能因client已对ETag校验而直接删除。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "map/evidence/page/历史/管理窗口各持独立目标；RunHistory OperationReview强制只读；run-selector在busy时可用使U17迟到Run claim真实可达。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "完整payload/父node复制用于冻结表单与原请求；选材绑定单一actual step已由99收口。固定依据bytes在client和页面分别SHA256是不同expected digest，复用需新verified-digest合同，记待权衡而非直接删验证。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "导航身份/targetKey用JSON.stringify元组；动态业务payload委托DataPayloadEditor/asset helper；CSS.escape在reader端处理指针；未将外部HTML插入页面。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "navigationRevision/libraryViewKey/选择+摘要/AbortController约束多await导航和依据下载；同身份回库保相机；mounted本机监听与beforeUnmount stop/library/runEvidence/session dispose对应。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "3528293c25870ca748e025d74fe25821075c91551cce196e333ad8bd217b8840",
+        "ranges": [
+          [
+            1,
+            917
+          ]
+        ]
+      }
+    },
+    {
+      "file": "client/graph-client.ts",
+      "lines": 1309,
+      "kind": "implementation",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "HTTP错误字段可缺有受控fallback、文件名/媒体类型/压缩content-length实际边界；structuredClone查询参数保raw类型，旧坏数组回归不重提。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "102 JSON UTF8永久INVALID_RESPONSE及JSON/download cancel隔离次生错已保留；U11非SSE content-type分支await cancel仍覆盖INVALID_STREAM，实际公共watch复现。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "外部DTO必要形状、预览/目录/uses请求身份、branch+snapshot配对必须保留；U05 renewal同data重复必要字段/ownershipRevision扫描。新U20 map.get edge漏createdAt实消费边界，已public→reader复现TypeError。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "U04 connect成功active?.close死清理：入口null+init gen0+串行+await后generation建立不变量；RunHistory capability兼容是真实旧服务输入。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "JSON decode按块/尾部独立失败边界非重复；view snapshot/Run nested解析是不同DTO。entry整JSON有限验证与node payload子验证有嵌套重复候选，但前者额外限制整对象深度/字段数，不能直接删改接受集合。 Date.parse有效性和顺序约束均真实必要；同值转换可局部保存结果，domain交叉审记为低影响小项，不混入U05。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "protocol查所有method有固定表/已校验分支，preview/relations索引用Map/Set；refs/身份元组JSON编码，无外部对象prototype判存误用。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "request/watch在关闭→调用者取消→超时优先分类，成功后仍查取消支持不遵AbortSignal的fetch；文件和流所有reader/timer/listener释放，store串行及登录generation保护保留。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "3bb5c8578b35d1d2719d8657d0de20aaecc0ede4a9d3599abb4210221c5ed299",
+        "ranges": [
+          [
+            1,
+            1308
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/browser/fixtures/playwright-fault.config.ts",
+      "lines": 24,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/fixtures/runner-fault.spec.ts",
+      "lines": 19,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/fixtures/workspace-recovery-process.ts",
+      "lines": 300,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/fixtures/workspace-startup-diagnostic.ts",
+      "lines": 59,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/safe-reporter.ts",
+      "lines": 181,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/ui-boundaries.spec.ts",
+      "lines": 49,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-acceptance.spec.ts",
+      "lines": 1677,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-concurrency.spec.ts",
+      "lines": 615,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-dataset.ts",
+      "lines": 167,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-editing-reliability.spec.ts",
+      "lines": 542,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-fixture.ts",
+      "lines": 174,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-grant-relay.ts",
+      "lines": 234,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-grant-reliability.spec.ts",
+      "lines": 220,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-load.config.ts",
+      "lines": 84,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-performance-report.ts",
+      "lines": 144,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-performance.spec.ts",
+      "lines": 692,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-recovery-fixture.ts",
+      "lines": 322,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-recovery-lifecycle.spec.ts",
+      "lines": 136,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-recovery.spec.ts",
+      "lines": 284,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-reliability.spec.ts",
+      "lines": 349,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/browser/workspace-vite.ts",
+      "lines": 26,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立记录scope-ui-browser.json，根最终合并；此处保持pending不冒充完成。"
+      ]
+    },
+    {
+      "file": "tests/client/branch-baseline.spec.ts",
+      "lines": 256,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture requireBaseline/findNode/findEdge缺目标明确throw保证变体真发生，不是生产兜底。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "fixture错误仅使测试失败；没有吞错伪造通过。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "错Map/根版本/漏后继/漏结构边/跨身份都经公开构造能力核对；不自行生成server hash。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "无关全图R/O变化可复用但邻接/派生引用事实变动不可复用，保原opaque proof，非兼容私有格式测试。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "克隆每独立变体、冻结输入检测副作用是真实隔离；多次read不掩盖错误。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "同完整身份与固定proof版本；payload入出references跨边界测试保证不只看自有节点。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯同步能力；deep freeze只作用测试独占fixture。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "14d62ded251d6cc2421f066119c0d5ce3b71b4744c6f3a9d8fa21e2adc9c4048",
+        "ranges": [
+          [
+            1,
+            255
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/data-payload.spec.ts",
+      "lines": 64,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "真实表单初值覆盖默认对象独立、required原序、合法无properties及required空数组，非默认值镜像堆测。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "缺本地ref目标必须抛既有错误的回归是真实失败语义，不属多余异常兼容。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "直接DataSchema fixture验证纯helper，不模拟外部发布解析；坏ref有意越出正常发布输入测试错误暴露。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "空schema形态和dot引用仍支持；不残留已删除silent fallback断言。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "JSON.stringify用于顺序和原型同名字段可观察保留；不重算私有摘要。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "102 added __proto__数值/对象与constructor/toString正例，用computed-property/fromEntries安全建立fixture。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数测试，不持服务/计时器/订阅。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "23b24de19c05d387833c28bdebf92c3ab76b89a103691f149e4a4f7d152d6bbf",
+        "ranges": [
+          [
+            1,
+            63
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-http.spec.ts",
+      "lines": 191,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "0置信度、默认25条分页、13条过滤及viewer只读均为业务断言；fixture可选close仅应对beforeAll部分初始化。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实collect提交后丢HTTP响应的故障注入保留稳定requestId及同份reason/confidence重试，避免重复条目；state finally dispose。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "通过实际HTTP/Mongo fixture覆盖鉴权、receipt时间冲突、撤回、固定快照、CAS与幂等，不能削成状态层伪DTO。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "区分新请求、已有条目和重放冲突，撤回后固定use仍保留；空页/0值是合法业务状态。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "26条构造数据用于验证25条分页；显式调用次数断言证明没有额外collect，不属于生产重复工作。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定fixture键与服务生成UUID，无任意字典读写。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "beforeAll拥有独立实验环境，afterAll fixture?.close处理部分启动；viewer断开、state dispose防异步泄漏。"
+        }
+      },
+      "notes": [
+        "完整读取191行；仅静态审核，未启动HTTP/Mongo测试。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "a5dea6a2a9e3edad6b577f1731c65b5c6eb4f2956fc00d68d4778861afe3a6bc",
+        "ranges": [
+          [
+            1,
+            190
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-presentation.spec.ts",
+      "lines": 233,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "0/false/unknown范围、缺旧定义全JSON、显式空判断都是真实业务显示和表单状态。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "输入空理由/时间错误/manual空白采用判别结果，测试有意给坏草稿，不是冗余catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "四种basis完整复制、同nodeId跨Map、64/65边界、旧snapshot截断和basisIndex严格匹配必要。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "根/邻域角色合并、旧缺snapshot、未知definition不猜新版本，均当前支持。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "克隆/修改原草稿证明输出隔离；JSON展示不覆盖原payload。toBeTypeOf helper断言低收益但非运行防御逻辑。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "typed refs完整map/node/revision与digest，非法目标有意fixture；无继承字典误判。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯投影/构造测试，无真实异步资源。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "42d3c70890efeaab9ba4727d85621c991014647b6ff7772a6b15160031ca4579",
+        "ranges": [
+          [
+            1,
+            232
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-relations-client.spec.ts",
+      "lines": 132,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "显式null快照与缺字段分开验证；数组带同名属性的输入用于确认保留原类型，不能先展开成对象。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "所有临时client均finally close；错误期望对应public client INVALID_RESPONSE/INVALID_PARAMS外部边界。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "实际Response进入公开client，覆盖workspace/entry绑定、节点revision、重复关系键、悬空或物理边端点、缺snapshot与truncated坏类型。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "关系slice空/非空和显式null都属协议状态，无历史兼容支路。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "每个mutate以独立响应检验单边界，无多轮无意义解析测试。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "带named properties的array回归保护raw shape；关系键去重是协议要求。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "纯注入fetch无外部资源，client关闭在finally。"
+        }
+      },
+      "notes": [
+        "完整读取132行。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "c71925f6d2a3a4d4b1847558ce65acf67924fd878f205b740ffc206fc5ee87f1",
+        "ranges": [
+          [
+            1,
+            131
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-relations.spec.ts",
+      "lines": 522,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "snapshot:null旧记录、独立无边Claim与truncated邻域是实际协议状态，明确分开；0库根与0.5原Opinion不能互换。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "缺预期call/node/snapshot明确抛出夹具失败；关系读取失败不清详情；current401退出、旧401忽略，state均dispose。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "完整GraphNode/Edge固定快照；跨Map/版本复合key不合并；root digest/ref绑定是两份独立响应关联，原图查询被fixture拒绝。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "根entry身份与邻域选择分开，withdrawn根仍可见；根切换清邻域、同身份离开暂存返回刷新覆盖。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "选择固定邻域不新增网络请求，detail/relations并行；场景布局只含已保存数据无当前Map补全。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "JSON.stringify复合身份而非拼接碰撞，视觉端点必须存在；固定fixture字典无用户键实现。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "controlled promises无视abort故意交付迟到成功/错误，覆盖entry、workspace/user/service、disposal隔离；退出同时取消两个读取。"
+        }
+      },
+      "notes": [
+        "完整读取522行；未运行测试。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "6ed463e1f8df50be4560956dab73df270d400c78a2051394a88551f08c3a71f3",
+        "ranges": [
+          [
+            1,
+            521
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-scene.spec.ts",
+      "lines": 142,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "空Map/空库、未知端点、环有限坐标是场景真实输入；无伪造占位节点。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "无异常处理/I/O。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "projection seam只读业务DTO；库entryId与来源nodeId不合并，type精确版本真实展示契约。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "固定0/1与撤回灰色独立，successor与reference不同；测试不混造普通Map给库。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "坐标快照用于抽取前后可观察稳定布局与输入不变，非为纯删guard加镜像测试。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "entryId自有独立身份；edges缺端点有意注入验证过滤，不作为真实后端合法写。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯layout测试，不持WebGL资源。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "28243794c8f6e7b023669274279b2e97a29ff1d4f762f6a723adbbd731cceba2",
+        "ranges": [
+          [
+            1,
+            141
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-selection.spec.ts",
+      "lines": 123,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "不自动选择全库、保数字0、空refs清step材料回归真实显式选择。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "unexpected gateway拒绝非search操作保证选材不写库；不是应用fallback。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "fabricated/inactive输入与33候选故障注入验证owner唯一/active/32规则，不能因正常模板只传候选删接口约束。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "target/user/service/workspace变化清选择，步骤绑定不改input/context，非退役plan查找。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "独立refs副本隔离原数组更改；settle只排已完成Promise微任务不忙等。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "精确entryId/digest同源，选材不给源nodeId扩本图输入。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "受控Promise故意忽略取消仍可交付；active=false检验AbortSignal，逐例dispose清browser/watch。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f7281b8b0ff3b548e8a0f0136ec50646f572ef6c0090406c19cae6fbfe5d1179",
+        "ranges": [
+          [
+            1,
+            122
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-state.spec.ts",
+      "lines": 909,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "confidence0、显式clear[]、省略未编辑引用、legacy relation null及fixture可选options均有真实业务意义；没有自动补原图。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "不确定collect/withdraw收据优先于后续read错误；409不盲重试，EVIDENCE_UNAVAILABLE说明能力；当前401关闭、旧401不关闭，安全错误码自有键回归保留。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "已解析gateway seam故意改传输副本证明冻结，真实HTTP校验由evidence-http承担；固定digest、分页revision/过滤基线、权限与withdraw版本需保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "accepted新意图才清outcome、读/撤回保留旧outcome；四existing/replayed组合独立，explicit abandonment生成新请求身份。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "查询retry使用原捕获输入，collect四种basis深拷贝经双向变异断言而非实现镜像；续页保持旧页不隐式刷新。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "basisRefs判别联合和固定DTO字段，不解析opaque cursor；原型名称错误码保持字符串用例有效。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "四个身份域读写隔离、active暂停与返回刷新、latest search/detail、关闭选择及scope.stop取消，迟到结果故意无视abort验证代次。"
+        }
+      },
+      "notes": [
+        "完整读取909行；Promise完成入口默认函数仅同步构造过渡，不是生产兜底。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "e9b787d6051bed141f7e9d0829864f029f46dc2382bbc3c9aeefe54ed5d85def",
+        "ranges": [
+          [
+            1,
+            908
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-uses-client.spec.ts",
+      "lines": 105,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "manual所有work上下文字段明确null、历史endedAt保留；不把null当缺省。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "实际client注入成功HTTP但坏DTO，验证INVALID_RESPONSE；try/finally close防请求计时器漏。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "数组kind、wrong workspace/entry/usage、consumerSnapshot错revision、坏ended时间、伪造manual Run上下文均真实外部边界故障注入。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "有限summary与单份历史detail分开，不让UI再重验同一DTO。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "每case新api/Response保持body单次消费；重复fixture构造是独立坏输入，不是兼容fallback。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "原ref.entryId及完整consumer版本绑定，不按字符串强转kind。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "fetch seam无真实网络；每api finally.close，异步请求由实际client生命周期包裹。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "29202711b77d71db75567167c9fd1ed27f207bd59a2052c90709b2bd499fa771",
+        "ranges": [
+          [
+            1,
+            104
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/evidence-uses-state.spec.ts",
+      "lines": 174,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "默认首屏页数、显式历史与过滤条件有业务断言；受控gateway的固定简化DTO是可信状态层测试缝，非外部校验替代。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "覆盖当前401失效与过期401忽略；helper找不到调用会明确失败；所有state最后dispose。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "测试证据使用列表/详情在身份、entry、版本和过滤条件的关联，raw DTO由public client测试承担。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "覆盖首屏、追加、详情A/B切换、过滤重启及continuation不匹配；无旧兼容分支。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "settle只推进已排定微任务，没有重试轮询或全量生产扫描。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "按固定request字符串和context字段选择受控调用，没有任意键对象写入。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "受控读取特意无视abort以验证旧请求成功/401、latest-wins、身份四项切换以及dispose后的隔离。"
+        }
+      },
+      "notes": [
+        "完整读取174行；未运行测试，无真实网络或DB。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "af0e12b560a258f2147e6e4a68fa4cd503ddc22c0143c93299772be74773162b",
+        "ranges": [
+          [
+            1,
+            173
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/files.spec.ts",
+      "lines": 226,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/graph-client.spec.ts",
+      "lines": 576,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "真实public client injected Response覆盖有效/无效UTF8、raw数组形状、optional capabilities和未知扩展字段；坏DTO不得伪装为兼容默认。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "超限/坏UTF8未结束流cancel失败保持主错误，abort/close/timeout/redirect服务器资源afterEach清理；U11另分支仍待修。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖envelope、DTO ownership/run/branch、list参数绑定、preview统计引用、manualOrigin、source anchor、URL/body限制；U22旧branch pairing测试坏node日期可能提前失败，正反对照另存复现。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "缺响应/wrong envelope和409不重试是协议；future unknown metadata允许，known bad类型拒绝。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "原始响应边界必须单次完整检验；U05 renewal重扫已记录，不把不同对象扫描合并。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "raw数组named keys、mutation后的请求绑定和headers参数覆盖；U20 positive edge fixture当前缺日期说明实际缺边界，非现有测试失败。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "abort/close/真实10ms timeout、连接忘记与storage保留语义，ephemeral redirect服务器及mocks总清理。"
+        }
+      },
+      "notes": [
+        "完整读取576行；正补U22同源坏fixture提前拒绝的独立对照，不运行全套。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "e1934d65cd0c08ba97aa8310349f2d5b101afc0e64b8653c3ce894c0d3e385a6",
+        "ranges": [
+          [
+            1,
+            575
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/integration.spec.ts",
+      "lines": 182,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/layout.spec.ts",
+      "lines": 91,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "空布局、精确版本不匹配、可用转换等真实展示状态；默认fixture参数只减少测试准备。"
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "纯布局能力，无I/O/catch。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "端口/类型/有限计划的公开输出回归，测试简化Run仅供进度投影，不当运行持久化边界。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "waiting plan/result、completed、empty graph可观察语义；没有退役报告字段断言。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "正反输入顺序生成相同layout验证稳定性/不改源数据，不是重复执行掩盖flaky。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "fixture固定节点/边id；payload路径真实声明，未将字典原型当数据。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "无异步资源或外部环境。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "d610f21f1634ad6c69c98f5acc6b637a949c50ee8c7d98bc8e96e649fed03cf1",
+        "ranges": [
+          [
+            1,
+            90
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/management-integration.spec.ts",
+      "lines": 366,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "默认no-op unauthorized是测试选择，非生产错误吞没；缺预期Agent/branch busy throw是fixture前提。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实HTTP已提交丢响应后重试保持requestId/bytes/target，测试finally及afterAll断开连接和独立fixture。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "Agent精确bindings、immutable definition publish、fixed-role merge/replace、asset权限与workspace导出、真实token撤销都走HTTP边界。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "7种seed legacy prompt字段明确转换顺序，Run冻结后Agent修改不影响材料；独立asset仍能在source branch过期时保存。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "asset分页、definition closure导出和map import一次幂等，不凭重复fixture setup判冗余。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "自有binding/变量名及资产schema closure实际解析；固定fixture字典无用户任意键实现。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "Vue scopes afterEach stop，client集合afterAll逐一断开，fixture?.close只照顾启动失败；当前401使owner回调而不接纳结果。"
+        }
+      },
+      "notes": [
+        "完整读取366行；未运行真实HTTP/Mongo集成。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "bef20769fe56ca9b45182312624543cbd7d23a0eaf556a5b05e6c824ca72eece",
+        "ranges": [
+          [
+            1,
+            365
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/management.spec.ts",
+      "lines": 365,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "generic role/bindings/raw prompt变量保留；缺version/unbound输入保持可编辑；toString等kind测试覆盖安全helper但未覆盖U13模板。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "提交后network uncertainty、conflict保留draft、current401回调、旧401/404忽略都有业务语义；受控意外write明确失败。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实reactive draft到冻结请求，含数组/Uint8Array；管理state已解析gateway缝，非外部DTO parser。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "uncertain阻止新请求直到abandon；独立settings/workspace/preferences revision及刷新保留selected node/currentRun。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重试复用requestId与冻结输入，execute故意改副本证明请求不被污染，不是生产重复clone。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定type/version/bindings字典；自有kind名称回归防继承属性，未放任测试as作为生产入口。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "scope/dispose晚成功隔离；mock watch靠signal取消，所有task/session销毁。"
+        }
+      },
+      "notes": [
+        "完整读取365行。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "92e98b1ddcaa51f6ae8aeef46e12e20715136ffe572e4248e8646f80f9ee2ac8",
+        "ranges": [
+          [
+            1,
+            364
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/payload-labels.spec.ts",
+      "lines": 63,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "未知错误通用提示、已有中文原文、未知字段原名、空label回退都有真实显示语义。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "仅断言翻译，不把message控制网络重试。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "直接投影fixture非HTTP边界；确认展示不改原payload键/正文。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "旧字段常用译名与新明确fieldLabels/通配最具体优先均当前支持。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "JSON前后比较捕获副作用；不是按实现私有JSON格式断言。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "constructor字段和错误__proto__/toString回归覆盖安全读取；enum未命名label保护由本轮103脚本额外核对，原测试无虚假覆盖。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯展示测试。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "5ea4bd4c9f1d650eb998f8eb47c0c9736dd67e2bc4e1b3654fcd3f19af731cea",
+        "ranges": [
+          [
+            1,
+            62
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/publication-preview.spec.ts",
+      "lines": 341,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "真实runCreateRun和冻结材料构造preview，0值和保存重复候选有业务含义；102已删无人消费unselected字段。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "当前错误与过期401分离，scope停止处理未完请求；gateway故意不响应取消以检验防护。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖operation/run/material/input/context版本与候选正文匹配，实际ready联合投影，不重复旧preview键校验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "权威selection、saved candidate重复、unsupported/inactive、显式reload/invalidate、O变化忽略而R变化重查均有意义。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "断言每operation独立读取；输入冻结内容、judgment/use reason投影检验保留。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "候选ID与引用role的关联采用实际projection；未用任意对象属性继承构造。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "review和身份变化后晚响应隔离，正文变化无revision也撤销ready；每测试scope停止。"
+        }
+      },
+      "notes": [
+        "完整读取341行。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "a7a70b73dcb633cab49dedaf8145d30b216fd55c927e7a1f45a71f694c675165",
+        "ranges": [
+          [
+            1,
+            340
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/reader-sources.spec.ts",
+      "lines": 66,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺sourceAnchors保已知来源但无虚构行号，空输入清除定位；CRLF/空行保原文。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "有意注入0/逆序/重叠/越界/非数字/缺字段，验证真实输入错误不被当成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "source修订/quote不匹配变stale/invalid，跨Map返回空，属于必要固定版本保护。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "current→stale→invalid与incoming/outgoing/reference排除均真实脚注状态。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "同一fixture多次生成独立原文用于比较，非生产重复parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "完整path与行号marker键语义，无任意对象property写。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯计算测试，不启动renderer或订阅。"
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "2564dc3cb1d085d552effc09ab5b78762d17f7b609aad735f4c9fe4ff5917b83",
+        "ranges": [
+          [
+            1,
+            65
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/run-history.spec.ts",
+      "lines": 303,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "首屏25和关闭/不支持无调用体现目录边界；summary fixture是已解析gateway缝。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "区分list/detail错误、当前401与过期401；unexpected write直接失败，afterEach关闭scope。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "continuation的目录版本与重复ID检查必要；最后wrongMap子段在已校验gateway下再注入坏DTO，对应U01冗余位置，应移归已有public client mapId绑定测试。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "历史目录只读，不加载当前Run控制；detail按需、expired停止并手动刷新、同context克隆不重取都有状态断言。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "断言首屏不预抓详情、无写入口；受控微任务仅调度测试异步。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定Map/run ID及opaque cursor，不解析cursor或动态对象键。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "特意无视abort覆盖A→B→A、identity四项变化、关闭/dispose后晚成功与401，分别保留两个通道代次。"
+        }
+      },
+      "notes": [
+        "完整读取303行；U01还需调整wrongMap状态层测试，current401断言保留。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "de6be55fa6ffac59a4db668a4efed8be0cb48c500d58bd926b5e3b09fe77791c",
+        "ranges": [
+          [
+            1,
+            302
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/session-editing.spec.ts",
+      "lines": 610,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "branch可省只在原根被删/原响应与当前快照不配对时成立；helper不伪造空证明，read-budget超过128明确失败。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "运输失败在真实commit后注入，重放同requestId；所有session afterEach dispose、微任务flush有界且fake timers恢复。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "公开session connect/open/select/save与typed gateway，fixture独立authority执行版本、租约范围和输入限制，不靠写内部ref建立通过前提。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "R/O分离、已配对基线、无关B修改保持A、真实A修改拒旧草稿、根删除清选择；soft断言后仍放行held响应避免挂起。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "有界32微任务只清有限await链，不做时间猜测；断言收敛后不再branch重读以及同次写可立即使用证明。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "rootRevisions Object.fromEntries按真实节点构造；Map按lease身份，不用随意属性索引。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "旧read success/error、late write、新选择、删除、claim新proof但正文旧、current更高O与同R授权变化完整交错；scope资源归session。"
+        }
+      },
+      "notes": [
+        "完整读取610行；测试失败哨兵和authority断言有真正fixture边界意义。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "77230bedd738521d2ab9897b57dc23ed58f520ee732e621e2a58241f85ba1776",
+        "ranges": [
+          [
+            1,
+            609
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/session-grants.spec.ts",
+      "lines": 911,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "none策略显式本机无租约，required完整期限/fence；待完成Promise只保留运输顺序，不把未确认当成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "release实际提交与运输失败分开，晚commit不能删除复用当前grant；helper missing handler/lease/stream明确失败，afterEach session dispose并恢复时钟。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "typed公共查询/命令/事件进入session；fixture真实模拟同holder同root复用、其他闭包busy、lease/fence精确释放，不能把校验削掉。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "O确认不被旧同R帧倒退、同O期限失效、新O撤销、matching SSE延长期限、无关全局O不推迟renew；本机none绝不发租约命令。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "finite8微任务与fake time分别控制运输和期限，非轮询重试；记录handler wrappers承担故障注入和请求观察。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "grant以Map<leaseId>保存，proof根Object.fromEntries；set/grant引用副本隔离测试权威与消息。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "绝对expiry与后台延迟timer、短剩余期提前续租、旧renew失败/旧deadline不撤新确认；A→B→A同lease及ack在途、service切换清理归属、busy任务所有权都有正反对照。"
+        }
+      },
+      "notes": [
+        "完整读取911行；这些是保留生产身份/代次/租约保护的直接证据。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "a759e5543272b64964cbd3fcec0ed97d51cda40fa25049a09e3421ed8f83f805",
+        "ranges": [
+          [
+            1,
+            910
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/session.spec.ts",
+      "lines": 2243,
+      "kind": "test",
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "真实optional metadata capability与本机none策略；省略库引用保留与显式[]清除分开，空plan仅隔离session传参而不作为后端合法性测试；固定mock实现上的normalRead/Dispatch?.属于低影响fixture死分支另记录。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "安全客户端错误/原型名称码、stream退避、401退出和403/404清视图、409刷新不重试、不确定原请求重放；session afterEach dispose恢复计时器。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "从session公开入口验证类型精确后继/父版本、脚注历史引用、payload声明目标类型、库refs消费者权限、preview批准版本与review当前状态；fakeGateway已解析seam，不用简化UUID替代HTTP parser测试。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "正文保存/临时lease不抢Inspector、创建不抢新选择、review plan/reject/paused各有合法语义；R/O/Map目录/偏好冲突与uncertain独立状态，真实legacy能力未声明不能发命令。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "断言订阅重连不poll图，workspace/settings刷新不重读Map；原请求ID与参数深冻结、偏好coalesce后只接续一次；U18同份引用重复展开已记录。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "branch helper successorMap缺项[]是实际无后继，Set防环；动态nodeSelection字典由测试固定MapID；原型名称错误码自有键回归有效。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "source/child/evidence等待proof后view变化、review控制等待期selectionA→B→A、late HTTP/SSE、初始化迟到、Map删除404先于ack、Workspace旧命令busy和旧偏好新身份全部覆盖；U17未被现有review取消断言覆盖但已有实际独立复现。"
+        }
+      },
+      "notes": [
+        "完整逐段读取2243行（1–280、281–560、561–840、841–1120、1121–1400、1401–1680、1681–1960、1961–2243）；原any/非空断言仅测试固定fixture，未当作生产校验已建立。"
+      ],
+      "readCoverage": {
+        "mode": "complete source/functions/templates; caller review described per category",
+        "sha256": "f1d1f4480b80a3ee4d192fcf6a0baaec0dd326015b10bbdd6b01ed917db80686",
+        "ranges": [
+          [
+            1,
+            2242
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/stream.spec.ts",
+      "lines": 172,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-fixture-lifecycle.spec.ts",
+      "lines": 517,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-fixture.ts",
+      "lines": 392,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-performance-report.spec.ts",
+      "lines": 113,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-report-artifacts.spec.ts",
+      "lines": 193,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-reporter.spec.ts",
+      "lines": 205,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-startup-diagnostic.spec.ts",
+      "lines": 48,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    },
+    {
+      "file": "tests/client/ui-web-config.spec.ts",
+      "lines": 26,
+      "kind": "test",
+      "status": "pending",
+      "categories": {
+        "F": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "E": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "V": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "S": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "P": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "K": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        },
+        "L": {
+          "status": "pending",
+          "basis": "待完整读取实际函数/模板与调用链"
+        }
+      },
+      "notes": [
+        "七类完整审查委托audit_runtime，独立scope-ui-infrastructure.json；此处pending，根最终合并。"
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "U01",
+      "kind": "redundancy",
+      "title": "运行目录再次验证公共客户端已绑定的Map身份",
+      "sites": [
+        {
+          "file": "apps/ui/features/run/run-history.ts",
+          "line": 121
+        }
+      ],
+      "evidence": "WorkspacePage:831→RunHistoryPanel:21→useRunHistory.readPage:119调用实际gateway.read(run.list)。graph-client:539进入clientAssertRunPage，407已拒value.mapId!==params.mapId；HTTP与桌面主进程共用该公共client。 状态层tests/client/run-history.spec.ts末段wrongMap故障注入绕过了public client所属边界；同一mapId错误已有graph-client.spec.ts run.list公开边界回归，应随精简移除重复子段而保留current401断言。",
+      "proposedChange": "仅删除面板page.mapId二验。",
+      "boundariesToKeep": [
+        "client原DTO与请求身份校验",
+        "目录版本跨页一致性",
+        "跨页重复ID",
+        "会话/读取代次"
+      ],
+      "reproduction": "静态完整生产调用链及两处相同比较已核对；不重复执行测试。",
+      "priorFinding": "前轮冗余1",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U02",
+      "kind": "redundancy",
+      "title": "来源行定位同一修改字段被完整解析两次",
+      "sites": [
+        {
+          "file": "apps/ui/features/reader/SourceAnchorEditor.vue",
+          "line": 86
+        },
+        {
+          "file": "apps/ui/features/reader/SourceAnchorEditor.vue",
+          "line": 99
+        }
+      ],
+      "evidence": "当前文本字段的非空ranges与initialRanges不同后，validation全字段解析和selectedValidation均对同一固定originalSource/path/ranges调用readerCreateSourceAnchors；template158/166/187及选中预览同时消费二者。",
+      "proposedChange": "建立每字段一次解析结果，整体保存汇总与当前预览共享。",
+      "boundariesToKeep": [
+        "用户行号格式/范围/重复检查",
+        "未修改旧版本anchors原样保留",
+        "source id/revision变化锁草稿"
+      ],
+      "reproduction": "同步纯函数调用链，无await或source/ranges写入；两处同实参已验证。",
+      "priorFinding": "前轮冗余2",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U03",
+      "kind": "redundancy",
+      "title": "Reader只返回ready字符串导致重新证明节点与上下文",
+      "sites": [
+        {
+          "file": "apps/ui/features/reader/reader-content.ts",
+          "line": 47
+        },
+        {
+          "file": "apps/ui/features/reader/NodeReader.vue",
+          "line": 47
+        },
+        {
+          "file": "apps/ui/features/reader/NodeReader.vue",
+          "line": 71
+        }
+      ],
+      "evidence": "readerReadState47–51已确认identity、匹配snapshot及nodes.some目标存在，NodeReader node computed又检查并find??null，relations/sourceNotes/childNotes71/75/77又组合相同ready前提。同一reactive同步读取，无await。",
+      "proposedChange": "ready判别状态携带已找到的node/snapshot/identity，组件从该分支取数据。",
+      "boundariesToKeep": [
+        "真实Map/Workspace身份关系",
+        "非ready正常空/缺失/错误状态",
+        "nextTick后restoreRevision与当前目标复核",
+        "公开relation/source helper独立调用的真实边界"
+      ],
+      "reproduction": "完整状态构造及唯一生产consumer已核对，避免用非空断言替换。",
+      "priorFinding": "前轮冗余3",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U04",
+      "kind": "redundancy",
+      "title": "网关连接成功时active清理不可达",
+      "sites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 1247
+        }
+      ],
+      "evidence": "connect入口1232已close并置active=null；初始化1187只允许generation0写active；所有connect串行，候选read/save后1244/1246核代次，其他connect/disconnect/close会推进generation，不能在同代次悄悄重建active。",
+      "proposedChange": "删除成功分支active?.close，保留入口旧连接及失败candidate清理。",
+      "boundariesToKeep": [
+        "初始化/登录代次",
+        "每个await后的generation检查",
+        "串行凭据写入和原失败传播"
+      ],
+      "reproduction": "全文件active赋值点横扫完成，仅init/成功接纳/清空三类，已独立交叉审查请求。",
+      "priorFinding": "前轮冗余4",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U05",
+      "kind": "redundancy",
+      "title": "续租DTO递归验证同一data时重复通用扫描",
+      "sites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 583
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 587
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 665
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 679
+        }
+      ],
+      "evidence": "branch.renew/run.control.renew先按自己的重叠必要字段表及通用属性扫描，再将同一data递归送branch.ownership/run.control，重复必要字段存在性与ownershipRevision等扫描；不是nested不同对象的app.settings或snapshot.runs。",
+      "proposedChange": "base结构仅完整验证一次，再验证renew附加字段并保留branch/snapshot配对。",
+      "boundariesToKeep": [
+        "外部base DTO完整解析",
+        "renew ownershipRevision/branch字段",
+        "editor kind、期限、fence",
+        "原branch与snapshot关系"
+      ],
+      "reproduction": "clientAssertData全分支与字段表/递归同对象路径已核对。",
+      "priorFinding": "前轮冗余5",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U06",
+      "kind": "minor",
+      "title": "动态字段添加的字符串schema fallback无生产入口",
+      "sites": [
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 159
+        }
+      ],
+      "evidence": "editorAddObject唯一生产caller在template250，v-if已要求additionalProperties是对象；handler同步读取同一resolved schema，无await。",
+      "proposedChange": "从已缩窄caller传入实际schema，去掉字符串替代路径。",
+      "boundariesToKeep": [
+        "additionalProperties为true或省略时既有数据仍可展示",
+        "其他数组items真正可省默认",
+        "动态键冲突校验"
+      ],
+      "reproduction": "全apps/ui caller搜索仅该按钮，已完整读模板。",
+      "priorFinding": "前轮小项1",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U07",
+      "kind": "minor",
+      "title": "可打开单页条件重复loading约束",
+      "sites": [
+        {
+          "file": "apps/ui/features/workspace/use-workspace-view.ts",
+          "line": 48
+        }
+      ],
+      "evidence": "selectedIdentity唯一构造workspaceCreateSelectedIdentity113–114在loading时返回null；canOpenPage已要求selectedIdentity非null，再!loading恒真。",
+      "proposedChange": "canOpenPage只按非null selectedIdentity判断。",
+      "boundariesToKeep": [
+        "完整user/workspace/map/node及节点存在前提",
+        "书签数值/当前page身份检查"
+      ],
+      "reproduction": "同一computed上下文同步纯投影已核对。",
+      "priorFinding": "前轮小项2",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U08",
+      "kind": "minor",
+      "title": "已建立单根baseline又检查单根长度",
+      "sites": [
+        {
+          "file": "apps/ui/features/graph/branch-baseline.ts",
+          "line": 52
+        }
+      ],
+      "evidence": "唯一生产baseline赋值由session.acceptSelectedBranch:345→branchCreateBaseline:18保证rootIds.length===1；没有生产变更baseline根数组的写入者。Matches仍需检查selectedId但不需重查长度。",
+      "proposedChange": "删除重复单根长度检查。",
+      "boundariesToKeep": [
+        "新snapshot完整身份",
+        "selectedId与原根相同",
+        "分支成员/邻边/派生引用完整事实比较"
+      ],
+      "reproduction": "构造者与session所有赋值点已核对；测试直接构造不能当新生产信任入口。",
+      "priorFinding": "前轮小项3",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U09",
+      "kind": "minor",
+      "title": "同一个读取失败被反复归一化",
+      "sites": [
+        {
+          "file": "apps/ui/features/evidence-library/evidence-uses.ts",
+          "line": 103
+        },
+        {
+          "file": "apps/ui/features/evidence-library/evidence-uses.ts",
+          "line": 75
+        },
+        {
+          "file": "apps/ui/features/evidence-library/evidence-state.ts",
+          "line": 241
+        },
+        {
+          "file": "apps/ui/features/evidence-library/evidence-state.ts",
+          "line": 294
+        }
+      ],
+      "evidence": "uses readPage用clientReadError(cause)两次查code，acceptError又调用一次；evidence-state readPage/readDetail先检查code再将raw cause交acceptError再次归一化。未知Error会生成被丢弃的errorId，ClientError也重复复制同字段。",
+      "proposedChange": "当前失败只建立一次ClientErrorData，分类和接纳共用；保持过期代次检查顺序。",
+      "boundariesToKeep": [
+        "原catch真实网络/协议分类",
+        "401回调",
+        "原命令重试优先级",
+        "旧错误不得改新身份"
+      ],
+      "reproduction": "完整catch/acceptError调用链已核对；不把catch本身标为冗余。",
+      "priorFinding": "前轮小项4；本轮横扫加入evidence-state同类",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U10",
+      "kind": "behavior",
+      "title": "UI JSON字段自有成员与原型同名键读取/写入失配",
+      "sites": [
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 174
+        },
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 149
+        },
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 153
+        },
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 157
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 50
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 243
+        },
+        {
+          "file": "apps/ui/features/graph/data-payload.ts",
+          "line": 109
+        },
+        {
+          "file": "apps/ui/features/reader/reader-content.ts",
+          "line": 133
+        }
+      ],
+      "evidence": "editorRenameObject复制原对象、delete旧键后next[key]=value，合法__proto__被setter处理。assetSetPointer读取target[part]未限自有键，optional /__proto__/assetId初值未创建容器时读到Object.prototype并写入。sourceType只筛存在asset reference；发布schema允许显式同名properties。 本轮横扫：dynamicFields将继承constructor/toString当固定字段而隐藏合法additionalProperties正文；known-field读取缺省同名payload时取继承函数而忽略default；payloadReadPointer合法空对象读取constructor返回function。reader schema标签对additionalProperties同名字段也可能选继承项，非owner成员语义。",
+      "proposedChange": "读取中间容器采用自有字段语义；创建和改名采用定义普通可枚举自有属性的对象构造，不禁用合法键。",
+      "boundariesToKeep": [
+        "已发布指针格式边界",
+        "精确sourceType及实际asset引用声明",
+        "表单空名称和冲突名称校验",
+        "合法原型同名字段仍可读写"
+      ],
+      "reproduction": "103/reproduce-ui.cjs/output已复现rename、asset write、pointer read及合法发布schema的dynamicFields；从真实源提取函数/声明，不复制被审实现。",
+      "priorFinding": "前轮只读UI行为组1；102已修初值构造，这两个其他写路径仍存在",
+      "confidence": "high",
+      "severity": "P2",
+      "globalGroup": "K-own-members"
+    },
+    {
+      "id": "U11",
+      "kind": "behavior",
+      "subtype": "cleanup-error-classification",
+      "title": "非SSE响应拒绝分支的取消错误覆盖主协议错误",
+      "sites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 1020
+        }
+      ],
+      "evidence": "wrong content-type时先await response.body.cancel再throw INVALID_STREAM；底层cancel拒绝会绕过主错，外层catch原样抛普通Error。102仅JSON/download同类已修，该分支尚在。",
+      "proposedChange": "取消只作为次要清理，保证INVALID_STREAM主错保留；仍完成监听器和计时器释放。",
+      "boundariesToKeep": [
+        "SSE content-type/body真实边界",
+        "关闭/取消/超时优先分类",
+        "不屏蔽真正网络读取错误"
+      ],
+      "reproduction": "node --import tsx develop-docs/103-全库审计/reproduce-ui.cjs；输出U11-sse-cleanup code:null,message:secondary cleanup failure。实际公共clientCreateApi.watch，无网络或DB。",
+      "priorFinding": "前轮UI行为组2",
+      "confidence": "high",
+      "severity": "P2"
+    },
+    {
+      "id": "U12",
+      "kind": "minor",
+      "title": "2D布局父节点已存在却仍有零fallback的前轮同类遗留",
+      "sites": [
+        {
+          "file": "apps/ui/features/graph/graph-layout.ts",
+          "line": 236
+        },
+        {
+          "file": "apps/ui/features/graph/graph-layout.ts",
+          "line": 237
+        }
+      ],
+      "evidence": "incoming只在213确认两端actual后写入，CanvasNode全集来自同一originals，231 byId完整覆盖；非空parentId的lookup必存在。无父节点的外层0是真实基础排序，内层?.y??0不可达。",
+      "proposedChange": "布局内部携带已解析父节点状态，直接取父y；不加非空断言或新getter校验。",
+      "boundariesToKeep": [
+        "真正无parent的根排序0",
+        "关系未载入端点的接入过滤",
+        "输入数组不原地排序"
+      ],
+      "reproduction": "完整构造链同步闭合；与99已修Map初始化问题同组残留，不当新增主组计数。",
+      "priorFinding": "99布局Map零fallback同类遗留，前轮另注",
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U13",
+      "kind": "behavior",
+      "title": "Agent自定义kind同名原型项使未知类型option不渲染",
+      "sites": [
+        {
+          "file": "apps/ui/features/agents/AgentManagement.vue",
+          "line": 303
+        }
+      ],
+      "evidence": "模板v-if=!kinds[draft.kind]使用普通对象继承查找。contracts/control.ts的PromptKind为string，workspace-input controlReadKind仅要求非空名称；通用绑定Agent允许toString/constructor。继承函数为truthy，抑制本应显示的保存kind option。uiReadAgentKind自身已有hasOwn，故列表显示与编辑下拉不同。",
+      "proposedChange": "未知kind存在性采用自有键语义或Map，不禁用合法自定义kind。",
+      "boundariesToKeep": [
+        "新建角色范围",
+        "已有kind身份只读",
+        "缺少绑定目录时保留原promptVars并交服务端验证"
+      ],
+      "reproduction": "103/reproduce-ui.cjs/output：实际controlReadAgent接受kind=toString及合法已知绑定；源kinds对象hasOwn=false，模板fallbackOptionVisible=false。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3",
+      "globalGroup": "K-own-members"
+    },
+    {
+      "id": "U14",
+      "kind": "behavior",
+      "subtype": "implicit-stringification",
+      "title": "枚举控件字符串化混淆合法JSON值类型",
+      "sites": [
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 231
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 232
+        }
+      ],
+      "evidence": "option值为String(item)，change按String(item)查首项；实际发布解析/目录校验/payload校验均接受type:[integer,string],enum:[0,0字符串]。用户选字符串0时emit首项数字0，两个值都合法因而后端不能识别用户选择被改写。对象enum也可碰撞[object Object]。",
+      "proposedChange": "DOM option使用稳定索引或保类型的唯一编码，再取原enum JSON值；标签翻译不改提交值。",
+      "boundariesToKeep": [
+        "合法混合标量/对象枚举",
+        "真实用户选择索引范围",
+        "null可选语义",
+        "发布schema边界"
+      ],
+      "reproduction": "103/reproduce-ui.cjs实际提取当前模板change表达式，合法definitionsValidateCatalog正例输出U14 emittedType:number，requestedType:string。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P2"
+    },
+    {
+      "id": "U15",
+      "kind": "minor",
+      "title": "单调用纯转发包装不拥有实际规则或资源",
+      "sites": [
+        {
+          "file": "apps/ui/features/reader/NodeReader.vue",
+          "line": 195
+        },
+        {
+          "file": "apps/ui/features/graph/GraphSceneFallback.vue",
+          "line": 139
+        },
+        {
+          "file": "apps/ui/features/evidence-library/EvidenceLibraryView.vue",
+          "line": 131
+        },
+        {
+          "file": "apps/ui/features/evidence-library/EvidenceUsesPanel.vue",
+          "line": 29
+        }
+      ],
+      "evidence": "readerDisposeRestore只调readerCancelRestore；readNodeColor只return node.color；库/使用面板部分submitSearch/loadMore/retry wrappers只await同一state方法，没有参数冻结、错误或生命周期规则。其他有真实状态更新/多caller绑定的helper未归此项。",
+      "proposedChange": "在对应注册/模板直接使用既有能力，保留真正的焦点、导航和状态接纳动作。",
+      "boundariesToKeep": [
+        "readerCancelRestore代次",
+        "实际task/gateway生命周期包装",
+        "场景业务色/opacity语义",
+        "库命令原请求重试身份"
+      ],
+      "reproduction": "仅静态转发关系，低影响维护项，不视为行为缺陷或主要校验清理收益。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U16",
+      "kind": "redundancy",
+      "title": "新增证据把同源selected引用投影反向join并重复证明数量",
+      "sites": [
+        {
+          "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 90
+        },
+        {
+          "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 95
+        }
+      ],
+      "evidence": "selection.refs由同一selection.selected按id/digest排序map生成且owner保证唯一。additions去已有entry后，addSelected又从selected按additions id/digest反查并校验length相等；全过程同步无await，两个集合不能失配。",
+      "proposedChange": "additions直接携带选中的summary和提交ref，在实际加入时各投影一次。",
+      "boundariesToKeep": [
+        "旧draft同entry不得被新摘要替换",
+        "原引用撤回仍保留",
+        "32容量与每条使用理由",
+        "目标版本/pendingRetry锁定"
+      ],
+      "reproduction": "evidence-selection refs构造及NodeEvidenceEditor实际唯一UI调用已完整核对。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U17",
+      "kind": "behavior",
+      "subtype": "async-intent-lifecycle",
+      "title": "切换Run后迟到领取仍持有并续租旧Run控制权",
+      "sites": [
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 954
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 964
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 974
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 993
+        },
+        {
+          "file": "apps/ui/views/WorkspacePage.vue",
+          "line": 821
+        }
+      ],
+      "evidence": "领取只捕session/view，Run下拉busy时仍可切B；selectRun此时无已确认grant可释放。A成功迟到不核runSelectionEpoch，成为B视图selectedRunControl并启动周期续租。answerReview的选择保护阻旧审核写，但不清该闲置grant。",
+      "proposedChange": "Run领取有明确选择/意图归属，失效结果不接纳并清理不再被后续意图使用的grant；复用lease/fence时保交接保护，不能简单无条件release新授权。",
+      "boundariesToKeep": [
+        "session/view/holder/fence保护",
+        "Run选择不取消已提交远端Run",
+        "审核await后完整意图复核",
+        "同授权再次使用的安全交接"
+      ],
+      "reproduction": "103/reproduce-ui.cjs复用现有session测试完整currentRun/Map/Workspace fixture，输出accepted:true,selectedRun:run-b,heldRun:run-a,releasedBeforeDispose:false；dispose清理，未接DB/服务。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P2"
+    },
+    {
+      "id": "U18",
+      "kind": "redundancy",
+      "title": "保存引用变化时同一对payload重复展开引用目标",
+      "sites": [
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 1414
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 1399
+        }
+      ],
+      "evidence": "saveNode先对node.payload/input.payload各sessionReadReferenceTargets一次比较，变化后同步进入saveReferencedPayload又对old/next各一次；无await或输入变动。另saveNodeReferences直接进入helper仍需要其一次展开。",
+      "proposedChange": "本次保存显式携带old/next引用状态，在两个真实caller各建立一次，helper复用；不新增optional/unchecked快捷入口。",
+      "boundariesToKeep": [
+        "referencesAreValid精确目标type检查",
+        "旧新目标联合授权",
+        "原node/edge版本与跨await contentCurrent",
+        "固定请求差量与幂等重试"
+      ],
+      "reproduction": "同步完整生产链已核对，计数脚本可增补但无待确认前提。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U19",
+      "kind": "minor",
+      "title": "固定字符串split后的空数组检查恒假",
+      "sites": [
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 1370
+        }
+      ],
+      "evidence": "parts=input.path.slice(1).split('/').map(...)，String.split始终至少一段且map保持长度；此前只有slice迭代未修改parts。!parts.length不可达。",
+      "proposedChange": "删除!parts.length这一项，不改容器真实类型/缺失检查。",
+      "boundariesToKeep": [
+        "实际对象/数组容器检查",
+        "节点引用声明路径匹配",
+        "原内容版本"
+      ],
+      "reproduction": "String split/map语义及局部无变更已核对；不是缺少路径输入校验的借口。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U20",
+      "kind": "behavior",
+      "subtype": "required-boundary-gap",
+      "title": "公共Map边界未拒绝实际reader必需的边createdAt缺失",
+      "sites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 638
+        },
+        {
+          "file": "apps/ui/features/reader/reader-sources.ts",
+          "line": 82
+        }
+      ],
+      "evidence": "map.get边分支仅查id/from/to/kind/sourceAnchors，缺createdAt仍返回成功；readerReadSourceNotes对两条真实后继边排序时直接a.createdAt.localeCompare，运行TypeError。不是让UI新增兜底，而是外部DTO需由所属边界建立真正必要字段。",
+      "proposedChange": "只对实际消费的GraphEdge.createdAt建立受控外部响应验证；同类字段需逐项实际consumer证明，勿扩成全协议strict validator。",
+      "boundariesToKeep": [
+        "有效createdAt排序语义",
+        "GraphEdge身份/端点/kind/sourceAnchor原检查",
+        "真正历史可省字段",
+        "UI不将坏外部DTO静默替成默认时间"
+      ],
+      "reproduction": "103/reproduce-ui.cjs用完整合法节点/Map与两条正常后继边，仅省边createdAt；实际client.read成功，readerReadSourceNotes抛TypeError(localeCompare)。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P2"
+    },
+    {
+      "id": "U21",
+      "kind": "redundancy",
+      "title": "2D布局每个节点重新展开同一份Run operations集合",
+      "sites": [
+        {
+          "file": "apps/ui/features/graph/graph-layout.ts",
+          "line": 218
+        }
+      ],
+      "evidence": "placements.map节点回调中每次snapshot.runs.flatMap(run.operations)后find；同一同步布局调用中snapshot.runs/operations不改变，N节点创建N份同一展开数组。SVG fallback是真实生产路径。",
+      "proposedChange": "在本次布局调用中先展开一次，节点仍按原顺序find第一份活动Operation，不引入新索引协议或缓存生命周期。",
+      "boundariesToKeep": [
+        "只关联running/waiting输入Operation",
+        "多个Operation的原first匹配次序",
+        "snapshot.runs真正可省",
+        "不修改源数组"
+      ],
+      "reproduction": "完整布局map与readonly输入链已核对，属于重复遍历，不声称已有性能基准收益。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U22",
+      "kind": "minor",
+      "subtype": "test-oracle-gap",
+      "title": "旧branch proof测试被无关坏node日期提前拒绝，未隔离目标条件",
+      "sites": [
+        {
+          "file": "tests/client/graph-client.spec.ts",
+          "line": 430
+        },
+        {
+          "file": "tests/client/graph-client.spec.ts",
+          "line": 432
+        }
+      ],
+      "evidence": "声称验证新snapshot/旧branch配对，但current.nodes中的createdAt/updatedAt为空串，clientAssertNode先报INVALID_RESPONSE；只把branch.mapRevision改为匹配7仍拒绝。用同份fixture改合法node日期后，旧proof拒绝、匹配proof接受，证明该用例当前可能假绿。",
+      "proposedChange": "未来修复时提供合法node日期，仅破坏branch.mapRevision目标条件，并保留匹配proof正例；同类故障注入需先建立正常对照。",
+      "boundariesToKeep": [
+        "node日期外部响应校验",
+        "snapshot/branch同次内容配对",
+        "U20当前positive edge缺日期仅是必要边界补齐后的fixture调整，不是当前失败"
+      ],
+      "reproduction": "103/reproduce-ui.cjs实际client四象限对照：坏日期+旧/匹配proof都INVALID_RESPONSE；合法日期+旧proof拒绝；合法日期+匹配proof接受。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3"
+    },
+    {
+      "id": "U23",
+      "kind": "minor",
+      "subtype": "test-appendix",
+      "title": "固定会话fixture捕获的基础mock实现仍走optional调用分支",
+      "sites": [
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 351
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 522
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 582
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 628
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 686
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 716
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 907
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1744
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1828
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1861
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1898
+        }
+      ],
+      "evidence": "这里只针对本文件实际构造链：fakeGateway在162/184行用vi.fn(async...)初始化read/dispatch；opened/openedSource/openedChildren均返回这些mock，捕获getMockImplementation前无mockReset。因而11处normalRead/normalDispatch?.的undefined静默分支不可达。不是声称vi.fn一般必有实现，也不将测试边界失败哨兵判冗余。",
+      "proposedChange": "如整理fixture，可保留具名基础read/dispatch实现供包装器直接调用；不使用非空断言或新增guard，也不值得为该低影响项单独扩展框架。",
+      "boundariesToKeep": [
+        "vi.fn一般允许无实现的真实能力",
+        "意外query/command明确失败",
+        "其他可替换handler及故障注入的missing检查"
+      ],
+      "reproduction": "完整逐段读本文件，逐一追踪11次getMockImplementation捕获到初始化；无mockReset路径。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P4",
+      "counting": "测试附录minor，不计生产冗余组"
+    },
+    {
+      "id": "U24",
+      "kind": "behavior",
+      "subtype": "missing-lifecycle-cleanup",
+      "title": "活动布局拖动在外壳卸载后仍更新状态并保存旧布局",
+      "sites": [
+        {
+          "file": "apps/ui/composables/usePanelResize.ts",
+          "line": 80
+        },
+        {
+          "file": "apps/ui/composables/usePanelResize.ts",
+          "line": 105
+        },
+        {
+          "file": "apps/ui/composables/usePanelResize.ts",
+          "line": 114
+        },
+        {
+          "file": "apps/ui/composables/useBottomDockResize.ts",
+          "line": 64
+        },
+        {
+          "file": "apps/ui/components/shell/ResizableSplit.vue",
+          "line": 25
+        },
+        {
+          "file": "apps/ui/components/shell/ResizableRowSplit.vue",
+          "line": 21
+        },
+        {
+          "file": "apps/ui/views/WorkspacePage.vue",
+          "line": 764
+        }
+      ],
+      "evidence": "AppShell17/18持有两composable，分隔条mousedown同时安装move/up和恢复userSelect的up监听；仅mouseup移除。WorkspacePage739/764在bootstrap变null时真实卸载AppShell（当前401可在拖动中发生）。usePanelResize卸载仅重置userSelect，bottom与split无卸载清理。原composable真实Vue mount/unmount复现：卸载后留3个window监听，后续mousemove修改已卸载ref，mouseup还写localStorage。",
+      "proposedChange": "单次拖动持有可统一结束的监听所有权，正常mouseup保存，组件卸载清理当前监听及文本选择；避免引入新的默认/异常吞没。",
+      "boundariesToKeep": [
+        "正常拖动范围约束与mouseup持久化",
+        "storage不可用时内存布局仍可用",
+        "左右方向差异",
+        "不声称mouseup后仍存在永久泄漏或已证明blur影响"
+      ],
+      "reproduction": "103/reproduce-ui.cjs使用真实Vue自定义renderer驱动实际composable hooks、原SFC onMouseDown与本进程EventTarget。left卸载后200→250、bottom132→182，各残留3监听且mouseup写1次，输出末2行。",
+      "priorFinding": null,
+      "confidence": "high",
+      "severity": "P3",
+      "counting": "必要生命周期缺口，独立于冗余清理"
+    }
+  ],
+  "retained": [
+    {
+      "topic": "真正optional与未选择状态",
+      "basis": "GraphDocument import/SQLite确实可缺runs/ownershipRevision等字段；UI未选node/run/null旧关系/缺schema items/additionalProperties true都真实可达。不能仅以TS属性必填删除默认。"
+    },
+    {
+      "topic": "raw输入与外部字节",
+      "basis": "structuredClone保留坏array raw类型，已有公共客户端回归；UTF8 fatal解码、JSON body上限、SSE字段限制、sha256/size都是所属真实边界。"
+    },
+    {
+      "topic": "身份/代次/租约",
+      "basis": "session-grants S1与session-editing S2完整现有用例证明同R不同O、延迟SSE/HTTP、A→B→A与同lease重确认、绝对expiry不可由leaseMs新起算；正常取消检查不是兜底。"
+    },
+    {
+      "topic": "浏览器能力与持久化",
+      "basis": "WebGL构建失败后的SVG降级、localStorage受禁/损坏、request/animation/pointer/observer真实清理应保留。usePanelResize当前持久化读不是已校验业务DTO，不将默认判内部冗余。"
+    },
+    {
+      "topic": "枚举文案自有键",
+      "basis": "payload-labels.ts对declared和builtin map均Object.hasOwn；实际合法constructor/toString enum省略label仍输出原字符串。reproduce-ui-output retained-enum-labels已确认。"
+    },
+    {
+      "topic": "固定关系跨响应关联",
+      "basis": "public client验证relations自身root闭包与role，evidence-state还需将rootNode.ref/contentDigest与独立get固定条目关联，不能整段删除；多余常量比较未另夸大计组。"
+    },
+    {
+      "topic": "可替换测试handler失败哨兵",
+      "basis": "mapped handler可被测试移除或替换、实际public stream需明确存在、固定node/snapshot prerequisite报错使测试失败有定位意义，不能因正常fixture总通过而机械删。"
+    }
+  ],
+  "unresolved": [
+    {
+      "id": "UI-held-assetSchemaHasPointer",
+      "status": "not-confirmed-no-finding",
+      "sites": [
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 163
+        }
+      ],
+      "basis": "直接properties[part]存在同名继承读取形态，但生产caller仅已发布titlePath或已发布asset ref parent的固定mediaType sibling；尚无合法已发布schema下可走错分支的正例，不能与assetSetPointer实际污染证据混列确认。"
+    },
+    {
+      "id": "UI-held-fixed-digest-sharing",
+      "status": "retained-contract-optimization-only",
+      "sites": [
+        {
+          "file": "apps/ui/views/WorkspacePage.vue",
+          "line": 635
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 1131
+        }
+      ],
+      "basis": "两次SHA计算分别绑定当前ETag与冻结basis；若未来ClientFile携带公共已验证digest并统一desktop才可共享，不是现状可直接删校验。"
+    },
+    {
+      "id": "UI-held-resize-blur",
+      "status": "not-claimed",
+      "basis": "U24已用真实unmount确认活动drag残留并在mouseup后清理；没有声称blur/窗口外松开永久泄漏，不用未复现情形扩大结论。"
+    }
+  ],
+  "flows": [
+    {
+      "id": "UI-flow-HTTP-gateway",
+      "path": [
+        "client/graph-client.ts public read/dispatch/watch/download",
+        "apps/ui/transport/client-gateway.ts / desktop client bridge",
+        "apps/ui/state/client-session.ts",
+        "apps/ui/views/WorkspacePage.vue"
+      ],
+      "conclusion": "外部DTO/raw JSON/UTF8/stream先在所属边界校验；UI当前身份与异步代次是不同约束。U05仅同对象renew重复扫描，U01仅run.list已绑定mapId；U20证明真实缺少的edge.createdAt边界不能删。transport本轮由root另审。"
+    },
+    {
+      "id": "UI-flow-editor",
+      "path": [
+        "DataPayloadEditor / NodeInspector / SourceAnchorEditor / NodeEvidenceEditor",
+        "branch-baseline.ts",
+        "client-session saveNode/createChildNode/saveSourceAnchors/saveNodeReferences/saveNodeEvidence",
+        "graph.apply固定参数与原请求重放"
+      ],
+      "conclusion": "保留用户输入、精确类型/版本、旧引用与新目标联合授权、临时lease finally释放、跨await view内容重查。U02同输入双parse、U16同步派生后逆向确认、U18同attempt引用展开重复；U10/U14是合法JSON被UI误改。"
+    },
+    {
+      "id": "UI-flow-preview",
+      "path": [
+        "run.publication.preview public client边界",
+        "publication-preview.ts join frozen spec and actual candidates",
+        "OperationReview/RunReview ready union",
+        "client-session answerReview after control await"
+      ],
+      "conclusion": "102已删除preview键二验和joined.ok重查，当前ready联合已复核无回退。保留candidate正文、材料及review revision绑定；U17当前Run控制claim未绑定selection意图但answerReview自己的旧点击保护仍必要。"
+    },
+    {
+      "id": "UI-flow-history",
+      "path": [
+        "WorkspacePage.vue831",
+        "RunHistoryPanel.vue21",
+        "run-history.ts readPage/readDetail",
+        "public client run.list/run.get"
+      ],
+      "conclusion": "首屏25、有界continuation、detail按需只读；目录版本/重复ID/跨页状态与detail runId绑定保留。U01仅remove重复mapId，不动detail绑定或epoch。"
+    },
+    {
+      "id": "UI-flow-evidence",
+      "path": [
+        "evidence-state collect/search/select/retry/withdraw",
+        "public evidence DTO parser",
+        "evidence.relations fixed snapshot",
+        "evidence-presentation / reader"
+      ],
+      "conclusion": "库摘要与固定详情/关系是独立响应，digest/root ref关联必要；显式snapshot:null是旧记录真实语义，不以当前图补全。4种basis固定输入、未知提交原ID重试以及current401/old401分开保留。"
+    },
+    {
+      "id": "UI-flow-fixed-asset",
+      "path": [
+        "WorkspacePage.vue630 asset metadata fixed basis association",
+        "client/graph-client.ts1131 download bytes vs current ETag",
+        "WorkspacePage.vue635 bytes vs frozen basis.sha256 and asset.size"
+      ],
+      "conclusion": "元信息与固定basis、实际bytes与当前ETag、实际bytes与固定basis是不同边界；当前ClientFile不携带已验证digest且desktop路径也须统一，因此直接删UI fixed SHA验证不成立。共享计算是需改合同的优化候选，非本轮可直接删项。"
+    },
+    {
+      "id": "UI-flow-navigation",
+      "path": [
+        "use-workspace-view bookmarks full user/service/workspace/map/node identity",
+        "NodeReader ready/restoration revision",
+        "GraphScene interaction resources",
+        "AppShell drag/window listeners"
+      ],
+      "conclusion": "reader nextTick恢复及代次、场景RAF/observer/pointer capture归属保留；U03 ready重复查找可收口；U24真实卸载期间drag所有权未回收。"
+    }
+  ],
+  "transversal": [
+    {
+      "id": "UI-K-own-members",
+      "categories": [
+        "K",
+        "F",
+        "V"
+      ],
+      "scope": "全部动态JSON schema/payload/presentation/agent-kind/错误翻译/复合身份及reference pointer读写",
+      "findings": [
+        "U10",
+        "U13"
+      ],
+      "globalGroup": "K-own-members",
+      "conclusion": "原型名称合法输入已实际definitionsReadPackage/definitionsValidateCatalog/definitionsValidatePayload后复现；同一全局自有键根因合并，勿每站点独立计数。payload-labels的enumLabels和内置文案均Object.hasOwn，缺constructor/toString label实际返回原值；root的shared parser __proto__ enum label丢失另在同全局组。"
+    },
+    {
+      "id": "UI-P-same-attempt",
+      "categories": [
+        "P",
+        "V",
+        "S"
+      ],
+      "scope": "payload/schema/ref/DTO/preview/history/selection/layout及各state捕获与重试",
+      "findings": [
+        "U01",
+        "U02",
+        "U03",
+        "U05",
+        "U16",
+        "U18",
+        "U21"
+      ],
+      "conclusion": "只比较同一对象、同一输入和同一同步attempt且无mutation的重复；不将不同HTTP响应之间绑定、重试参数副本、跨await内容变化重查合并。Evidence times同值Date.parse统一引用root PM05，不增加U组。"
+    },
+    {
+      "id": "UI-E-primary-cleanup",
+      "categories": [
+        "E",
+        "L"
+      ],
+      "scope": "JSON/read stream/SSE/download、gateway close、management task、asset download、watch重连与UI卸载",
+      "findings": [
+        "U04",
+        "U11",
+        "U24"
+      ],
+      "conclusion": "102 JSON/download统一finally次生cancel保护已复核；U11非SSE类型拒绝路径仍让cancel拒绝覆盖主INVALID_STREAM。正常无WebGL→SVG降级、AbortError/旧代次不回填、storage受限catch和真实dispose均保留。"
+    },
+    {
+      "id": "UI-L-auth-intent",
+      "categories": [
+        "L",
+        "S",
+        "V"
+      ],
+      "scope": "user/service/workspace/map/run/node及list/detail/relations/preview/read/write/lease scopes",
+      "findings": [
+        "U17"
+      ],
+      "conclusion": "A→B→A复用业务身份不等于同意图。S1/S2现有测试证明lease/fence/O/绝对expiry和safe stale grant cleanup必需；U17实际下拉运行切换可发生于claim等待，viewEpoch不足。"
+    },
+    {
+      "id": "UI-test-oracle",
+      "categories": [
+        "V",
+        "E",
+        "F"
+      ],
+      "scope": "全部22业务client测试、graph-client错误断言横扫，runtime另审stream/integration",
+      "findings": [
+        "U22",
+        "U23"
+      ],
+      "conclusion": "U22四象限建立正常对照后确认单一坏node日期遮蔽目标；stream nodes[]有正例、integration真实节点无同源站点。session的any/as/Promise占位及handler哨兵属于受控fixture；U23仅特定初始化且捕获前无reset的11处optional调用，不泛化vi.fn。"
+    },
+    {
+      "id": "UI-prior-list",
+      "categories": [
+        "F",
+        "E",
+        "V",
+        "S",
+        "P",
+        "K",
+        "L"
+      ],
+      "scope": "前轮11项与layout同类遗留",
+      "findings": [
+        "U01",
+        "U02",
+        "U03",
+        "U04",
+        "U05",
+        "U06",
+        "U07",
+        "U08",
+        "U09",
+        "U10",
+        "U11",
+        "U12"
+      ],
+      "conclusion": "逐项以最新源码/实际caller复核，未重复列099–102已修项。U12 parent位置0 fallback同先前layout机制尾项单独标prior99关联，不冒充新大组。"
+    }
+  ],
+  "progress": {
+    "reviewed": 83,
+    "total": 114,
+    "ownedReviewed": 83,
+    "ownedTotal": 83,
+    "delegated": 31
+  },
+  "delegated": [
+    {
+      "owner": "audit_runtime",
+      "prefix": "tests/browser/",
+      "artifact": "scope-ui-browser.json",
+      "status": "completed-in-independent-artifact"
+    },
+    {
+      "owner": "audit_runtime",
+      "files": [
+        "tests/client/ui-fixture.ts",
+        "tests/client/ui-fixture-lifecycle.spec.ts",
+        "tests/client/ui-performance-report.spec.ts",
+        "tests/client/ui-report-artifacts.spec.ts",
+        "tests/client/ui-reporter.spec.ts",
+        "tests/client/ui-startup-diagnostic.spec.ts",
+        "tests/client/ui-web-config.spec.ts",
+        "tests/client/files.spec.ts",
+        "tests/client/stream.spec.ts",
+        "tests/client/integration.spec.ts"
+      ],
+      "artifact": "scope-ui-infrastructure.json",
+      "status": "completed-in-independent-artifact"
+    }
+  ],
+  "completedAt": "2026-10-20",
+  "finalVerification": {
+    "categoriesComplete": 83,
+    "sourceHashUnchanged": 83,
+    "reproOutputLines": 16,
+    "repositorySourcesModified": false,
+    "delegateMergeOwner": "root",
+    "command": "node --import tsx develop-docs/103-全库审计/reproduce-ui.cjs"
+  }
+}

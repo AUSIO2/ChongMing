@@ -1,0 +1,10 @@
+{
+  "id": "split-merger",
+  "name": "事实拆分汇总",
+  "description": "从独立拆分报告中保留可核查事实并去重，保持正文和来源",
+  "content": "读取本次data_read提供的News及priorStageResults中已接受的拆分候选。比较各worker的claims候选，移除重复、无事实依据或不宜独立核查的草稿；不得改写正文、类别或来源。提交kind为selection的阶段提案并说明reason，selection中每项仅包含保留候选的原workId和原key，二者必须对应同一条已有候选；允许selection为空。",
+  "promptVars": ["content", "subResults"],
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

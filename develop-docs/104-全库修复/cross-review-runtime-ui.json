@@ -1,0 +1,254 @@
+{
+  "scope": "104 runtime independent read-only cross-review by audit_ui",
+  "status": "complete",
+  "basis": "104 workspace.tar精确diff与实际构造/调用者；只读未运行新复现或修改runtime源码。",
+  "checks": [
+    {
+      "rawIds": [
+        "R01",
+        "R06"
+      ],
+      "status": "confirmed-preserves-boundaries",
+      "files": [
+        "backend/execution/host-worker.ts",
+        "tests/backend/execution/host-protocol.spec.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/execution/host-worker.ts",
+          "line": 172,
+          "basis": "首次grant检查5个实际字符串身份，map/work在339与已知queue notice精确绑定；host/holder/fence/leaseMs保留。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/execution/host-worker.ts",
+          "line": 226,
+          "basis": "续租再次接收未知HTTP对象，host/holder、一次duration检查后，对首次冻结的全部不可变标量作严格相等；不需要创建丢弃冻结副本。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/execution/host-worker.ts",
+          "line": 230,
+          "basis": "leaseMs异常仍由hostReadDuration抛普通Error，身份变化仍HostProtocolError，保原可重投/致命分类。"
+        }
+      ],
+      "testsReviewed": "真实Response字节经hostCallApi，5种数字字段与同形合法对照；续租duration0与changed-slot分开验证错误身份和Host是否结束。"
+    },
+    {
+      "rawIds": [
+        "R02"
+      ],
+      "status": "confirmed-preserves-boundaries",
+      "files": [
+        "backend/modules/shared/input-validation.ts",
+        "backend/adapters/http/graph-http-server.ts",
+        "backend/modules/workspace/workspace-input.ts",
+        "backend/modules/evidence-library/evidence-input.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/input-validation.ts",
+          "line": 9,
+          "basis": "unknown信封首次普通对象/数组排除与字段白名单仍由共享入口建立；command同时建立requestId UUID。method和params不被伪装成已验证业务类型。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/http/graph-http-server.ts",
+          "line": 149,
+          "basis": "HTTP read唯一outer解析后分派具体query参数解析；command265/267同理。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/workspace-input.ts",
+          "line": 149,
+          "basis": "控制模块typed信封入口仍逐方法解析unknown params和身份、上限/白名单。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 39,
+          "basis": "已解析HTTP入口保独立证据体积和workspace授权范围；原unknown evidenceReadEnvelope仍完整plain/keys/UUID。固定业务字段留收据之后。"
+        }
+      ],
+      "retained": "直接内部调用以真实合同对象构造，不将任意unknown/getter/Proxy视为可绕过的生产入口；没有为省重复扫描新增外部skip flag。"
+    },
+    {
+      "rawIds": [
+        "R03"
+      ],
+      "status": "confirmed-preserves-boundaries",
+      "files": [
+        "backend/adapters/http/graph-http-server.ts",
+        "backend/adapters/http/dsh-diagnostic-server.ts",
+        "apps/config/local-settings.ts",
+        "apps/cli/main.ts",
+        "apps/graph-server/admin.ts",
+        "backend/adapters/messaging/rabbitmq.ts",
+        "apps/desktop/credential-store.ts",
+        "apps/desktop/connection-manager.ts",
+        "backend/execution/host-worker.ts",
+        "backend/execution/dsh/work-executor.ts",
+        "backend/execution/dsh/dsh-business-plugin.mjs",
+        "backend/execution/dsh/runtime.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/http/graph-http-server.ts",
+          "line": 59,
+          "basis": "1MiB限制后fatal解码，非法UTF8保原INVALID_JSON受控分类。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/http/dsh-diagnostic-server.ts",
+          "line": 33,
+          "basis": "诊断请求仍在headers前400、headers后流内error，坏字节不执行DSH。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/execution/dsh/work-executor.ts",
+          "line": 87,
+          "basis": "读bytes IO失败与完整非法UTF8/JSON分开；AbortSignal优先，正常200坏正文协议错误，unavailable响应仍WorkAccessError。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/execution/host-worker.ts",
+          "line": 153,
+          "basis": "原Fetch response.json入口使用fatal arrayBuffer后JSON.parse，默认BOM移除语义保持。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/desktop/credential-store.ts",
+          "line": 44,
+          "basis": "文件读取在内容catch外，ENOENT/坏内容可恢复，真实FS错误不吞掉。"
+        }
+      ],
+      "retained": "逐项对照27文件中的UTF diff：原Buffer/readFile utf8入口ignoreBOM:true保旧BOM拒绝，原Fetch JSON入口默认去BOM。源材料HTTP文本解码未改；client既有fatal streaming+flush已另确认。"
+    },
+    {
+      "rawIds": [
+        "R04",
+        "R05"
+      ],
+      "status": "confirmed-preserves-boundaries",
+      "files": [
+        "backend/adapters/storage/branch-migration.ts",
+        "tests/backend/adapters/storage/branch-migration.spec.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/storage/branch-migration.ts",
+          "line": 352,
+          "basis": "每个旧node.kind/payload首次建立后返回selectedReportIds，后续发布集合、payload及关系重用该同次不可变数组。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/storage/branch-migration.ts",
+          "line": 384,
+          "basis": "producer记录以实际id收集独立structuredClone条目，最终Object.fromEntries保合法__proto__/constructor。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/storage/branch-migration.ts",
+          "line": 412,
+          "basis": "sourceEdges首次array形状复用，关系端点/from/to/kind及时间仍在map时完整验证。"
+        }
+      ],
+      "retained": "活动Run/lease迁移阻断、报告矛盾与缺失、score/reason首次解析、apply新快照验证与事务CAS均保；不以写路径先验替代unknown存储。首次验证顺序更早只影响多处损坏记录先报何处，未放宽合法集合。"
+    },
+    {
+      "rawIds": [
+        "R07"
+      ],
+      "status": "confirmed-preserves-primary-and-owned-cleanup",
+      "files": [
+        "apps/graph-server/main.ts",
+        "apps/local-server/runtime.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/apps/graph-server/main.ts",
+          "line": 32,
+          "basis": "startup连接关闭失败独立诊断后仍抛原startup对象；固定reporter实际存在。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/graph-server/main.ts",
+          "line": 71,
+          "basis": "HTTP/消息先allSettled，再继续connection，逐项记录全部实际失败并非只找first。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/local-server/runtime.ts",
+          "line": 42,
+          "basis": "按Host/HTTP/消息/DB顺序逐资源收集，close幂等同Promise，全部失败保Aggregate；startup原错与cleanup有序保留。"
+        }
+      ],
+      "retained": "没有新console后备；现有reporter的实际约定不按任意抛错logger假设扩大异常防护。"
+    },
+    {
+      "rawIds": [
+        "E01",
+        "E04",
+        "E05",
+        "E06"
+      ],
+      "status": "confirmed-preserves-real-input-and-driver-failure",
+      "files": [
+        "experiments/evidence-library-tests/load-target.ts",
+        "experiments/evidence-library-tests/relations-fixture.ts",
+        "experiments/evidence-library-tests/usage-fixture.ts",
+        "experiments/evidence-library-tests/stress.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/load-target.ts",
+          "line": 22,
+          "basis": "executionModel严格比较3个标量枚举，不把array经String变成remote。未知工厂其他能力和隔离检查仍保留。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/usage-fixture.ts",
+          "line": 222,
+          "basis": "outputProposal取当前工厂冻结scope.opinionType，固定发布evidenceClaimIds；通用nodeInput/readType精确查询仍保，不扩成一般旧catalog兼容删除。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/stress.ts",
+          "line": 86,
+          "basis": "错误counter无原型，自有动态码原样计数；普通与两种原型同名失败驱动均必须status:failed。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/stress.ts",
+          "line": 96,
+          "basis": "空样本真实null保留；私有调用仅0.5/.95/.99，稠密push样本保证最近秩索引在范围内。"
+        }
+      ],
+      "testsReviewed": "load-target合法3值对照与坏array、拒绝后close；stress真实驱动的受控失败测试不伪造成业务/性能通过。"
+    },
+    {
+      "rawIds": [
+        "E02",
+        "E03"
+      ],
+      "status": "confirmed-for-proven-startup-failure-paths",
+      "files": [
+        "experiments/evidence-library-tests/ui-fixture.ts",
+        "experiments/evidence-library-tests/relations-fixture.ts",
+        "experiments/evidence-library-tests/usage-fixture.ts",
+        "experiments/evidence-library-tests/ui-preview.ts",
+        "experiments/evidence-library-tests/relations-preview.ts",
+        "experiments/evidence-library-tests/usage-preview.ts"
+      ],
+      "evidence": [
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/ui-preview.ts",
+          "line": 18,
+          "basis": "fixture取得后即有close责任，真实mkdtemp拒绝纳入try，未取得目录不删；close尝试fixture和自有目录并保全部实际失败。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/relations-preview.ts",
+          "line": 20,
+          "basis": "相同所有权与主次Aggregate、移除自有signal监听，console Error对象保原生聚合诊断。"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/experiments/evidence-library-tests/usage-fixture.ts",
+          "line": 258,
+          "basis": "catch关闭再失败时Aggregate按原startup、cleanup排序，不改借用/shared资源归属。"
+        }
+      ],
+      "testsReviewed": "实际preview模块mock原factory/FS seam验证mkdtemp拒绝后close；真实fixture构造在Mongo启动/关闭双故障时保同一主错误对象及secondary。未把这些故障mock记为真实业务验证。",
+      "retained": "未给无已证可拒绝边界的usage同步application构造器新增catch，不扩成未证明的全部资源状态机。"
+    }
+  ],
+  "newConfirmedIssues": [],
+  "limitations": [
+    "不是重复执行103全区穷尽审计；重点复核本轮R01–R07/E01–E06的变更与必要边界。",
+    "合法BOM策略、Host普通/致命分类、未知storage首次解析、receipt顺序及真实试验/失败驱动区分均逐项核对。"
+  ],
+  "summary": "未发现需再改的可证实质问题；未以任意getter/Proxy、未知logger抛错或未复现清理情形扩大防护。"
+}

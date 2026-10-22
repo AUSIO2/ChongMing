@@ -1,0 +1,81 @@
+{
+  "checks": [
+    {
+      "id": "historical-work-stage",
+      "file": "backend/modules/graph/work-state.ts",
+      "status": "unchanged",
+      "scope": "whole-file",
+      "sha256": "d9e72f7e886e4f394fd85ed86826f3ca3a94cecf022349eb3ab5ee6ec0558d8b"
+    },
+    {
+      "id": "stored-null-editor-expiry",
+      "file": "backend/modules/graph/branch-state.ts",
+      "status": "unchanged",
+      "scope": "whole-file",
+      "sha256": "a0e2904ebd4efa4fd140fafa8ffd90dc6491a58186f4711c27a9f97fcd4ab42e"
+    },
+    {
+      "id": "unproven-mongo-stream-double-failure",
+      "file": "backend/adapters/messaging/mongo-outbox.ts",
+      "status": "unchanged",
+      "scope": "whole-file",
+      "sha256": "0966917443117a5a9cc17f82bbab541f358fcd3a1da11f1fff6b9463123fee49"
+    },
+    {
+      "id": "independent-authorization-and-read",
+      "file": "backend/application/graph-application.ts",
+      "status": "unchanged",
+      "scope": "whole-file",
+      "sha256": "caf25e8930eb355c534f6a6359a908f4178e2e0145498640fed846038c7cc7c4"
+    },
+    {
+      "id": "unproven-test-release-barrier",
+      "file": "tests/client/evidence-http.spec.ts",
+      "status": "unchanged",
+      "scope": "whole-file",
+      "sha256": "19cb7b8b8f2df3cc23d08aa0a0aac23b2e3c232a8626c326fbf907e1a9a6a3b9"
+    },
+    {
+      "id": "unproven-lock-close-double-failure",
+      "file": "apps/config/local-settings.ts",
+      "status": "unchanged",
+      "scope": "selected-function-or-expression",
+      "sha256": "bb189f214bd28b04fbce3d63ca0fb52a6a4345192c7e0a5e76e2f8f0d3825cfc"
+    },
+    {
+      "id": "unproven-asset-schema-pointer",
+      "file": "apps/ui/features/assets/AssetManagement.vue",
+      "status": "unchanged",
+      "scope": "selected-function-or-expression",
+      "sha256": "4142c0c9b747a896fd4222d0c56259e4ed6ddaab35d9eea09075ec5cd4327f75"
+    },
+    {
+      "id": "fixed-digest-ownership",
+      "file": "apps/ui/views/WorkspacePage.vue",
+      "status": "unchanged",
+      "scope": "selected-function-or-expression",
+      "sha256": "77dcb98c14748f258fa07d75a9c8df4a4b79da24023518a0f55f0fc612b98bc2"
+    },
+    {
+      "id": "cross-process-lease-text",
+      "file": "backend/execution/host-worker.ts",
+      "status": "unchanged",
+      "scope": "selected-function-or-expression",
+      "sha256": "1b9282d7282bbd125e922b38f6c8c0e13bf2e286ec760565dde2bb5fe5bd5135"
+    },
+    {
+      "id": "independent-plugin-port",
+      "file": "backend/execution/dsh/dsh-business-plugin.mjs",
+      "status": "unchanged",
+      "scope": "selected-function-or-expression",
+      "sha256": "9379711cb1633c94f88bbda860de4fef812c4d9df4b9cf2a21d6df23a215aa26"
+    },
+    {
+      "id": "unproven-pure-usage-constructor",
+      "file": "experiments/evidence-library-tests/usage-fixture.ts",
+      "status": "unchanged",
+      "scope": "selected-function-or-expression",
+      "sha256": "8ea89a799374f7c1626e678396323797953666c23c6c9efdeb11f4f89a96ecf9"
+    }
+  ]
+}

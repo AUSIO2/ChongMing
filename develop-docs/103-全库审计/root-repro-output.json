@@ -1,0 +1,76 @@
+[
+  {
+    "case": "unknown-object-key",
+    "key": "",
+    "accepted": true,
+    "keys": [
+      "required",
+      ""
+    ]
+  },
+  {
+    "case": "unknown-object-key",
+    "key": "unexpected",
+    "accepted": false,
+    "code": "INVALID_ARGUMENT"
+  },
+  {
+    "case": "enum-label-own-key",
+    "sourceOwnProto": true,
+    "parsedOwnProto": false,
+    "parsedKeys": [
+      "normal"
+    ]
+  },
+  {
+    "case": "presentation-map-own-key",
+    "field": "fieldLabels",
+    "accepted": true,
+    "inputOwnProto": true,
+    "parsedOwnProto": false,
+    "ordinaryPrototype": true
+  },
+  {
+    "case": "presentation-map-own-key",
+    "field": "enumLabels",
+    "accepted": true,
+    "inputOwnProto": true,
+    "parsedOwnProto": false,
+    "ordinaryPrototype": false
+  },
+  {
+    "case": "missing-constructor-binding",
+    "error": "TypeError",
+    "code": null,
+    "message": "refs is not iterable"
+  },
+  {
+    "case": "valid-constructor-port-run",
+    "validPublishedCatalog": true,
+    "validSourcePayload": true,
+    "error": "TypeError",
+    "code": null,
+    "message": "result[ref.port].push is not a function"
+  },
+  {
+    "case": "evidence-freeze-duplicate-work",
+    "accepted": true,
+    "payloadReads": 2,
+    "definitionClones": 2
+  },
+  {
+    "case": "test-fixture-startup-ownership",
+    "source": "tests/backend/fixtures/graph-api.ts:createGraphApi (exact function body transpiled in memory)",
+    "controlledMongoFailure": true,
+    "acquiredBrokerCount": 1,
+    "cleanupCallsBeforeRejection": 0
+  },
+  {
+    "case": "verification-cleanup-error-ordering",
+    "exactSourceBodies": true,
+    "realProcessesStarted": 0,
+    "brokerObservedError": "secondary temporary cleanup failure",
+    "runtimeObservedError": "secondary service cleanup failure",
+    "providerClosed": false
+  }
+]

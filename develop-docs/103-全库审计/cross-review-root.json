@@ -1,0 +1,142 @@
+{
+  "reviewer": "root",
+  "method": "当前源码、实际producer/consumer合同和已保存复现输出独立核对；仅验证所列真实阶段，不假定任意getter、SDK或构造器必然可失败。",
+  "findings": [
+    {
+      "id": "D01",
+      "result": "confirmed",
+      "basis": "同事务owner授权后每图helper重新read/compile相同workspace目录，存储snapshot不变；逐图不同payload解析仍必需。"
+    },
+    {
+      "id": "D02",
+      "result": "confirmed",
+      "basis": "新输出917先分配nodeId，921完整parse，940同次auto立即发布802再次parse；旧候选跨请求及新重映射值仍要完整验证；两个candidate扫描也同shape。"
+    },
+    {
+      "id": "D03",
+      "result": "confirmed",
+      "basis": "实际引用返回声明path无具体location；资产父指针不展开星号，expectedMediaType因此缺失；证据读取又按每值重复展开，根因合并正确。"
+    },
+    {
+      "id": "D04",
+      "result": "confirmed",
+      "basis": "JSON普通字典新增字段、端口初读桶和投影target继承读取是实际准入键问题；固定schema关键字/已准入变量键/UUID键写入不一律算问题。"
+    },
+    {
+      "id": "D05",
+      "result": "confirmed",
+      "basis": "外层白名单与同步rest对象构造已限定字段集合；值解析及独立unknown入口继续保留。共享空键漏洞另归P02，不因为两个同样宽松检查而保留重复shape。"
+    },
+    {
+      "id": "D06",
+      "result": "confirmed",
+      "basis": "先grant后operationId选择未绑定同操作；HTTP真实路由无额外绑定，source.read写前最后身份检查过晚；runtime也独立确认。"
+    },
+    {
+      "id": "D07",
+      "result": "confirmed",
+      "basis": "内嵌base64已完整解码/长度/规范编码/sha后丢bytes，私有同包导入再decode/hash；外层未知blob和严格新filename/media策略是不同边界，不删除。"
+    },
+    {
+      "id": "D08",
+      "result": "confirmed",
+      "basis": "readonly right数组每次every复制sort不随index变化，可以各sort一次，长度/授权范围相等检查保留。"
+    },
+    {
+      "id": "D10",
+      "result": "confirmed",
+      "basis": "同一Run pause同步遍历operation，run.branchState与document不变；branch证明可一次，具体operation输入/规格校验仍每个需要。"
+    },
+    {
+      "id": "R01",
+      "result": "confirmed",
+      "basis": "新renewed先readGrant丢弃freeze副本再与原grant相等；需显式保持host/holder及leaseMs错误分类，初领宽松类型问题必须与R06一同处理。"
+    },
+    {
+      "id": "R02",
+      "result": "confirmed",
+      "basis": "路由信封与下游同对象keys/UUID重复无异步；不同业务params、evidence容量和receipt后字段解析保留。"
+    },
+    {
+      "id": "R03",
+      "result": "confirmed",
+      "basis": "Buffer.toString/readFile utf8默认替换有实际HTTP/诊断/config入口观察；仅这些已实际复现，其他列为静态同类，不把普通JSON字符串复制当未知字节。"
+    },
+    {
+      "id": "R04",
+      "result": "confirmed",
+      "basis": "纯迁移plan score在validateLegacyPayload后clone再相同枚举判断；同reportIds多次array/string解析，原值无变化；apply存储重读/CAS不删。"
+    },
+    {
+      "id": "R05",
+      "result": "confirmed",
+      "basis": "迁移id只要求nonempty，显式__proto__被metadata字典setter吞掉；与P01共同自有键主题，不能删除历史producer归档。"
+    },
+    {
+      "id": "R06",
+      "result": "confirmed",
+      "basis": "初领run/op/stage/slot/specHash仅truthy，数字17可进入实际Host注入runner；queue只约束map/work，dsh身份相等不补string合同。"
+    },
+    {
+      "id": "R07",
+      "result": "confirmed",
+      "basis": "两个真实启动入口initialize失败后清理又拒绝时丢主错；recoveryOpenPage同catch模式，合共同清理主题，不扩大lock/stream双故障未证路径。"
+    },
+    {
+      "id": "E01",
+      "result": "confirmed",
+      "basis": "动态factory结果是unknown，String([remote])会通过声明枚举，asserts类型因而不真实；独立接入形状检查应保留。"
+    },
+    {
+      "id": "E02",
+      "result": "confirmed",
+      "basis": "实际catch已有主错后await close再throw，关闭Aggregate只含次错时主错消失；保留逐资源清理，和SSE/入口错误归属合并。"
+    },
+    {
+      "id": "E03",
+      "result": "confirmed",
+      "basis": "三个preview真实mkdtemp在取得fixture后但清理责任前，可拒绝且没有close；纯同步app constructor任意注入异常证据不足，已缩小scope。"
+    },
+    {
+      "id": "E04",
+      "result": "confirmed",
+      "basis": "这些factory新建当前隔离应用/工作区，Opinion当前精确包只有evidenceClaimIds；旧evidenceIds分支不是通用导入或部署旧记录合同。"
+    },
+    {
+      "id": "E05",
+      "result": "confirmed",
+      "basis": "未知target错误code可为原型同名字符串，counter从普通{}读取继承函数，实际错误统计损坏；合P01，真实失败数仍保留。"
+    },
+    {
+      "id": "E06",
+      "result": "confirmed",
+      "basis": "私有percentile前面处理空样本，稠密push与固定分位保障后续索引；只末端默认不可达，缺指标null语义保留。"
+    },
+    {
+      "id": "B01",
+      "result": "confirmed",
+      "basis": "已安装Vite startServer把configPort0当false选默认5173；fixture strictPort true不自动换端口。是fixture调用假设错误，不声称Vite违反Node listen合同。"
+    },
+    {
+      "id": "B02",
+      "result": "confirmed",
+      "basis": "性能用例各调用先保障样本数量，固定q与有限稠密值构造让下界保护及默认0不可达，未测指标unavailable/空样本门槛仍必要。"
+    },
+    {
+      "id": "U15",
+      "result": "confirmed",
+      "basis": "四个站点只有一次转发/属性返回，没有额外生命周期、参数冻结或错误策略；仅低收益维护项，不以函数数量当主要成果。"
+    },
+    {
+      "id": "U19",
+      "result": "confirmed",
+      "basis": "parts由String.split产生至少一项，slice/map与只读迭代不删它；仅!parts.length死分支，容器与路径声明匹配仍必要。"
+    },
+    {
+      "id": "U23",
+      "result": "confirmed",
+      "basis": "仅固定fakeGateway初始化vi.fn且捕获前不reset的测试片段，getMockImplementation在该闭合前提下有实现；不否定vi.fn一般无实现的真实API能力。"
+    }
+  ],
+  "notes": "root自有发现由runtime/domain/UI另审；UI其余主要项由runtime两批及U24独立审，记录均在本目录。"
+}

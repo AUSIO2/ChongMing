@@ -1,0 +1,320 @@
+{
+  "reviewer": "runtime",
+  "scope": "domain-104-independent-cross-review",
+  "status": "complete-no-open-findings",
+  "updatedAt": "2026-10-20T07:19:03.093354+00:00",
+  "baselineArchive": "/var/folders/hp/ptsjk88d4fv17r_wj8lkwtc00000gn/T/chongming-104-baseline-4xcmjbjh/workspace.tar.gz",
+  "comparison": "104恢复快照精确diff，不是HEAD累计改动",
+  "readOnly": true,
+  "sourceEdited": false,
+  "testSuitesRerun": false,
+  "newEnvironmentsStarted": 0,
+  "files": [
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+      "baselineSha256": "69a6f8d376b613cdf4dd8414c46999479a3aa3f393a308b2ab864e452834972b",
+      "reviewedSha256": "0981729bb34df982514a55311d3778f66f26d0f8dd651d39b8beca64c9202b82"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+      "baselineSha256": "ff534574cb1562c4f69530a852219beff230a4be88a015d5c2e09b82d13ad5f9",
+      "reviewedSha256": "30ddbe4bc03ba7e680996f2624118cc0752231e6d67a32a0b8c446850dae127f"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-input.ts",
+      "baselineSha256": "b60e668f5e80a0808ddb67968be6fa9728999a9598882052f29c947f447f1e02",
+      "reviewedSha256": "76db57f8afa2d2ee5124527e597115b236bb2a12103c8b8bc7b91d4511819d57"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+      "baselineSha256": "74340398c56d2ab6f6b888eaf0c4aa01d2d72c30c1befa5638f0c3aae3d37fd7",
+      "reviewedSha256": "aea2cc9fb9361aa308ee05688500fa8ac211186894b14297df16f77aa7447884"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+      "baselineSha256": "ceef61fb43f5fc218329b901c9cf10acbaa7d6f5c57e984664b63b1a697fbcc7",
+      "reviewedSha256": "db4de7e57c28fb176c95fed5dc34152c7480ed8a9718ebd40b8cf8b288530f09"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+      "baselineSha256": "b4b405f8d66ebf34011628857a2259fda495f610f41a30b73ce06f978e3f2ed3",
+      "reviewedSha256": "d84f3d427f12ce8cf99715dba1a87b81468129c516dadd88b65248e9897cd7cb"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+      "baselineSha256": "3f6f8ad6a15ce51118a2b363d2ee4f0633c0549df1dcee33e9011e597d49327e",
+      "reviewedSha256": "184db6e9db82474b3baa745f19ffd83dd13d4e82fb99e0f2786dc96f848cd422"
+    },
+    {
+      "file": "/Users/xiong/ChongMing/backend/modules/workspace/workspace-input.ts",
+      "baselineSha256": "58281ce9e103803c14422344783ee8dba70d2463826276736d763f3a6d56ef36",
+      "reviewedSha256": "02e96b7fb73baebc4e6d75cb502a54c3c73ef1ad63f593359985dc9965068383"
+    }
+  ],
+  "reviews": [
+    {
+      "rawIds": [
+        "D02"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 607
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 613
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 873
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 981
+        }
+      ],
+      "basis": "outputs在本次runUpdateProposal中structuredClone并分配nodeId，RunValidatedOutput以workId+NUL+key定位，保存同一次候选引用物化后graphParseNodePayload的payload/payloadReferences/references。当前提案仅在无await的auto直接发布链传递该Map；ids表复用相同候选nodeId。group.results仅存独立候选原值，未把解析缓存持久化。当前Map未命中的历史候选仍完整物化和parse；selection创建空Map；human review先返回且后续runAnswerReview显式new Map()重新解析，不跨attempt复用。",
+      "boundariesKept": [
+        "阶段输出基数及未知端口拒绝",
+        "精确typeRef、libraryClaimRefs身份/digest授权",
+        "候选具体path、阶段依赖和正式ID均校验",
+        "发布闭包、目标类型及分支可达",
+        "propose先收据后当前lease/分支资格，CAS前跨await资产检查及最终grant/fence约束"
+      ],
+      "ownership": "graph-service.propose对当前document先structuredClone，完整解析再构造新nodes；提交失败不污染当前存储文档或提案对象。"
+    },
+    {
+      "rawIds": [
+        "D03",
+        "D07"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 693
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 1251
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 45
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 338
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 673
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 639
+        }
+      ],
+      "basis": "definitionsParsePayload先复制独立JSON并完整验证schema，definitionValuesAt从这同份value展开真实转义path与parent；引用definition另clone，parent不落持久化payloadReferences（索引仍声明路径）。资产/包媒体约束直接读该parent，数组及字典星号不会再按声明通配串误查。bundlesReadAsset仅一次Base64解码并核size/64MiB/规范重编码/sha，返回原DTO与私有Buffer配对；ParsedWorkspaceBundle.bundle.assets与其内部parsedAssets来自同一数组，生产唯一调用者readWorkspace→createImport同步交接，没有外部可写别名暴露到await之前。",
+      "boundariesKept": [
+        "原始外层bundle上传和存储字节仍独立核对",
+        "资产唯一ID、包内引用闭包、ready/工作区/媒体规则",
+        "新Agent/node/asset身份映射后重新建catalog，并对每个新payload graphParseNodePayload完整验证",
+        "实际blobs.write继续消耗已验Buffer，未知上传路径assetsWriteBlob仍流式核hash/size",
+        "导入发布事务重新鉴权/核收据/核暂存资产，不确定提交不删可能已发布的文件"
+      ],
+      "ownership": "DTO/Buffer为本次读包私有结果，生产导入无跨调用缓存；parent和内部解析状态不进入便携DTO或图存储。"
+    },
+    {
+      "rawIds": [
+        "D06"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 523
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 928
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 953
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 981
+        }
+      ],
+      "basis": "service在readLease及Run分支占有检查后构建纯sourceBindings。只有missing来源会在第一次options.readSource之前调用runReadWorkContext，后者绑定grant.operationId并检查Run/Operation、分支版本、每份精确输入、sealed/specHash、阶段依赖/expectedWorkIds/未接纳结果、槽位Agent资格。无missing时不加预检，而最终完整runReadData同样拒绝错Operation且前面无来源副作用。来源提交保留receipt/CAS重试，返回新document后重新workReadGrant，最终runReadData再次完整核验且只连接CAS赢家的stored正文。",
+      "boundariesKept": [
+        "store.readLease负责当前Run未暂停/可执行及holder/fence/有效期",
+        "graphCommit保留最终租约与Run ownership guard",
+        "CAS冲突重读当前快照；跨await复验不是本轮重复检查删除对象",
+        "无缺失来源只做一次完整资格验证"
+      ],
+      "evidenceRead": "已读source-read-concurrency.spec正负Operation及两个并发reader断言，已读domain-memory-after.jsonl现WorkStopped/readSourceCalls0/cache0/receipt0；未重复运行测试。"
+    },
+    {
+      "rawIds": [
+        "D04",
+        "P01"
+      ],
+      "result": "confirmed-after-resolved-omission",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-input.ts",
+          "line": 12
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 238
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 302
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 404
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 1282
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 327
+        }
+      ],
+      "basis": "未知JSON复制、端口桶与冻结绑定输出使用Object.fromEntries/Map，自有存在性检查用于missing constructor/toString可选端口；投影使用own读取与defineProperty写入保持合法嵌套__proto__。prompt绑定变量名经definitionReadIdentifier要求首字母，因此不会把语法相似的__proto__变量赋值当可达问题。initial review发现已承诺presentation三字典仍未改，现owner已补Object.fromEntries并保相同字符串验证；纯内存前后输出确认内层已发布enum与两个外层映射均保自有__proto__、输出仍普通Object.prototype。",
+      "boundariesKept": [
+        "合法同名payload字段和端口仍接受",
+        "未提供可选端口是真实空集合，必需端口仍基数拒绝",
+        "JSON深度/成员/有限数/对象根边界",
+        "映射外层package接受证据与内层catalog发布证据分开，不声称任意外层key都是UI可消费pointer"
+      ]
+    },
+    {
+      "rawIds": [
+        "D01"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 526
+        }
+      ],
+      "basis": "asset.delete继续在owner写授权和receipt/hash/expectedSha检查后，先保永久库引用hook，再读取本事务实际全部graphRows；有图时只读取同一份definition目录，但每张图正文仍经definitionsReadPayloadReferences完整parse后检查目标资产。零图不额外读目录。随后metadata replace和receipt insert保持同事务。"
+    },
+    {
+      "rawIds": [
+        "D05"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+          "line": 35
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/workspace-input.ts",
+          "line": 93
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 137
+        }
+      ],
+      "basis": "两个真实seed unknown入口各自完整outer白名单后共用私有fields解析；definitionPackage只在配置入口独立完整读取。controlReadAgent unknown入口保outer，bundle Agent+revision入口保自己的outer+revision后调用同一fields，工具/角色/绑定/promptVars/provider/model/priority/category均未删。新Fields API只被已核outer的这两个实际生产caller使用，无uncheckedflag或公开网络绕过。"
+    },
+    {
+      "rawIds": [
+        "D08",
+        "D10"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 437
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 1133
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 120
+        }
+      ],
+      "basis": "roots两侧各复制排序一次，长度及逐元素相等规则不变且不改输入。pause/resume仅把同一Run分支摘要提升为一次；每个不同Operation仍检查完整input/context引用身份/revision/type及sealed/specHash。当前Run为独占同次草稿，循环中无await或文档修改；其他执行入口继续组合分支+Operation验证。"
+    },
+    {
+      "rawIds": [
+        "G26-coordination"
+      ],
+      "result": "confirmed-no-new-risk",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/workspace-input.ts",
+          "line": 148
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/workspace-input.ts",
+          "line": 186
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 102
+        }
+      ],
+      "basis": "真实生产callers仅HTTP的inputReadQueryEnvelope/inputReadCommandEnvelope，已确认outer白名单/UUID，method仍unknown交原方法分类；各业务params仍unknown并完整解析。bundle/controlReadAgent的独立未知输入入口不受typed envelope缩窄影响。"
+    }
+  ],
+  "findings": [
+    {
+      "id": "RD01",
+      "rawIds": [
+        "P01"
+      ],
+      "priority": 3,
+      "status": "resolved-by-domain-during-cross-review",
+      "title": "已承诺的presentation自有键字典遗漏修复",
+      "initialSites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 341
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 345
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/shared/data-definition.ts",
+          "line": 348
+        }
+      ],
+      "evidence": "初次当前公开parser合法catalog接受enum[__proto__,normal]，输入ownProto=true但解析后false；两个外层presentation映射也丢自有__proto__，enumLabels外层改变临时字典原型。不是新增主题，为103原P01漏站点。",
+      "resolution": "已直接通知root及domain；domain补三处Object.fromEntries且新增2例旧红新绿。runtime随后只读核当前函数并用相同公开parser输入复核：内层与两外层ownProto均true、普通Object.prototype保持。",
+      "beforeOutput": "cross-review-runtime-domain-repro-before.txt",
+      "afterOutput": "cross-review-runtime-domain-repro-after.txt"
+    }
+  ],
+  "memoryReproduction": {
+    "command": "node --import tsx develop-docs/104-全库修复/cross-review-runtime-domain-repro.cjs",
+    "exitCode": 0,
+    "scope": "纯内存公开定义解析器，无数据库/监听/外网或源码写入",
+    "script": "cross-review-runtime-domain-repro.cjs"
+  },
+  "limits": [
+    "没有重复领域单元/Mongo/浏览器整套测试；已有结果引用不是本reviewer执行声明。",
+    "只针对104指定8模块差异及实际调用链交叉，不宣称重新完成一轮无界全库审计。",
+    "导入/候选解析结果的类型只用于明确内部私有同次所有权，未要求为伪造typed对象另加运行时兜底。"
+  ]
+}

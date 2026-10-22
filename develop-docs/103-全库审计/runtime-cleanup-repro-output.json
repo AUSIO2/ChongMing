@@ -1,0 +1,20 @@
+[
+  {
+    "case": "graph-api",
+    "primaryRetained": false,
+    "observedCleanupInstead": true,
+    "observedName": "Error"
+  },
+  {
+    "case": "local-runtime",
+    "primaryRetained": false,
+    "observedCleanupInstead": true,
+    "observedName": "Error"
+  },
+  {
+    "case": "recovery-page",
+    "primaryRetained": false,
+    "observedCleanupInstead": true,
+    "observedName": "Error"
+  }
+]

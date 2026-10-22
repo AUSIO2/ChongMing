@@ -1,0 +1,9 @@
+{"id":"D04-json-key","ownProtoField":true,"ordinaryPrototype":true,"keys":["__proto__"]}
+{"id":"D03-media","typeId":"audit.single","result":"ASSET_REFERENCE"}
+{"id":"D03-media","typeId":"audit.array","result":"ASSET_REFERENCE"}
+{"id":"D01-delete-catalog","emptyGraphs":3,"catalogCompilations":1}
+{"id":"D02-auto-parse","published":1,"outputSchemaReads":1,"traces":[["at runValidateStageOutputs (/Users/xiong/ChongMing/backend/modules/graph/run-state.ts:681:22)"]]}
+{"id":"D04-projection-key","projectedOwnKeys":["__proto__"],"prompt":"projected value"}
+{"id":"D04-explicit-members","outcome":"completed"}
+{"id":"D06-read-operation","error":"WORK_STOPPED","readSourceCalls":0,"fetchedOtherNode":false,"otherOperationCacheKeys":0,"sourceReceipts":0}
+{"id":"D10-pause-branch","operations":2,"branchRootReads":1}

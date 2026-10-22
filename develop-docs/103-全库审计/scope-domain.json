@@ -1,0 +1,2461 @@
+{
+  "scope": "domain",
+  "status": "reviewed_pending_cross_review",
+  "updatedAt": "2026-10-20T05:57:34.843Z",
+  "coverageConvention": "人工逐文件审查及跨层追踪；候选索引用于定位，不自动证明每个表达式安全。readRanges表示本轮完整读取的源码区间；后续类别依据分别记录。",
+  "files": [
+    {
+      "file": "backend/application/graph-application.ts",
+      "sha256": "2a95215b2c71d25016e9a82e0f142a3170c7b1d10033076afd6d315d342f4790",
+      "lineCount": 281,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          281
+        ]
+      ],
+      "candidateCounts": {
+        "S": 40,
+        "V": 6,
+        "L": 30,
+        "P": 19,
+        "F": 13,
+        "E": 13,
+        "K": 4
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "可选evidenceQuery装配决定功能可用性；clientLeases省略=required；无凭空成功默认。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "readActivities仅丢LEASE_LOST临时活动，其他异常传播；事务回调失败整体回滚。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "认证→workspace权限/写栅栏→领域收据/CAS职责独立；readonly查询两次读取非同快照不能机械删。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "新run.start才冻结当前catalog及材料，receipt重放先于active材料检查；无evidence时保留旧refs而拒绝新增为明确能力规则。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "102资产hooks已消费ParsedGraphNode，未再退宽；source/receipt/lease读取涉及真实不同阶段。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "用户requestId隔离前缀防跨成员重放；refs哈希比较用稳定canonical；共享空键白名单问题由rootP02归并。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "提案事务保留workspace fence和最终GraphStore仲裁；readData未通过app包装而直接graphBase读路径，新D06应在领域先绑定Operation。"
+        }
+      },
+      "notes": [],
+      "readMode": "完整TS AST打印（仅省略注释）并回读关键原始行/合同/调用者",
+      "finalSha256": "2a95215b2c71d25016e9a82e0f142a3170c7b1d10033076afd6d315d342f4790"
+    },
+    {
+      "file": "backend/modules/assets/asset-service.ts",
+      "sha256": "74340398c56d2ab6f6b888eaf0c4aa01d2d72c30c1befa5638f0c3aae3d37fd7",
+      "lineCount": 692,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          692
+        ]
+      ],
+      "candidateCounts": {
+        "P": 45,
+        "S": 66,
+        "F": 28,
+        "V": 21,
+        "K": 16,
+        "E": 54,
+        "L": 66
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "继承provider不在此；media String(typeof string)是可省小项；通配media丢约束D03；slot等存储默认未扩大。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "blob清理仅确定4xx回滚或明确并发多写；清理失败不覆盖原错；不确定commit保留blob是资源所有权要求。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "上传未知stream长度/sha验证、事务后权限重查、独立assertReferences完整parse必要；已验graph hook使用ParsedGraphNode。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "upload ready/deleted、receipt重放和原upload消失分支对应并发/清理；v4仅当前格式；cleanupDeleted独立维护。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "D01 delete每图编同snapshot目录；导出102已一次catalog；新增D07读包丢解码bytes导致import再次Base64/sha遍历，元数据新增filename策略仍须保留。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "D03通配引用缺具体path；assetsReadPointer确定路径不处理数组/own属性，确定source-text路径还需和root指针组交叉审。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "上传先慢blob再授权发布、导出快照内元数据/快照外不可变bytes、import发布不确定不删blob，均保留；content流消费/销毁归caller。"
+        }
+      },
+      "notes": [],
+      "readMode": "完整TS AST打印（仅省略注释）并回读关键原始行/合同/调用者",
+      "finalSha256": "74340398c56d2ab6f6b888eaf0c4aa01d2d72c30c1befa5638f0c3aae3d37fd7"
+    },
+    {
+      "file": "backend/modules/assets/bundle-codec.ts",
+      "sha256": "ceef61fb43f5fc218329b901c9cf10acbaa7d6f5c57e984664b63b1a697fbcc7",
+      "lineCount": 718,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          718
+        ]
+      ],
+      "candidateCounts": {
+        "E": 18,
+        "S": 84,
+        "V": 35,
+        "P": 119,
+        "K": 18,
+        "F": 33
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "v4旧格式拒绝；agent nullable模型回落精确snapshot/仍null有DTO用途；Agent原ref未重映射时保留历史archive身份必要。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "畸形包/摘要/引用/环直接拒绝；没有catch吞错；序列化size检查保留。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "初始图payload对象根/4096成员预算与schema约束不同；重映射新payload/catalog仍完整parse，禁止按102误删。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "Producer/历史Agent引用、manualOrigin/importedFrom、空libraryrefs省略各有当前协议；v3拒绝不能删。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "D07 BundleAsset完整base64/sha解析后丢bytes，import再decode/hash；D05 agent外层形状+构造rest再agentParser形状可收口小项；其余闭包/摘要/新值检查必要。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "D03通配media父路径误读；bundlesRewriteAt按声明path重走是具体path丢失同根性能点；包/agent身份用Map，通配对象Object.keys每子节点重算可局部收口。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯构建/parse，无异步资源；返回ParsedWorkspaceBundle由当前import独占，不建立跨请求缓存。"
+        }
+      },
+      "notes": [],
+      "readMode": "完整TS AST打印（仅省略注释）并回读关键原始行/合同/调用者",
+      "finalSha256": "ceef61fb43f5fc218329b901c9cf10acbaa7d6f5c57e984664b63b1a697fbcc7"
+    },
+    {
+      "file": "backend/modules/graph/branch-state.ts",
+      "sha256": "4c5820fe939865e3360996b11bafa5d99ac8e1def8cfd0c3127002ea1d5931ca",
+      "lineCount": 331,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          331
+        ]
+      ],
+      "candidateCounts": {
+        "K": 11,
+        "P": 34,
+        "F": 37,
+        "S": 40,
+        "E": 10,
+        "V": 3
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "payloadReferences/branchOwnerships来自真实可选持久化字段；GraphChanges可省略集合默认空；模拟新edge初始revision/时间只为impact计算。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "缺根占有不再吞错，scope/版本/引用边界错误明确拒绝；无catch清理。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "分支根唯一/存在、mutation影响、new-root独立森林是不同授权不变量；不得因上游图合法删范围检查。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "control/editor/run占有区分及过期editor忽略必要；editor expiresAt===null候选需先核对存储实际返回，记U02。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "多次scope/version/impact基于修改前后不同值，未合并不同快照；scope重复计算可结构复用但不直接删检查。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "identity索引用Map/Set，rootRevisions用Object.fromEntries安全建立自有键；引用path参与摘要而非普通pointer读取。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "纯状态计算；期限由调用传入存储时钟，最终并发裁决在GraphStore。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "4c5820fe939865e3360996b11bafa5d99ac8e1def8cfd0c3127002ea1d5931ca"
+    },
+    {
+      "file": "backend/modules/graph/graph-input.ts",
+      "sha256": "b60e668f5e80a0808ddb67968be6fa9728999a9598882052f29c947f447f1e02",
+      "lineCount": 115,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          115
+        ]
+      ],
+      "candidateCounts": {
+        "S": 12,
+        "E": 8,
+        "F": 6,
+        "V": 7,
+        "P": 1,
+        "K": 2
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "JSON数值有限性、对象根、深度32和全正文4096成员预算保留；没有字符串/数值强转。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "解析错误直接用GraphError拒绝，未吞错或伪成功。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "HTTP/便携包未知正文信封入口；精确schema在授权事务检查，预算与schema职责不同。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "标量JSON子值与顶层对象分离属于图合同；Agent revision零与定义version正数不同。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "递归复制一次，外层对象根检查不是完整schema重解析。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "发现result[key]对__proto__的动态写入改变原型/丢失自有字段，交root字典组复核。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "同步纯解析，无资源/异步代次。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "b60e668f5e80a0808ddb67968be6fa9728999a9598882052f29c947f447f1e02"
+    },
+    {
+      "file": "backend/modules/graph/graph-record.ts",
+      "sha256": "8e502969e4879265f0af8bfdf00baa816861f1afd6fdec45454eb8649f0c5fed",
+      "lineCount": 288,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          288
+        ]
+      ],
+      "candidateCounts": {
+        "V": 42,
+        "E": 3,
+        "S": 47,
+        "F": 96,
+        "K": 11,
+        "P": 10
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺runHistory/retired/ownership字段兼容当前持久化构造；Number仅在isSafeInteger后比较unknown，未用强转接纳坏值。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "legacy错误映射将当前非法存储拒绝，不吞成空图；只围绕存储输入转换统一错误。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "存储schema仅浅验普通Run/Operation，library新授权字段深验；后层不能假定planSlots已完全校验（U01）。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "明确拒绝pre077 data/run/configuration结构；支持旧当前记录缺新增可选字段，不自动迁移。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "完整library材料每Run检查并和每plan/op refs对应，不同实际对象的身份/摘要检查不能合并。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字典材料索引Map/Set；canonical枚举自有键并排序，不动态写对象字段。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯存储边界parser/摘要；无持资源异步工作。"
+        }
+      },
+      "notes": [],
+      "readMode": "完整TS AST打印（仅省略注释）并回读关键原始行/合同/调用者",
+      "finalSha256": "8e502969e4879265f0af8bfdf00baa816861f1afd6fdec45454eb8649f0c5fed"
+    },
+    {
+      "file": "backend/modules/graph/graph-service.ts",
+      "sha256": "ff534574cb1562c4f69530a852219beff230a4be88a015d5c2e09b82d13ad5f9",
+      "lineCount": 1013,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          1013
+        ]
+      ],
+      "candidateCounts": {
+        "F": 117,
+        "P": 84,
+        "S": 216,
+        "V": 31,
+        "K": 45,
+        "E": 99,
+        "L": 56
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "租期options缺省值是独立模块装配策略；graph.apply name提供时HTTP已拒空白，旧名||兜底可省minor；branch optional字段来自存储。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "64次有界CAS重试只捕REVISION_CONFLICT，其他错误传播；commit失败先查receipt确认响应丢失，不能删除。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "改前/改后范围、lease最终guard、holder/fence、Run ownership是不同仲裁；D06来源副作用发生在Operation资格核对前。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "local模式过滤历史editor/control是当前协调策略；accepted Work/replayed receipt保留业务语义；run.get查current再history真实用途。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "102旧节点和新put解析配对已保留；D08 graphSameRoots重复sort；run.start领域公共边界重复scope验证暂不直接删；D06先取source后校验。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "graph节点/引用/收据索引大多Map；branchOwnerships/leases键UUID或hash；D04输入动态payload字段问题上游共享，空白未知键并rootP02。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "readData异步来源必须最终lease/CAS复核且赢家冻结；但D06先绑定operationId缺失。graphCommit回调须同事务，独立service调用者自负seam契约。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "ff534574cb1562c4f69530a852219beff230a4be88a015d5c2e09b82d13ad5f9"
+    },
+    {
+      "file": "backend/modules/graph/library-claim-input.ts",
+      "sha256": "8cd3f12a4519fca2be7a0a1184bc43061bf9a3690ad31570dbb2040e39d3ae8d",
+      "lineCount": 54,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          54
+        ]
+      ],
+      "candidateCounts": {
+        "S": 8,
+        "V": 3,
+        "E": 6,
+        "P": 1,
+        "F": 2
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "hasReason选择两种真实协议；缺省数组不在该入口制造；理由trim与原始字节预算各有用途。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实越界/身份/摘要/理由错误直抛；无catch/清理。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "HTTP、存储、direct graph三个未知来源复用同一parser；UUID/SHA/32上限及理由64KiB保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "false/true私有重载对应选材ref与使用ref，不是历史兼容。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "一次map维护Set与形状检查；未重复完整parse。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "entryId通过UUID；Set而非普通对象作身份字典。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "同步纯解析，无资源/异步。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "8cd3f12a4519fca2be7a0a1184bc43061bf9a3690ad31570dbb2040e39d3ae8d"
+    },
+    {
+      "file": "backend/modules/graph/run-history.ts",
+      "sha256": "15806ae60b1b800d8b0a8b7ec03912ab00525f55cc47f4fb089316be0a36abb7",
+      "lineCount": 144,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          144
+        ]
+      ],
+      "candidateCounts": {
+        "S": 24,
+        "F": 19,
+        "V": 8,
+        "E": 10,
+        "K": 1,
+        "P": 5
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "limit省略25、operationId省略全目录、末页cursor=null是当前合同，tests明确覆盖。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "cursor编码/JSON/形状错误统一INVALID_CURSOR；成员版本变化单独RUN_CURSOR_EXPIRED，未吞业务读取失败。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "外部params与游标decoded unknown为两个边界；readRunPage只消费可信params，无重parse。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "current优先去重及active+waiting review计数是新增目录明确合同，不是无依据容错。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "成员版本只hash有序身份/createdAt；状态与归档搬移不失效，分页position复核防伪位置。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "运行身份用Map；游标只作过滤定位，不给任何Map授权。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "纯快照投影，不取控制权/租约；分页不承诺同状态快照，cursor绑定成员目录即可。"
+        }
+      },
+      "notes": [],
+      "readMode": "完整TS AST打印（仅省略注释）并回读关键原始行/合同/调用者",
+      "finalSha256": "15806ae60b1b800d8b0a8b7ec03912ab00525f55cc47f4fb089316be0a36abb7"
+    },
+    {
+      "file": "backend/modules/graph/run-state.ts",
+      "sha256": "69a6f8d376b613cdf4dd8414c46999479a3aa3f393a308b2ab864e452834972b",
+      "lineCount": 1083,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          1083
+        ]
+      ],
+      "candidateCounts": {
+        "S": 169,
+        "E": 69,
+        "P": 165,
+        "F": 115,
+        "V": 46,
+        "K": 51
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "GraphAgentProfile优先级可省所以medium必要；library/transition publication可省所以空集合必要；runReadData已验证依赖组后?.results??[]是死兜底小项。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "业务输入/计划/引用/审核错误直接拒绝；无法映射候选保留原值后schema拒绝，不默认合法输出。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "当前Run状态缩窄、封闭输入精确版本、冻结specHash、候选引用合法性不同约束；refs→claims独立公开入口无有界可信集合类型，保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "历史Operation精确spec及产物rev匹配才复用；regenerate明确禁复用；归档终态/计划审核/结果审核均当前功能。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "D02同步新候选parse重复；D10暂停/恢复同一Run每Operation重算相同branch snapshot；candidate扫描和发布引用统计同值可复用但不能跨请求缓存。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "D04普通对象端口桶/投影/变量原型键，需横扫；确定pointer对数组/own字段支持不足与rootpointer组复核。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "纯独占草稿无await；外部授权和最终CAS由GraphService统一；不删除跨attempt/审核请求重新检查。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "69a6f8d376b613cdf4dd8414c46999479a3aa3f393a308b2ab864e452834972b"
+    },
+    {
+      "file": "backend/modules/graph/work-activity.ts",
+      "sha256": "c052dc293a5dd44775c85b6d1e676df07566ae54af1e4f6ba17be5590fe37faf",
+      "lineCount": 35,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          35
+        ]
+      ],
+      "candidateCounts": {
+        "L": 1,
+        "S": 5,
+        "F": 3,
+        "E": 2,
+        "P": 1,
+        "K": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "inputRefs可能为空（合法基于上下文/无输入阶段），nodeId回落operation.id有显示身份用途；slot fallback依赖U01未删。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失去可执行work或找不到获权Agent显式LEASE_LOST，不吞存储错误。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "readLease取当前授权快照后workReadItems重验可执行性，租约有效不等于work尚可执行。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "普通stage Agent与计划slot Agent不同，不能统一成无条件stage.agent。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "按刚推导work反查run/operation/stage；可结构优化但不是重复schema边界。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "未按任意字符串向普通对象写入；stage/slot使用数组精确身份查找。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "await readLease之后只同步投影；活动sequence/fence由消息接收方处理排序，非此处默认。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "c052dc293a5dd44775c85b6d1e676df07566ae54af1e4f6ba17be5590fe37faf"
+    },
+    {
+      "file": "backend/modules/graph/work-state.ts",
+      "sha256": "3b9049357a3f6450ac85c5a756a39f76e91233208caddc93b6dc880e412c9be4",
+      "lineCount": 83,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          83
+        ]
+      ],
+      "candidateCounts": {
+        "S": 6,
+        "F": 6,
+        "P": 7,
+        "K": 3,
+        "E": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "planned缺失时slotId=stageId/priority=medium候选：当前构造器总按planSlots建立expectedWorkIds，但存储schema不深验，尚不能直接删；记录U01。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "workReadGrant对holder/fence不符拒绝，过期仍须store裁决；未吞错。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "Work从当前运行推导与独立租约证明检查职责不同，不删除store最终lease校验。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "仅running未paused且依赖closed才派发；accepted结果过滤必要。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "每阶段按expectedWorkId找slot；历史completed复用不再派发；跨模块重复计算先归调用者一致性，未判可删。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "workId hash避免stage/slot点号进入Mongo路径；priority固定枚举，不受外部对象键影响。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "纯推导不持资源；租约到期由存储时钟而非缓存值判断。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "3b9049357a3f6450ac85c5a756a39f76e91233208caddc93b6dc880e412c9be4"
+    },
+    {
+      "file": "backend/modules/workspace/agent-configuration.ts",
+      "sha256": "bb7c0ae5fb3da3dd05accc272e078db3c9025bed711ee327d996594f260d38ec",
+      "lineCount": 89,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          89
+        ]
+      ],
+      "candidateCounts": {
+        "S": 10,
+        "E": 6,
+        "V": 3,
+        "P": 6,
+        "F": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "promptVars/defaultPriority/claimCategory为GraphAgentProfile真实可选字段，未静默补合法枚举。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "坏配置直接INVALID_CONFIGURATION；无catch或资源清理。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "初始化外部profile/tools解析；工具名保留规则和跨Agent工具目录检查不同层约束。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "固定配置与workspace Agent编辑协议不同，不能删除其独立parser。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "工具单项形状+全目录唯一性、Agent各自tools唯一性+跨profiles id唯一性为不同集合不重复。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "工具/Agent身份用Set及数组，动态名称不作为普通对象键写入。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "同步纯校验，无代次/资源。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "bb7c0ae5fb3da3dd05accc272e078db3c9025bed711ee327d996594f260d38ec"
+    },
+    {
+      "file": "backend/modules/workspace/seed-configuration.ts",
+      "sha256": "3f6f8ad6a15ce51118a2b363d2ee4f0633c0549df1dcee33e9011e597d49327e",
+      "lineCount": 64,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          64
+        ]
+      ],
+      "candidateCounts": {
+        "S": 3,
+        "F": 5,
+        "E": 3,
+        "P": 4,
+        "V": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "可选GraphAgentProfile字段由profile parser保留；不从默认种子补缺parse/split。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "缺parse/split/预算/阶段数量明确失败，未降级。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "部署seedReadConfiguration与显式seedReadInput不同白名单；外层剥definitionPackage后重新object检查有重复形状小候选D05，字段和值仍各自必要。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "运行ExecutionCatalog与初始化输入分离，不保留旧运行结构兼容。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "seedReadConfiguration→seedReadInput对新rest对象做一次普通object/白名单重复；候选待caller归属核对。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "结构化字段解构与数组，不使用任意对象键索引。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "同步纯配置parser，不拥有文件/进程资源。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "3f6f8ad6a15ce51118a2b363d2ee4f0633c0549df1dcee33e9011e597d49327e"
+    },
+    {
+      "file": "backend/modules/workspace/workspace-input.ts",
+      "sha256": "58281ce9e103803c14422344783ee8dba70d2463826276736d763f3a6d56ef36",
+      "lineCount": 237,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          237
+        ]
+      ],
+      "candidateCounts": {
+        "S": 61,
+        "V": 4,
+        "E": 23,
+        "P": 8,
+        "F": 14,
+        "K": 4
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "provider/model为显式null继承，角色bindings成对可选；custom kind保持既有变量语义并ownKey读取固定表；不String枚举。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "坏枚举/重复/保留工具直抛；没有错误吞掉。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "未知HTTP管理信封一次parse；列表limit和cursor内容/权限后验不同边界；settings tools已验name后controlReadNames重验元素形状是minor但唯一性必须保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "旧kind默认配置仍由当前seed生产并可编辑，不能仅legacyVariables命名删除；library/workspace是两种真实scope白名单。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "controlReadScope先union形状后library精确shape的第二shape检查可合并选择白名单（同类D05）；缺省kind/definition pair合法。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "变量固定表hasOwn已修；members/selection用Object.fromEntries建立；共享inputReadObject空键漏验由rootP02归并。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "同步parser，不拥有资源或异步代次。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "58281ce9e103803c14422344783ee8dba70d2463826276736d763f3a6d56ef36"
+    },
+    {
+      "file": "backend/modules/workspace/workspace-service.ts",
+      "sha256": "bb4f959e0aae0060806c8f02e6457aa2918779eb842656366647fdc4a751ccbe",
+      "lineCount": 884,
+      "role": "implementation",
+      "readRanges": [
+        [
+          1,
+          884
+        ]
+      ],
+      "candidateCounts": {
+        "F": 61,
+        "S": 143,
+        "E": 55,
+        "K": 14,
+        "P": 100,
+        "L": 83,
+        "V": 19
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "profile null模型继承共享settings、历史精确Agent优先、names缺用户退回id均有当前存储/显示用途；不为运行注入默认Agent。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "事务/权限/版本/最后owner/库与工具并发错误明确；D12 seed targetById确定来源仍加missing异常可省minor。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "requireRole的写栅栏与实时role复验有仲裁副作用；controlValidateTools锁共享settings不能当重复读删；导入新identity组合catalog验证保留。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "empty/library workspace、generic bound Agent和旧kind同时是当前生产协议；default definitions按当前可用Agent过滤不是退役payload转换。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "102 exportDefinitions已单snapshot编目录；某些create/update读取settings在工具fence后同txn可结构复用但不删写锁；D12 seed确定map反查重复；其他重放不同时间点。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "roleRank key为受控Role；Agent映射Map；CONTROL_PROMPT_VARIABLES seed只用固定内生kind；普通cursor字段未知必须解析。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "写路径授权同事务并乐观版本/栅栏；seed只补缺global记录避免启动覆盖；read无session真实非原子快照不声称可合并所有重复检查。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "bb4f959e0aae0060806c8f02e6457aa2918779eb842656366647fdc4a751ccbe"
+    },
+    {
+      "file": "tests/backend/modules/assets/asset-list.spec.ts",
+      "sha256": "a999dbfae6afff5d2c758801399bf2964703b2f09b9e8520bb430f215dddbc40",
+      "lineCount": 175,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          175
+        ]
+      ],
+      "candidateCounts": {
+        "L": 54,
+        "S": 2,
+        "F": 3,
+        "K": 7,
+        "V": 3,
+        "P": 9,
+        "E": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "分页同时间排序/删除游标资产/50默认/200上限/跨工作区与坏游标/撤权/上传中隔离；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实HTTP+Mongo+队列；受控Promise暂停上传并finally释放，默认token仅fixture身份选择；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖分页同时间排序/删除游标资产/50默认/200上限/跨工作区与坏游标/撤权/上传中隔离；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。分页同时间排序/删除游标资产/50默认/200上限/跨工作区与坏游标/撤权/上传中隔离"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "真实HTTP+Mongo+队列；受控Promise暂停上传并finally释放，默认token仅fixture身份选择"
+        }
+      },
+      "notes": [],
+      "finalSha256": "a999dbfae6afff5d2c758801399bf2964703b2f09b9e8520bb430f215dddbc40"
+    },
+    {
+      "file": "tests/backend/modules/assets/asset-v4-integration.spec.ts",
+      "sha256": "d9d6a826661024e08e00465fd8af84ab87d21e0ab0b67da708cbf5a6ff5df0e7",
+      "lineCount": 355,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          355
+        ]
+      ],
+      "candidateCounts": {
+        "L": 71,
+        "S": 6,
+        "P": 33,
+        "V": 18,
+        "K": 23,
+        "E": 1,
+        "F": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺省值与真实可选字段：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "错误及故障注入：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实边界与可信fixture：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态和兼容约定：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "不同草稿/请求/版本区别：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "动态身份和引用：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源和异步所有权：真实Mongo/GridFS/application事务验证v3零写入拒绝/staging owner/导入重放/定义闭包与历史snapshot/资产节点重映射/审核资产删除竞争/已有node非法asset put整体回滚；fixture已验refs使用真实graphParseNodes，不伪造信任标签。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "d9d6a826661024e08e00465fd8af84ab87d21e0ab0b67da708cbf5a6ff5df0e7"
+    },
+    {
+      "file": "tests/backend/modules/assets/assets.spec.ts",
+      "sha256": "74f8ca87ec86b8f546315029c17f7f98d6c690a4d0ef20db3f97ce5ee72c003b",
+      "lineCount": 235,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          235
+        ]
+      ],
+      "candidateCounts": {
+        "F": 5,
+        "L": 78,
+        "S": 4,
+        "P": 14,
+        "V": 3,
+        "K": 10,
+        "E": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺省fixture参数与合法省略字段对应具体场景：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "业务拒绝和故障注入由断言验证，不吞成成功：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "区分未知请求/存储与内部fixture，覆盖：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态/兼容约定覆盖：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用观察不同并发/提交时间点：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "动态身份和pointer用真实协议路径验证：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源与等待归属：并发上传单资产/长度sha中断拒绝/流后撤权重查/资产范围/删除新增引用竞争/仅清理deleted；真实Mongo和GridFS；paused撤权用受控Promise；该用例release缺finally记测试资源minor候选D13"
+        }
+      },
+      "notes": [],
+      "finalSha256": "74f8ca87ec86b8f546315029c17f7f98d6c690a4d0ef20db3f97ce5ee72c003b"
+    },
+    {
+      "file": "tests/backend/modules/assets/bundle-v4.spec.ts",
+      "sha256": "925ec30a26509a4e9cbc5da6345bb85156473a38812a160cc4eca1fd590be0d0",
+      "lineCount": 127,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          127
+        ]
+      ],
+      "candidateCounts": {
+        "P": 18,
+        "K": 29,
+        "S": 2
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺省fixture参数与合法省略字段对应具体场景：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "业务拒绝和故障注入由断言验证，不吞成成功：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "区分未知请求/存储与内部fixture，覆盖：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态/兼容约定覆盖：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用观察不同并发/提交时间点：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "动态身份和pointer用真实协议路径验证：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "资源与等待归属：manualOrigin/importedFrom/历史sourceAnchors/定义digest闭包/资产节点身份重写/环/旧v3拒绝；纯codec真实公开入口；故意篡改包后重算digest用于孤立当前约束，非多余重复校验"
+        }
+      },
+      "notes": [],
+      "finalSha256": "925ec30a26509a4e9cbc5da6345bb85156473a38812a160cc4eca1fd590be0d0"
+    },
+    {
+      "file": "tests/backend/modules/assets/library-export.spec.ts",
+      "sha256": "535840ce0c707642c4191254ad6024ae181691e710a0a3705bd35ad50494ed80",
+      "lineCount": 34,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          34
+        ]
+      ],
+      "candidateCounts": {
+        "K": 8,
+        "P": 2,
+        "S": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "非空库引用拒绝、缺省/显式空引用投影独立复制；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "纯codec边界；omitted与[]是当前写协议不同来源形状，非退役格式兼容；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖非空库引用拒绝、缺省/显式空引用投影独立复制；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。非空库引用拒绝、缺省/显式空引用投影独立复制"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯codec边界；omitted与[]是当前写协议不同来源形状，非退役格式兼容"
+        }
+      },
+      "notes": [],
+      "finalSha256": "535840ce0c707642c4191254ad6024ae181691e710a0a3705bd35ad50494ed80"
+    },
+    {
+      "file": "tests/backend/modules/graph/branch-lease.spec.ts",
+      "sha256": "e457d4a4b968c8161494037e3afc371cf59072b04d8e6a0d10bf7b2b4b0d7233",
+      "lineCount": 264,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          264
+        ]
+      ],
+      "candidateCounts": {
+        "L": 113,
+        "S": 14,
+        "F": 2,
+        "E": 6,
+        "P": 7
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture省略/缺省用于真实协议场景：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败、错误分类或故障注入覆盖：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实入口与内部可信fixture边界：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态及历史存储约定：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用对应不同草稿/提交/外部入口：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份/pointer/字典约束的回归：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源与异步阶段所有权：端点占有/metadata全图guard竞态/holderfence/续租与写/Run接管控制/分支独立/ownership SSE；真实HTTP/Mongo/队列；store.commit seam注入先claim验证CAS，watch在finally abort并await/disconnect，定期20ms等待有deadline"
+        }
+      },
+      "notes": [],
+      "finalSha256": "e457d4a4b968c8161494037e3afc371cf59072b04d8e6a0d10bf7b2b4b0d7233"
+    },
+    {
+      "file": "tests/backend/modules/graph/branch-revision.spec.ts",
+      "sha256": "de2e4cc78cb061519f35aa50df6bf250bfe5723b9da55660a5ccac7ed0104283",
+      "lineCount": 153,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          153
+        ]
+      ],
+      "candidateCounts": {
+        "L": 49,
+        "S": 5,
+        "E": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺省fixture参数与合法省略字段对应具体场景：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "业务拒绝和故障注入由断言验证，不吞成成功：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "区分未知请求/存储与内部fixture，覆盖：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态/兼容约定覆盖：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用观察不同并发/提交时间点：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "动态身份和pointer用真实协议路径验证：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源与等待归属：无关分支CAS并发/目标版本冲突/新后继闭包/跨分支端点/删除身份禁复用/Claim引用类型/收据proof当前性；真实HTTP/Mongo/队列fixture；实际重读不同版本验证授权和事务，不删跨请求复验"
+        }
+      },
+      "notes": [],
+      "finalSha256": "de2e4cc78cb061519f35aa50df6bf250bfe5723b9da55660a5ccac7ed0104283"
+    },
+    {
+      "file": "tests/backend/modules/graph/branch.spec.ts",
+      "sha256": "4b3cd528821d56dd782333dc60f62cefe3c43ab360d5a13aaea4a5efc4ab38de",
+      "lineCount": 195,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          195
+        ]
+      ],
+      "candidateCounts": {
+        "F": 1,
+        "P": 35,
+        "S": 7,
+        "E": 2,
+        "V": 19
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture省略/缺省用于真实协议场景：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败、错误分类或故障注入覆盖：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实入口与内部可信fixture边界：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态及历史存储约定：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用对应不同草稿/提交/外部入口：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份/pointer/字典约束的回归：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "资源与异步阶段所有权：坏占有根必须失败/successor闭包/相邻关系version/删除级联影响/授权范围扩展与收缩/多根原子删除/newroot森林；纯领域状态计算；显式before/after不同对象不能当重复检查，坏根负例证明不能吞占有错误"
+        }
+      },
+      "notes": [],
+      "finalSha256": "4b3cd528821d56dd782333dc60f62cefe3c43ab360d5a13aaea4a5efc4ab38de"
+    },
+    {
+      "file": "tests/backend/modules/graph/generic-run.spec.ts",
+      "sha256": "eddc6370ad253c36bc238d25c3c48e41f11a79141d2fd9d89201e895a11dd464",
+      "lineCount": 540,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          540
+        ]
+      ],
+      "candidateCounts": {
+        "V": 8,
+        "P": 35,
+        "K": 52,
+        "S": 35,
+        "E": 14,
+        "F": 4,
+        "L": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture省略/缺省用于真实协议场景：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败、错误分类或故障注入覆盖：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实入口与内部可信fixture边界：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态及历史存储约定：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用对应不同草稿/提交/外部入口：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份/pointer/字典约束的回归：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "资源与异步阶段所有权：缺slot预算拒绝/冻结执行/typed后继/异常不改图/并行stage/候选引用闭包环/可见字段投影/真实default plan/权威preview与审核版本；纯真实领域入口，无资源；fixture运行输出用于103复现；畸形持久候选对preview与approve共同拒绝是跨入口边界，不删除两侧对外规则"
+        }
+      },
+      "notes": [],
+      "finalSha256": "eddc6370ad253c36bc238d25c3c48e41f11a79141d2fd9d89201e895a11dd464"
+    },
+    {
+      "file": "tests/backend/modules/graph/graph.spec.ts",
+      "sha256": "f64b32229cd490bcf338e4d50bcee5fc4482790c5e1d60e8fc75b80a16d568ce",
+      "lineCount": 246,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          246
+        ]
+      ],
+      "candidateCounts": {
+        "L": 95,
+        "S": 4,
+        "K": 5,
+        "P": 3,
+        "E": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture省略/缺省用于真实协议场景：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败、错误分类或故障注入覆盖：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实入口与内部可信fixture边界：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态及历史存储约定：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用对应不同草稿/提交/外部入口：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份/pointer/字典约束的回归：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源与异步阶段所有权：两类关系CRUD/环与类型/独立map.rename与墓碑receipt/权限用户隔离/节点信封schema/退役Evidence拒绝/空对象保存/已删资产receipt重放/8MiB限制/CAS；真实HTTP/Mongo/队列；重新连接数据库在finally关闭；输入拒绝和提交后重放覆盖不同真实状态"
+        }
+      },
+      "notes": [],
+      "finalSha256": "f64b32229cd490bcf338e4d50bcee5fc4482790c5e1d60e8fc75b80a16d568ce"
+    },
+    {
+      "file": "tests/backend/modules/graph/library-claim-run.spec.ts",
+      "sha256": "3a7d293a24b7cd93058a4acd7a8111cbb9e3bdc9bce7186fbbfc83462ef62e83",
+      "lineCount": 249,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          249
+        ]
+      ],
+      "candidateCounts": {
+        "F": 2,
+        "S": 30,
+        "K": 54,
+        "E": 6,
+        "P": 19,
+        "V": 22
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture省略/缺省用于真实协议场景：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败、错误分类或故障注入覆盖：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实入口与内部可信fixture边界：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态及历史存储约定：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用对应不同草稿/提交/外部入口：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份/pointer/字典约束的回归：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "资源与异步阶段所有权：材料每step一次/不扩大scope/Work只见当前step投影/0判断与0.5意见独立/使用理由授权/撤回后冻结继续/复用spec条件/存储摘要全链拒绝；纯Run与真实storeAssert边界；故障注入单改材料/重算局部digest/specHash隔离真实信任不变量，不能视为冗余重复校验"
+        }
+      },
+      "notes": [],
+      "finalSha256": "3a7d293a24b7cd93058a4acd7a8111cbb9e3bdc9bce7186fbbfc83462ef62e83"
+    },
+    {
+      "file": "tests/backend/modules/graph/library-commit.spec.ts",
+      "sha256": "2146e54a6ac41589690408a3d3bf6aff715696e67a0fe606a22d8fe6d37afd72",
+      "lineCount": 122,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          122
+        ]
+      ],
+      "candidateCounts": {
+        "L": 23,
+        "P": 6,
+        "S": 6,
+        "E": 2,
+        "K": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "成功CAS后回调一次/receipt跳过同步/省略保留显式[]清除/回调失败图和索引整体回滚；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实SQLite事务；hook故意throw是故障注入，必须传播并回滚；afterEach回收fixture资源；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖成功CAS后回调一次/receipt跳过同步/省略保留显式[]清除/回调失败图和索引整体回滚；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。成功CAS后回调一次/receipt跳过同步/省略保留显式[]清除/回调失败图和索引整体回滚"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "真实SQLite事务；hook故意throw是故障注入，必须传播并回滚；afterEach回收fixture资源"
+        }
+      },
+      "notes": [],
+      "finalSha256": "2146e54a6ac41589690408a3d3bf6aff715696e67a0fe606a22d8fe6d37afd72"
+    },
+    {
+      "file": "tests/backend/modules/graph/local-coordination.spec.ts",
+      "sha256": "4cb84e8e3d40c9158090223999b690fe5f95b5c790f7c70163272a7536e1d0fb",
+      "lineCount": 202,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          202
+        ]
+      ],
+      "candidateCounts": {
+        "L": 75,
+        "S": 12,
+        "F": 2,
+        "V": 1,
+        "E": 2,
+        "P": 25,
+        "K": 22
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fixture省略/缺省用于真实协议场景：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "失败、错误分类或故障注入覆盖：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实入口与内部可信fixture边界：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态及历史存储约定：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "重复调用对应不同草稿/提交/外部入口：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "身份/pointer/字典约束的回归：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源与异步阶段所有权：人工来源创建后不可冒充/历史producer保留/伪造来源拒绝/能力声明/本机rename删除/无客户端lease仍有branchversion/Run范围与旧editor忽略；真实SQLite+HTTP+client；旧客户端lease是当前明确兼容测试，不误删；afterAll回收server/client/messaging/database临时目录"
+        }
+      },
+      "notes": [],
+      "finalSha256": "4cb84e8e3d40c9158090223999b690fe5f95b5c790f7c70163272a7536e1d0fb"
+    },
+    {
+      "file": "tests/backend/modules/graph/node-run.spec.ts",
+      "sha256": "2e2a075efc4ca50d4a5893ad0fd09819488d44d2371455a9b6a855a51d6aab63",
+      "lineCount": 72,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          72
+        ]
+      ],
+      "candidateCounts": {
+        "L": 32,
+        "S": 4,
+        "P": 4,
+        "F": 1,
+        "K": 7
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "多输入独立Operation/一个待审核其他仍执行/共享后继不扩大scope/暂停撤权；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实HTTP调用；nullable claim通过用例断言证明，不用默认Work掩盖失效；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖多输入独立Operation/一个待审核其他仍执行/共享后继不扩大scope/暂停撤权；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。多输入独立Operation/一个待审核其他仍执行/共享后继不扩大scope/暂停撤权"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "真实HTTP调用；nullable claim通过用例断言证明，不用默认Work掩盖失效"
+        }
+      },
+      "notes": [],
+      "finalSha256": "2e2a075efc4ca50d4a5893ad0fd09819488d44d2371455a9b6a855a51d6aab63"
+    },
+    {
+      "file": "tests/backend/modules/graph/run-history.spec.ts",
+      "sha256": "b11a3b5288eb7eaf803c878bd57071b75d5e141066b4b451834f46f8c4d4dbf9",
+      "lineCount": 211,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          211
+        ]
+      ],
+      "candidateCounts": {
+        "F": 5,
+        "P": 8,
+        "S": 3,
+        "E": 2,
+        "K": 11,
+        "L": 1
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "25/100有界目录/等时稳定分页/current优先去重/取消旧review不计/精确过滤/游标绑定与过期；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "内存保存记录是目录合法输入，空execution fixture并非绕过执行校验；坏cursor直接走公开paramsparser；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖25/100有界目录/等时稳定分页/current优先去重/取消旧review不计/精确过滤/游标绑定与过期；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。25/100有界目录/等时稳定分页/current优先去重/取消旧review不计/精确过滤/游标绑定与过期"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "内存保存记录是目录合法输入，空execution fixture并非绕过执行校验；坏cursor直接走公开paramsparser"
+        }
+      },
+      "notes": [],
+      "finalSha256": "b11a3b5288eb7eaf803c878bd57071b75d5e141066b4b451834f46f8c4d4dbf9"
+    },
+    {
+      "file": "tests/backend/modules/graph/run.spec.ts",
+      "sha256": "aca7553391e6a46d6a6a183c983f9c31645cacb1c6c03d146edc8b439796bf47",
+      "lineCount": 383,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          383
+        ]
+      ],
+      "candidateCounts": {
+        "L": 140,
+        "S": 9,
+        "P": 19,
+        "K": 21,
+        "F": 3,
+        "E": 4
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺省值与真实可选字段：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "错误及故障注入：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实边界与可信fixture：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态和兼容约定：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "不同草稿/请求/版本区别：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "动态身份和引用：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源和异步所有权：真实HTTP/Mongo/队列验证历史归档/每页撤权/动态1或3Agent/计划和结果审核/权威preview版本及只读集合/控制lease隔离/paused审核保持/非法slot拒绝/精确spec复用；重复外部调用验证不同真实时点，不删除后续approve复核。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "aca7553391e6a46d6a6a183c983f9c31645cacb1c6c03d146edc8b439796bf47"
+    },
+    {
+      "file": "tests/backend/modules/graph/source-anchors.spec.ts",
+      "sha256": "3ab3d28b1d54a23cc264ba0f5ff2e001c7b85c1b226a8685ece7426eaf514fe8",
+      "lineCount": 125,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          125
+        ]
+      ],
+      "candidateCounts": {
+        "P": 13,
+        "V": 5,
+        "L": 35,
+        "S": 10,
+        "F": 1,
+        "E": 1,
+        "K": 10
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "硬换行/转义pointer/继承属性拒绝/历史脚注保留/伪造引用原子拒绝；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实SQLite+HTTP+client路径；临时目录/客户端/服务器/消息/数据库由beforeAll/afterAll关闭；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖硬换行/转义pointer/继承属性拒绝/历史脚注保留/伪造引用原子拒绝；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。硬换行/转义pointer/继承属性拒绝/历史脚注保留/伪造引用原子拒绝"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "真实SQLite+HTTP+client路径；临时目录/客户端/服务器/消息/数据库由beforeAll/afterAll关闭"
+        }
+      },
+      "notes": [],
+      "finalSha256": "3ab3d28b1d54a23cc264ba0f5ff2e001c7b85c1b226a8685ece7426eaf514fe8"
+    },
+    {
+      "file": "tests/backend/modules/graph/source-read-concurrency.spec.ts",
+      "sha256": "98fa19cc57b44c91b5becdbe1d7b5f30fa396e7c5f97b34c34f70e61ebc9f162",
+      "lineCount": 97,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          97
+        ]
+      ],
+      "candidateCounts": {
+        "P": 9,
+        "K": 5,
+        "S": 5,
+        "F": 1,
+        "V": 1,
+        "L": 2
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "动态URL两次读返回不同正文但两并发data_read共享唯一CAS赢家；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "GraphStore真实seam内存CAS替身；受控Promise等两fetch，不靠sleep，证明跨请求幂等与最终授权不能删；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖动态URL两次读返回不同正文但两并发data_read共享唯一CAS赢家；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。动态URL两次读返回不同正文但两并发data_read共享唯一CAS赢家"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "GraphStore真实seam内存CAS替身；受控Promise等两fetch，不靠sleep，证明跨请求幂等与最终授权不能删"
+        }
+      },
+      "notes": [],
+      "finalSha256": "98fa19cc57b44c91b5becdbe1d7b5f30fa396e7c5f97b34c34f70e61ebc9f162"
+    },
+    {
+      "file": "tests/backend/modules/graph/work.spec.ts",
+      "sha256": "08478c8b317d19becc5ee40c049ca5213a57838191d5f01be2e80c1e896fba7a",
+      "lineCount": 82,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          82
+        ]
+      ],
+      "candidateCounts": {
+        "L": 48,
+        "S": 2,
+        "F": 1,
+        "E": 1,
+        "K": 5,
+        "P": 7,
+        "V": 3
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "领取重放/竞争/续租不改revision/过期接管/fence/取消/旧release；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "真实租约adapter；80ms和2200ms用于2秒租期续租/到期边界，不是业务重试默认；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖领取重放/竞争/续租不改revision/过期接管/fence/取消/旧release；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。领取重放/竞争/续租不改revision/过期接管/fence/取消/旧release"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "真实租约adapter；80ms和2200ms用于2秒租期续租/到期边界，不是业务重试默认"
+        }
+      },
+      "notes": [],
+      "finalSha256": "08478c8b317d19becc5ee40c049ca5213a57838191d5f01be2e80c1e896fba7a"
+    },
+    {
+      "file": "tests/backend/modules/workspace/seed-configuration.spec.ts",
+      "sha256": "4453adbbf005b02150712751ff5972e254ea0a30f1a168dbc74d4d9bc057a055",
+      "lineCount": 59,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          59
+        ]
+      ],
+      "candidateCounts": {
+        "V": 2,
+        "P": 2,
+        "K": 3
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺parse/split拒绝/结果所有权/跨阶段重复Agent/工具目录/数组枚举拒绝；fixture默认身份/页大小/空集合均服务具体场景，不生成假成功。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "纯真实种子parser；故意破坏配置是负例输入，不把异常分支当冗余；检查失败由expect/rejects呈现，不吞业务异常。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "覆盖缺parse/split拒绝/结果所有权/跨阶段重复Agent/工具目录/数组枚举拒绝；真实外部畸形输入与已构造fixture分开，不删除负例解析。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "验证当前运行/归档/撤销/省略语义；没有以历史兼容名义补旧实现。缺parse/split拒绝/结果所有权/跨阶段重复Agent/工具目录/数组枚举拒绝"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "准备、发请求、读取提交后状态/重放的重复调用验证不同时间点；未当同份值冗余删除。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "字段/pointer/游标身份验证按用例构造；动态字典缺口另由103横扫复现，不把测试原型负例移除。"
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯真实种子parser；故意破坏配置是负例输入，不把异常分支当冗余"
+        }
+      },
+      "notes": [],
+      "finalSha256": "4453adbbf005b02150712751ff5972e254ea0a30f1a168dbc74d4d9bc057a055"
+    },
+    {
+      "file": "tests/backend/modules/workspace/workspace.spec.ts",
+      "sha256": "a61087a5cb40bb08c49b8e0520e1a12cd8e78757d2e62370aecd435632721231",
+      "lineCount": 479,
+      "role": "test",
+      "readRanges": [
+        [
+          1,
+          479
+        ]
+      ],
+      "candidateCounts": {
+        "F": 3,
+        "V": 4,
+        "P": 25,
+        "L": 127,
+        "S": 9,
+        "E": 9,
+        "K": 7
+      },
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "缺省值与真实可选字段：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "错误及故障注入：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实边界与可信fixture：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "当前状态和兼容约定：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "不同草稿/请求/版本区别：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "动态身份和引用：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "资源和异步所有权：真实Mongo事务验证自定义kind原型名/白名单/绑定变量/成员墓碑/定义发布CAS/最后Owner并发/授权fence/个人偏好/私有Agent复制/共享默认继承和精确历史快照；afterAll以try/finally关闭连接/副本集，freshConnection独立finally。"
+        }
+      },
+      "notes": [],
+      "finalSha256": "a61087a5cb40bb08c49b8e0520e1a12cd8e78757d2e62370aecd435632721231"
+    }
+  ],
+  "findings": [
+    {
+      "id": "D01",
+      "kind": "redundancy",
+      "title": "asset.delete对每张图重编同一事务目录",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 513
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 301
+        }
+      ],
+      "evidence": "delete在活动ctx.session中owner授权后逐graph调用control.definitions；helper重复requireRole/viewer writeFence及完整catalog编译。3空图内存实际service编译3次。",
+      "proposedChange": "取得一次目录后逐图运行纯assetsCollectNodeAssetReferences；各图正文仍独立解析。",
+      "boundariesToKeep": "owner授权/写栅栏、receipt优先、预期sha、所有图实际引用检查及同事务删除。",
+      "reproduction": "node --import tsx develop-docs/103-全库审计/repro-domain.cjs；D01-delete-catalog",
+      "priorFinding": "上一轮3主题之一，103复核确认，非102已删导出路径。",
+      "confidence": "high"
+    },
+    {
+      "id": "D02",
+      "kind": "redundancy",
+      "title": "同次自动发布重复完整解析候选及双扫描candidate哨兵",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 602
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 802
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 579
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 598
+        }
+      ],
+      "evidence": "917预分配nodeId后，921校验当次新outputs；940同步进入runFinishResult→runCreateOutputs再次完整JSON/schema解析同值。内存单无引用产物schema读取2次，对应两栈。scan与readRefs也对同份未改正文重复同shape判定。",
+      "proposedChange": "当次候选解析返回payload/真实refs/candidate位置，直接自动发布复用；只对来自旧存储或后续审核请求的候选重新完整parse。",
+      "boundariesToKeep": "首次候选合同/计数/授权检查，候选重映射的新值schema，跨请求旧候选完整parse；不引入通用cache/unchecked入口。",
+      "reproduction": "同脚本D02-auto-parse，published=1 outputSchemaReads=2。",
+      "priorFinding": "102原parse结果共享目标的剩余即时发布支路，上一轮已报告；不得重复计算已删跨层资产parse。",
+      "confidence": "high"
+    },
+    {
+      "id": "D03",
+      "kind": "behavior",
+      "title": "已展开引用未保留具体path，通配资产媒体约束被省略",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 284
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 377
+        }
+      ],
+      "evidence": "父指针仍是声明/locators/*，确定pointer读不到实际locator.mediaType，expectedMediaType=undefined。真实parser+实际资产service复现：同错配media确定path拒绝，合法arraypath接受。root evidence关系也重复展开相同path，合并同根。",
+      "proposedChange": "完整引用解析保留具体path或父对象；资产/包/证据消费者直接读同次结果。",
+      "boundariesToKeep": "asset ready/workspace/media检查和包引用闭包均保留，不通过删除media策略消除问题。",
+      "reproduction": "同脚本D03-media：audit.single ASSET_REFERENCE；audit.array ACCEPTED。",
+      "priorFinding": "上一轮已报；与root evidenceReadNodeReferencePaths O(n²)合并。",
+      "confidence": "high"
+    },
+    {
+      "id": "D04",
+      "kind": "behavior",
+      "title": "普通对象作为动态字典造成合法原型同名键丢失/崩溃",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-input.ts",
+          "line": 39
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 229
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 488
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 383
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 308
+        }
+      ],
+      "evidence": "graphInput JSON对象result[key]写__proto__触发原型setter；root复现constructor端口从result={}桶读原型函数后.push报错。 103新复现：合法own __proto__ schema与/__proto__/audit103投影通过发布/Run建立，runReadData后projectedOwnKeys=[]，Object.prototype.audit103被写入；finally删除进程内marker。 第二轮规则复核按源码确认explicit members缺省读取constructor同根风险；追加试构未同步output anchor，故在schema阶段拒绝，不把D04-explicit-members这次观察当正向复现实证。",
+      "proposedChange": "数据字段复制与字典桶使用自有字段安全构造/Map，保留合法键而非新增保留字兼容拒绝。",
+      "boundariesToKeep": "JSON深度/成员预算、合法端口/变量语义、对象根/schema约束。",
+      "reproduction": "同脚本D04-json-key：ownProtoField=false、ordinaryPrototype=false、inheritedMarker=own value；constructor端口证据由root负责。；D04-projection-key输出globalPrototypeMarker=projected value。",
+      "priorFinding": "root端口prototype共享组，103横扫增加JSON复制位置，不另重复计根因。",
+      "confidence": "high"
+    },
+    {
+      "id": "D06",
+      "kind": "behavior",
+      "title": "data_read未先绑定Operation，拒绝前已读取并提交另一Operation外部来源",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 928
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 942
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 953
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 964
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/http/graph-http-server.ts",
+          "line": 623
+        }
+      ],
+      "evidence": "同Run两输入各Operation，只有A有效grant却传B operationId，readSource(B)及source.read receipt先提交；runReadData最后才因work不属于B拒绝。内存现有sourceStore实际service复现见输出；HTTP路由绑定还待runtime交叉确认。 runtime交叉确认HTTP623–629仅验内部token、proof及body字符串，直接service.readData，没有grant.operationId绑定；application继承graphBase.readData，真实生产可达。",
+      "proposedChange": "任何来源读取/缓存写入前校验grant.operationId===operationId并验证operation/stage/work资格；异步读取后仍保留最终租约/CAS复核。",
+      "boundariesToKeep": "动态来源CAS赢家策略、lease有效期/holder/fence、Run ownership、receipt/CAS重试。",
+      "reproduction": "同脚本D06-read-operation：WORK_STOPPED但readSourceCalls=1 fetchedOtherNode=true otherOperationCacheKeys=1 sourceReceipts=1。",
+      "priorFinding": null,
+      "confidence": "high",
+      "crossReview": {
+        "reviewer": "/root/audit_runtime",
+        "result": "confirmed",
+        "basis": "HTTP623–629与application实际装配核对。"
+      }
+    },
+    {
+      "id": "D10",
+      "kind": "redundancy",
+      "title": "pause/resume对同Run每个Operation重复计算相同branch证明",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 1046
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/run-state.ts",
+          "line": 108
+        }
+      ],
+      "evidence": "runUpdatePause对run.operations调用同步runValidateInputs，循环内无修改，所有operation共用run.branchState和同一document，每次完整branchReadSnapshot相同；内存2Operation得到branchRootReads=2。",
+      "proposedChange": "一次验证当前Run的branch证明，再逐Operation保留各自输入id/revision/type、sealed和specHash检查。",
+      "boundariesToKeep": "操作级输入与规格校验、run活跃状态、外层控制权/最终CAS/异步后复核。",
+      "reproduction": "repro-domain.cjs D10-pause-branch operations=2 branchRootReads=2。",
+      "priorFinding": null,
+      "confidence": "high"
+    },
+    {
+      "id": "D05",
+      "kind": "minor",
+      "title": "确定rest形状又做通用对象白名单检查",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+          "line": 61
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+          "line": 63
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 131
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 134
+        }
+      ],
+      "evidence": "seedReadConfiguration白名单固定后剥definitionPackage再交seedReadInput重验object和相同7keys；bundlesReadAgent外层白名单含revision后剥revision再交controlReadAgent重验同一固定形状。无await/外传，第二形状分支不可触发，字段值仍须解析。",
+      "proposedChange": "公共未知边界一次决定白名单，内部字段解析消费已建立明确形状；不新增uncheckedflag/只转发兼容层。",
+      "boundariesToKeep": "独立seedReadInput/controlReadAgent未知入口，以及定义包和字段枚举/工具/身份规则。",
+      "reproduction": "静态逐项对照rest构造与callee keys；不新增镜像测试。",
+      "priorFinding": null,
+      "confidence": "high"
+    },
+    {
+      "id": "D07",
+      "kind": "redundancy",
+      "title": "内嵌附件丢弃已验bytes后再解码和完整哈希",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 335
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/bundle-codec.ts",
+          "line": 337
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 622
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/assets/asset-service.ts",
+          "line": 131
+        }
+      ],
+      "evidence": "bundlesReadAsset完整Base64解码、规范编码/长度/sha检查后仅返回base64；同一私有import再decode为相同Buffer并经assetsReadChunks重算sha。真实service内存替身：14字节附件哈希两次；外层2942字节包stream另检查一次（该检查必要）。",
+      "proposedChange": "ParsedWorkspaceBundle携带配对的已验附件bytes，导入直接交现有blob写接口；保留未知uploadstream和外层存储包完整验证。",
+      "boundariesToKeep": "外层blob读完整性、64MiB、规范Base64/sha、导入新增filename/media规则、授权重查及不确定commit时保留blob。",
+      "reproduction": "node --import tsx develop-docs/103-全库审计/repro-domain-import.cjs，embeddedHashPasses=2，exit0。",
+      "priorFinding": null,
+      "confidence": "high"
+    },
+    {
+      "id": "D08",
+      "kind": "minor",
+      "title": "graphSameRoots每个元素重新排序同一right集合",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/graph/graph-service.ts",
+          "line": 438
+        }
+      ],
+      "evidence": "left/right为readonlystring数组，同步方法内不变；every每轮都复制并排序right，排序与index无关，调用者为editor proof同根比较。",
+      "proposedChange": "左右各复制排序一次再比较，保留长度和身份相等。",
+      "boundariesToKeep": "授权范围相等和不原地修改caller根数组。",
+      "reproduction": "静态同值循环证据。",
+      "priorFinding": null,
+      "confidence": "high"
+    }
+  ],
+  "retained": [
+    {
+      "files": [
+        "tests/backend/modules/assets/asset-list.spec.ts"
+      ],
+      "basis": "分页同时间排序/删除游标资产/50默认/200上限/跨工作区与坏游标/撤权/上传中隔离；真实HTTP+Mongo+队列；受控Promise暂停上传并finally释放，默认token仅fixture身份选择"
+    },
+    {
+      "files": [
+        "tests/backend/modules/assets/library-export.spec.ts"
+      ],
+      "basis": "非空库引用拒绝、缺省/显式空引用投影独立复制；纯codec边界；omitted与[]是当前写协议不同来源形状，非退役格式兼容"
+    },
+    {
+      "files": [
+        "tests/backend/modules/graph/library-commit.spec.ts"
+      ],
+      "basis": "成功CAS后回调一次/receipt跳过同步/省略保留显式[]清除/回调失败图和索引整体回滚；真实SQLite事务；hook故意throw是故障注入，必须传播并回滚；afterEach回收fixture资源"
+    },
+    {
+      "files": [
+        "tests/backend/modules/graph/node-run.spec.ts"
+      ],
+      "basis": "多输入独立Operation/一个待审核其他仍执行/共享后继不扩大scope/暂停撤权；真实HTTP调用；nullable claim通过用例断言证明，不用默认Work掩盖失效"
+    },
+    {
+      "files": [
+        "tests/backend/modules/graph/run-history.spec.ts"
+      ],
+      "basis": "25/100有界目录/等时稳定分页/current优先去重/取消旧review不计/精确过滤/游标绑定与过期；内存保存记录是目录合法输入，空execution fixture并非绕过执行校验；坏cursor直接走公开paramsparser"
+    },
+    {
+      "files": [
+        "tests/backend/modules/graph/source-anchors.spec.ts"
+      ],
+      "basis": "硬换行/转义pointer/继承属性拒绝/历史脚注保留/伪造引用原子拒绝；真实SQLite+HTTP+client路径；临时目录/客户端/服务器/消息/数据库由beforeAll/afterAll关闭"
+    },
+    {
+      "files": [
+        "tests/backend/modules/graph/source-read-concurrency.spec.ts"
+      ],
+      "basis": "动态URL两次读返回不同正文但两并发data_read共享唯一CAS赢家；GraphStore真实seam内存CAS替身；受控Promise等两fetch，不靠sleep，证明跨请求幂等与最终授权不能删"
+    },
+    {
+      "files": [
+        "tests/backend/modules/graph/work.spec.ts"
+      ],
+      "basis": "领取重放/竞争/续租不改revision/过期接管/fence/取消/旧release；真实租约adapter；80ms和2200ms用于2秒租期续租/到期边界，不是业务重试默认"
+    },
+    {
+      "files": [
+        "tests/backend/modules/workspace/seed-configuration.spec.ts"
+      ],
+      "basis": "缺parse/split拒绝/结果所有权/跨阶段重复Agent/工具目录/数组枚举拒绝；纯真实种子parser；故意破坏配置是负例输入，不把异常分支当冗余"
+    },
+    {
+      "id": "R-domain-storage-optionals",
+      "basis": "当前SQLite/导入及旧当前记录可缺retired/ownership/payloadReferences字段，保留空集合默认。editor-null guard由于SQLite浅schema仍必要。"
+    },
+    {
+      "id": "R-domain-blob-cleanup",
+      "basis": "孤立blob清理失败不盖原业务错误；commit结果不确定保留字节，非吞业务伪成功。"
+    },
+    {
+      "id": "R-domain-pointer-rejected-candidates",
+      "basis": "内存试验根/空段pointer及required空名被定义parser拒绝，未把内部/分支猜测误报为可达泄漏。"
+    },
+    {
+      "id": "R-domain-test-faults",
+      "basis": "损坏snapshot/specHash、暂停stream、CAS竞争、abort/close是有效故障及边界测试，未改任何测试或靠兜底使其成功。"
+    }
+  ],
+  "unresolved": [
+    {
+      "id": "U01",
+      "topic": "workReadStage未匹配slot时构造默认Work",
+      "sites": [
+        {
+          "file": "backend/modules/graph/work-state.ts",
+          "line": 36
+        }
+      ],
+      "limit": "当前生产构造器保持slots/workIds配对，但stored graph浅schema不覆盖planSlots；须区分明确支持旧记录和损坏记录，不直接删除默认。"
+    },
+    {
+      "id": "U02",
+      "topic": "editor过期null分支",
+      "sites": [
+        {
+          "file": "backend/modules/graph/branch-state.ts",
+          "line": 222
+        }
+      ],
+      "limit": "Mongo storeReadIso拒null，但SQLite仅浅验ownerships并返回JSON，可交付editor.expiresAt:null；删除null guard会令Date.parse(null)=NaN且<=now不成立，须先加持久化边界深验，当前不删。",
+      "resolution": "retained"
+    },
+    {
+      "id": "U03",
+      "topic": "read-only应用鉴权与graph.read重复读图",
+      "resolution": "structural_candidate_not_counted",
+      "limit": "ctx.session通常缺省，两个读取并非天然同版本；只有改为单次授权快照并交接文档后才能消除，不直接删除第二次存储边界校验。"
+    },
+    {
+      "id": "U04",
+      "topic": "受控上传测试release缺finally",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/modules/assets/assets.spec.ts",
+          "line": 173
+        }
+      ],
+      "resolution": "test_lifecycle_limitation",
+      "limit": "撤权步骤若先失败，resume未在finally调用，上传generator可能等到test超时；未注入该基础设施失败，不算已复现生产bug。"
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow-source-read",
+      "steps": [
+        "HTTP internal map/operation路径+work proof",
+        "graph.readData读取grant/run/operation",
+        "source-text readSource并持久化externalInputs",
+        "runReadData最终stage/work校验"
+      ],
+      "review": "新V/L候选：operationId与grant.operationId尚未在外部读取前绑定，待内存复现；最终CAS本身必须保留。"
+    },
+    {
+      "id": "flow-graph-apply",
+      "steps": [
+        "HTTP信封/JSON预算",
+        "auth.transact+workspace editor fence",
+        "同session catalog",
+        "receipt优先",
+        "当前attempt graphParseNodes+before proof",
+        "新put完整parse+after授权范围",
+        "typed refs资产状态",
+        "store最终CAS/ownership/lease",
+        "同事务onGraphCommit"
+      ],
+      "retained": "授权fence/receipt顺序/新旧值分别解析/最终CAS保留；102已删跨层parse不重计。"
+    },
+    {
+      "id": "flow-run-start",
+      "steps": [
+        "未知plan parser",
+        "executionCatalog+DB Claims冻结",
+        "branch/editor proof",
+        "runCreateRun plan/claims对应",
+        "definitionsFreezeExecution",
+        "CAS接管Run ownership"
+      ],
+      "retained": "refs、DB重建Claim、Run持久化snapshot、Operation spec不是同一对象或同一信任来源。"
+    },
+    {
+      "id": "flow-proposal-review",
+      "steps": [
+        "候选信封/预算",
+        "graph lease+receipt",
+        "runUpdateProposal合同",
+        "publication闭包plan",
+        "重映射具体payload parse",
+        "typed资产hook",
+        "最终guard/CAS"
+      ],
+      "findings": [
+        "D02"
+      ],
+      "retained": "跨请求人审须解析存储候选；102同review的plan复用正确。"
+    },
+    {
+      "id": "flow-export",
+      "steps": [
+        "assetsReadSnapshot session",
+        "图+workspace授权",
+        "exportDefinitions一次catalog/packages/agents/profiles",
+        "graphParseNodes",
+        "纯closure/digest和资产元数据",
+        "快照外不可变blob长度sha",
+        "base64最终预算"
+      ],
+      "retained": "元数据snapshot与实际字节检查不同；库refs不受v4支持必须拒绝。"
+    },
+    {
+      "id": "flow-import",
+      "steps": [
+        "staging owner+receipt",
+        "外层blob完整性",
+        "UTF8/JSON/v4包未知parser",
+        "原payload完整parse",
+        "重映射新catalog/payload完整parse",
+        "asset bytes写blob",
+        "auth.transact再次owner/receipt/原包可用",
+        "新workspace定义与图写",
+        "receipt"
+      ],
+      "findings": [
+        "D07"
+      ],
+      "retained": "原值与新值不同，重映射后parse保留；不确定commit不能删blob。"
+    },
+    {
+      "id": "flow-workspace-write",
+      "steps": [
+        "未知control parser",
+        "auth.transact",
+        "mutation事务要求",
+        "receipt优先",
+        "role+workspace fence",
+        "版本与跨资源约束",
+        "tools/settings与library版本fence",
+        "版本CAS+receipt",
+        "视图"
+      ],
+      "retained": "requireRole/controlValidateTools写栅栏有副作用，不按关键字当纯重复read删。"
+    },
+    {
+      "id": "flow-run-history",
+      "steps": [
+        "未知params parser",
+        "viewer/undeleted map",
+        "current优先history去重",
+        "精确operation filter",
+        "未知cursor解码+query/member绑定",
+        "摘要+有界页"
+      ],
+      "retained": "只读不取控制权；limit25/归档去重/状态更新不使cursor失效有现行合同与测试。"
+    }
+  ],
+  "transversal": [
+    {
+      "category": "K",
+      "theme": "动态字典自有键",
+      "files": [
+        "backend/modules/graph/graph-input.ts",
+        "backend/modules/graph/run-state.ts",
+        "backend/modules/workspace/workspace-input.ts",
+        "backend/modules/workspace/workspace-service.ts",
+        "backend/modules/assets/bundle-codec.ts"
+      ],
+      "result": "D04确认JSON复制/端口桶/投影普通对象写。Map/Set/Object.fromEntries大多安全；/空段pointer另试被definitionsReadPointer拒绝，未列泄漏误报。固定kind变量表ownKey已保留。"
+    },
+    {
+      "category": "V",
+      "theme": "库refs到冻结claims",
+      "files": [
+        "backend/modules/graph/library-claim-input.ts",
+        "backend/modules/graph/run-state.ts",
+        "tests/backend/modules/graph/library-claim-run.spec.ts"
+      ],
+      "result": "原refs、DB重建完整claims、persisted snapshot以及Operation spec是不同实体/不同入口，无有界可信集合类型；数量/去重虽沿production链重复，本轮不列可直接删。"
+    },
+    {
+      "category": "L",
+      "theme": "source-text await与授权",
+      "files": [
+        "backend/modules/graph/graph-service.ts",
+        "tests/backend/modules/graph/source-read-concurrency.spec.ts"
+      ],
+      "result": "保留异步后最终lease/CAS与动态来源赢家冻结；新增D06必须在副作用前绑定Operation，最终拒绝不能撤销已单独提交的source.read。"
+    },
+    {
+      "category": "K",
+      "theme": "第二轮规则排除普通动态赋值误报",
+      "result": "stage变量名definitionReadIdentifier要求首字符字母，拒__proto__；constructor/toString普通赋值创建自有属性，四处variables[name]写保留。投影393只有prior===undefined才写，单条安全，实际D04为391继承target和396写。bundle重映射的数组数字index/已自有data属性写保留。"
+    }
+  ],
+  "reproductions": [
+    {
+      "script": "develop-docs/103-全库审计/repro-domain.cjs",
+      "output": "develop-docs/103-全库审计/repro-domain.out.txt",
+      "exitCode": 0,
+      "uses": "进程内fake records和现有纯GraphStore fixture，无DB/网络/用户数据；原执行一次ESM具名导入不兼容tsx CommonJS失败，已改require后全部复现完成。"
+    },
+    {
+      "script": "develop-docs/103-全库审计/repro-domain-import.cjs",
+      "output": "develop-docs/103-全库审计/repro-domain-import.out.txt",
+      "exitCode": 0,
+      "uses": "进程内fake records/graph/blobs/auth，Nodecrypto观测在finally还原，无DB/网络。"
+    }
+  ],
+  "verification": {
+    "files": 37,
+    "categories": 259,
+    "pending": 0,
+    "baselineChanged": [],
+    "auditedSourceEdited": false,
+    "testsExecutedThisPhase": false,
+    "scriptExitCodes": [
+      0,
+      0
+    ],
+    "limits": "人工逐文件/类别和实际调用链审查；语法候选不是逐表达式自动安全证明；未运行全库/真实外部集成。"
+  }
+}

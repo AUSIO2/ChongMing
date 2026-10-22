@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8"><title>界面边界回归</title></head>
+  <body>
+    <div id="fixture" style="display:flex;width:900px;height:600px"></div>
+    <script type="module">
+      import { computed, createApp, h, ref } from 'vue'
+      import GraphScene from '/apps/ui/features/graph/GraphScene.vue'
+      import { graphArrangeScene } from '/apps/ui/features/graph/graph-3d-layout.ts'
+      import DataPayloadEditor from '/apps/ui/features/graph/DataPayloadEditor.vue'
+      import AppShell from '/apps/ui/components/shell/AppShell.vue'
+      import AgentManagement from '/apps/ui/features/agents/AgentManagement.vue'
+      import AssetManagement from '/apps/ui/features/assets/AssetManagement.vue'
+      import { uiRegisterErrors } from '/apps/ui/errors.ts'
+
+      const mode = new URLSearchParams(location.search).get('mode')
+      const value = ref({ note: null })
+      const mounted = ref(true)
+      const submitted = ref(null)
+      const time = '2026-10-20T00:00:00.000Z'
+      const publishedNodes = ['新闻', '事实', '核查意见', '核查结论'].map((
+        /* 当前真实类型在场景中的展示名称。 */ title,
+        /* 固定后继链中的节点顺序。 */ index,
+      ) => {
+        // 只准备已发布节点投影，坐标仍由生产布局计算。
+        return { id: `scene-${index}`, typeId: `boundary.type-${index}`, title, summary: `${title}正文`,
+          stale: false, color: '#557469', createdAt: time }
+      })
+      const publishedEdges = publishedNodes.slice(1).map((
+        /* 待连接的实际后继节点投影。 */ node,
+        /* 当前后继对应的前驱顺序。 */ index,
+      ) => {
+        // 场景仅绘制明确给出的后继，不通过类型自行增加关系。
+        return { id: `edge-${index}`, from: publishedNodes[index].id, to: node.id, kind: 'successor' }
+      })
+      const sceneNodes = ref(publishedNodes.slice(0, 2))
+      const sceneEdges = ref(publishedEdges.slice(0, 1))
+      const sceneSelected = ref(null)
+      const sceneStatus = ref(new Map())
+      const sceneLayout = computed(() => /* 与普通Map消费同一份生产布局计算。 */ graphArrangeScene(sceneNodes.value, sceneEdges.value))
+      const workspace = { id: 'workspace', name: '边界工作区', description: '', revision: 1, role: 'owner', mapCount: 1,
+        updatedAt: time, agents: [], members: [], preferences: { workspaceId: 'workspace', revision: 0, openMapIds: [], currentMapId: null, nodeSelection: {} } }
+      const bootstrap = { identity: { userId: 'user', displayName: '边界用户', hostAdmin: true },
+        settings: { revision: 1, llm: { provider: 'fixture', model: 'fixture' }, tools: [], limits: { maxAgentSlots: 1 } }, metadata: { variables: {} } }
+      const snapshot = { mapId: 'map', workspaceId: 'workspace', revision: 1, name: '边界图', nodes: [], edges: [], runs: [], ownershipRevision: 0, ownerships: [], runControls: [], updatedAt: time }
+      const sourceType = { id: 'boundary.source', version: 1, title: '同名字段来源', schema: { type: 'object', required: [],
+        properties: { ['__proto__']: { type: 'object', properties: { assetId: { type: 'string' }, mediaType: { type: 'string' } } }, constructor: { type: 'string' } } },
+        references: [{ path: '/__proto__/assetId', target: { kind: 'asset' } }], successorTypes: [], agentProjection: { include: [], mapEntryFilters: [] }, presentation: { titlePath: '/constructor' } }
+      const catalog = { revision: 1, packages: [], index: [], dataTypes: [sourceType], transitions: [] }
+      const gateway = {
+        async read(/* 本组件实际调用的读取名。 */ method) {
+          // 已解析网关测试缝只交付固定目录，组件仍执行真实来源创建和草稿选择。
+          if (method === 'definition.get') return { workspaceId: 'workspace', catalog }
+          if (method === 'asset.list') return { items: [{ id: 'asset', workspaceId: 'workspace', filename: '原始.txt', mediaType: 'text/plain', size: 3, sha256: 'a'.repeat(64) }], nextCursor: null }
+          if (method === 'agent.list') return { scope: { kind: 'workspace', workspaceId: 'workspace' }, revision: 1, items: [{ id: 'custom-agent', revision: 1,
+            name: '同名种类', kind: 'toString', description: '合法自定义种类', content: '正文', promptPath: 'custom/agent', promptVars: [],
+            tools: [], provider: null, model: null, defaultPriority: 'medium', claimCategory: null, role: 'producer', bindings: [] }] }
+          throw new Error('Unexpected fixture query')
+        },
+        async dispatch(/* 真实组件生成的原请求身份。 */ requestId, /* 本回归只允许graph.apply。 */ method, /* 真实来源创建差量。 */ params) {
+          // 保存实际提交值供断言，不复制或替代assetSetPointer实现。
+          if (method !== 'graph.apply') throw new Error('Unexpected fixture write')
+          submitted.value = params.changes.nodes.put[0].payload
+          return { ok: true, requestId, replayed: false, data: { snapshot: { ...snapshot, revision: 2 }, createdNodeIds: [], createdEdgeIds: [] } }
+        },
+      }
+      if (mode === 'enum') value.value = 0
+      if (mode === 'enum-object') value.value = { second: [false, '尾'], first: 1 }
+      if (mode === 'dynamic') value.value = { constructor: '动态正文', toString: '动态表达' }
+      if (mode === 'declared') value.value = {}
+      const app = createApp({
+        setup() {
+          // 挂载真实组件，以可观察控件验证空值与场景初始化的错误边界。
+          return () => {
+            // 每个测试只装配一种真实界面，不复制被测计算或降级逻辑。
+            if (mode === 'resize') return h('div', { style: 'display:flex;flex-direction:column;width:900px;height:600px' }, [
+              h('button', { onClick: () => { /* 模拟401让原外壳卸载，再允许挂载新视图。 */ mounted.value = !mounted.value } }, mounted.value ? '卸载工作台' : '挂载工作台'),
+              mounted.value ? h(AppShell, {}, { left: () => /* 左栏真实尺寸内容。 */ '左栏', center: () => /* 中央画布占位内容。 */ '画布',
+                right: () => /* 右栏真实尺寸内容。 */ '右栏', 'bottom-dock': () => /* 提供真实底栏分隔条。 */ '底栏' }) : null,
+            ])
+            if (mode === 'agent') return h(AgentManagement, { gateway, workspace, bootstrap })
+            if (mode === 'scene-growth') return h('div', { style: 'display:flex;flex-direction:column;width:900px;height:600px' }, [
+              h('div', [
+                h('button', { onClick: () => { /* 选择只改变身份，不替换场景或布局。 */ sceneSelected.value = 'scene-1' } }, '选择事实'),
+                h('button', { onClick: () => { /* 纯活动更新不增加节点。 */ sceneStatus.value = new Map([['scene-1', '处理中']]) } }, '更新执行状态'),
+                h('button', { onClick: () => {
+                  // 正文更新替换同数量布局，不能把新布局对象误当成新增节点。
+                  sceneNodes.value = sceneNodes.value.map((/* 本次同图已有节点。 */ node) =>
+                    /* 仅替换选中事实的摘要，不增加结构成员。 */ node.id === 'scene-1' ? { ...node, summary: '事实正文已更新' } : node)
+                } }, '更新事实正文'),
+                h('button', { onClick: () => {
+                  // 模拟同图发布新后继后的完整快照，保留原sceneKey和已有选择。
+                  sceneNodes.value = [...publishedNodes]
+                  sceneEdges.value = [...publishedEdges]
+                } }, '发布更多后继'),
+              ]),
+              h(GraphScene, { layout: sceneLayout.value, sceneKey: 'boundary-growth', selectedId: sceneSelected.value, nodeStatus: sceneStatus.value }),
+            ])
+            if (mode === 'asset') return h('div', [h(AssetManagement, { gateway, workspace, bootstrap, snapshot }),
+              h('output', { id: 'payload-result' }, JSON.stringify(submitted.value)),
+              h('output', { id: 'prototype-clean' }, String(!Object.prototype.hasOwnProperty.call(Object.prototype, 'assetId')))])
+            if (['enum', 'enum-object', 'dynamic', 'declared'].includes(mode)) {
+              const schema = mode.startsWith('enum') ? { type: ['integer', 'string', 'object'], enum: [0, '0', { label: '甲' }, { label: '乙' }, { first: 1, second: [false, '尾'] }] }
+                : mode === 'dynamic' ? { type: 'object', properties: {}, additionalProperties: { type: 'string' } }
+                  : { type: 'object', properties: { constructor: { type: 'string', title: '原型同名字段', default: '合法初值' } } }
+              return h('div', [h(DataPayloadEditor, { schema, modelValue: value.value,
+                'onUpdate:modelValue': (/* 表单提交的原JSON类型值。 */ next) => { /* 保留实际选择和动态字段写入结果。 */ value.value = next } }),
+                h('output', { id: 'payload-result' }, JSON.stringify(value.value))])
+            }
+            if (mode === 'nullable') {
+              return h(DataPayloadEditor, {
+                schema: { type: 'object', properties: { note: { type: ['string', 'null'], default: '旧默认值' } } },
+                modelValue: value.value,
+                'onUpdate:modelValue': (/* 用户编辑后的完整对象。 */ next) => {
+                  // 让真实递归表单以正常单向数据流接纳修改。
+                  value.value = next
+                },
+              })
+            }
+            return h(GraphScene, {
+              layout: {
+                nodes: [{ id: 'node', typeId: 'demo.text', title: '真实节点', summary: '场景正文',
+                  stale: false, color: '#557469', x: 0, y: 0, z: 0 }],
+                edges: [],
+              },
+              sceneKey: 'boundary-scene', selectedId: null,
+            })
+          }
+        },
+      })
+      uiRegisterErrors(app, {
+        onError() {
+          // 当前组件页没有路由；保留生产错误边界注册时使用的移除接口。
+          return () => { /* 测试页结束时没有路由订阅需要释放。 */ }
+        },
+      })
+      app.mount('#fixture')
+    </script>
+  </body>
+</html>

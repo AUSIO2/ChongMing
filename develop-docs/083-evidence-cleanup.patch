@@ -1,0 +1,109 @@
+--- a/resources/data-definitions/fact-checking.json
++++ b/resources/data-definitions/fact-checking.json
+@@ -95,6 +95,7 @@
+       "id": "factcheck.claim",
+       "version": 1,
+       "title": "事实",
++      "description": "可独立核查的陈述，也可在核查意见中作为证据引用。",
+       "schema": {
+         "$schema": "http://json-schema.org/draft-07/schema#",
+         "type": "object",
+@@ -106,63 +107,11 @@
+         "additionalProperties": false
+       },
+       "successorTypes": [
+-        { "id": "factcheck.evidence", "version": 1 },
+         { "id": "factcheck.opinion", "version": 1 }
+       ],
+       "presentation": { "titlePath": "/content", "summaryPath": "/content", "fieldOrder": ["/content", "/category"] },
+       "references": [],
+       "agentProjection": { "include": ["/content", "/category"], "mapEntryFilters": [] }
+-    },
+-    {
+-      "id": "factcheck.evidence",
+-      "version": 1,
+-      "title": "证据",
+-      "schema": {
+-        "$schema": "http://json-schema.org/draft-07/schema#",
+-        "type": "object",
+-        "properties": {
+-          "content": { "type": "string", "minLength": 1 },
+-          "locator": { "$ref": "#/definitions/locator" },
+-          "capturedAt": { "type": "string", "format": "date-time" }
+-        },
+-        "required": ["content", "locator", "capturedAt"],
+-        "additionalProperties": false,
+-        "definitions": {
+-          "locator": {
+-            "oneOf": [
+-              {
+-                "type": "object",
+-                "properties": {
+-                  "kind": { "const": "asset" },
+-                  "assetId": { "type": "string", "minLength": 1 },
+-                  "mediaType": { "type": "string", "minLength": 1 }
+-                },
+-                "required": ["kind", "assetId", "mediaType"],
+-                "additionalProperties": false
+-              },
+-              {
+-                "type": "object",
+-                "properties": {
+-                  "kind": { "const": "url" },
+-                  "url": { "type": "string", "format": "uri" }
+-                },
+-                "required": ["kind", "url"],
+-                "additionalProperties": false
+-              }
+-            ]
+-          }
+-        }
+-      },
+-      "successorTypes": [],
+-      "presentation": { "titlePath": "/content", "summaryPath": "/content", "fieldOrder": ["/content", "/locator", "/capturedAt"] },
+-      "references": [
+-        {
+-          "path": "/locator/assetId",
+-          "target": { "kind": "asset" },
+-          "when": { "path": "/locator/kind", "equals": "asset" }
+-        }
+-      ],
+-      "agentProjection": { "include": ["/content", "/locator", "/capturedAt"], "mapEntryFilters": [] }
+     },
+     {
+       "id": "factcheck.opinion",
+@@ -174,8 +123,9 @@
+         "properties": {
+           "score": { "type": "number", "enum": [0, 0.5, 1] },
+           "reason": { "type": "string", "minLength": 1 },
+-          "evidenceIds": {
++          "evidenceClaimIds": {
+             "type": "array",
++            "description": "本次核查作为证据引用的 Claim 节点 ID，支持与反驳的理由由 reason 说明。",
+             "items": { "type": "string", "minLength": 1 },
+             "minItems": 0,
+             "maxItems": 32,
+@@ -197,18 +147,18 @@
+             "additionalProperties": false
+           }
+         },
+-        "required": ["score", "reason", "evidenceIds"],
++        "required": ["score", "reason", "evidenceClaimIds"],
+         "additionalProperties": false
+       },
+       "successorTypes": [{ "id": "factcheck.verification", "version": 1 }],
+-      "presentation": { "titlePath": "/reason", "summaryPath": "/reason", "fieldOrder": ["/score", "/reason", "/evidenceIds"] },
++      "presentation": { "titlePath": "/reason", "summaryPath": "/reason", "fieldOrder": ["/score", "/reason", "/evidenceClaimIds"], "fieldLabels": { "/evidenceClaimIds": "作为证据引用的事实" } },
+       "references": [
+         {
+-          "path": "/evidenceIds/*",
+-          "target": { "kind": "node", "types": [{ "id": "factcheck.evidence", "version": 1 }] }
++          "path": "/evidenceClaimIds/*",
++          "target": { "kind": "node", "types": [{ "id": "factcheck.claim", "version": 1 }] }
+         }
+       ],
+-      "agentProjection": { "include": ["/score", "/reason", "/evidenceIds"], "mapEntryFilters": [] }
++      "agentProjection": { "include": ["/score", "/reason", "/evidenceClaimIds"], "mapEntryFilters": [] }
+     },
+     {
+       "id": "factcheck.verification",

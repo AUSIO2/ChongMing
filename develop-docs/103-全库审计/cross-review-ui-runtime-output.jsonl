@@ -1,0 +1,9 @@
+{"id":"U10-rename","json":"{}","ownsProto":false,"expected":"own __proto__:0"}
+{"id":"U10-pointer-write","json":"{}","modifiedObjectPrototype":true,"expected":"own nested JSON container; Object.prototype unchanged"}
+{"id":"U10-pointer-read","observedType":"function","expected":"undefined for absent own member"}
+{"id":"U10-dynamic-fields","visible":[],"expected":["constructor"]}
+{"id":"U13-agent-kind","parsedKind":"toString","hasOwnKind":false,"fallbackOptionVisible":false,"expected":"fallback option visible"}
+{"id":"retained-enum-labels","constructor":"constructor","toString":"toString"}
+{"id":"U14-enum-stringification","requestedType":"string","emitted":0,"emittedType":"number","expected":"string 0; original JSON type preserved"}
+{"id":"U11-sse-cleanup","code":null,"message":"secondary cleanup failure","expected":"INVALID_STREAM retained"}
+{"id":"U17-late-run-control","accepted":true,"selectedRun":"run-b","heldRun":"run-a","releasedBeforeDispose":false,"expected":"obsolete A claim rejected/released; B selection owns no A renewal"}

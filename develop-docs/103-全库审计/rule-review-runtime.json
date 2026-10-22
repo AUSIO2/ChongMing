@@ -1,0 +1,508 @@
+{
+  "reviewer": "runtime",
+  "status": "complete",
+  "method": "finite high-signal second pass; each candidate inspected against source/callers/ownership; not an automatic proof of all AST expressions",
+  "candidates": [
+    {
+      "id": "C03:apps/cli/main.ts:136:18",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "--media-type确实可省；CLI上传允许未知文件按application/octet-stream；parseArgs只产声明选项键，不是继承字典取值。"
+    },
+    {
+      "id": "C04:apps/config/local-settings.ts:60:13",
+      "disposition": "unresolved",
+      "relatedFindings": [],
+      "basis": "lock为本函数唯一持有的真实FileHandle，close释放与unlink锁都必要。若close也拒绝会盖write主错/跳unlink，但尚未证明正常所有权下该FileHandle close双故障可达，不凭finally await计问题；不建议删除清理。"
+    },
+    {
+      "id": "C02:apps/config/local-settings.ts:68:36",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key只来自固定as const列表mongoUri/dataApiUrl/dshHome，均非原型名；在未知磁盘字段白名单后赋值，无任意键准入。"
+    },
+    {
+      "id": "C02:apps/config/local-settings.ts:87:10",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "name在localUpdateSecret:82先secretNames.has，只允许固定DEEPSEEK/OPENAI/TAVILY/CHONGMING键，不能是__proto__/constructor。值仍需inputReadString拒空。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:28:18",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：host-id优先argv再env再随机UUID，后续显式字符范围检查；ID省略是真实部署选择。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:30:22",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：data-api优先argv/env/local/4320，Host独立部署可省，后续URL协议检查。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:31:32",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：dsh-home可省，依argv/env/local/当前Host目录，后续path.resolve建立自有尝试目录。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:32:21",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：max-tokens可省代表模型默认预算，存在时Host校正整数。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:33:21",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：max-rounds可省默认3；Host负责1..10校验，缺省不是坏值兼容。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:36:20",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：queue-url可来自argv/env/私有secret，全部缺失明确throw而非假连接。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:41:61",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：queue-namespace确有可省chongming，argv/env优先；Rabbit adapter仍校验名称。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:42:30",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：request-timeout-ms可省5000，Number后Host duration范围验证。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:43:13",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：dsh-bin可省则installed SDK解析真实同版本可执行文件，是部署边界。"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:45:30",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：process-cwd可省沿Host dshHome，随后每Work创建独立process目录，非失败回退。"
+    },
+    {
+      "id": "C03:apps/graph-server/admin.ts:54:69",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "settings.read只遍历5个固定密钥名，env优先本机secrets只输出Boolean存在性，不返回原文；可省secret确实存在。"
+    },
+    {
+      "id": "C03:apps/graph-server/admin.ts:87:22",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "name已:86限制DEEPSEEK_API_KEY/OPENAI_API_KEY，env优先本机secret；都缺失在:88明确报配置错，不能删合法来源优先级。"
+    },
+    {
+      "id": "C04:apps/graph-server/main.ts:32:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R07"
+      ],
+      "basis": "准确apiStartProcess体受控initialize主失败+connection.close次级失败，只抛secondary且primary不在cause/errors；无真实DB。应保清理并聚合两错，非删除close。"
+    },
+    {
+      "id": "C04:apps/local-server/runtime.ts:102:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R07"
+      ],
+      "basis": "准确localCreateRuntime体同一双失败，close内部收集清理错后throw导致外层catch原startupError丢失；脚本实际输出primaryRetained=false。"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:624:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 data/read；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:633:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 data/propose；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:640:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 activity；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:649:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 work；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。"
+    },
+    {
+      "id": "C04:backend/adapters/messaging/mongo-outbox.ts:143:7",
+      "disposition": "unresolved",
+      "relatedFindings": [],
+      "basis": "stream.close是实际Mongo游标资源边界，必须执行。已读安装驱动：ChangeStream.close→cursor.cleanup，killCursors错误被squash，隐式session.endSession仍可传播。未建立实际session-close双失败复现，不能仅凭finally await确认盖致命QUEUE_HANDLER；保留此清理并记录证据不足。"
+    },
+    {
+      "id": "C04:backend/adapters/messaging/rabbitmq.ts:152:13",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "queue.close当前实现先abort，再queueCloseHandle捕获协议关闭拒绝/期限，queueWaitDeliveries用allSettled，finally终止transport。未有可拒绝关闭入口的当前生产证据；拓扑失败仍须回收真连接，不能直接删await。"
+    },
+    {
+      "id": "C03:backend/adapters/sources/http-source.ts:76:40",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "外部HTTP来源可没有content-type；空串确保SOURCE_MEDIA_TYPES拒绝，不能把未知网络header假定必有。"
+    },
+    {
+      "id": "C05:backend/adapters/storage/branch-migration.ts:215:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "prior content调用在news分支，该分支校验context后return；当前调用在互斥claim分支。相同参数文本来自不同kind，不是同值重复路径。"
+    },
+    {
+      "id": "C02:backend/adapters/storage/branch-migration.ts:398:35",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R05",
+        "P01"
+      ],
+      "basis": "node.id仅非空string准入，legacyProducers={}赋值__proto__触发setter，真实纯迁移结果migrate却丢元信息；与普通节点ID对照已保存。"
+    },
+    {
+      "id": "C05:backend/adapters/storage/branch-migration.ts:417:22",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R04"
+      ],
+      "basis": "source.edges在纯plan:313已migrationArray并扫描kind，至:417没有await/修改，再migrationArray只重复容器形状。后续edge字段/端点值检查仍新增且必要；可承接首个unknown[]而非重验。合并本plan解析所有权组。"
+    },
+    {
+      "id": "C05:backend/adapters/storage/branch-migration.ts:444:38",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R04"
+      ],
+      "basis": "同一verification reportIds原数组在:364已完整array/string检查，:444同值再次检查，无await/源修改；内存实际Array.isArray同原数组3次。保留首次坏旧输入及apply新快照复核。"
+    },
+    {
+      "id": "C02:backend/adapters/storage/mongo/evidence-query.ts:266:36",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "键是固定字面量applicability.subject，不是input.subject本身；动态值进入Mongo等值参数，无原型setter风险。"
+    },
+    {
+      "id": "C02:backend/adapters/storage/mongo/evidence-query.ts:267:34",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "键是固定字面量applicability.event，值已归一化范围；不是外部值作为对象属性名。"
+    },
+    {
+      "id": "C02:backend/adapters/storage/sqlite/graph-store.ts:170:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "生产claim的work来自workReadItems→workCreateId(operation/stage/slot)组合，含分隔冒号；不能等于Object.prototype裸属性名。API/queue未知work仅线索，未找到实际work不会写租约；不把port直接任意伪对象当生产路径。"
+    },
+    {
+      "id": "C03:backend/adapters/storage/sqlite/persistence.ts:184:73",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "数组第0项是实际查询首条记录；空结果返回null是StorageRecords.first合同，整数数组索引没有继承字符串键风险。"
+    },
+    {
+      "id": "C02:backend/execution/dsh/dsh-business-plugin.mjs:45:36",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key仅for固定[type,enum,const,description,title,default]，全部非原型setter；schema值是发布树，structuredClone保持隔离。"
+    },
+    {
+      "id": "C02:backend/execution/dsh/dsh-business-plugin.mjs:96:14",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "parent.properties由toolSchema的Object.fromEntries构造；reference路径已发布验证，实际存在的目标键成为自有数据属性，覆盖同名__proto__不触发setter。缺字段/oneOf转换丢路径需另证，未据语法擅自扩大U10。"
+    },
+    {
+      "id": "C04:backend/execution/host-worker.ts:270:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "activity.close只abort并await singleflight task；activityRunPublish全请求/取消/body.cancel异常均在内部catch收敛，当前生产无可证明reject主错覆盖。必须等待inflight显示请求，不能按清理语法删除。"
+    },
+    {
+      "id": "C04:backend/execution/host-worker.ts:288:32",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "这里仅在打开queue期间Host已经stop时关闭刚得到link，随后抛stop原因；close失败如发生属于尚未确认回收的主要关闭故障。实际Rabbit close已有限收敛，不是同一次已知主业务错被吞。"
+    },
+    {
+      "id": "C02:platform/node/diagnostics.ts:43:35",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key已:42固定白名单requestId/mapId/runId/operationId/workId/phase/route/reason，__proto__等直接continue；写入自有固定安全键，字符串需脱敏。"
+    },
+    {
+      "id": "C02:platform/node/diagnostics.ts:44:96",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "同固定诊断key白名单，当前分支限定有限number/boolean，和上一string分支是互斥类型处理，不是任意索引。"
+    },
+    {
+      "id": "C02:tests/backend/adapters/storage/branch-migration.spec.ts:133:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "写入fixture数组reports[0]现有整数位置，刻意制造矛盾旧报告用于blocked测试；不是未知对象字典/原型键。"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/branch-migration.spec.ts:314:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "自建Mongo副本集用例finally关闭connection再stop，实际测试无close故障注入/主错覆盖实证；两个真实回收动作不能当冗余删除。若补双故障韧性需独立说明，不凭模式多计。"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/branch-rebase.spec.ts:122:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "当前SQLite.close等待gate排空再关闭真实DB，后rm自有目录要求已确认writer结束；不能无条件并行或忽略close失败删目录。未证正常fixture该close会拒绝盖主错。"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/branch-rebase.spec.ts:134:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "仅自建副本集connection可尚未建立，optional close处理部分启动；connection释放与replica.stop是不同资源。不把?.与finally本身判兼容。"
+    },
+    {
+      "id": "C01:tests/backend/adapters/storage/work-replica.spec.ts:197:58",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "先限定实际mongo.MongoServerError，当前3成员本地Mongo stepdown返回数值/驱动约定code；Number用于驱动错误码而非裸未知JSON枚举。未证明真实数组等能经当前driver类进入测试；不和102的String枚举宽准入直接等同。"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/work-replica.spec.ts:236:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "前面已Promise.allSettled关闭所有连接并记录results；必须先stop真实副本集再报告连接失败，避免遗留数据库。当前未有replica.stop双失败盖主错实证，不把清理必要动作删掉。"
+    },
+    {
+      "id": "C04:tests/backend/execution/dsh-verify.spec.ts:379:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "dsh-verify finally先停止全部owned Host/orphans/provider再api.close和删自己目录，API是独立资源；不访问用户服务。未注入API关闭错误，本条不证明冗余或错分类。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:124:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "WorkAccessError重投用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:179:34",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "失租等待runner清理用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:208:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "busy→accepted重复用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:264:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "并发slot归属用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:319:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "单slot失租隔离用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:344:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "namespace错配启动用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:362:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "坏claim协议用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:404:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "重连码数组用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:450:34",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "断流重投用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。"
+    },
+    {
+      "id": "C03:tests/browser/safe-reporter.ts:81:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "标题可能不含已登记case ID，regex match为null时unregistered是真实脱敏状态；完整自由title不能输出。"
+    },
+    {
+      "id": "C02:tests/browser/safe-reporter.ts:89:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "workspaceReadErrorCategory只返回assertion/timeout/interrupted/other四个固定键，errorCounts事先全部有自有数值0；不是外部error.name当键。"
+    },
+    {
+      "id": "C02:tests/browser/safe-reporter.ts:94:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "同固定四键纯helper，failed/timedOut没有errors时仍记录一次结构化类别，是明确报告合同。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-dataset.ts:40:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "bytes是SHA256 digest.subarray(0,16)实际Buffer，整数索引6写UUID版本位，非普通对象动态字典。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-dataset.ts:41:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "同16字节Buffer索引8写UUID variant位；固定范围，不可能setter原型键。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance-report.ts:99:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自固定counts五字段(nodes/edges/derivedReferences/payloadBytes/jsonBytes)，每项数值已验，初始化对象全部自有键。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance-report.ts:134:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key只来自LOAD_BASE_KEYS及固定PHASES×suffix构建的loadKeys，不来自rawLoad任意枚举；值只允许有限非负数。"
+    },
+    {
+      "id": "C03:tests/browser/workspace-performance.spec.ts:99:10",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "B02"
+      ],
+      "basis": "private workspaceQuantile全部调用先保证samples.length或RAF>=2或durations>=100/1000，percentile仅0.5/.95/.99；索引天然0..n-1，??0与Math.max0不会生效。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:611:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}TargetDurationMs`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:611:66",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ActualDurationMs`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:612:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Scheduled`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:612:52",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Completed`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:613:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ReadCount`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:614:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}WriteCount`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:615:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}AuxiliaryCount`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:615:62",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Incomplete`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:616:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}UiFailures`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:617:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}MaxQueueDelayMs`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:618:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ConcurrencyLimit`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:618:66",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}OperationLimit`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:619:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ActualRate`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:620:47",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Status${status}`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。"
+    },
+    {
+      "id": "C04:tests/browser/workspace-recovery.spec.ts:66:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R07"
+      ],
+      "basis": "准确recoveryOpenPage函数体在context.newPage主错+context.close次级错的现有边界受控双失败，原cause丢失；与入口启动catch同根保主错组，不能删close。"
+    },
+    {
+      "id": "C05:tests/browser/workspace-recovery.spec.ts:247:29",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "前一Date.parse位于重启后旧ownership保留比较，随后实际reopen/new context后再次解析ownership用于自然期限等待，跨多个await且ownership重新赋retained。不是同来源同步重复。"
+    },
+    {
+      "id": "C04:tests/client/ui-fixture-lifecycle.spec.ts:114:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "故意databaseCloseAfterRelease故障仅在真实close成功后throw注入sentinel；如果原close失败应让测试暴露真实基础设施失败。不是清理后把既有主业务错覆盖，不能删这次真实释放。"
+    }
+  ],
+  "summary": {
+    "retained": 71,
+    "unresolved": 2,
+    "confirmed": 7
+  },
+  "completedAt": "2026-10-20T06:02:12.706180+00:00"
+}

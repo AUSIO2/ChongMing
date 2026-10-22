@@ -1,0 +1,181 @@
+{
+  "completedAt": "2026-10-20T07:37:50.409844+00:00",
+  "scopeComplete": true,
+  "allProductTestsGreen": false,
+  "specifiedThemes": 50,
+  "specifiedBehaviorThemes": 14,
+  "rawRecordsClosed": 60,
+  "openWithinSpecifiedThemes": [],
+  "checks": {
+    "npm-test": {
+      "command": "npm test",
+      "status": "passed",
+      "exitCode": 0,
+      "testsPassed": 975,
+      "artifact": "npm-test-final.txt",
+      "filesPassed": 96
+    },
+    "evidence-core": {
+      "command": "EVIDENCE_TEST_TARGET=./experiments/evidence-library-tests/mongo-target.ts npx vitest run --config experiments/evidence-library-tests/core.config.ts",
+      "status": "passed",
+      "exitCode": 0,
+      "testsPassed": 70,
+      "artifact": "evidence-core-final.txt",
+      "existingConfigExclusions": 44
+    },
+    "evidence-http": {
+      "command": "npx vitest run --config experiments/evidence-library-tests/core-http.config.ts",
+      "status": "passed",
+      "exitCode": 0,
+      "testsPassed": 8,
+      "artifact": "evidence-core-http-final.txt"
+    },
+    "evidence-relations": {
+      "command": "npx vitest run --config experiments/evidence-library-tests/relations.config.ts",
+      "status": "passed",
+      "exitCode": 0,
+      "testsPassed": 27,
+      "artifact": "evidence-relations-final.txt"
+    },
+    "evidence-usage": {
+      "command": "npx vitest run --config experiments/evidence-library-tests/usage.config.ts",
+      "status": "passed",
+      "exitCode": 0,
+      "testsPassed": 33,
+      "artifact": "evidence-usage-final.txt"
+    },
+    "evidence-local": {
+      "command": "npx vitest run --config experiments/evidence-library-tests/local-usage.config.ts",
+      "status": "passed",
+      "exitCode": 0,
+      "testsPassed": 3,
+      "artifact": "evidence-local-usage.txt"
+    },
+    "web-build": {
+      "command": "CHONGMING_WEB=1 npx vite build --outDir <owned-temp-directory>",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "web-build.txt"
+    },
+    "desktop-runtime": {
+      "command": "npm run test:desktop-runtime",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "desktop-runtime-final.txt"
+    },
+    "browser-full": {
+      "command": "npx playwright test --config playwright.config.ts",
+      "exitCode": 1,
+      "status": "failed",
+      "passed": 85,
+      "failed": 4,
+      "skippedByExistingConditions": 7,
+      "artifact": "browser-full.txt"
+    },
+    "browser-enum-focused": {
+      "command": "npx playwright test --config playwright.config.ts tests/browser/workspace-acceptance.spec.ts --grep 事实逐级新增人工核查意见与结论",
+      "exitCode": 0,
+      "status": "passed",
+      "passed": 2,
+      "artifact": "browser-enum-focused.txt"
+    },
+    "browser-concurrency-focused": {
+      "command": "npx playwright test --config playwright.config.ts tests/browser/workspace-concurrency.spec.ts --project collab --grep M00-R02",
+      "exitCode": 0,
+      "status": "passed",
+      "passed": 1,
+      "initialFailureRootCause": "not-established",
+      "artifact": "browser-concurrency-focused.txt"
+    },
+    "browser-grant-focused": {
+      "command": "npx playwright test --config playwright.config.ts tests/browser/workspace-grant-reliability.spec.ts --project collab -g M00-R01",
+      "exitCode": 1,
+      "status": "failed",
+      "passed": 1,
+      "failed": 1,
+      "artifact": "browser-grant-focused.txt"
+    },
+    "browser-quantile-calibration": {
+      "command": "npx playwright test --config playwright.performance.config.ts --project local --grep M00-P01",
+      "exitCode": 0,
+      "status": "passed",
+      "passed": 1,
+      "profile": "calibration",
+      "artifact": "browser-performance-calibration.txt"
+    },
+    "types-production": {
+      "command": "npx vue-tsc --noEmit --pretty false",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "types-production-final.txt"
+    },
+    "types-browser": {
+      "command": "npx tsc -p tests/browser/tsconfig.json --noEmit --pretty false",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "types-browser-final.txt"
+    },
+    "types-experiments": {
+      "command": "npx tsc -p experiments/evidence-library-tests/tsconfig.json --noEmit --pretty false",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "types-experiments-final.txt"
+    },
+    "types-library": {
+      "command": "npx tsc -p tests/backend/tsconfig.library.json --noEmit --pretty false",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "types-library-tests.txt"
+    },
+    "types-evidence": {
+      "command": "npx tsc -p tests/client/tsconfig.evidence.json --noEmit --pretty false",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "types-evidence-tests.txt"
+    },
+    "types-evidence-uses": {
+      "command": "npx tsc -p tests/client/tsconfig.evidence-uses.json --noEmit --pretty false",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "types-evidence-uses-tests.txt"
+    },
+    "diff-whitespace": {
+      "command": "git diff --check",
+      "exitCode": 0,
+      "status": "passed",
+      "artifact": "diff-check-final.txt"
+    }
+  },
+  "browserLatestCaseReconciliation": {
+    "passed": 88,
+    "skippedByExistingConditions": 7,
+    "existingAssertionFailed": 1,
+    "fullCommandExitCode": 1
+  },
+  "observations": [
+    {
+      "id": "CS04-existing-contract-conflict",
+      "scope": "outside-103-50-topics",
+      "status": "reproduced-not-modified",
+      "file": "tests/browser/workspace-grant-reliability.spec.ts",
+      "line": 196,
+      "evidence": "browser-grant-focused-diagnostic.json",
+      "basis": "104初始快照中canSave已不依赖owned，注释明确支持显式释放部分授权后的联合保存；正文失权只读已通过。未执行整库回退套件，不把当前重复失败冒称基线实测。保留代码和断言。"
+    },
+    {
+      "id": "R02-first-login-failure",
+      "scope": "broader-browser-suite",
+      "status": "focused-once-passed-cause-unresolved",
+      "evidence": "browser-concurrency-focused.txt",
+      "basis": "首次连接表单填充失败，单次定向真实复跑通过，未增等待/重试/默认，不认定根因。"
+    }
+  ],
+  "integrity": {
+    "finalSourceFiles": 354,
+    "sourceDrift": [],
+    "addedAfterFinalSnapshot": [],
+    "removedInitialFiles": [],
+    "audit103Drift": [],
+    "preservedChecks": 11
+  }
+}

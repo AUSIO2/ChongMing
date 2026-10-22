@@ -1,0 +1,788 @@
+{
+  "scope": "104 UI/public client",
+  "status": "implemented-cross-reviewed-root-validation-recorded",
+  "baseline": "baseline.json",
+  "sourceRoot": "/Users/xiong/ChongMing/",
+  "changes": [
+    {
+      "rawId": "U01",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/run/run-history.ts",
+        "tests/client/run-history.spec.ts"
+      ],
+      "change": "删除public client已按冻结请求绑定的run.list mapId二验，撤下state seam绕过所属边界的wrongMap子段。",
+      "retained": [
+        "目录版本/重复续页身份",
+        "run.get详情request关联",
+        "当前401/旧请求代次"
+      ],
+      "validation": [
+        "UI-T1"
+      ]
+    },
+    {
+      "rawId": "U02",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/reader/SourceAnchorEditor.vue"
+      ],
+      "change": "每字段行号草稿只解析一次，提交汇总与当前预览共享fieldValidations；原历史定位不重绑到当前版本。",
+      "retained": [
+        "用户行范围/缺文本/冲突错误",
+        "未修改历史quote/version",
+        "提交交接独立anchor副本"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-C1"
+      ]
+    },
+    {
+      "rawId": "U03",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/reader/reader-content.ts",
+        "apps/ui/features/reader/NodeReader.vue"
+      ],
+      "change": "ready判别联合携带同份identity/snapshot/node，移除NodeReader再次find和ready后重拼非空条件；模板直接使用关联节点。",
+      "retained": [
+        "公开reader helper独立身份边界",
+        "未选/加载/空图/缺节点状态",
+        "恢复代次/书签和nextTick检查"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-C1"
+      ]
+    },
+    {
+      "rawId": "U04",
+      "status": "fixed",
+      "files": [
+        "client/graph-client.ts"
+      ],
+      "change": "删除connect成功分支在同代串行不可能拥有active客户端时的active.close。",
+      "retained": [
+        "connect开始关闭旧active/pending",
+        "初始化/存储await后generation复核",
+        "candidate失败清理"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-T3"
+      ]
+    },
+    {
+      "rawId": "U05",
+      "status": "fixed",
+      "files": [
+        "client/graph-client.ts"
+      ],
+      "change": "branch.renew与ownership、run.control.renew与control共用同次基础字段和详细形状检查，不再以同data递归重跑全套generic scans；renew own branch/O继续验证。",
+      "retained": [
+        "外部响应完整required字段",
+        "editor/run期限kind约束",
+        "branch证明/同次snapshot配对",
+        "不同对象递归检查"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-T3"
+      ]
+    },
+    {
+      "rawId": "U06",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/graph/DataPayloadEditor.vue"
+      ],
+      "change": "添加动态字段按钮把已缩窄additionalProperties schema直接传入，去除函数内部假字符串schema回落。",
+      "retained": [
+        "items缺省/真实additionalProperties语义",
+        "冲突临时键生成",
+        "发布定义最终校验"
+      ],
+      "validation": [
+        "UI-C1",
+        "UI-B1"
+      ]
+    },
+    {
+      "rawId": "U07",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/workspace/use-workspace-view.ts"
+      ],
+      "change": "canOpenPage直接使用selectedIdentity非空，不重复helper已建立的loading约束。",
+      "retained": [
+        "完整节点/用户/工作区身份",
+        "未选与异步加载不能打开单页"
+      ],
+      "validation": [
+        "UI-C1"
+      ]
+    },
+    {
+      "rawId": "U08",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/graph/branch-baseline.ts"
+      ],
+      "change": "复用已建立baseline时删除rootIds.length===1重查。",
+      "retained": [
+        "branchCreateBaseline首次完整证明",
+        "当前selected root与完整内容事实",
+        "不提升旧expectedVersion"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-T2"
+      ]
+    },
+    {
+      "rawId": "U09",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/evidence-library/evidence-uses.ts",
+        "apps/ui/features/evidence-library/evidence-state.ts"
+      ],
+      "change": "同catch把一次归一化problem交给错误接纳，避免为同一未知cause重复生成诊断ID/翻译；单独首次错误入口仍归一化。",
+      "retained": [
+        "current401会话退出",
+        "旧身份/代次错误忽略",
+        "不确定命令重试优先",
+        "安全未知错误与业务文案"
+      ],
+      "validation": [
+        "UI-T1"
+      ]
+    },
+    {
+      "rawId": "U10",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/graph/DataPayloadEditor.vue",
+        "apps/ui/features/assets/AssetManagement.vue",
+        "apps/ui/features/graph/data-payload.ts",
+        "apps/ui/features/reader/reader-content.ts",
+        "apps/ui/state/client-session.ts",
+        "tests/client/data-payload.spec.ts",
+        "tests/client/reader-sources.spec.ts",
+        "tests/browser/ui-boundaries.spec.ts",
+        "tests/browser/fixtures/ui-boundaries.html"
+      ],
+      "change": "JSON动态键按自有成员读取；rename用计算属性建立合法__proto__，asset路径中间及末端用自有property描述符写入；固定字段缺值与动态schema标签不读取继承属性；声明引用容器导航同类只读自有成员。",
+      "retained": [
+        "合法__proto__/constructor/toString都保留",
+        "固定schema关键词未机械替换",
+        "缺失可选字段/动态字典schema真实语义",
+        "assetSchemaHasPointer未证候选不动"
+      ],
+      "validation": [
+        "UI-T3",
+        "UI-B1"
+      ]
+    },
+    {
+      "rawId": "U11",
+      "status": "fixed",
+      "files": [
+        "client/graph-client.ts",
+        "tests/client/graph-client.spec.ts"
+      ],
+      "change": "非SSE响应拒绝路径的body.cancel次生失败不覆盖INVALID_STREAM。",
+      "retained": [
+        "正常事件流与fatal UTF8/flush",
+        "取消/断开/超时原优先级",
+        "仅次级清理错误被忽略并注释原因"
+      ],
+      "validation": [
+        "UI-T3"
+      ],
+      "part": "public-client-SSE",
+      "note": "浏览器恢复openPage清理归root分区；不冒称由UI修改。"
+    },
+    {
+      "rawId": "U12",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/graph/graph-layout.ts"
+      ],
+      "change": "父节点对象在合法实际端点关联时建立并携带到行排序，删除已有parentId后Map miss零回落。",
+      "retained": [
+        "无前驱根节点真实基准0",
+        "悬空实际端点跳过",
+        "多前驱按边ID固定第一份父节点",
+        "原布局顺序"
+      ],
+      "validation": [
+        "UI-T1"
+      ]
+    },
+    {
+      "rawId": "U13",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/agents/AgentManagement.vue",
+        "tests/browser/ui-boundaries.spec.ts",
+        "tests/browser/fixtures/ui-boundaries.html"
+      ],
+      "change": "Agent kind选项使用自有kinds成员判断，合法同名自定义kind仍有真实选项。",
+      "retained": [
+        "一般自定义kind字符串合法",
+        "uiReadAgentKind已有安全文案",
+        "服务端角色/绑定和旧配置可编辑"
+      ],
+      "validation": [
+        "UI-B1"
+      ]
+    },
+    {
+      "rawId": "U14",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/graph/DataPayloadEditor.vue",
+        "tests/browser/ui-boundaries.spec.ts",
+        "tests/browser/fixtures/ui-boundaries.html",
+        "apps/ui/features/graph/payload-labels.ts"
+      ],
+      "change": "枚举DOM选项用索引标识并交付原JsonValue；JSON值比较区分标量类型、忽略对象键序、保留数组顺序，避免String转换合并不同值。",
+      "retained": [
+        "合法null/type union/对象枚举",
+        "不JSON.parse DOM重新造值",
+        "原发布顺序与文案"
+      ],
+      "validation": [
+        "UI-B1",
+        "UI-B2"
+      ]
+    },
+    {
+      "rawId": "U15",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/reader/NodeReader.vue",
+        "apps/ui/features/graph/GraphSceneFallback.vue",
+        "apps/ui/features/evidence-library/EvidenceLibraryView.vue",
+        "apps/ui/features/evidence-library/EvidenceUsesPanel.vue"
+      ],
+      "change": "删除纯转发dispose/color/search/loadMore/retry/selectUsage包装，模板直接调用真实state操作或读取node.color。",
+      "retained": [
+        "实际布局/恢复动作",
+        "持有生命周期的任务与网关方法",
+        "有业务参数绑定的其余helpers"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-B1",
+        "UI-C1"
+      ]
+    },
+    {
+      "rawId": "U16",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/evidence-library/NodeEvidenceEditor.vue"
+      ],
+      "change": "待加入集合直接携带去重并排序的候选摘要，分别投影summary/ref，不从刚派生的refs反查选择再比较长度。",
+      "retained": [
+        "旧摘要和使用理由不被新选择替换",
+        "容量/理由/固定版本检查",
+        "blocked/原请求重试"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-C1"
+      ]
+    },
+    {
+      "rawId": "U17",
+      "status": "fixed",
+      "files": [
+        "apps/ui/state/client-session.ts",
+        "tests/client/session.spec.ts"
+      ],
+      "change": "Run领取绑定session/view/runSelectionEpoch与选择意图；busy由本意图归还，迟到ack等待同Run新意图明确后才决定释放；已发release需交接，结果未知换holder避免晚提交撤销复用grant。selectRun先于await交接选择，旧释放完成不再回写。",
+      "retained": [
+        "HTTP取消和本地intent结束分别拥有",
+        "同lease/fence的新确认及待确认不能被旧清理删除",
+        "跨服务不发旧释放",
+        "释放失败不当作未提交；新holder遇旧活跃lease返回busy",
+        "原Run控制/审核权限和发布版本边界"
+      ],
+      "validation": [
+        "UI-T2"
+      ],
+      "regressions": [
+        "A ack晚于B选择/领取，清理A不结束B busy",
+        "A→B→A同lease新ack已接受/仍在途",
+        "release运输失败→新holder busy→旧release晚提交→新lease",
+        "旧服务claim晚回应不发新服务清理",
+        "B等待A慢释放期间选C或返回A，B continuation不覆盖"
+      ]
+    },
+    {
+      "rawId": "U18",
+      "status": "fixed",
+      "files": [
+        "apps/ui/state/client-session.ts"
+      ],
+      "change": "保存attempt显式携带同份previous/next引用展开结果，saveNode比较后交给saveReferencedPayload复用；独立引用caller各只展开一次。",
+      "retained": [
+        "private helper非公共skip校验API",
+        "新目标类型实际验证",
+        "来源与旧/新目标联合授权",
+        "内容/版本跨await与固定重试"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-T2"
+      ]
+    },
+    {
+      "rawId": "U19",
+      "status": "fixed",
+      "files": [
+        "apps/ui/state/client-session.ts"
+      ],
+      "change": "删除固定split/map结果!parts.length恒假分支。",
+      "retained": [
+        "真实JSON容器缺失/类型边界",
+        "已发布声明路径匹配",
+        "Object.defineProperty自有字段写"
+      ],
+      "validation": [
+        "UI-T1"
+      ]
+    },
+    {
+      "rawId": "U20",
+      "status": "fixed",
+      "files": [
+        "client/graph-client.ts",
+        "tests/client/graph-client.spec.ts"
+      ],
+      "change": "公共Map边校验增加实际reader排序必需createdAt string/date；合法对照从公开client直接进入reader，缺/坏值在边界受控拒绝。",
+      "retained": [
+        "只收紧已证实际必需字段，不做全DTO严格重写",
+        "原edge身份/端点/kind/sourceAnchors",
+        "真实node日期完整对照"
+      ],
+      "validation": [
+        "UI-T3"
+      ]
+    },
+    {
+      "rawId": "U21",
+      "status": "fixed",
+      "files": [
+        "apps/ui/features/graph/graph-layout.ts"
+      ],
+      "change": "同次2D布局只展开一次Run operations集合，再按原first匹配关联节点。",
+      "retained": [
+        "runs真实可省",
+        "running/waiting输入Operation",
+        "多个匹配的原顺序",
+        "不修改源数组"
+      ],
+      "validation": [
+        "UI-T1"
+      ]
+    },
+    {
+      "rawId": "U22",
+      "status": "fixed",
+      "files": [
+        "tests/client/graph-client.spec.ts"
+      ],
+      "change": "旧branch proof测试提供合法node日期并补匹配proof成功对照，排除更早日期校验掩盖目标；现有positive edge补合法日期适配U20。",
+      "retained": [
+        "节点外部日期边界",
+        "snapshot/branch同次配对",
+        "一个负例只破坏目标规则"
+      ],
+      "validation": [
+        "UI-T3"
+      ]
+    },
+    {
+      "rawId": "U23",
+      "status": "fixed",
+      "files": [
+        "tests/client/session.spec.ts"
+      ],
+      "change": "fakeGateway保留具名基础read/dispatch实现，包装直接调用必需实现，不用optional调用或非空断言替代；success<T>真实保留响应类型。",
+      "retained": [
+        "vi.fn一般可无实现的能力未被泛化",
+        "本fixture捕获前无mockReset的前提",
+        "独立handler未知方法明确失败",
+        "现有固定fixtureany未被引入生产边界"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-T2"
+      ],
+      "area": "test-appendix"
+    },
+    {
+      "rawId": "U24",
+      "status": "fixed",
+      "files": [
+        "apps/ui/composables/useMouseResize.ts",
+        "apps/ui/composables/usePanelResize.ts",
+        "apps/ui/composables/useBottomDockResize.ts",
+        "apps/ui/components/shell/ResizableSplit.vue",
+        "apps/ui/components/shell/ResizableRowSplit.vue",
+        "tests/browser/ui-boundaries.spec.ts",
+        "tests/browser/fixtures/ui-boundaries.html"
+      ],
+      "change": "三种实际拖动共用明确窗口资源所有者；正常mouseup先清理再保存，作用域卸载只清监听/文本选择，不把取消保存为旧布局。Split只emit起点。",
+      "retained": [
+        "正常范围约束与持久化",
+        "真实storage失败仍保内存尺寸",
+        "左右方向/底栏窗口限制",
+        "不新增blur兼容或永久泄漏猜测"
+      ],
+      "validation": [
+        "UI-B1"
+      ]
+    },
+    {
+      "rawId": "PM05",
+      "status": "fixed",
+      "files": [
+        "client/graph-client.ts"
+      ],
+      "change": "已解码证据time.from/to各Date.parse一次复用有效性和顺序比较。",
+      "retained": [
+        "string与null真实合同",
+        "无效时间拒绝",
+        "原时间字符串及from<=to"
+      ],
+      "validation": [
+        "UI-T1",
+        "UI-T3"
+      ],
+      "part": "client"
+    }
+  ],
+  "tests": [
+    {
+      "id": "UI-T1",
+      "command": "npx vitest run --config vitest.config.ts tests/client/session.spec.ts tests/client/graph-client.spec.ts tests/client/data-payload.spec.ts tests/client/payload-labels.spec.ts tests/client/layout.spec.ts tests/client/branch-baseline.spec.ts tests/client/reader-sources.spec.ts tests/client/run-history.spec.ts tests/client/publication-preview.spec.ts tests/client/evidence-state.spec.ts tests/client/evidence-uses-state.spec.ts tests/client/evidence-relations.spec.ts tests/client/evidence-presentation.spec.ts tests/client/evidence-selection.spec.ts tests/client/management.spec.ts tests/client/session-editing.spec.ts tests/client/session-grants.spec.ts",
+      "status": "passed",
+      "files": 17,
+      "tests": 433,
+      "note": "后续同组新增2条慢释放选择回归和1条reader标签回归分别在T2/T3运行。"
+    },
+    {
+      "id": "UI-T2",
+      "command": "npx vitest run --config vitest.config.ts tests/client/session.spec.ts tests/client/session-grants.spec.ts tests/client/session-editing.spec.ts",
+      "status": "passed",
+      "files": 3,
+      "tests": 151,
+      "note": "包含G43新旧grant、same-lease待确认、release未知后旧命令晚提交、跨服务以及B慢释放后C/新A选择交接。"
+    },
+    {
+      "id": "UI-T3",
+      "command": "npx vitest run --config vitest.config.ts tests/client/graph-client.spec.ts tests/client/reader-sources.spec.ts tests/client/data-payload.spec.ts",
+      "status": "passed",
+      "files": 3,
+      "tests": 128,
+      "note": "包含完整合法节点与正例证明、坏edge createdAt边界及真实reader排序、SSE次清理主错、own JSON字段与动态标签。"
+    },
+    {
+      "id": "UI-B1",
+      "command": "npx playwright test --config playwright.config.ts tests/browser/ui-boundaries.spec.ts --project local",
+      "status": "passed",
+      "tests": 11,
+      "note": "真实SFC与AppShell：原3例、typed enum、动态/固定同名字段、asset own容器、Agent同名kind、left/right/bottom正常保存与卸载取消。"
+    },
+    {
+      "id": "UI-B2",
+      "command": "npx playwright test --config playwright.config.ts tests/browser/ui-boundaries.spec.ts --project local -g U10",
+      "status": "passed",
+      "tests": 1,
+      "note": "在B1后新增对象枚举键序与嵌套数组语义用例，单独通过；共12个不同case，未重复称一轮12/12。"
+    },
+    {
+      "id": "UI-C1",
+      "command": "npx vue-tsc --noEmit --pretty false",
+      "status": "passed",
+      "note": "生产检查通过后只新增本地intent结束原语与selectRun交接/注释；root最终整合检查再次覆盖。"
+    },
+    {
+      "id": "UI-C2",
+      "command": "npx tsc -p tests/browser/tsconfig.json --noEmit --pretty false",
+      "status": "passed",
+      "note": "已修新测试SVGElement.click和固定success返回unknown，使用标准dispatchEvent及GraphSuccess<T>。"
+    },
+    {
+      "id": "UI-C3",
+      "command": "git diff --check -- apps/ui client/graph-client.ts tests/client tests/browser/ui-boundaries.spec.ts tests/browser/fixtures/ui-boundaries.html",
+      "status": "passed"
+    },
+    {
+      "id": "UI-B3",
+      "command": "npx playwright test --config playwright.config.ts tests/browser/workspace-concurrency.spec.ts --project collab -g M00-R02",
+      "status": "passed",
+      "tests": 1,
+      "durationMs": 22558,
+      "artifact": "browser-concurrency-focused.txt",
+      "note": "按root要求只定向真实collab复跑一次，首次全套连接表单失败本次未复现；未增等待/重试/默认，未改生产或被测用例。不能据一次通过宣称已找到首次失败原因。"
+    },
+    {
+      "id": "UI-B4",
+      "command": "npx playwright test --config playwright.config.ts tests/browser/workspace-grant-reliability.spec.ts --project collab -g M00-R01",
+      "status": "failed",
+      "tests": 2,
+      "passed": 1,
+      "failed": 1,
+      "artifact": "browser-grant-focused.txt",
+      "diagnosis": "browser-grant-focused-diagnostic.json",
+      "note": "同ID两条各定向一次；line115通过，line154目标在196再现。NodeInspector canSave不检查owned是104基线已有行为；正文disabled通过但保存按钮保持enabled。未修改生产/测试/等待，已将显式释放联合refs保存与服务端撤权的状态区分需求交root决定。"
+    }
+  ],
+  "fileChanges": [
+    {
+      "file": "apps/ui/features/run/run-history.ts",
+      "baselineSha256": "2af0ac0d1a78660930b65348ce888cd09684ac05ccbd8364f09ba3f1a8acbd4c",
+      "finalSha256": "0baf9344a977754e66e235717585fdb5b64a6adbf0e190317faa4a3c8e48a06d"
+    },
+    {
+      "file": "tests/client/run-history.spec.ts",
+      "baselineSha256": "de6be55fa6ffac59a4db668a4efed8be0cb48c500d58bd926b5e3b09fe77791c",
+      "finalSha256": "1d7dd0ecf63d284e5eaa263b4c2cbd10b828b38cbd6fdfb20ec9a1da35decb49"
+    },
+    {
+      "file": "apps/ui/features/reader/SourceAnchorEditor.vue",
+      "baselineSha256": "ffbd51dc298b0e12518eb127f89a54fc94a7f40bed0da4fdc4c356d4644b03eb",
+      "finalSha256": "cbed44ca28e5701752f4c0ee53d290a9e58938b8951f3324122ec6394755d06f"
+    },
+    {
+      "file": "apps/ui/features/reader/reader-content.ts",
+      "baselineSha256": "d6976d1e5f0752b12a17b4c98400ad084d0217098ce1fc3abf050b99fb733d9e",
+      "finalSha256": "609968b649b726096c0fbd417a10e971aa54a3f7193766a481e7e910618e486e"
+    },
+    {
+      "file": "apps/ui/features/reader/NodeReader.vue",
+      "baselineSha256": "0da0901931ef18f44ba2cab553532f144fc705f615bcb5c977def28d2cb13399",
+      "finalSha256": "b3c596b8a87bf7592cdf1092b800ba1c0451567c1c53e72f2293d3e71dea017c"
+    },
+    {
+      "file": "client/graph-client.ts",
+      "baselineSha256": "3bb5c8578b35d1d2719d8657d0de20aaecc0ede4a9d3599abb4210221c5ed299",
+      "finalSha256": "2985ea0d22274872fc08f23a4756299e24105150c37d5af88f437d490ee53c53"
+    },
+    {
+      "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+      "baselineSha256": "f2dd87e74aa622bdd099223863b75bac6aa159a180892fd12c8aa97d144c1d9b",
+      "finalSha256": "aa31a3093a18d800969ec5110fbe609dbb0d4f9341ddbf783efc55d86afed85a"
+    },
+    {
+      "file": "apps/ui/features/workspace/use-workspace-view.ts",
+      "baselineSha256": "6ceab0d356a18678c26fd92e05ece0142f30e356102f02807a2f35bbd41e5042",
+      "finalSha256": "2f1ae0def44c4ee8310e75f37547ff7e3fbccd3312cccda3ad86085ae4eaf33f"
+    },
+    {
+      "file": "apps/ui/features/graph/branch-baseline.ts",
+      "baselineSha256": "fc5c38d4a90edd8a4ea98cb8b79da1a16bf303c250cf4f364741d0d1fcd6cce6",
+      "finalSha256": "31b25f317695a34de1eaaf54eccb6bf3238b9b6881656a5a933d9eb64a0ea58b"
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-uses.ts",
+      "baselineSha256": "11fee7a7c1ed0d5bd846fd9f2f3aaedb1319b77f7d75e439e806a466ee9fc15f",
+      "finalSha256": "c981730714bd3221271cbf655c354baef6f493ec00581cb63706dd29cb2d8a06"
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-state.ts",
+      "baselineSha256": "1b4d89050bda8ad8bb0678ef9cc66cef33315a2465c94ecdfff6a5adf36e063b",
+      "finalSha256": "4963dbbcbc6db007dad3751235fc04ad6064a40653355ca89ad3a3a139cd023d"
+    },
+    {
+      "file": "apps/ui/features/assets/AssetManagement.vue",
+      "baselineSha256": "3699c93a08fe29b7008a8bd3f2a7873083aa8d9fa773f3528bf2a03eaad2a7d1",
+      "finalSha256": "023015c04ead8acbf45d708acf5ba81cc5cd36fdcacfac59adafecd11cad73c8"
+    },
+    {
+      "file": "apps/ui/features/graph/data-payload.ts",
+      "baselineSha256": "11312df558f7626fd1424b78b3f6a2bd9a20428a5cc52c821ae082c8e4f1730f",
+      "finalSha256": "26f01614d6515dd4fc7d856beeb0b95adb1a998e32cac4063ed88af120f3abfb"
+    },
+    {
+      "file": "apps/ui/state/client-session.ts",
+      "baselineSha256": "bc66917f2a2deed769d6579a2c0e02caa94ec479bfb57734e42c1393b147d181",
+      "finalSha256": "a50dfedfb9d2b45416d081f469b41f92d14f6d0da35d2397f82d35b9467a5152"
+    },
+    {
+      "file": "tests/client/data-payload.spec.ts",
+      "baselineSha256": "23b24de19c05d387833c28bdebf92c3ab76b89a103691f149e4a4f7d152d6bbf",
+      "finalSha256": "d30e516a255e43a127f61272984aaf2363a3ec696ff8efe4885c46ec54072bfa"
+    },
+    {
+      "file": "tests/client/reader-sources.spec.ts",
+      "baselineSha256": "2564dc3cb1d085d552effc09ab5b78762d17f7b609aad735f4c9fe4ff5917b83",
+      "finalSha256": "7a28c0ec6c52220975d13369931cf8c9f285f9220672aaeb0825e4ecebc6a5ec"
+    },
+    {
+      "file": "tests/browser/ui-boundaries.spec.ts",
+      "baselineSha256": "be7c788e003293c55764502b7a36e1ddad8b31db3e327cabc93f7d9b3779f4ec",
+      "finalSha256": "b6106fc261fbc0d33a186858f4f972f317784388836b6bf097a8f5e7f930987a"
+    },
+    {
+      "file": "tests/browser/fixtures/ui-boundaries.html",
+      "baselineSha256": "2ed57f9db127e84e59df7a17469cf4fba322d1ac2742e5b353e6384831d9779b",
+      "finalSha256": "732fffbc0c9b5bb9fc2532d961f6de72e8c7a9ac84c94b94db0a60eb7a3d6673"
+    },
+    {
+      "file": "tests/client/graph-client.spec.ts",
+      "baselineSha256": "e1934d65cd0c08ba97aa8310349f2d5b101afc0e64b8653c3ce894c0d3e385a6",
+      "finalSha256": "2a5d1bac7b5566510a65aa39d7fadfd3264f5a19b87e4f9a76a7532147cfafd3"
+    },
+    {
+      "file": "apps/ui/features/graph/graph-layout.ts",
+      "baselineSha256": "d92b2961695b71c64092abd065fecf08396390a383576087aa3c8cce2ba598d9",
+      "finalSha256": "8f59f87ace2f6e85aff0123c487c79f44b790d1159940f21ba3f7ea13ad10d77"
+    },
+    {
+      "file": "apps/ui/features/agents/AgentManagement.vue",
+      "baselineSha256": "b07927fd83535ff51dd57480625cd07bf34ffa9327d88ed49c99bdf16f8ca668",
+      "finalSha256": "a5342e0b4399cb4962d394f0a6ac42a955170222ec4ee07aac8b77edbe5d82b0"
+    },
+    {
+      "file": "apps/ui/features/graph/payload-labels.ts",
+      "baselineSha256": "1fe53797b2e358c9b13150889f1476c35a69e0b5587d32d05d5b6066c96bc619",
+      "finalSha256": "dcdb5ff6a6ab32fa1771bbf773f4679d0ba0ce3af1b70079449665f23a553ec0"
+    },
+    {
+      "file": "apps/ui/features/graph/GraphSceneFallback.vue",
+      "baselineSha256": "7630eb91286dd992469e555a580006fe4e2c7c70f7113af9a7aae18a444ee890",
+      "finalSha256": "3f8b35923966d017a3d02e4512315b49bfcedfb614546c8ed06d655d6aa3eee7"
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceLibraryView.vue",
+      "baselineSha256": "00157ea4d3b9d17cf1e55fd537bcdeb76bee29955d803260a6503a7aa8502d8d",
+      "finalSha256": "16afc4ea06c4df4df46ce80114d97c4e030ae4e978c33d1c5f0b4928f139e4d8"
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceUsesPanel.vue",
+      "baselineSha256": "3400ee81c858010a5203ae4c4fe675a0423fc897827bd56499f9ba3872b99ca6",
+      "finalSha256": "b2a8e2ed6518161347aecff6c47b845f514f63013fc4eae55832fe241b4d42fb"
+    },
+    {
+      "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+      "baselineSha256": "9ea0052eca46f4279a5f2e6edadc27b25c37a82ab200531b2e05ee6904312e10",
+      "finalSha256": "bb7bb67ea1e4259a6640b6c1088575540f2a3cc19a19ba35b34938dc2785abfb"
+    },
+    {
+      "file": "tests/client/session.spec.ts",
+      "baselineSha256": "f1d1f4480b80a3ee4d192fcf6a0baaec0dd326015b10bbdd6b01ed917db80686",
+      "finalSha256": "660e1cf52975f957ebd87daea45eeb281455971ee65660ef4585039f5cd4097c"
+    },
+    {
+      "file": "apps/ui/composables/useMouseResize.ts",
+      "baselineSha256": null,
+      "finalSha256": "6875e9385f490735d0112b883e438220c67c179962260dd5546d7bc7956b004d"
+    },
+    {
+      "file": "apps/ui/composables/usePanelResize.ts",
+      "baselineSha256": "53229e0916d535cfcc4132e8d589c60eb11f320bfba570528b465d996a96e8f0",
+      "finalSha256": "47254d67d6bbf71fe23e1b5e1e655a3658ec883beffba87640996b4ff6aed532"
+    },
+    {
+      "file": "apps/ui/composables/useBottomDockResize.ts",
+      "baselineSha256": "44ace13ccc993589754b3aa6ba9ef327babb48a25c005ea290d9a76e4fcdb321",
+      "finalSha256": "b51df92bfda5c3eadf97d1d13ad7730eb950dea677e96ac650ad56d14b5fdc32"
+    },
+    {
+      "file": "apps/ui/components/shell/ResizableSplit.vue",
+      "baselineSha256": "25e17425987ddbc18b478cb65d633df96950111262ec242ec2099593326f7217",
+      "finalSha256": "e2e967e968493a305e78a2fa3afa9b8a1a063495c19662ebce3d7afd760b605f"
+    },
+    {
+      "file": "apps/ui/components/shell/ResizableRowSplit.vue",
+      "baselineSha256": "fa66ff33fb574536873f425ec068af248f364e7b0fb9dae2e92ea80d7bd8ec87",
+      "finalSha256": "589770e78c727b3aefdfda60e4d55f7cbe6204748afbbb46edfc07c25d6593f2"
+    }
+  ],
+  "retainedCandidates": [
+    {
+      "topic": "assetSchemaHasPointer inherited lookup",
+      "decision": "not changed",
+      "basis": "103未证合法生产caller误分支；真实写入/正文读取站点已按G01修复。"
+    },
+    {
+      "topic": "fixed-basis SHA vs download current ETag",
+      "decision": "kept",
+      "basis": "绑定不同身份，ClientFile/desktop没有可直接复用的已验证digest合同。"
+    },
+    {
+      "topic": "raw JSON/UTF8 response",
+      "decision": "kept",
+      "basis": "clientReadJson及SSE已有fatal分块解码与flush、BOM原行为；本轮无需重复新增边界。"
+    }
+  ],
+  "initialFailuresResolved": [
+    {
+      "reason": "新SSE回归输入非UUID先触INVALID_ARGUMENT",
+      "resolution": "改合法UUID，单独测试次级cancel失败。"
+    },
+    {
+      "reason": "新Run fixture复用旧R导致多Run未接纳",
+      "resolution": "使用真实前进R并移除旧初始control；后端事实/运输时序分离。"
+    },
+    {
+      "reason": "新browser控件定位误用input/严格label",
+      "resolution": "按实际textarea和Agent form select定位；11例全过。"
+    },
+    {
+      "reason": "新测试data unknown和SVGElement.click",
+      "resolution": "具名generic GraphSuccess<T>及标准dispatchEvent；无断言/any绕过。"
+    }
+  ],
+  "notes": [
+    "未修改103、总docs/counter或其他分区源码。",
+    "未提交、推送、部署。",
+    "Root负责完整npm test/整合类型和runtime跨区归档；分区不跑全套。",
+    "root发现既有browser C05 selectOption原DOM值假设，与enum索引身份冲突；root改业务label选择保留score=1断言，我只同步payload-labels用途注释。"
+  ],
+  "crossReview": {
+    "reviewer": "audit_domain",
+    "result": "Run intent/same-lease交接、release未知换holder、selectRun同步选择交接、枚举JSON值和resize作用域所有者均未见实质问题；建议的两Split注释已同步。"
+  },
+  "externalDriftObserved": {
+    "source": "只读比较冻结32文件及104 baseline，未覆盖外部修改。",
+    "frozenUnchanged": 29,
+    "frozenDrift": [
+      {
+        "file": "apps/ui/features/run/run-history.ts",
+        "frozen": "0baf9344a977754e66e235717585fdb5b64a6adbf0e190317faa4a3c8e48a06d",
+        "observed": "59f6aa437a0b6270aecaff56a84d2515b4461c936863fe3361d220aa2c91fcfc"
+      },
+      {
+        "file": "tests/client/run-history.spec.ts",
+        "frozen": "1d7dd0ecf63d284e5eaa263b4c2cbd10b828b38cbd6fdfb20ec9a1da35decb49",
+        "observed": "60c0a73c9b712a946cced92e08c5157047c2ae79d104c7dcf42d404b8289efe7"
+      },
+      {
+        "file": "apps/ui/features/reader/NodeReader.vue",
+        "frozen": "b3c596b8a87bf7592cdf1092b800ba1c0451567c1c53e72f2293d3e71dea017c",
+        "observed": "eb09e89e0b06d66e43f93f8478bcb164279cc2313319cc8274909b876c9db245"
+      }
+    ],
+    "outsideMy104Edits": [
+      "apps/ui/components/shell/WorkspaceViews.vue",
+      "apps/ui/features/graph/NodeInspector.vue",
+      "apps/ui/features/graph/node-origin.ts",
+      "apps/ui/features/run/OperationReview.vue",
+      "apps/ui/features/run/RunHistoryPanel.vue",
+      "apps/ui/features/run/RunReview.vue",
+      "apps/ui/views/WorkspacePage.vue",
+      "tests/client/ui-reporter.spec.ts"
+    ],
+    "note": "不推定并发修改是R02首轮失败原因；没有证据建立因果关系。原fileChanges冻结哈希保留，没有更新成外部修改后的值。"
+  },
+  "rootFinalValidation": "validation.json",
+  "rootFinalSourceSnapshot": "source-snapshot.json"
+}

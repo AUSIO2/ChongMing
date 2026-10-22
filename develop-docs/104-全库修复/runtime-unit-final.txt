@@ -1,0 +1,13 @@
+
+ RUN  v4.1.9 /Users/xiong/ChongMing
+
+(node:76575) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:76615) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  10 passed (10)
+      Tests  31 passed (31)
+   Start at  15:01:14
+   Duration  1.93s (transform 435ms, setup 0ms, import 694ms, tests 537ms, environment 0ms)
+

@@ -1,0 +1,114 @@
+{
+  "scope": "ui-runtime-cross-review",
+  "status": "complete",
+  "readOnly": true,
+  "sourceEdited": false,
+  "testSuitesRun": false,
+  "updatedAt": "2026-10-20T05:54:02.607639+00:00",
+  "reviews": [
+    {
+      "id": "U17",
+      "result": "confirmed",
+      "evidence": "WorkspacePage.vue:821 Run下拉没有busy禁用，:199调用session.selectRun。claimRunControl:960只捕session/view，:964只检查它们与map；selectRun:993推runSelectionEpoch并释放当前grant，但pending A尚未入selectedRunControl无法释放。A迟到:974被接纳并schedule续租，renew:937只检查held lease/fence不检查selectedRun B。真实UI路径可达；复跑实际session复现selectedB/heldA/no release。",
+      "boundariesToKeep": "捕获当前run选择意图，迟到已获grant按它原map/run/lease释放；review独立epoch仍保留，不能用禁用下拉代替所有权。"
+    },
+    {
+      "id": "U14",
+      "result": "confirmed",
+      "evidence": "已发布type:[integer,string],enum:[0,\"0\"]合法，DataPayloadEditor.vue:231-232 DOM option value String(item)碰撞，find返回首数字0；模板change实际提取复跑输出emittedType:number。",
+      "boundariesToKeep": "保留每个enum值原始JSON类型，nullable/const/枚举标签语义及合法混合类型支持。"
+    },
+    {
+      "id": "U10",
+      "result": "confirmed-with-admissibility-evidence",
+      "evidence": "真实published dictionary:string输入field合法string，实际rename函数赋值__proto__后丢失。另实际合法catalog含可省/__proto__/assetId引用且满足sourceType selector，完整assetCreatePayload生成{}并改Object.prototype；独立脚本验证，不只裸setter语法推断。dynamicFields用properties继承判断会隐藏合法additional constructor键；payloadReadPointer缺失constructor返回继承Function也为真实helper行为。",
+      "boundariesToKeep": "只读写实际自有字段，创建/改名保留合法同名键；其他语法相似properties读取如assetSchemaHasPointer未证明单独失败，不扩大计数。"
+    },
+    {
+      "id": "U13",
+      "result": "confirmed",
+      "evidence": "PromptKind:string，controlReadAgent允许toString/constructor通用绑定kind；AgentManagement.vue:303 !kinds[draft.kind]继承Function而不显示未知option。uiReadAgentKind已hasOwn但不能补模板条件；影响已保存自定义kind显示，未证明会覆写数据。",
+      "boundariesToKeep": "保留已有kind只读、新建角色限制、目录不可用时原promptVars；只收口自有存在性。"
+    },
+    {
+      "id": "U11",
+      "result": "confirmed",
+      "evidence": "复跑clientCreateApi.watch坏content-type+cancel抛次级错误，实际抛secondary cleanup failure无INVALID_STREAM。与下载102修复不同SSE路径。",
+      "boundariesToKeep": "SSE header/body/protocol/reader释放等真实边界全部保留，次级cancel不盖原输入错误。"
+    },
+    {
+      "id": "R-history-map-check",
+      "result": "confirmed",
+      "evidence": "run-history.ts:119只经已验证ClientGateway.read，公共clientAssertRunPage:406-408已把page.mapId绑定params.mapId，:121同值静态二验无新输入。WorkspacePage:831→RunHistoryPanel:21直接装配公共gateway。",
+      "boundariesToKeep": "代次/取消、目录version、续页重复runId、limit及unknown HTTP/IPC首次完整DTO解析。"
+    },
+    {
+      "id": "R-source-anchor-double-parse",
+      "result": "confirmed-with-semantic-constraints",
+      "evidence": "SourceAnchorEditor.vue:86和99对同个修改path/ranges均调用readerCreateSourceAnchors，模板158/166/187同时消费；同一同步计算输入。未改旧版本时global沿originalAnchors而selectedPreview另走旧摘录；global会在其他字段先错时停止，因此不可简单令selectedValidation=global整体结果。",
+      "boundariesToKeep": "按字段共享解析结果，保留原旧version anchors及每字段独立错误/preview/global首错聚合。"
+    },
+    {
+      "id": "R-reader-ready",
+      "result": "confirmed",
+      "evidence": "readerReadState:47-51已经identity/snapshot配对和node存在性，NodeReader:47-48再次检查并find??null，:71/75/77重新拼ready上下文。computed同次同步读取，无await换源。",
+      "boundariesToKeep": "让ready携带匹配node/snapshot/identity；公共helper可独立调用的实际边界及inactive/missing/scroll代次仍保留。"
+    },
+    {
+      "id": "R-gateway-active-close",
+      "result": "confirmed",
+      "evidence": "graph-client.ts connect:1232同步close并active=null，init只generation0可置active；login串行1197，:1244/1246在await后检查同generation。到:1247没有任何能置active的同代并发写入，active?.close不可达有效值。",
+      "boundariesToKeep": "connect开始关闭旧active/pending，superseded candidate关闭、disconnect/close及store失败传播。"
+    },
+    {
+      "id": "R-client-renew-double-scan",
+      "result": "confirmed",
+      "evidence": "clientAssertData:583/587 required表→595/generic599等扫描renew同data，再:665调用branch.ownership或:679调用run.control递归重扫同对象required/generic；无新响应。",
+      "boundariesToKeep": "base完整未知DTO解析、renew额外branch/ownershipRevision/kind、claim discriminant和snapshot/branch配对；不要通过skipValidation公共参数绕过。"
+    },
+    {
+      "id": "M-editor-add-object",
+      "result": "confirmed-minor",
+      "evidence": "DataPayloadEditor:159 string fallback唯一template caller:250已typeof additionalProperties===object。",
+      "boundariesToKeep": "合法additionalProperties缺失/true时不展示add入口；必需schema直接承接，不新assert。"
+    },
+    {
+      "id": "M-workspace-view-loading",
+      "result": "confirmed-minor",
+      "evidence": "use-workspace-view.ts:113-114 helper已因current.loading返回null，:48 canOpenPage对selectedIdentity非null后又!loading重复。",
+      "boundariesToKeep": "当前用户/workspace/map/node完整身份与合法未选/loading状态。"
+    },
+    {
+      "id": "M-baseline-single-root",
+      "result": "confirmed-minor",
+      "evidence": "branchBaselineMatchesSnapshot:52的rootIds.length===1已由唯一生产构造branchCreateBaseline:18成立；session:345构造后私有保存，类型未对外未知反序列化。",
+      "boundariesToKeep": "新snapshot map/workspace/selectedId和branch内容同源配对继续验证，不能删整个baseline比较。"
+    },
+    {
+      "id": "M-evidence-error-normalization",
+      "result": "confirmed-minor",
+      "evidence": "evidence-uses:103同cause clientReadError两次，再acceptError:75第三次；evidence-state:241已有problem却传cause由acceptError重复归一化。同一捕获值无异步修改。",
+      "boundariesToKeep": "只归一化一次传稳定problem，401外部回调/游标清空/重试意图和代次检查保留。"
+    },
+    {
+      "id": "Layout-parent-lookup",
+      "result": "confirmed",
+      "evidence": "graph-layout:213只把actual中双端successor建incoming；nodes覆盖全部placements，:231 byId覆盖全部nodes，parentId来自incoming。因此:236-237 parent存在分支中的byId?.y??0缺失兜底不可达；无父根的0仍必要。",
+      "boundariesToKeep": "实际根节点0排序、稳定id排序、真实布局初始化和边端点过滤。"
+    }
+  ],
+  "reproductions": [
+    {
+      "command": "node --import tsx develop-docs/103-全库审计/reproduce-ui.cjs",
+      "exitCode": 0,
+      "output": "/Users/xiong/ChongMing/develop-docs/103-全库审计/cross-review-ui-runtime-output.jsonl",
+      "limits": "实际函数/SFC表达式/session，完全内存；未跑Vitest/浏览器。"
+    },
+    {
+      "command": "node --import tsx develop-docs/103-全库审计/cross-review-ui-runtime-repro.cjs",
+      "exitCode": 0,
+      "output": "/Users/xiong/ChongMing/develop-docs/103-全库审计/cross-review-ui-runtime-admissibility.jsonl",
+      "limits": "真实定义发布边界+提取完整资产构造和改名函数；Object.prototype仅独立进程改变且finally清除。"
+    }
+  ]
+}

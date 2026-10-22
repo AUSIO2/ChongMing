@@ -1,0 +1,228 @@
+{
+  "scope": "domain",
+  "status": "fixed-reviewed-source-frozen",
+  "changes": [
+    {
+      "rawId": "D01",
+      "status": "fixed",
+      "files": [
+        "backend/modules/assets/asset-service.ts"
+      ],
+      "change": "asset.delete在实际有图时同一事务读取一次目录，所有图正文逐份完整解析后判断引用，不再每图重编目录。",
+      "retained": "所有者写授权、永久库引用钩子、收据优先、预期sha、全部图实际引用检查和同事务删除保留。",
+      "validation": "Mongo资产删除/竞态测试；内存3图目录编译3→1；零图不新增目录解析。"
+    },
+    {
+      "rawId": "D02",
+      "status": "fixed",
+      "files": [
+        "backend/modules/graph/run-state.ts"
+      ],
+      "change": "阶段输出校验返回按Work候选键配对的RunValidatedOutput，携带正式nodeId及完整graphParseNodePayload结果；只在同提案同步直接发布复用。一次扫描同时收集候选路径和身份；同阶段声明及候选集合复用。",
+      "retained": "历史候选、selection和后续review仍完整解析实际物化正文；基数、库身份/digest、候选依赖/路径、图对象根、发布闭包、授权/CAS保留。",
+      "validation": "generic-run/library-claim-run既有候选、选择、审核、引用闭包与发布行为；内存即时发布完整解析2→1。"
+    },
+    {
+      "rawId": "D03",
+      "status": "fixed",
+      "files": [
+        "backend/modules/shared/data-definition.ts",
+        "backend/modules/assets/asset-service.ts",
+        "backend/modules/assets/bundle-codec.ts"
+      ],
+      "change": "真实PayloadReferenceValue必带具体path和父容器parent；声明definition.path保持原语义。资产/读包媒体约束直接读取每个真实父容器，覆盖数组和字典通配项。ParsedDefinitionPayload另按root P04需求返回同次已复制definition。",
+      "retained": "完整schema/条件引用校验、精确引用目标类型、资产ready/工作区/媒体约束、旧声明索引持久化语义保留；parent只在本次内存消费。",
+      "validation": "通配媒体负例在codec旧实现先红后绿；Mongo独立入口及已验内部入口均拒绝错误media且接纳正确media；shared引用路径/parent期望更新；内存single/array都ASSET_REFERENCE。"
+    },
+    {
+      "rawId": "D04",
+      "status": "fixed",
+      "files": [
+        "backend/modules/graph/run-state.ts",
+        "backend/modules/shared/data-definition.ts"
+      ],
+      "change": "端口分组使用Map转自有数据字段；显式成员、缺省端口、prompt sourceText只读自有字段；冻结端口绑定也按自有字段取值。投影只沿自有字段读取并以数据属性构造层级，保留合法__proto__。",
+      "retained": "合法动态名称仍接受；缺省可选端口真实空集合保留；必需端口仍以OUTPUT_CARDINALITY拒绝；投影白名单和缺省阶段结果语义保留。",
+      "validation": "constructor真实Run启动/读取、嵌套__proto__投影先红后绿；合法N:1显式可选constructor+optional prompt绑定增强后先红items.flatMap再绿；缺必需constructor得到基数错误；104已修正anchor的显式空组脚本completed。"
+    },
+    {
+      "rawId": "D05",
+      "status": "fixed",
+      "files": [
+        "backend/modules/workspace/seed-configuration.ts",
+        "backend/modules/workspace/workspace-input.ts",
+        "backend/modules/assets/bundle-codec.ts"
+      ],
+      "change": "seed两个真实未知入口各自核对白名单一次，共用实际字段解析seedReadFields；bundle Agent+revision一次核对形状后交controlReadAgentFields解析配置字段。",
+      "retained": "独立seedReadInput/controlReadAgent未知形状校验、定义包规则、Agent角色/变量/绑定/工具/枚举及revision保留；无uncheckedflag或旧接口兼容转发。",
+      "validation": "seed-configuration/workspace/bundle-v4已有正负例通过。"
+    },
+    {
+      "rawId": "D06",
+      "status": "fixed",
+      "files": [
+        "backend/modules/graph/graph-service.ts",
+        "backend/modules/graph/run-state.ts"
+      ],
+      "change": "把DataRead的Operation归属、精确输入及阶段/槽位资格集中在runReadWorkContext；存在缺失来源时在外部读取前预检，来源提交后从新快照runReadData完整复验；无缺失来源时只验证一次。",
+      "retained": "当前Work租约、Run分支占有、冻结输入、来源限制、收据优先、CAS冲突重试与新快照领域复验保留。",
+      "validation": "wrong Operation回归旧实现readSource=1，新实现0且图/收据不变；合法Operation仍读取一次；既有双并发来源读取都返回同一个CAS赢家且仅一收据。"
+    },
+    {
+      "rawId": "D07",
+      "status": "fixed",
+      "files": [
+        "backend/modules/assets/bundle-codec.ts",
+        "backend/modules/assets/asset-service.ts"
+      ],
+      "change": "ParsedWorkspaceBundle保留已解码并核对规范Base64/长度/sha的附件bytes；导入直接写此配对字节。显示文件名/媒体使用规则单独共用，导入复用已验size/sha。",
+      "retained": "原始上传流和外层存储包仍独立核对实际字节；64MiB、Base64规范、sha、导入新增文件策略、再次授权及不确定提交保护保留。",
+      "validation": "bundle-v4/实际导入导出及rollback测试通过；内存附件14byte哈希2→1，外层2942byte完整检查仍1。"
+    },
+    {
+      "rawId": "D08",
+      "status": "fixed",
+      "files": [
+        "backend/modules/graph/graph-service.ts"
+      ],
+      "change": "graphSameRoots两侧各排序一次后比较，移除every内部对右侧重复排序。",
+      "retained": "根范围相等规则、只读输入顺序以及分支授权保留。",
+      "validation": "既有图/资产事务与Run行为用例；静态核对两侧集合比较及输入不变。"
+    },
+    {
+      "rawId": "D10",
+      "status": "fixed",
+      "files": [
+        "backend/modules/graph/run-state.ts"
+      ],
+      "change": "暂停/恢复先核对本Run分支一次，随后逐Operation核对不同精确输入和冻结规格。其他独立入口仍组合完成两种核对。",
+      "retained": "每个Operation的节点身份/版本/类型、封闭输入和specHash约束仍逐个保留；终态拒绝和暂停派发规则保留。",
+      "validation": "generic-run暂停/输入变化行为及run-history回归；内存2个Operation分支读取2→1。"
+    },
+    {
+      "rawId": "P01",
+      "status": "fixed",
+      "files": [
+        "backend/modules/graph/graph-input.ts",
+        "backend/modules/shared/data-definition.ts"
+      ],
+      "change": "未知JSON对象以及presentation.fieldLabels、presentation.enumLabels外层和内层labels共四处，全部使用Object.fromEntries构造自有数据属性，保留合法__proto__且不改变对象原型；与D04合并G01同根。",
+      "retained": "原始对象根/成员预算、JSON深度、有限数字、普通对象边界、独立副本；presentation固定字段白名单、文字非空和真实JSON Pointer规则均保留。外层标签map测试仅证明parser保存语义，不声称任意键是UI可消费pointer。",
+      "validation": "graphInputReadPayload自有__proto__/constructor旧红新绿；补修三标签map的2例也先红后绿：合法enum[__proto__,normal]发布/正文可用且特殊标签保留；两个outer map保留__proto__/constructor/toString/普通键，原型保持Object.prototype。runtime代理独立公开parser内存复现确认三映射ownProto和ordinaryPrototype都为true。"
+    }
+  ],
+  "sourceFiles": [
+    "backend/modules/assets/asset-service.ts",
+    "backend/modules/assets/bundle-codec.ts",
+    "backend/modules/graph/graph-input.ts",
+    "backend/modules/graph/graph-service.ts",
+    "backend/modules/graph/run-state.ts",
+    "backend/modules/shared/data-definition.ts",
+    "backend/modules/workspace/seed-configuration.ts",
+    "backend/modules/workspace/workspace-input.ts"
+  ],
+  "testFiles": [
+    "tests/backend/modules/graph/generic-run.spec.ts",
+    "tests/backend/modules/graph/source-read-concurrency.spec.ts",
+    "tests/backend/modules/assets/bundle-v4.spec.ts",
+    "tests/backend/modules/shared/data-definition.spec.ts",
+    "tests/backend/modules/assets/asset-v4-integration.spec.ts"
+  ],
+  "coordinatedContributions": [
+    {
+      "group": "G08/P04",
+      "change": "已通知root同步evidence具体path及definition/payload；root交叉审未见回归。"
+    },
+    {
+      "group": "G26",
+      "change": "配合runtime将control/assets outer parser收口InputQueryEnvelope/InputCommandEnvelope；HTTP通用形状/UUID只解析一次，params完整校验保留。",
+      "files": [
+        "backend/modules/workspace/workspace-input.ts",
+        "backend/modules/assets/asset-service.ts"
+      ]
+    }
+  ],
+  "validation": [
+    {
+      "command": "node node_modules/vitest/vitest.mjs run --config vitest.config.ts <domain 7 pure files> --reporter=json --outputFile=develop-docs/104-全库修复/domain-pure-tests.json",
+      "result": "最终补修后7文件98测全部通过；含run-history 13测。"
+    },
+    {
+      "command": "node node_modules/vitest/vitest.mjs run --config vitest.config.ts tests/backend/modules/assets/assets.spec.ts tests/backend/modules/assets/asset-v4-integration.spec.ts tests/backend/modules/workspace/workspace.spec.ts --reporter=json --outputFile=develop-docs/104-全库修复/domain-mongo-tests.json",
+      "result": "3文件27测全部通过；真实Mongo副本集，未启动真实broker。"
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+      "result": "已通过；仅覆盖生产代码，测试类型检查另列。"
+    },
+    {
+      "command": "node --import tsx develop-docs/104-全库修复/repro-domain-after.cjs",
+      "result": "通过；保存domain-memory-after.jsonl；修正103旧显式分组试构未同步anchor的fixture，103不变。"
+    },
+    {
+      "command": "node --import tsx develop-docs/103-全库审计/repro-domain-import.cjs",
+      "result": "通过；保存domain-import-after.jsonl，不写103。"
+    },
+    {
+      "command": "node node_modules/typescript/bin/tsc --noEmit -p develop-docs/104-全库修复/domain-test-tsconfig.json",
+      "result": "5个本次修改的测试文件独立类型检查通过；该检查使用真实Node测试环境ES2022库，不改变生产编译配置。"
+    },
+    {
+      "command": "git diff --check -- <domain 8 source + 5 changed tests>",
+      "result": "通过。"
+    },
+    {
+      "command": "node node_modules/vitest/vitest.mjs run --config vitest.config.ts tests/backend/modules/shared/data-definition.spec.ts tests/backend/modules/assets/bundle-v4.spec.ts tests/backend/modules/graph/generic-run.spec.ts",
+      "result": "P01三映射补修后3文件59测全部通过；新增2例先红后绿。生产及5变更测试类型复查均通过。"
+    }
+  ],
+  "regressions": {
+    "newBehaviorCases": 10,
+    "redBeforeGreen": [
+      "JSON自有__proto__丢失",
+      "合法constructor端口启动TypeError",
+      "投影污染Object.prototype",
+      "通配media校验跳过",
+      "错误Operation先外部读取",
+      "可选constructor prompt绑定items.flatMap TypeError",
+      "合法enum __proto__标签丢失",
+      "fieldLabels和enumLabels外层自有__proto__映射丢失"
+    ],
+    "greenBoundaryCases": [
+      "缺必需constructor受控基数错误",
+      "独立与已验资产入口media一致检查"
+    ]
+  },
+  "intermediateFailures": [
+    "初次投影测试fixture仍含其他转换/text绑定，在修改fixture后确认真实原型污染红测；不作产品失败证据。",
+    "D02首轮实现漏return导致6例失败，已修正并组合重跑通过。",
+    "初次可选constructor fixture仍为1:1与端口总max=2冲突，修正为合法N:1；随后增强optional prompt绑定真实复现并修复。",
+    "收口来源预检时临时抽出投影helper出现context重名；已删除额外helper、保留原完整runReadData入口，组合重跑通过。",
+    "首轮生产类型检查发现ES2020 Object.hasOwn不可用及root freezeNode被ReturnType重载退宽；本域改用既有hasOwnProperty.call，root窄化接收类型，后续生产tsc通过。",
+    "首次尝试将全部10份运行测试纳入类型检查，未修改assets.spec.ts有3项既有StorageSession/ClientSession与Mongo _id类型问题，旧测试使用Array.at也超生产lib；本次5变更测试按Node ES2022独立检查，补齐来源夹具必需commitOwnership接口（意外调用显式失败）及toString schema字段精确类型；新增promptBindings赋值以完整已知fixture对象表达，后续5文件检查通过。未修改assets.spec.ts。",
+    "独立交叉审发现presentation三处字典构造遗漏（原交接P01仅列graph-input，root确认归属遗漏）；补2个真实parser保存回归先红后绿并修三处，冻结后重跑相关59例及7文件纯测试98例、两类类型检查和差异卫生。"
+  ],
+  "retained": [
+    "未扩大删除存储可选字段默认、独立服务未知入口、导入原值与重映射后新值校验。",
+    "未新增通用缓存、uncheckedflag、旧接口兼容层或未证实断言。",
+    "沿用现有历史候选nodeId可省的物化规则；本次新候选身份以必要交叉类型表达。"
+  ],
+  "unresolved": [],
+  "validationSummary": {
+    "uniqueTestFiles": 10,
+    "passedTests": 125,
+    "newBehaviorCases": 10,
+    "productionTypes": "passed",
+    "changedTestTypes": "passed (5 files, Node ES2022)",
+    "unchangedTestTypes": "assets.spec.ts pre-existing 3 diagnostics retained; not claimed passed"
+  },
+  "independentReview": {
+    "reviewer": "runtime",
+    "result": "已复核G01/P01三标签map和D02/D06/D07，未发现其他需改风险。P01漏站点已修并独立公开parser确认。",
+    "checks": [
+      "D02组合key=workId+NUL+key；同提案同步直接发布复用完整结果，历史/selection/review完整解析新物化值。",
+      "D06首次来源IO前Work上下文预检；CAS/收据后最终DataRead仍复验。",
+      "D07从parse Buffer到直接写入保持配对；重映射后的新正文仍完整graphParse。"
+    ]
+  }
+}

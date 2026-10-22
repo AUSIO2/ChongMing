@@ -1,0 +1,331 @@
+{
+  "scope": "final-runtime-cross-review",
+  "status": "complete",
+  "updatedAt": "2026-10-20T06:07:30.226919+00:00",
+  "readOnly": true,
+  "sourceEdited": false,
+  "testSuitesRun": false,
+  "newEnvironmentsStarted": 0,
+  "method": "只读核对最新源码、完整实际调用者、103既有精确函数体/真实client复现脚本及已保存输出；本次未运行新环境或全套测试。",
+  "reviews": [
+    {
+      "id": "P05",
+      "result": "confirmed",
+      "kind": "behavior",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/scripts/check-desktop-runtime.ts",
+          "line": 121
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/rabbitmq.ts",
+          "line": 95
+        }
+      ],
+      "evidence": "root-repro.cjs以TypeScript AST提取当前rabbitCreateBroker完整函数及desktopCheckRuntime最外层finally，未改写被审清理语句。broker主初始化失败后close的rm再失败，catch中的throw原错不可达；desktop原始断言失败后service.close拒绝，finally在121中断，原错被覆盖且122–125环境恢复、provider关闭和目录清理均未执行。service.close真实实现await clientStopChild，后者84明确可拒绝，57也传播非ESRCH信号错误，故清理拒绝是实际受支持行为。",
+      "reproduction": {
+        "artifact": "root-repro-output.json",
+        "case": "verification-cleanup-error-ordering",
+        "observed": {
+          "brokerObservedError": "secondary temporary cleanup failure",
+          "runtimeObservedError": "secondary service cleanup failure",
+          "providerClosed": false,
+          "realProcessesStarted": 0
+        }
+      },
+      "proposedChange": "自有资源逐项尝试清理；保存主错并关联实际清理错误。若无主错，关闭失败仍应报错；归属与退出语义不变。",
+      "boundariesToKeep": [
+        "外部提供broker的借用归属",
+        "真实关闭失败与非零退出诊断",
+        "原环境值恢复",
+        "进程退出未确认不能伪装已释放"
+      ],
+      "limitations": "只确认给定的可拒绝清理顺序；不据此推断Mongo stream.close或文件锁close正常生命周期必然可触发双失败。",
+      "relatedFindings": [
+        "R07",
+        "U11",
+        "E02"
+      ],
+      "counting": "与错误归属/多资源清理根因合并，两个源站点不拆计。"
+    },
+    {
+      "id": "U16",
+      "result": "confirmed",
+      "kind": "redundancy",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 65
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 90
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 95
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/evidence-library/evidence-selection.ts",
+          "line": 23
+        }
+      ],
+      "evidence": "refs直接从同一selected副本按id排序再投影{id,digest}；toggle32–39以entry身份去重并复制真实候选。NodeEvidenceEditor的additions只按旧draft entryId过滤该refs。addSelected在同一同步调用里反向以相同id/digest对selected做join并验证长度，全程无await。已查全部生产引用：EvidenceSelectionPanel只读selected，改变选择只调toggle/clear。因此这里没有独立未知输入或异步边界。",
+      "proposedChange": "本次additions直接携带selected summary及其ref，加入时各投影一次，避免反查及恒等数量校验。",
+      "boundariesToKeep": [
+        "已保存同entry的旧固定digest不可被新候选替换",
+        "撤回引用保留与手动移除",
+        "32条容量、使用理由和UTF-8字节限制",
+        "pendingRetry/版本变化锁",
+        "summary与draft独立副本及稳定提交顺序"
+      ]
+    },
+    {
+      "id": "U18",
+      "result": "confirmed",
+      "kind": "redundancy",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/state/client-session.ts",
+          "line": 1414
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/state/client-session.ts",
+          "line": 1399
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/state/client-session.ts",
+          "line": 1401
+        }
+      ],
+      "evidence": "saveNode1414对同一definition及old/new payload各展开一次，分支变化时只同步核selectedBranch版本及根revision，1419立即调用saveReferencedPayload。helper1399和1401又对原两payload各展开一次，调用前没有await、payload写入或定义重取。saveNodeReferences1372是另一个真实caller，仍需要首次展开，不能删除helper后让该路径漏算。",
+      "proposedChange": "两个真实caller各建立一次明确old/next引用结果，并把完整结果传给helper复用，不设optional或unchecked入口。",
+      "boundariesToKeep": [
+        "目标类型存在性检查referencesAreValid",
+        "旧新目标共同授权及node revision",
+        "原分支证明与跨await内容复核",
+        "固定请求差量及幂等重试"
+      ]
+    },
+    {
+      "id": "U20",
+      "result": "confirmed",
+      "kind": "behavior",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 638
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/reader/reader-sources.ts",
+          "line": 82
+        }
+      ],
+      "evidence": "map.get外部边界对edge仅核id/from/to/kind/sourceAnchors，未建立createdAt形状。实际readerReadSourceNotes按真实successor方向过滤后对两条edge直接createdAt.localeCompare；两条即触发排序，空数组或单条不会揭露。已核复现使用现有合法session Map节点及两个真实端点，省略edge.createdAt后公共client.read接受，实际reader抛TypeError。",
+      "reproduction": {
+        "artifact": "reproduce-ui-output.jsonl",
+        "case": "U20-edge-required-boundary",
+        "observed": {
+          "publicClientAccepted": true,
+          "readerError": "TypeError",
+          "message": "Cannot read properties of undefined (reading 'localeCompare')"
+        }
+      },
+      "proposedChange": "由实际unknown响应所属client边界建立reader必需的edge.createdAt字段；不在UI填默认时间。",
+      "boundariesToKeep": [
+        "真实时间排序及同时间按id排序",
+        "既有edge身份、端点、kind与sourceAnchor检查",
+        "确有历史可省语义的其他字段",
+        "不将未逐项证明的全协议字段一并strict化"
+      ]
+    },
+    {
+      "id": "U21",
+      "result": "confirmed",
+      "kind": "redundancy",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/graph/graph-layout.ts",
+          "line": 174
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/graph/graph-layout.ts",
+          "line": 216
+        },
+        {
+          "file": "/Users/xiong/ChongMing/apps/ui/features/graph/graph-layout.ts",
+          "line": 218
+        }
+      ],
+      "evidence": "graphReadCanvasLayout为同步纯投影，GraphCanvas.vue计算属性真实调用；placements.map每个节点对同一snapshot.runs执行flatMap(operations)再find，期间不修改snapshot或operations。类型174明确runs?: GraphRun[]，所以可省runs是现行合法合同，不能把?.或空结果误删。",
+      "proposedChange": "每次布局调用先展开一次operations，节点继续按原run/operation顺序find第一条活动输入；不引入跨调用缓存或新索引协议。",
+      "boundariesToKeep": [
+        "runs真正可省",
+        "running/waiting条件",
+        "inputRefs匹配与原first顺序",
+        "源数组不变",
+        "本结论不声称有实测性能收益"
+      ]
+    },
+    {
+      "id": "U22",
+      "result": "confirmed",
+      "kind": "minor",
+      "subtype": "test-oracle-gap",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/tests/client/graph-client.spec.ts",
+          "line": 430
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/client/graph-client.spec.ts",
+          "line": 432
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 177
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 745
+        }
+      ],
+      "evidence": "目标为snapshot revision7与branch mapRevision6不配对，但fixture节点createdAt/updatedAt为空串。clientAssertData(map.get)745先到节点日期177–179拒绝，746配对条件并未到达。四象限复现原样提取被审测试snapshot/branch/current：坏日期时错配与匹配proof都拒绝；只修合法日期后错配拒绝、匹配接受。因而现断言不能单独证明配对检查仍存在。",
+      "reproduction": {
+        "artifact": "reproduce-ui-output.jsonl",
+        "case": "U22-masked-branch-proof-oracle",
+        "outcomes": [
+          {
+            "validNodeDates": false,
+            "matchingProof": false,
+            "outcome": "INVALID_RESPONSE"
+          },
+          {
+            "validNodeDates": false,
+            "matchingProof": true,
+            "outcome": "INVALID_RESPONSE"
+          },
+          {
+            "validNodeDates": true,
+            "matchingProof": false,
+            "outcome": "INVALID_RESPONSE"
+          },
+          {
+            "validNodeDates": true,
+            "matchingProof": true,
+            "outcome": "accepted"
+          }
+        ]
+      },
+      "proposedChange": "合法节点fixture只破坏目标mapRevision，并保留匹配proof正例；不弱化节点日期或branch配对边界。",
+      "boundariesToKeep": [
+        "未知响应节点日期校验",
+        "同次snapshot/branch身份及revision配对",
+        "故障注入正常对照"
+      ]
+    }
+  ],
+  "delegatedOracleSweep": [
+    {
+      "file": "tests/client/stream.spec.ts",
+      "result": "no-additional-U22-site",
+      "basis": "12–14共用snapshot的nodes为空，不存在坏node日期；80–95用同一fixture成功交付基线/heartbeat/refresh并明确断言events，98–118错误用例不是被坏node提前拒绝。故不按相似INVALID_STREAM语法计入U22。"
+    },
+    {
+      "file": "tests/client/integration.spec.ts",
+      "result": "no-additional-U22-site",
+      "basis": "16–20建立真实fixture及gateway，66–75通过真实map.create/graph.apply接回snapshot。putNode只接GraphNode输入字段，服务创建日期；文件无INVALID_RESPONSE/INVALID_STREAM宽断言及空日期节点fixture。只读不重跑集成。"
+    }
+  ],
+  "retainedUnresolved": [
+    {
+      "file": "apps/config/local-settings.ts",
+      "line": 60,
+      "topic": "lock.close",
+      "reason": "尚未证明正常持有者生命周期中的双失败路径；仅await cleanup语法不足，不升格必修。"
+    },
+    {
+      "file": "backend/adapters/messaging/mongo-outbox.ts",
+      "line": 143,
+      "topic": "stream.close",
+      "reason": "Mongo驱动会吞killCursor部分错误，隐式session关闭传播条件仍未被正常生命周期复现；不以受控裸reject替代真实边界证据。"
+    }
+  ],
+  "sourceHashChecks": [
+    {
+      "file": "apps/desktop/local-service-process.ts",
+      "sha256": "d05fae9823e0369587ed86012616989205609558378e775613280ccc48b68110",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/features/evidence-library/EvidenceSelectionPanel.vue",
+      "sha256": "e64df4d3e50758794f1780a84d7189db6187cc607579ed176d9242898b8ec637",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+      "sha256": "9ea0052eca46f4279a5f2e6edadc27b25c37a82ab200531b2e05ee6904312e10",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/features/evidence-library/evidence-selection.ts",
+      "sha256": "0ee1757edf1e0a4672ee6305bac254277bdb5acddcaed0642280721a7a0886b9",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/features/graph/GraphCanvas.vue",
+      "sha256": "d7516e8138578fd5ca732ddf2fc7af15a5c46d275e9d5b71a154a21e639c9ead",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/features/graph/graph-layout.ts",
+      "sha256": "d92b2961695b71c64092abd065fecf08396390a383576087aa3c8cce2ba598d9",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/features/reader/reader-sources.ts",
+      "sha256": "197c0449c61b44e7a42222e0735d98c5d9730d95128803967eb6c0ac89034b85",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/state/client-session.ts",
+      "sha256": "bc66917f2a2deed769d6579a2c0e02caa94ec479bfb57734e42c1393b147d181",
+      "matchesInventory": true
+    },
+    {
+      "file": "client/graph-client.ts",
+      "sha256": "3bb5c8578b35d1d2719d8657d0de20aaecc0ede4a9d3599abb4210221c5ed299",
+      "matchesInventory": true
+    },
+    {
+      "file": "scripts/check-desktop-runtime.ts",
+      "sha256": "0b71aa57a08f1b3e62d5013642ac862479bbd7dbeef0ee9f3374a61708852a53",
+      "matchesInventory": true
+    },
+    {
+      "file": "tests/backend/fixtures/graph-api.ts",
+      "sha256": "f95080d9b8e115e2187c8f684225f1fa6a9aef9b983f5e3e4ef9ab828fc28f6e",
+      "matchesInventory": true
+    },
+    {
+      "file": "tests/backend/fixtures/rabbitmq.ts",
+      "sha256": "b76dd92b3ce480c06099f8a4899f20b9f87a8c70bd1f824231800bc076356bd1",
+      "matchesInventory": true
+    },
+    {
+      "file": "tests/client/graph-client.spec.ts",
+      "sha256": "e1934d65cd0c08ba97aa8310349f2d5b101afc0e64b8653c3ce894c0d3e385a6",
+      "matchesInventory": true
+    },
+    {
+      "file": "tests/client/integration.spec.ts",
+      "sha256": "da3a758c604da30358b4ccb8a848c7d0baecf8174b2fc4f176db0c5e47dd8f3c",
+      "matchesInventory": true
+    },
+    {
+      "file": "tests/client/stream.spec.ts",
+      "sha256": "6823639bf0348e213ab7dc3570250c50893858aa4fbbf0d5172dee36b33186ee",
+      "matchesInventory": true
+    }
+  ]
+}

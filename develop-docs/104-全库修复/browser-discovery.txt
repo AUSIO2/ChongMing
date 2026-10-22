@@ -1,0 +1,3 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+{"type":"suppressed-output","stdoutChunks":0,"stderrChunks":0}
+{"type":"run-end","status":"passed","durationMs":256.902}

@@ -1,0 +1,1 @@
+{"id":"D07-import-bytes","importedAssets":1,"embeddedSize":14,"measurements":[{"source":"asset.stream.check","bytes":2942},{"source":"bundle.asset.parse","bytes":14},{"source":"asset.stream.check","bytes":14}],"embeddedHashPasses":2}

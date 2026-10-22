@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "target": "ES2022", "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["node", "vitest/globals"] },
+  "include": [
+    "evidence-state.spec.ts", "evidence-presentation.spec.ts", "evidence-http.spec.ts", "evidence-scene.spec.ts", "evidence-relations.spec.ts", "evidence-relations-client.spec.ts", "evidence-selection.spec.ts", "evidence-uses-client.spec.ts",
+    "../../apps/ui/features/evidence-library/evidence-state.ts",
+    "../../apps/ui/features/evidence-library/evidence-presentation.ts"
+  ],
+  "references": []
+}

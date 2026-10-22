@@ -1,0 +1,248 @@
+/* 全局主题与基础样式：统一色彩、字号、输入控件、表格和滚动条。 */
+:root {
+  --bg-app: #e8e6e1;
+  --bg-panel: #f1f0ec;
+  --bg-header: #f6f5f1;
+  --bg-viewport: #faf9f5;
+  --bg-input: #fcfbf7;
+  --bg-hover: #e9e6df;
+  --bg: var(--bg-app);
+  --bg-panel-elevated: var(--bg-panel);
+  --border: #cfcdc6;
+  --border-subtle: #dfddd7;
+  --text: #2f2d29;
+  --text-muted: #716e66;
+  --text-dim: #8a867f;
+  --accent: #75443c;
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, #000);
+  --accent-soft: #eee7e1;
+  --bg-nav-selected: #e4e2db;
+  --bg-related: #f2f0ea;
+  --bg-evidence: #eeece5;
+  --border-evidence: #c4beb0;
+  --bg-warning: color-mix(in srgb, var(--warning) 12%, var(--bg-viewport));
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --success: #476c56;
+  --warning: #846723;
+  --danger: #a63d33;
+  --amber-pulse: var(--warning);
+  --ui-font-size: 13px;
+  --ui-font-size-md: 14px;
+  --ui-font-size-lg: 16px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --radius: 2px;
+  --radius-control: 2px;
+  --radius-dialog: 3px;
+  --radius-reader-card: 0px;
+  --radius-evidence: 0px;
+  /** macOS hiddenInset 标题栏：红绿灯区域 */
+  --titlebar-height: 48px;
+  --workspace-head-height: 44px;
+  --statusbar-height: 24px;
+  --traffic-light-inset: 76px;
+  --content-font: 'Songti SC', 'SimSun', serif;
+  --title-font: var(--content-font);
+  --ui-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --flow-node-bg: var(--bg-viewport);
+  --flow-node-stroke: var(--border);
+  --flow-node-active-bg: var(--accent-soft);
+  --flow-node-active-stroke: var(--accent);
+  --flow-node-done-bg: #eef6f0;
+  --flow-node-done-stroke: var(--success);
+  --flow-claim-bg: #f3effa;
+  --flow-claim-stroke: #7c3aed;
+  --flow-info-bg: #f5f5f5;
+  --flow-info-stroke: #b8b8b8;
+  --flow-info-done-bg: #eef6f0;
+  --flow-info-done-stroke: #8ab89a;
+  --param-editable-bg: #ffffff;
+  --param-readonly-bg: #e4e4e4;
+  --flow-edge-muted: var(--text-muted);
+  --reader-body-size: 18px;
+  --reader-body-line-height: 2.15;
+  --reader-title-size: 32px;
+  --reader-title-line-height: 1.55;
+  --reader-review-size: 12px;
+  --reader-review-line-height: 1.85;
+  --reader-quote-size: 13.6px;
+  --reader-quote-line-height: 1.85;
+  --reader-claim-size: 14.4px;
+  --reader-head-height: 62px;
+  --reader-padding: 30px 40px 40px;
+  --related-padding: 16px 24px 24px;
+  --status-supported-bg: #e4e9df;
+  --status-refuted-bg: #ebe2df;
+  --status-insufficient-bg: #ece7da;
+  --status-pending-bg: #e9e7e2;
+}
+
+/* 在窄窗口中收紧阅读密度，同时保留书页正文的长行距。 */
+@media (max-width: 1150px) {
+  :root {
+    --reader-body-size: 16px;
+    --reader-title-size: 25px;
+    --reader-padding: 20px 24px 24px;
+    --related-padding: 16px 16px 24px;
+  }
+}
+
+/* 短窗口压缩正文开头留白，不改变滚动区与页脚职责。 */
+@media (max-height: 740px) {
+  :root {
+    --reader-padding-top: 20px;
+  }
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  font-family: var(--ui-font);
+  font-size: var(--ui-font-size);
+  color: var(--text);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: var(--ui-font-size);
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  min-height: 32px;
+  line-height: 1.5;
+  transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  min-height: 40px;
+  width: 100%;
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 3rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-font-size);
+}
+
+th,
+td {
+  border: 1px solid var(--border-subtle);
+  padding: 3px 6px;
+  text-align: left;
+}
+
+th {
+  background: var(--bg-header);
+  font-weight: 600;
+}
+
+.panel {
+  background: var(--bg-panel);
+}
+
+.panel-title {
+  font-size: var(--ui-font-size);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.score-1 { color: var(--success); }
+.score-0_5 { color: var(--warning); }
+.score-0 { color: var(--danger); }
+
+@keyframes pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 125, 13, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(232, 125, 13, 0); }
+}
+
+.step-active-pulse {
+  animation: pulse-amber 1.5s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  border-radius: 3px;
+}

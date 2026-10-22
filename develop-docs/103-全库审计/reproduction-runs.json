@@ -1,0 +1,114 @@
+{
+  "runs": [
+    {
+      "script": "root-repro.cjs",
+      "output": "root-repro-output.json",
+      "stderr": "root-repro-stderr.txt",
+      "startedAt": "2026-10-20T06:17:59.153Z",
+      "finishedAt": "2026-10-20T06:17:59.537Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "repro-domain.cjs",
+      "output": "repro-domain.out.txt",
+      "stderr": "repro-domain-stderr.txt",
+      "startedAt": "2026-10-20T06:17:59.538Z",
+      "finishedAt": "2026-10-20T06:17:59.890Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "repro-domain-import.cjs",
+      "output": "repro-domain-import.out.txt",
+      "stderr": "repro-domain-import-stderr.txt",
+      "startedAt": "2026-10-20T06:17:59.890Z",
+      "finishedAt": "2026-10-20T06:18:00.233Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "repro-experiments.cjs",
+      "output": "repro-experiments.out.txt",
+      "stderr": "repro-experiments-stderr.txt",
+      "startedAt": "2026-10-20T06:18:00.233Z",
+      "finishedAt": "2026-10-20T06:18:00.792Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "runtime-repro.mts",
+      "output": "runtime-repro-output.txt",
+      "stderr": "runtime-repro-stderr.txt",
+      "startedAt": "2026-10-20T06:18:00.792Z",
+      "finishedAt": "2026-10-20T06:18:01.009Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "runtime-grant-repro.mts",
+      "output": "runtime-grant-repro-output.json",
+      "stderr": "runtime-grant-repro-stderr.txt",
+      "startedAt": "2026-10-20T06:18:01.009Z",
+      "finishedAt": "2026-10-20T06:18:01.181Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "runtime-cleanup-repro.cjs",
+      "output": "runtime-cleanup-repro-output.json",
+      "stderr": "runtime-cleanup-repro-stderr.txt",
+      "startedAt": "2026-10-20T06:18:01.181Z",
+      "finishedAt": "2026-10-20T06:18:01.522Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "reproduce-ui.cjs",
+      "output": "reproduce-ui-output.jsonl",
+      "stderr": "reproduce-ui-stderr.txt",
+      "startedAt": "2026-10-20T06:18:01.522Z",
+      "finishedAt": "2026-10-20T06:18:01.992Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "cross-review-ui-runtime-repro.cjs",
+      "output": "cross-review-ui-runtime-admissibility.jsonl",
+      "stderr": "cross-review-ui-runtime-repro-stderr.txt",
+      "startedAt": "2026-10-20T06:18:01.992Z",
+      "finishedAt": "2026-10-20T06:18:02.327Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    },
+    {
+      "script": "browser-repro.cjs",
+      "output": "browser-repro-output.json",
+      "stderr": "browser-repro-stderr.txt",
+      "startedAt": "2026-10-20T06:18:02.327Z",
+      "finishedAt": "2026-10-20T06:18:02.842Z",
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "scope": "进程内/自有回环HTTP/自有临时夹具；无用户DB/真实模型/真实浏览器；正常退出只说明所记录复现运行完成，不说明产品已修复。"
+    }
+  ]
+}

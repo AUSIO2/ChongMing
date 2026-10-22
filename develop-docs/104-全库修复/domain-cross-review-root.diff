@@ -1,0 +1,1004 @@
+--- 104-baseline/backend/modules/evidence-library/evidence-input.ts
++++ current/backend/modules/evidence-library/evidence-input.ts
+@@ -1,6 +1,7 @@
+ // 校验证据库的输入白名单、固定判断、范围与引用，不访问来源或持久化记录。
+ import { EvidenceMessage, type EvidenceApplicability, type EvidenceBasisRef, type EvidenceClaimRef, type EvidenceCollectParams, type EvidenceCommand, type EvidenceQuery, type EvidenceSearchParams } from '../../../contracts/evidence-library'
+ import { GraphError } from '../shared/domain-error'
++import type { InputCommandEnvelope, InputQueryEnvelope } from '../shared/input-validation'
+ 
+ const INPUT_BYTES = 262_144
+ const TEXT_BYTES = 65_536
+@@ -15,6 +16,13 @@
+   | { method: 'evidence.collect'; requestId: string; params: EvidenceCollectParams & { confidence: 0 | 1 } }
+   | Extract<EvidenceCommand, { method: 'evidence.withdraw' }>
+ 
++export function evidenceReadEnvelope(
++  /* 明确收录意图的未知命令，仍完整校验信封与固定授权范围。 */
++  value: { method: 'evidence.collect'; requestId: unknown; params: unknown },
++): EvidenceCommandEnvelope & { method: 'evidence.collect' }
++export function evidenceReadEnvelope(
++  /* 来自独立服务入口、方法仍未知的完整命令。 */ value: unknown,
++): EvidenceCommandEnvelope
+ export function evidenceReadEnvelope(
+   /* 来自传输或内部调用、尚未解析固定字段的完整命令。 */
+   value: unknown,
+@@ -25,23 +33,48 @@
+   if (input.method !== 'evidence.collect' && input.method !== 'evidence.withdraw') {
+     throw new GraphError(501, 'EVIDENCE_NOT_IMPLEMENTED', EvidenceMessage.NOT_IMPLEMENTED)
+   }
+-  const params = readObject(input.params)
+-  return { method: input.method, requestId: readId(input.requestId), params: { ...params, workspaceId: readId(params.workspaceId) } }
+-}
+-
++  return readCommandParams(input.method, readId(input.requestId), input.params)
++}
++
++export function evidenceReadCommandEnvelope(
++  /* HTTP 已确认白名单与请求 UUID 的命令，固定业务字段仍未解析。 */
++  input: InputCommandEnvelope,
++): EvidenceCommandEnvelope {
++  // 传输信封不重复解析；证据库仍拥有独立体积与授权范围边界。
++  assertInputSize(input)
++  if (input.method !== 'evidence.collect' && input.method !== 'evidence.withdraw') {
++    throw new GraphError(501, 'EVIDENCE_NOT_IMPLEMENTED', EvidenceMessage.NOT_IMPLEMENTED)
++  }
++  return readCommandParams(input.method, input.requestId, input.params)
++}
++
++function readCommandParams(
++  /* 所属入口已经确认的证据写命令方法。 */ method: EvidenceCommand['method'],
++  /* 所属入口已经验证的请求 UUID。 */ requestId: string,
++  /* 仍待确认对象形状与工作区身份的业务参数。 */ value: unknown,
++): EvidenceCommandEnvelope {
++  // 两个真实入口共用授权范围读取，来源及固定字段检查留在收据之后。
++  const params = readObject(value)
++  return { method, requestId, params: { ...params, workspaceId: readId(params.workspaceId) } }
++}
++
++export function evidenceReadCommand(envelope: EvidenceCommandEnvelope & { method: 'evidence.collect' }): Extract<EvidenceParsedCommand, { method: 'evidence.collect' }>
++export function evidenceReadCommand(envelope: EvidenceCommandEnvelope): EvidenceParsedCommand
+ export function evidenceReadCommand(
+   /* 已建立幂等身份与授权范围、业务参数仍待逐项解析的信封。 */
+   envelope: EvidenceCommandEnvelope,
+ ): EvidenceParsedCommand {
+   // 只为未命中收据的新命令解析固定字段，保留信封阶段已确认的身份和体积。
+   if (envelope.method === 'evidence.collect') {
+-    const params = readObject(envelope.params, ['workspaceId', 'claim', 'confidence', 'applicability', 'reason', 'basisRefs'])
++    const params = envelope.params
++    assertKeys(params, ['workspaceId', 'claim', 'confidence', 'applicability', 'reason', 'basisRefs'])
+     return { method: envelope.method, requestId: envelope.requestId, params: {
+       workspaceId: envelope.params.workspaceId, claim: readClaimRef(params.claim), confidence: readConfidence(params.confidence),
+       applicability: readApplicability(params.applicability), reason: readReason(params.reason), basisRefs: readBasisRefs(params.basisRefs),
+     } }
+   }
+-  const params = readObject(envelope.params, ['workspaceId', 'entryId', 'expectedRevision', 'reason'])
++  const params = envelope.params
++  assertKeys(params, ['workspaceId', 'entryId', 'expectedRevision', 'reason'])
+   return { method: envelope.method, requestId: envelope.requestId, params: {
+     workspaceId: envelope.params.workspaceId, entryId: readId(params.entryId), expectedRevision: readRevision(params.expectedRevision), reason: readReason(params.reason),
+   } }
+@@ -49,11 +82,10 @@
+ 
+ export function evidenceReadQuery(
+   /* 需要校验身份、筛选条件和页大小的公共读查询。 */
+-  value: unknown,
++  input: InputQueryEnvelope,
+ ): EvidenceQuery {
+   // 固定条目与关系共用精确身份边界，有界搜索保留数字零作为有效筛选条件。
+-  const input = readObject(value, ['method', 'params'])
+-  assertInputSize(value)
++  assertInputSize(input)
+   if (input.method === 'evidence.get' || input.method === 'evidence.relations') {
+     const params = readObject(input.params, ['workspaceId', 'entryId'])
+     return { method: input.method, params: { workspaceId: readId(params.workspaceId), entryId: readId(params.entryId) } }
+@@ -110,8 +142,16 @@
+   // 拒绝数组及非普通对象，使用可选字段白名单阻止夹带固定内容修改。
+   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) failInput()
+   const object = value as Record<string, unknown>
+-  if (keys) for (const key of Object.keys(object)) if (!keys.includes(key)) failInput()
++  if (keys) assertKeys(object, keys)
+   return object
++}
++
++function assertKeys(
++  /* 当前入口已建立普通对象形状的参数或依据。 */ object: Record<string, unknown>,
++  /* 当前业务分支唯一允许的自有字段。 */ keys: readonly string[],
++): void {
++  // 只检查字段归属，已收窄对象不再重复验证形状。
++  for (const key of Object.keys(object)) if (!keys.includes(key)) failInput()
+ }
+ 
+ function readId(
+@@ -133,8 +173,16 @@
+ ): string {
+   // 不裁剪正文；只判断空白内容和字节上限，避免改变收录材料。
+   if (typeof value !== 'string' || !allowEmpty && !value.trim()) failInput()
++  assertTextSize(value, maxBytes)
++  return value
++}
++
++function assertTextSize(
++  /* 已建立内容规则、将原样保存的字符串。 */ value: string,
++  /* 当前字段允许的最大 UTF-8 字节数。 */ maxBytes: number,
++): void {
++  // 理由和一般文本共用体积边界，空白错误仍由各自字段决定。
+   if (Buffer.byteLength(value) > maxBytes) throw new GraphError(413, 'EVIDENCE_INPUT_LIMIT', EvidenceMessage.INPUT_LIMIT)
+-  return value
+ }
+ 
+ function readRevision(
+@@ -161,7 +209,8 @@
+ ): string {
+   // 理由必须有实际内容，但保存时保留用户原文。
+   if (typeof value !== 'string' || !value.trim()) throw new GraphError(422, 'EVIDENCE_REASON_REQUIRED', EvidenceMessage.REASON_REQUIRED)
+-  return readText(value)
++  assertTextSize(value, TEXT_BYTES)
++  return value
+ }
+ 
+ function readClaimRef(
+@@ -183,7 +232,8 @@
+   if (input.time !== null) {
+     const range = readObject(input.time, ['from', 'to'])
+     const from = readText(range.from, 128), to = readText(range.to, 128)
+-    if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) > Date.parse(to)) failInput()
++    const fromTime = Date.parse(from), toTime = Date.parse(to)
++    if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime > toTime) failInput()
+     time = { from, to }
+   }
+   if (!Array.isArray(input.conditions) || input.conditions.length > 64) failInput()
+@@ -203,16 +253,16 @@
+   for (const item of value) {
+     const input = readObject(item)
+     if (input.kind === 'manual') {
+-      readObject(input, ['kind', 'text'])
++      assertKeys(input, ['kind', 'text'])
+       refs.push({ kind: input.kind, text: readText(input.text) })
+     } else if (input.kind === 'node') {
+-      readObject(input, ['kind', 'ref'])
++      assertKeys(input, ['kind', 'ref'])
+       refs.push({ kind: input.kind, ref: readClaimRef(input.ref) })
+     } else if (input.kind === 'asset') {
+-      readObject(input, ['kind', 'assetId', 'sha256'])
++      assertKeys(input, ['kind', 'assetId', 'sha256'])
+       refs.push({ kind: input.kind, assetId: readId(input.assetId), sha256: readDigest(input.sha256) })
+     } else if (input.kind === 'library') {
+-      readObject(input, ['kind', 'ref'])
++      assertKeys(input, ['kind', 'ref'])
+       const ref = readObject(input.ref, ['entryId', 'contentDigest'])
+       refs.push({ kind: input.kind, ref: { entryId: readId(ref.entryId), contentDigest: readDigest(ref.contentDigest) } })
+     } else failInput()
+--- 104-baseline/backend/modules/evidence-library/evidence-service.ts
++++ current/backend/modules/evidence-library/evidence-service.ts
+@@ -9,7 +9,7 @@
+ import type { Persistence, StorageSession } from '../../ports/persistence'
+ import { storeCreateInputHash, type GraphDocument } from '../graph/graph-record'
+ import type { RequestContext } from '../identity/identity-service'
+-import { definitionsDigest, definitionsReadPayloadReferences, definitionsValidatePayload } from '../shared/data-definition'
++import { definitionsDigest, definitionsParsePayload, definitionsValidatePayload } from '../shared/data-definition'
+ import { GraphError } from '../shared/domain-error'
+ import type { ControlService } from '../workspace/workspace-service'
+ import { evidenceReadCommand, evidenceReadEnvelope, type EvidenceCommandEnvelope, type EvidenceParsedCommand } from './evidence-input'
+@@ -114,7 +114,7 @@
+     /* 指向一个精确节点内容版本的来源引用。 */ ref: EvidenceClaimRef,
+     /* 已在同一事务中读取并完整验证的定义目录。 */ catalog: DefinitionCatalog,
+     /* true 表示主要收录来源必须是注册的 factcheck Claim。 */ requireClaim: boolean,
+-    /* 当前收录事务已经取得的来源 Map 快照，避免每个邻域节点重复读取。 */ sourceMaps?: Map<string, GraphDocument>,
++    /* 当前收录事务已经取得的来源 Map 快照，避免每个邻域节点重复读取。 */ sourceMaps: Map<string, GraphDocument>,
+   ): Promise<FrozenNode> {
+     // 校验精确来源版本及注册 schema，保存独立节点快照并保护其声明的附件引用。
+     const map = await readSourceMap(ctx, workspaceId, ref.mapId, sourceMaps)
+@@ -124,39 +124,36 @@
+     if (!node) throw new GraphError(404, 'EVIDENCE_SOURCE_NOT_FOUND', EvidenceMessage.SOURCE_NOT_FOUND)
+     if (node.revision !== ref.revision) throw new GraphError(409, 'EVIDENCE_SOURCE_VERSION_CONFLICT', EvidenceMessage.SOURCE_VERSION_CONFLICT, node.revision)
+     if (requireClaim && node.typeId !== 'factcheck.claim') throw new GraphError(422, 'EVIDENCE_CLAIM_TYPE_INVALID', EvidenceMessage.CLAIM_TYPE_INVALID)
+-    const definition = catalog.dataTypes.find(
+-      /* 工作区已注册的不可变数据类型版本。 */ candidate => /* 精确匹配节点声明的类型及版本。 */ candidate.id === node.typeId && candidate.version === node.typeVersion,
+-    )
+-    if (!definition) throw new GraphError(422, requireClaim ? 'EVIDENCE_CLAIM_TYPE_INVALID' : 'EVIDENCE_BASIS_INVALID', requireClaim ? EvidenceMessage.CLAIM_TYPE_INVALID : EvidenceMessage.BASIS_INVALID)
+-    let references: ReturnType<typeof definitionsReadPayloadReferences>
++    const { payload, ...nodeFields } = node
++    let parsed: ReturnType<typeof definitionsParsePayload> & { payload: GraphNode['payload'] }
+     try {
+-      references = definitionsReadPayloadReferences(catalog, { id: node.typeId, version: node.typeVersion }, node.payload)
++      parsed = definitionsParsePayload(catalog, { id: node.typeId, version: node.typeVersion }, payload)
+     } catch (error) {
+       if (!(error instanceof GraphError)) throw error
+       throw new GraphError(422, requireClaim ? 'EVIDENCE_CLAIM_TYPE_INVALID' : 'EVIDENCE_BASIS_INVALID', requireClaim ? EvidenceMessage.CLAIM_TYPE_INVALID : EvidenceMessage.BASIS_INVALID)
+     }
+     const frozenAssets: Asset[] = []
+-    for (const reference of references) {
++    for (const reference of parsed.references) {
+       if (reference.definition.target.kind !== 'asset') continue
+       frozenAssets.push(await readAsset(ctx, workspaceId, reference.value))
+     }
+-    return { nodeSnapshot: structuredClone(node), definition: structuredClone(definition), assets: frozenAssets,
+-      nodeReferences: evidenceReadNodeReferencePaths(node, references) }
++    return { nodeSnapshot: { ...structuredClone(nodeFields), payload: parsed.payload }, definition: parsed.definition, assets: frozenAssets,
++      nodeReferences: evidenceReadNodeReferencePaths(parsed.references) }
+   }
+ 
+   async function readSourceMap(
+     /* 与新条目写入共享的收录事务。 */ ctx: RequestContext,
+     /* 不允许来源材料越过的工作区身份。 */ workspaceId: string,
+     /* 来源或显式依据明确指定的 Map。 */ mapId: string,
+-    /* 只属于本次收录事务的已验证图缓存。 */ sourceMaps?: Map<string, GraphDocument>,
++    /* 只属于本次收录事务的已验证图缓存。 */ sourceMaps: Map<string, GraphDocument>,
+   ): Promise<GraphDocument> {
+     // 一张来源图只读取一次并验证范围，引用绝不按同名节点搜索其他图。
+-    const existing = sourceMaps?.get(mapId)
++    const existing = sourceMaps.get(mapId)
+     if (existing) return existing
+     const map = await database.graph(ctx.session).read(mapId)
+     if (!map || map.deletedAt) throw new GraphError(404, 'EVIDENCE_SOURCE_NOT_FOUND', EvidenceMessage.SOURCE_NOT_FOUND)
+     if (map.workspaceId !== workspaceId) throw new GraphError(422, 'EVIDENCE_WORKSPACE_MISMATCH', EvidenceMessage.WORKSPACE_MISMATCH)
+-    sourceMaps?.set(mapId, map)
++    sourceMaps.set(mapId, map)
+     return map
+   }
+ 
+--- 104-baseline/backend/modules/evidence-library/evidence-record.ts
++++ current/backend/modules/evidence-library/evidence-record.ts
+@@ -149,13 +149,12 @@
+   // 复用新收录输入规则校验固定字段，再核对节点快照与来源引用完全一致。
+   const entry = readRecord(value), claim = readRecord(entry.claim), decision = readRecord(entry.decision)
+   const id = readId(entry.id), workspaceId = readId(entry.workspaceId)
+-  let parsed: ReturnType<typeof evidenceReadCommand>
++  let parsed: Extract<ReturnType<typeof evidenceReadCommand>, { method: 'evidence.collect' }>
+   try {
+     parsed = evidenceReadCommand(evidenceReadEnvelope({ method: 'evidence.collect', requestId: id, params: { workspaceId,
+       claim: claim.origin, confidence: entry.confidence, applicability: entry.applicability,
+       reason: decision.reason, basisRefs: decision.basisRefs } }))
+   } catch { invalidRecord() }
+-  if (parsed.method !== 'evidence.collect') invalidRecord()
+   const nodeSnapshot = evidenceParseNodeSnapshot(claim.nodeSnapshot), type = readRecord(claim.type)
+   const typeId = readText(type.id), version = readRevision(type.version, 1)
+   if (typeId !== 'factcheck.claim' || nodeSnapshot.typeId !== typeId || nodeSnapshot.typeVersion !== version
+@@ -288,10 +287,11 @@
+   for (const encoded of path.slice(1).split('/')) {
+     const token = encoded.replace(/~1/g, '/').replace(/~0/g, '~')
+     if (value === null || typeof value !== 'object' || !Object.prototype.hasOwnProperty.call(value, token)) return undefined
+-    const found: [string, JsonValue] | undefined = Object.entries(value).find((
+-      /* 当前 JSON 容器中的一个实际自有字段。 */ item,
+-    ) => /* 精确匹配已解码路径项。 */ item[0] === token)
+-    value = found?.[1]
++    if (Array.isArray(value)) {
++      // 数组指针只读规范下标，不把 length 或 01 等别名解释为元素。
++      if (!/^(0|[1-9]\d*)$/.test(token)) return undefined
++      value = value[Number(token)]
++    } else value = value[token]
+   }
+   return value
+ }
+--- 104-baseline/backend/modules/evidence-library/evidence-relations.ts
++++ current/backend/modules/evidence-library/evidence-relations.ts
+@@ -1,6 +1,5 @@
+ // 冻结 Claim 的真实结构上下游与声明引用，有限邻域只保存已取得完整快照的端点。
+ import type { Asset } from '../../../contracts/control'
+-import type { JsonValue } from '../../../contracts/data-definition'
+ import type { EvidenceClaimRef, EvidenceRelationEdge, EvidenceRelationNode, EvidenceRelationSnapshot } from '../../../contracts/evidence-library'
+ import type { GraphEdge, GraphNode } from '../../../contracts/graph'
+ import { storeCreateInputHash, type GraphDocument } from '../graph/graph-record'
+@@ -33,18 +32,14 @@
+ }
+ 
+ export function evidenceReadNodeReferencePaths(
+-  /* 已按精确 schema 验证的完整节点 payload。 */ node: GraphNode,
+   /* 已考虑引用声明条件且已校验字符串值的实际引用。 */ references: readonly PayloadReferenceValue[],
+ ): Array<{ path: string; targetId: string }> {
+-  // 展开声明通配符到实际 JSON Pointer，数组第零项保存 /0 而非声明中的 /*。
++  // 复用正文解析已展开的实际路径，不按同一声明反复遍历整个 payload。
+   const unique = new Map<string, { path: string; targetId: string }>()
+   for (const reference of references) {
+     if (reference.definition.target.kind !== 'node') continue
+-    for (const item of readPointerValues(node.payload, reference.definition.path)) {
+-      if (item.value !== reference.value) continue
+-      const relation = { path: item.path, targetId: reference.value }
+-      unique.set(`${relation.path}\u0000${relation.targetId}`, relation)
+-    }
++    const relation = { path: reference.path, targetId: reference.value }
++    unique.set(`${relation.path}\u0000${relation.targetId}`, relation)
+   }
+   return [...unique.values()].sort((
+     /* 待固定排序的首个实际引用。 */ left,
+@@ -221,24 +216,3 @@
+   // 平行边和不同 Map 的同名边不共享固定关系身份。
+   return storeCreateInputHash({ kind: 'graph', mapId, edgeId: edge.id, revision: edge.revision })
+ }
+-
+-function readPointerValues(
+-  /* 已通过 schema 校验的 JSON 正文根。 */ payload: JsonValue,
+-  /* 类型声明的 JSON Pointer，可含对象或数组的通配符。 */ pointer: string,
+-): Array<{ path: string; value: JsonValue }> {
+-  // 同时保留实际路径和值，避免把声明路径误记为具体数组项。
+-  let current: Array<{ path: string; value: JsonValue }> = [{ path: '', value: payload }]
+-  for (const encoded of pointer.slice(1).split('/')) {
+-    const token = encoded.replace(/~1/g, '/').replace(/~0/g, '~')
+-    const next: Array<{ path: string; value: JsonValue }> = []
+-    for (const item of current) {
+-      if (item.value === null || typeof item.value !== 'object') continue
+-      for (const [key, value] of Object.entries(item.value)) {
+-        if (token !== '*' && key !== token) continue
+-        next.push({ path: `${item.path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, value })
+-      }
+-    }
+-    current = next
+-  }
+-  return current
+-}
+--- 104-baseline/tests/backend/fixtures/graph-api.ts
++++ current/tests/backend/fixtures/graph-api.ts
+@@ -68,289 +68,316 @@
+  */
+ export async function createGraphApi(leaseMs = 60_000, seedConfiguration = verificationConfiguration(), reporter?: DiagnosticReporter) {
+   const broker = await rabbitCreateFixture(), queue = broker.queue, token = 'test-work-token'
+-  const mongo = await MongoMemoryReplSet.create({ instanceOpts: [{ launchTimeout: 30_000 }], replSet: { count: 1, storageEngine: 'wiredTiger' } })
+-  const uri = mongo.getUri('chongming_work_test'), connection = await storeCreateConnection(uri)
+-  const application = applicationCreateService(connection, { leaseMs, allowPrivateSources: true, messaging: queue, reporter })
+-  await application.initialize(); await application.startMessaging()
+-  const { store, auth, control } = application
+-  await control.seed(seedConfiguration)
+-  const owner = await auth.createUser({ id: randomUUID(), displayName: 'Fixture Owner', hostAdmin: true })
+-  const { token: userToken } = await auth.createToken(owner.userId)
+-  const server = apiCreateServer(application, { internalToken: token, reporter })
+-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+-  const address = server.address()
+-  if (!address || typeof address === 'string') throw new Error('Test Graph API did not bind')
+-  const url = `http://127.0.0.1:${address.port}`
+-  const controls = new Map<string, GraphRunControlGrant>(), controlHolderId = randomUUID()
+-
+-  /**
+-   * @param path API 路径。
+-   * @param body JSON 请求体。
+-   * @param headers 附加请求头。
+-   */
+-  async function rawPost(path: string, body: unknown, headers: Record<string, string> = {}) {
+-    const response = await fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
+-    return { status: response.status, body: await response.json() as Record<string, any> }
++  const cleanups: Array<() => Promise<unknown>> = [() => /* 释放本夹具拥有或借用的代理句柄。 */ broker.close()]
++  async function close(): Promise<void> {
++    // 逆取得顺序释放全部自有资源，保留每一项清理失败。
++    const errors: unknown[] = []
++    for (const cleanup of [...cleanups].reverse()) {
++      try { await cleanup() } catch (cause) { errors.push(cause) }
++    }
++    if (errors.length) throw new AggregateError(errors, 'Graph API fixture cleanup failed')
+   }
+-  /**
+-   * @param path API 路径。
+-   * @param body JSON 请求体。
+-   * @param headers 附加请求头。
+-   */
+-  function post(path: string, body: unknown, headers: Record<string, string> = {}) {
+-    return rawPost(path, body, { ...(path.startsWith('/api/v1/') ? { authorization: `Bearer ${userToken}` } : {}), ...headers })
++  try {
++    const mongo = await MongoMemoryReplSet.create({ instanceOpts: [{ launchTimeout: 30_000 }], replSet: { count: 1, storageEngine: 'wiredTiger' } })
++    cleanups.push(() => /* 结束本夹具刚取得的副本集。 */ mongo.stop())
++    const uri = mongo.getUri('chongming_work_test'), connection = await storeCreateConnection(uri)
++    cleanups.push(() => /* 关闭本夹具刚建立的 Mongo 连接。 */ connection.close())
++    const application = applicationCreateService(connection, { leaseMs, allowPrivateSources: true, messaging: queue, reporter })
++    await application.initialize()
++    const namespace = application.messaging().namespace
++    cleanups.push(() => /* 在代理仍存活时移除本应用命名空间。 */ broker.deleteNamespace(namespace))
++    cleanups.push(() => /* 停止已启动或部分启动的应用消息处理。 */ application.closeMessaging())
++    await application.startMessaging()
++    const { store, auth, control } = application
++    await control.seed(seedConfiguration)
++    const owner = await auth.createUser({ id: randomUUID(), displayName: 'Fixture Owner', hostAdmin: true })
++    const { token: userToken } = await auth.createToken(owner.userId)
++    const server = apiCreateServer(application, { internalToken: token, reporter })
++    await new Promise<void>((resolve, reject) => {
++      // 监听失败也进入当前夹具的完整清理，不留下初始化等待。
++      server.once('error', reject)
++      server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve() })
++    })
++    cleanups.push(async () => {
++      // 先排空 HTTP，停止新请求后再关闭消息和存储。
++      server.closeAllConnections()
++      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
++    })
++    const address = server.address()
++    if (!address || typeof address === 'string') throw new Error('Test Graph API did not bind')
++    const url = `http://127.0.0.1:${address.port}`
++    const controls = new Map<string, GraphRunControlGrant>(), controlHolderId = randomUUID()
++
++    /**
++     * @param path API 路径。
++     * @param body JSON 请求体。
++     * @param headers 附加请求头。
++     */
++    async function rawPost(path: string, body: unknown, headers: Record<string, string> = {}) {
++      const response = await fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
++      return { status: response.status, body: await response.json() as Record<string, any> }
++    }
++    /**
++     * @param path API 路径。
++     * @param body JSON 请求体。
++     * @param headers 附加请求头。
++     */
++    function post(path: string, body: unknown, headers: Record<string, string> = {}) {
++      return rawPost(path, body, { ...(path.startsWith('/api/v1/') ? { authorization: `Bearer ${userToken}` } : {}), ...headers })
++    }
++    /**
++     * 绝大多数业务测试只关心内容；为已有分支自动领取并在普通编辑后释放，独占协议专项使用 post 发送原始命令。
++     *
++     * @param method 命令名。
++     * @param params 命令参数。
++     * @param requestId 幂等身份。
++     */
++    async function command(method: string, params: any, requestId = randomUUID()) {
++      let input = params, claimed: GraphBranchGrant | undefined
++      if ((method === 'graph.apply' && params.branch?.expectedVersion !== null || method === 'run.start') && !params.lease) {
++        const response = await post('/api/v1/command', { requestId: randomUUID(), method: 'branch.claim', params: {
++          mapId: params.mapId, rootIds: params.branch.rootIds, holderId: randomUUID(),
++        } })
++        if (response.body.data?.status !== 'claimed') throw new Error('Fixture branch is busy')
++        claimed = response.body.data.grant
++        input = { ...params, lease: { leaseId: claimed!.leaseId, holderId: claimed!.holderId, fence: claimed!.fence } }
++      }
++      if (['run.cancel', 'run.pause', 'run.resume', 'review.answer'].includes(method) && !params.control) {
++        const key = `${params.mapId}:${params.runId}`
++        let control = controls.get(key)
++        if (!control) {
++          const response = await post('/api/v1/command', { requestId: randomUUID(), method: 'run.control.claim', params: {
++            mapId: params.mapId, runId: params.runId, holderId: controlHolderId,
++          } })
++          if (response.body.data?.status !== 'claimed') throw new Error('Fixture Run control is busy')
++          control = response.body.data.grant; controls.set(key, control!)
++        }
++        input = { ...input, control: { leaseId: control!.leaseId, holderId: control!.holderId, fence: control!.fence } }
++      }
++      const result = await post('/api/v1/command', { requestId, method, params: input })
++      if (method === 'run.start' && result.body.data?.runControl) controls.set(`${params.mapId}:${params.id}`, result.body.data.runControl)
++      const targetRun = result.body.data?.snapshot?.runs?.find((run: { id: string }) => run.id === (params.runId ?? params.id))
++      if (targetRun && ['completed', 'failed', 'cancelled'].includes(targetRun.status)) {
++        controls.delete(`${params.mapId}:${targetRun.id}`)
++      }
++      if (claimed && method === 'graph.apply') await post('/api/v1/command', { requestId: randomUUID(), method: 'branch.release', params: {
++        mapId: params.mapId, lease: { leaseId: claimed.leaseId, holderId: claimed.holderId, fence: claimed.fence },
++      } })
++      return result
++    }
++    /**
++     * @param mapId 图身份。
++     */
++    async function snapshot(mapId: string) {
++      const result = await post('/api/v1/query', { method: 'map.get', params: { mapId } })
++      expect(result).toMatchObject({ status: 200, body: { ok: true } })
++      return result.body.data
++    }
++    /**
++     * @param mapId 图身份。
++     * @param rootIds 共同构成授权范围的真实根。
++     */
++    async function branch(mapId: string, rootIds: string[]): Promise<GraphBranchSnapshot> {
++      const result = await post('/api/v1/query', { method: 'branch.get', params: { mapId, rootIds } })
++      expect(result).toMatchObject({ status: 200, body: { ok: true } })
++      return result.body.data
++    }
++    /**
++     * @param mapId 图身份。
++     * @param rootIds 分支根；新根和既有根均须真实列出。
++     * @param changes 局部修改。
++     * @param create true 表示这些根尚不存在。
++     * @param requestId 可复用请求身份。
++     */
++    async function apply(mapId: string, rootIds: string[], changes: GraphChanges,
++      create = false, requestId = randomUUID()) {
++      const expectedVersion = create ? null : (await branch(mapId, rootIds)).version
++      return command('graph.apply', { mapId, branch: { rootIds, expectedVersion }, changes }, requestId)
++    }
++    /**
++     * @param method 工作命令。
++     * @param params 工作参数。
++     */
++    function work(method: string, params: unknown) {
++      return post('/internal/v1/work', { method, params }, { authorization: `Bearer ${token}` })
++    }
++    /**
++     * @param mapId 图身份。
++     * @param hostId Host 身份。
++     * @param holderId 持有者身份。
++     * @param stageId 可选阶段过滤。
++     */
++    async function claim(mapId: string, hostId = 'test-host', holderId = randomUUID(),
++      stageId?: string): Promise<GraphWorkGrant | null> {
++      const document = await store.read(mapId)
++      if (!document) return null
++      for (const item of workReadItems(document).filter(work => !stageId || work.stageId === stageId)) {
++        const result = await work('claim', { mapId, workId: item.workId, hostId, holderId, deploymentId: application.messaging().deploymentId })
++        expect(result).toMatchObject({ status: 200, body: { ok: true } })
++        if (result.body.data.status === 'claimed') return result.body.data.grant
++      }
++      return null
++    }
++    /**
++     * @param grant 完整授权。
++     */
++    async function read(grant: GraphWorkGrant) {
++      const result = await post('/internal/v1/data/read', { mapId: grant.mapId, operationId: grant.operationId }, {
++        authorization: `Bearer ${token}`, ...grantHeaders(grant),
++      })
++      expect(result).toMatchObject({ status: 200, body: { ok: true } })
++      return result.body.data
++    }
++    /**
++     * @param grant 完整授权。
++     * @param proposal 通用提案。
++     */
++    function propose(grant: GraphWorkGrant, proposal: unknown) {
++      return post('/internal/v1/data/propose', proposal, { authorization: `Bearer ${token}`, ...grantHeaders(grant) })
++    }
++    /**
++     * @param grant 完整授权。
++     * @param input kind 及业务字段。
++     */
++    async function proposal(grant: GraphWorkGrant, input: Record<string, unknown>) {
++      const data = await read(grant)
++      return { mapId: grant.mapId, operationId: grant.operationId, id: data.proposalId, specHash: data.specHash, ...input }
++    }
++    /**
++     * @param grant Planner 授权。
++     * @param count 槽位数。
++     */
++    async function planSlots(grant: GraphWorkGrant, count: number): Promise<GraphPlanSlot[]> {
++      const document = await store.read(grant.mapId), operation = document?.runs.find(run => run.id === grant.runId)?.operations.find(item => item.id === grant.operationId)
++      const planner = operation?.executionSpec.stages.find(item => item.id === grant.stageId)
++      if (!planner?.plan || count < 1 || count > planner.plan.maxSlots || count > planner.plan.agents.length) throw new Error('Planner candidates are missing')
++      const stageId = planner.plan.stageIds[0]
++      return planner.plan.agents.slice(0, count).map((agent, index) => ({ id: `angle-${index + 1}`, stageId,
++        agentRef: structuredClone(agent.ref), angle: `independent-angle-${index + 1}`, hint: `Follow evidence chain ${index + 1}`,
++        priority: (['high', 'medium', 'low'] as const)[index % 3], tools: [...agent.profile.tools] }))
++    }
++    /**
++     * @param grant Planner 授权。
++     * @param count 槽位数。
++     */
++    async function plan(grant: GraphWorkGrant, count: number) {
++      const slots = await planSlots(grant, count)
++      return { slots, proposal: await proposal(grant, { kind: 'plan', reason: 'Select independent Agent work', slots }) }
++    }
++    /**
++     * @param grant 输出阶段授权。
++     * @param outputs 候选产物。
++     * @param reason 理由。
++     */
++    async function output(grant: GraphWorkGrant, outputs: GraphProposedOutput[], reason = 'Fixture output') {
++      return proposal(grant, { kind: 'outputs', reason, outputs })
++    }
++    /**
++     * @param grant assess 授权。
++     * @param index 结果序号。
++     */
++    async function opinion(grant: GraphWorkGrant, index = 0) {
++      return output(grant, [{ key: `opinion-${grant.slotId}`, port: 'opinions', typeRef: FACT_TYPES.opinion,
++        payload: { score: index % 2 ? 0 : 1, reason: `Evidence from ${grant.slotId}`, evidenceClaimIds: [] } }], 'Independent opinion')
++    }
++    /**
++     * @param grant merge 授权。
++     * @param score 汇总评分。
++     */
++    async function verification(grant: GraphWorkGrant, score: 0 | 0.5 | 1 = 0.5) {
++      const data = await read(grant)
++      const opinionIds = (data.priorStageResults as Array<Record<string, any>>).flatMap(result => result.mode === 'outputs'
++        ? result.outputs.filter((item: GraphProposedOutput) => item.port === 'opinions').map((item: GraphProposedOutput) => ({ candidate: { workId: result.workId, key: item.key } })) : [])
++      return proposal(grant, { kind: 'outputs', reason: 'Independent merger conclusion', outputs: [{ key: 'verification', port: 'verification',
++        typeRef: FACT_TYPES.verification, payload: { score, reason: 'Independent merger conclusion', opinionIds } }] })
++    }
++    /**
++     * @param grant selection 授权。
++     */
++    async function selection(grant: GraphWorkGrant) {
++      const data = await read(grant)
++      const selected = (data.priorStageResults as Array<Record<string, any>>).flatMap(result => result.mode === 'outputs'
++        ? result.outputs.map((item: GraphProposedOutput) => ({ workId: result.workId, key: item.key })) : [])
++      return proposal(grant, { kind: 'selection', reason: 'Select all distinct candidates', selection: selected })
++    }
++    /**
++     * @param configuration 工作区 Agent 配置。
++     */
++    async function createWorkspace(configuration: WorkspaceSeedInput = verificationConfiguration()) {
++      const profile = (input: WorkspaceSeedInput['router'], kind: PromptKind, promptPath: string): AgentInput => ({ ...input,
++        id: randomUUID(), kind, promptPath, promptVars: input.promptVars ?? [], defaultPriority: input.defaultPriority ?? 'medium', claimCategory: input.claimCategory ?? null })
++      const agents = [profile(configuration.router, 'verifyRoute', 'fact-verifier/main-agent-route'),
++        profile(configuration.merger, 'verifyMerge', 'fact-verifier/main-agent-merge'),
++        ...configuration.agents.map(agent => profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`)),
++        profile(configuration.parse, 'parseExtract', 'fact-parser/extract'),
++        profile(configuration.split.router, 'splitRoute', 'fact-extractor/main-agent-route'),
++        profile(configuration.split.merger, 'splitMerge', 'fact-extractor/main-agent-merge'),
++        ...configuration.split.agents.map(agent => profile(agent, 'splitSubAgent', `fact-extractor/sub-agents/${agent.id}`))]
++      return auth.transact(userToken, async ctx => {
++        const bootstrap = await control.read(ctx, { method: 'app.bootstrap', params: {} }) as { settings: { revision: number } }
++        await control.dispatch(ctx, { requestId: randomUUID(), method: 'settings.update', params: { expectedRevision: bootstrap.settings.revision,
++          llm: { provider: configuration.router.provider, model: configuration.router.model }, tools: configuration.tools, limits: { maxAgentSlots: configuration.maxSlots } } })
++        return control.createWorkspace(ctx, { id: randomUUID(), name: 'Fixture workspace', description: '', agentSource: 'empty' }, agents)
++      })
++    }
++    /**
++     * @param mode 运行模式。
++     * @param configuration Agent 配置。
++     * @param news 可选新闻上下文。
++     */
++    async function createRun(mode: 'auto' | 'human-in-loop' = 'auto', configuration = verificationConfiguration(),
++      news?: { content: string; context: Record<string, { value: string; visibleToAI: boolean }> }) {
++      const mapId = randomUUID(), claimId = randomUUID(), newsId = news ? randomUUID() : undefined, runId = randomUUID()
++      const workspace = await createWorkspace(configuration)
++      expect(await command('map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Dynamic verification' })).toMatchObject({ status: 201 })
++      const nodes = [{ id: claimId, typeId: FACT_TYPES.claim.id, typeVersion: FACT_TYPES.claim.version, payload: { content: 'Fixture claim', category: 'data' } },
++        ...(newsId && news ? [{ id: newsId, typeId: FACT_TYPES.news.id, typeVersion: FACT_TYPES.news.version, payload: { content: news.content, context: news.context } }] : [])]
++      expect(await command('graph.apply', { mapId, branch: { rootIds: [newsId ?? claimId], expectedVersion: null }, changes: { nodes: { put: nodes }, ...(newsId ? { edges: { put: [
++        { id: randomUUID(), kind: 'successor', from: newsId, to: claimId, label: 'fixture:news-claim' },
++      ] } } : {}) } })).toMatchObject({ status: 200 })
++      const runBranch = await branch(mapId, [newsId ?? claimId])
++      const claimed = await command('branch.claim', { mapId, rootIds: runBranch.scope.rootIds, holderId: randomUUID() })
++      if (claimed.body.data.status !== 'claimed') throw new Error('Fixture Run branch is busy')
++      const grant = claimed.body.data.grant
++      const result = await command('run.start', { mapId, id: runId,
++        branch: { rootIds: runBranch.scope.rootIds, expectedVersion: runBranch.version },
++        lease: { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence }, scope: { nodeIds: [claimId, ...(newsId ? [newsId] : [])] },
++        plan: verificationPlan([claimId], newsId ? [newsId] : []), regenerate: true, mode })
++      expect(result).toMatchObject({ status: 200, body: { data: { snapshot: { runs: expect.arrayContaining([expect.objectContaining({ id: runId, status: 'running' })]) } } } })
++      const run = result.body.data.snapshot.runs.find((item: { id: string }) => item.id === runId)
++      return { mapId, claimId, newsId, runId, workspaceId: workspace.id,
++        operationId: run.operations[0].id as string, snapshot: result.body.data.snapshot }
++    }
++    /**
++     * @param mapId 图身份。
++     * @param decision 决定。
++     * @param operationId 可选 Operation。
++     */
++    async function answer(mapId: string, decision: 'approve' | 'reject' = 'approve', operationId?: string) {
++      const current = await snapshot(mapId)
++      const run = operationId ? current.runs.find((item: { operations: Array<{ id: string }> }) => item.operations.some(operation => operation.id === operationId))
++        : current.runs.find((item: { operations: Array<{ review: unknown }> }) => item.operations.some(operation => operation.review))
++      const operation = operationId ? run?.operations.find((item: { id: string }) => item.id === operationId)
++        : run?.operations.find((item: { review: unknown }) => item.review)
++      if (!run || !operation?.review) throw new Error('Pending Review missing')
++      const control = controls.get(`${mapId}:${run.id}`)
++      if (!control) throw new Error('Fixture Run control is missing')
++      const body = { requestId: randomUUID(), method: 'review.answer', params: { mapId, runId: run.id, operationId: operation.id,
++        reviewId: operation.review.id, expectedReviewRevision: operation.review.revision, decision,
++        control: { leaseId: control.leaseId, holderId: control.holderId, fence: control.fence } } }
++      const result = await post('/api/v1/command', body)
++      expect(result.status).toBe(200)
++      return { body, snapshot: result.body.data.snapshot }
++    }
++    return { url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri, queue,
++      deleteNamespace: broker.deleteNamespace, post, rawPost, command, snapshot, branch, apply, work, claim, read, propose, proposal,
++      planSlots, plan, output, opinion, verification, selection, createWorkspace, createRun, answer,
++      close }
++  } catch (cause) {
++    try { await close() }
++    catch (cleanup) { throw new AggregateError([cause, cleanup], 'Graph API fixture initialization and cleanup failed') }
++    throw cause
+   }
+-  /**
+-   * 绝大多数业务测试只关心内容；为已有分支自动领取并在普通编辑后释放，独占协议专项使用 post 发送原始命令。
+-   *
+-   * @param method 命令名。
+-   * @param params 命令参数。
+-   * @param requestId 幂等身份。
+-   */
+-  async function command(method: string, params: any, requestId = randomUUID()) {
+-    let input = params, claimed: GraphBranchGrant | undefined
+-    if ((method === 'graph.apply' && params.branch?.expectedVersion !== null || method === 'run.start') && !params.lease) {
+-      const response = await post('/api/v1/command', { requestId: randomUUID(), method: 'branch.claim', params: {
+-        mapId: params.mapId, rootIds: params.branch.rootIds, holderId: randomUUID(),
+-      } })
+-      if (response.body.data?.status !== 'claimed') throw new Error('Fixture branch is busy')
+-      claimed = response.body.data.grant
+-      input = { ...params, lease: { leaseId: claimed!.leaseId, holderId: claimed!.holderId, fence: claimed!.fence } }
+-    }
+-    if (['run.cancel', 'run.pause', 'run.resume', 'review.answer'].includes(method) && !params.control) {
+-      const key = `${params.mapId}:${params.runId}`
+-      let control = controls.get(key)
+-      if (!control) {
+-        const response = await post('/api/v1/command', { requestId: randomUUID(), method: 'run.control.claim', params: {
+-          mapId: params.mapId, runId: params.runId, holderId: controlHolderId,
+-        } })
+-        if (response.body.data?.status !== 'claimed') throw new Error('Fixture Run control is busy')
+-        control = response.body.data.grant; controls.set(key, control!)
+-      }
+-      input = { ...input, control: { leaseId: control!.leaseId, holderId: control!.holderId, fence: control!.fence } }
+-    }
+-    const result = await post('/api/v1/command', { requestId, method, params: input })
+-    if (method === 'run.start' && result.body.data?.runControl) controls.set(`${params.mapId}:${params.id}`, result.body.data.runControl)
+-    const targetRun = result.body.data?.snapshot?.runs?.find((run: { id: string }) => run.id === (params.runId ?? params.id))
+-    if (targetRun && ['completed', 'failed', 'cancelled'].includes(targetRun.status)) {
+-      controls.delete(`${params.mapId}:${targetRun.id}`)
+-    }
+-    if (claimed && method === 'graph.apply') await post('/api/v1/command', { requestId: randomUUID(), method: 'branch.release', params: {
+-      mapId: params.mapId, lease: { leaseId: claimed.leaseId, holderId: claimed.holderId, fence: claimed.fence },
+-    } })
+-    return result
+-  }
+-  /**
+-   * @param mapId 图身份。
+-   */
+-  async function snapshot(mapId: string) {
+-    const result = await post('/api/v1/query', { method: 'map.get', params: { mapId } })
+-    expect(result).toMatchObject({ status: 200, body: { ok: true } })
+-    return result.body.data
+-  }
+-  /**
+-   * @param mapId 图身份。
+-   * @param rootIds 共同构成授权范围的真实根。
+-   */
+-  async function branch(mapId: string, rootIds: string[]): Promise<GraphBranchSnapshot> {
+-    const result = await post('/api/v1/query', { method: 'branch.get', params: { mapId, rootIds } })
+-    expect(result).toMatchObject({ status: 200, body: { ok: true } })
+-    return result.body.data
+-  }
+-  /**
+-   * @param mapId 图身份。
+-   * @param rootIds 分支根；新根和既有根均须真实列出。
+-   * @param changes 局部修改。
+-   * @param create true 表示这些根尚不存在。
+-   * @param requestId 可复用请求身份。
+-   */
+-  async function apply(mapId: string, rootIds: string[], changes: GraphChanges,
+-    create = false, requestId = randomUUID()) {
+-    const expectedVersion = create ? null : (await branch(mapId, rootIds)).version
+-    return command('graph.apply', { mapId, branch: { rootIds, expectedVersion }, changes }, requestId)
+-  }
+-  /**
+-   * @param method 工作命令。
+-   * @param params 工作参数。
+-   */
+-  function work(method: string, params: unknown) {
+-    return post('/internal/v1/work', { method, params }, { authorization: `Bearer ${token}` })
+-  }
+-  /**
+-   * @param mapId 图身份。
+-   * @param hostId Host 身份。
+-   * @param holderId 持有者身份。
+-   * @param stageId 可选阶段过滤。
+-   */
+-  async function claim(mapId: string, hostId = 'test-host', holderId = randomUUID(),
+-    stageId?: string): Promise<GraphWorkGrant | null> {
+-    const document = await store.read(mapId)
+-    if (!document) return null
+-    for (const item of workReadItems(document).filter(work => !stageId || work.stageId === stageId)) {
+-      const result = await work('claim', { mapId, workId: item.workId, hostId, holderId, deploymentId: application.messaging().deploymentId })
+-      expect(result).toMatchObject({ status: 200, body: { ok: true } })
+-      if (result.body.data.status === 'claimed') return result.body.data.grant
+-    }
+-    return null
+-  }
+-  /**
+-   * @param grant 完整授权。
+-   */
+-  async function read(grant: GraphWorkGrant) {
+-    const result = await post('/internal/v1/data/read', { mapId: grant.mapId, operationId: grant.operationId }, {
+-      authorization: `Bearer ${token}`, ...grantHeaders(grant),
+-    })
+-    expect(result).toMatchObject({ status: 200, body: { ok: true } })
+-    return result.body.data
+-  }
+-  /**
+-   * @param grant 完整授权。
+-   * @param proposal 通用提案。
+-   */
+-  function propose(grant: GraphWorkGrant, proposal: unknown) {
+-    return post('/internal/v1/data/propose', proposal, { authorization: `Bearer ${token}`, ...grantHeaders(grant) })
+-  }
+-  /**
+-   * @param grant 完整授权。
+-   * @param input kind 及业务字段。
+-   */
+-  async function proposal(grant: GraphWorkGrant, input: Record<string, unknown>) {
+-    const data = await read(grant)
+-    return { mapId: grant.mapId, operationId: grant.operationId, id: data.proposalId, specHash: data.specHash, ...input }
+-  }
+-  /**
+-   * @param grant Planner 授权。
+-   * @param count 槽位数。
+-   */
+-  async function planSlots(grant: GraphWorkGrant, count: number): Promise<GraphPlanSlot[]> {
+-    const document = await store.read(grant.mapId), operation = document?.runs.find(run => run.id === grant.runId)?.operations.find(item => item.id === grant.operationId)
+-    const planner = operation?.executionSpec.stages.find(item => item.id === grant.stageId)
+-    if (!planner?.plan || count < 1 || count > planner.plan.maxSlots || count > planner.plan.agents.length) throw new Error('Planner candidates are missing')
+-    const stageId = planner.plan.stageIds[0]
+-    return planner.plan.agents.slice(0, count).map((agent, index) => ({ id: `angle-${index + 1}`, stageId,
+-      agentRef: structuredClone(agent.ref), angle: `independent-angle-${index + 1}`, hint: `Follow evidence chain ${index + 1}`,
+-      priority: (['high', 'medium', 'low'] as const)[index % 3], tools: [...agent.profile.tools] }))
+-  }
+-  /**
+-   * @param grant Planner 授权。
+-   * @param count 槽位数。
+-   */
+-  async function plan(grant: GraphWorkGrant, count: number) {
+-    const slots = await planSlots(grant, count)
+-    return { slots, proposal: await proposal(grant, { kind: 'plan', reason: 'Select independent Agent work', slots }) }
+-  }
+-  /**
+-   * @param grant 输出阶段授权。
+-   * @param outputs 候选产物。
+-   * @param reason 理由。
+-   */
+-  async function output(grant: GraphWorkGrant, outputs: GraphProposedOutput[], reason = 'Fixture output') {
+-    return proposal(grant, { kind: 'outputs', reason, outputs })
+-  }
+-  /**
+-   * @param grant assess 授权。
+-   * @param index 结果序号。
+-   */
+-  async function opinion(grant: GraphWorkGrant, index = 0) {
+-    return output(grant, [{ key: `opinion-${grant.slotId}`, port: 'opinions', typeRef: FACT_TYPES.opinion,
+-      payload: { score: index % 2 ? 0 : 1, reason: `Evidence from ${grant.slotId}`, evidenceClaimIds: [] } }], 'Independent opinion')
+-  }
+-  /**
+-   * @param grant merge 授权。
+-   * @param score 汇总评分。
+-   */
+-  async function verification(grant: GraphWorkGrant, score: 0 | 0.5 | 1 = 0.5) {
+-    const data = await read(grant)
+-    const opinionIds = (data.priorStageResults as Array<Record<string, any>>).flatMap(result => result.mode === 'outputs'
+-      ? result.outputs.filter((item: GraphProposedOutput) => item.port === 'opinions').map((item: GraphProposedOutput) => ({ candidate: { workId: result.workId, key: item.key } })) : [])
+-    return proposal(grant, { kind: 'outputs', reason: 'Independent merger conclusion', outputs: [{ key: 'verification', port: 'verification',
+-      typeRef: FACT_TYPES.verification, payload: { score, reason: 'Independent merger conclusion', opinionIds } }] })
+-  }
+-  /**
+-   * @param grant selection 授权。
+-   */
+-  async function selection(grant: GraphWorkGrant) {
+-    const data = await read(grant)
+-    const selected = (data.priorStageResults as Array<Record<string, any>>).flatMap(result => result.mode === 'outputs'
+-      ? result.outputs.map((item: GraphProposedOutput) => ({ workId: result.workId, key: item.key })) : [])
+-    return proposal(grant, { kind: 'selection', reason: 'Select all distinct candidates', selection: selected })
+-  }
+-  /**
+-   * @param configuration 工作区 Agent 配置。
+-   */
+-  async function createWorkspace(configuration: WorkspaceSeedInput = verificationConfiguration()) {
+-    const profile = (input: WorkspaceSeedInput['router'], kind: PromptKind, promptPath: string): AgentInput => ({ ...input,
+-      id: randomUUID(), kind, promptPath, promptVars: input.promptVars ?? [], defaultPriority: input.defaultPriority ?? 'medium', claimCategory: input.claimCategory ?? null })
+-    const agents = [profile(configuration.router, 'verifyRoute', 'fact-verifier/main-agent-route'),
+-      profile(configuration.merger, 'verifyMerge', 'fact-verifier/main-agent-merge'),
+-      ...configuration.agents.map(agent => profile(agent, 'verifySubAgent', `fact-verifier/sub-agents/${agent.id}`)),
+-      ...(configuration.parse ? [profile(configuration.parse, 'parseExtract', 'fact-parser/extract')] : []),
+-      ...(configuration.split ? [profile(configuration.split.router, 'splitRoute', 'fact-extractor/main-agent-route'),
+-        profile(configuration.split.merger, 'splitMerge', 'fact-extractor/main-agent-merge'),
+-        ...configuration.split.agents.map(agent => profile(agent, 'splitSubAgent', `fact-extractor/sub-agents/${agent.id}`))] : [])]
+-    return auth.transact(userToken, async ctx => {
+-      const bootstrap = await control.read(ctx, { method: 'app.bootstrap', params: {} }) as { settings: { revision: number } }
+-      await control.dispatch(ctx, { requestId: randomUUID(), method: 'settings.update', params: { expectedRevision: bootstrap.settings.revision,
+-        llm: { provider: configuration.router.provider, model: configuration.router.model }, tools: configuration.tools, limits: { maxAgentSlots: configuration.maxSlots } } })
+-      return control.createWorkspace(ctx, { id: randomUUID(), name: 'Fixture workspace', description: '', agentSource: 'empty' }, agents)
+-    })
+-  }
+-  /**
+-   * @param mode 运行模式。
+-   * @param configuration Agent 配置。
+-   * @param news 可选新闻上下文。
+-   */
+-  async function createRun(mode: 'auto' | 'human-in-loop' = 'auto', configuration = verificationConfiguration(),
+-    news?: { content: string; context: Record<string, { value: string; visibleToAI: boolean }> }) {
+-    const mapId = randomUUID(), claimId = randomUUID(), newsId = news ? randomUUID() : undefined, runId = randomUUID()
+-    const workspace = await createWorkspace(configuration)
+-    expect(await command('map.create', { workspaceId: workspace.id, expectedRevision: workspace.revision, id: mapId, name: 'Dynamic verification' })).toMatchObject({ status: 201 })
+-    const nodes = [{ id: claimId, typeId: FACT_TYPES.claim.id, typeVersion: FACT_TYPES.claim.version, payload: { content: 'Fixture claim', category: 'data' } },
+-      ...(newsId && news ? [{ id: newsId, typeId: FACT_TYPES.news.id, typeVersion: FACT_TYPES.news.version, payload: { content: news.content, context: news.context } }] : [])]
+-    expect(await command('graph.apply', { mapId, branch: { rootIds: [newsId ?? claimId], expectedVersion: null }, changes: { nodes: { put: nodes }, ...(newsId ? { edges: { put: [
+-      { id: randomUUID(), kind: 'successor', from: newsId, to: claimId, label: 'fixture:news-claim' },
+-    ] } } : {}) } })).toMatchObject({ status: 200 })
+-    const runBranch = await branch(mapId, [newsId ?? claimId])
+-    const claimed = await command('branch.claim', { mapId, rootIds: runBranch.scope.rootIds, holderId: randomUUID() })
+-    if (claimed.body.data.status !== 'claimed') throw new Error('Fixture Run branch is busy')
+-    const grant = claimed.body.data.grant
+-    const result = await command('run.start', { mapId, id: runId,
+-      branch: { rootIds: runBranch.scope.rootIds, expectedVersion: runBranch.version },
+-      lease: { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence }, scope: { nodeIds: [claimId, ...(newsId ? [newsId] : [])] },
+-      plan: verificationPlan([claimId], newsId ? [newsId] : []), regenerate: true, mode })
+-    expect(result).toMatchObject({ status: 200, body: { data: { snapshot: { runs: expect.arrayContaining([expect.objectContaining({ id: runId, status: 'running' })]) } } } })
+-    const run = result.body.data.snapshot.runs.find((item: { id: string }) => item.id === runId)
+-    return { mapId, claimId, newsId, runId, workspaceId: workspace.id,
+-      operationId: run.operations[0].id as string, snapshot: result.body.data.snapshot }
+-  }
+-  /**
+-   * @param mapId 图身份。
+-   * @param decision 决定。
+-   * @param operationId 可选 Operation。
+-   */
+-  async function answer(mapId: string, decision: 'approve' | 'reject' = 'approve', operationId?: string) {
+-    const current = await snapshot(mapId)
+-    const run = operationId ? current.runs.find((item: { operations: Array<{ id: string }> }) => item.operations.some(operation => operation.id === operationId))
+-      : current.runs.find((item: { operations: Array<{ review: unknown }> }) => item.operations.some(operation => operation.review))
+-    const operation = operationId ? run?.operations.find((item: { id: string }) => item.id === operationId)
+-      : run?.operations.find((item: { review: unknown }) => item.review)
+-    if (!run || !operation?.review) throw new Error('Pending Review missing')
+-    const control = controls.get(`${mapId}:${run.id}`)
+-    if (!control) throw new Error('Fixture Run control is missing')
+-    const body = { requestId: randomUUID(), method: 'review.answer', params: { mapId, runId: run.id, operationId: operation.id,
+-      reviewId: operation.review.id, expectedReviewRevision: operation.review.revision, decision,
+-      control: { leaseId: control.leaseId, holderId: control.holderId, fence: control.fence } } }
+-    const result = await post('/api/v1/command', body)
+-    expect(result.status).toBe(200)
+-    return { body, snapshot: result.body.data.snapshot }
+-  }
+-  return { url, token, userToken, owner, application, auth, control, server, store, connection, mongo, uri, queue,
+-    deleteNamespace: broker.deleteNamespace, post, rawPost, command, snapshot, branch, apply, work, claim, read, propose, proposal,
+-    planSlots, plan, output, opinion, verification, selection, createWorkspace, createRun, answer,
+-    async close() {
+-      server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+-      await application.closeMessaging(); await connection.close(); await mongo.stop(); await broker.deleteNamespace(application.messaging().namespace); await broker.close()
+-    } }
+ }
+ 
+ export type TestGraphApi = Awaited<ReturnType<typeof createGraphApi>>
+--- 104-baseline/scripts/check-desktop-runtime.ts
++++ current/scripts/check-desktop-runtime.ts
+@@ -3,6 +3,7 @@
+ import { mkdtemp, readFile, rm } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+ import path from 'node:path'
++import { fileURLToPath } from 'node:url'
+ import assert from 'node:assert/strict'
+ import { randomUUID } from 'node:crypto'
+ import { setTimeout as delay } from 'node:timers/promises'
+@@ -11,7 +12,7 @@
+ import { clientCreateGateway } from '../client/graph-client'
+ import type { GraphDataRead } from '../contracts/graph-work'
+ 
+-async function desktopCheckRuntime() {
++export async function desktopCheckRuntime() {
+   // 使用模拟模型端点运行完整核验，再检查服务重启、日志脱敏与父进程失联退出。
+   const directory = await mkdtemp(path.join(tmpdir(), 'chongming-runtime-check-'))
+   const runtimeDirectory = path.resolve(process.argv[2] ?? '.desktop-runtime')
+@@ -60,6 +61,7 @@
+   process.env.DEEPSEEK_API_KEY = 'fixture-runtime-key'
+   const service = clientCreateService({ runtimeDirectory, dataDirectory: path.join(directory, 'data'), configDirectory: path.join(directory, 'config') })
+   const gateway = clientCreateGateway({ baseUrl: 'http://127.0.0.1' })
++  const failures: unknown[] = []
+   try {
+     const connection = await service.start()
+     await gateway.connect({ ...connection, remember: false })
+@@ -97,12 +99,19 @@
+     assert.match(diagnostics, /"name":"shutdown\.started"/)
+     assert.doesNotMatch(diagnostics, new RegExp(connection.token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+     const restart = clientCreateService({ runtimeDirectory, dataDirectory: path.join(directory, 'data'), configDirectory: path.join(directory, 'config') })
++    const restartFailures: unknown[] = []
+     try {
+       const next = await restart.start()
+       assert.equal(next.token, connection.token)
+       await gateway.connect({ ...next, remember: false })
+       assert.equal((await gateway.read('map.get', { mapId })).runs[0]?.status, 'completed')
+-    } finally { await gateway.disconnect(); await restart.close() }
++    } catch (cause) { restartFailures.push(cause) }
++    finally {
++      try { await gateway.disconnect() } catch (cause) { restartFailures.push(cause) }
++      try { await restart.close() } catch (cause) { restartFailures.push(cause) }
++    }
++    if (restartFailures.length === 1) throw restartFailures[0]
++    if (restartFailures.length > 1) throw new AggregateError(restartFailures, 'Packaged restart check failed')
+     // 不发送 stop 而直接断开父进程 IPC，验证服务仍会退出并释放 SQLite 目录锁。
+     const child = spawn(path.join(runtimeDirectory, 'bin', process.platform === 'win32' ? 'node.exe' : 'node'), [path.join(runtimeDirectory, 'service/main.mjs')], {
+       stdio: ['ignore', 'ignore', 'ignore', 'ipc'], env: { ...process.env, CHONGMING_DESKTOP_DATA_DIR: path.join(directory, 'data'), CHONGMING_CONFIG_DIR: path.join(directory, 'config') },
+@@ -117,14 +126,22 @@
+       assert.equal(await exited, 0)
+     } finally { clearTimeout(timeout); child.kill('SIGKILL') }
+     console.log('Packaged Node + SQLite + DSH, restart and parent disconnect: passed')
+-  } finally {
+-    await gateway.disconnect(); await service.close()
++  } catch (cause) { failures.push(cause) }
++  finally {
++    try { await gateway.disconnect() } catch (cause) { failures.push(cause) }
++    try { await service.close() } catch (cause) { failures.push(cause) }
+     if (priorUrl === undefined) delete process.env.DEEPSEEK_BASE_URL; else process.env.DEEPSEEK_BASE_URL = priorUrl
+     if (priorKey === undefined) delete process.env.DEEPSEEK_API_KEY; else process.env.DEEPSEEK_API_KEY = priorKey
+-    provider.closeAllConnections(); await new Promise<void>(resolve => /* 等待模拟模型服务关闭后再移除测试目录。 */  provider.close(() => /* 模型服务关闭回调到达后完成清理等待。 */  resolve()))
+-    await rm(directory, { recursive: true, force: true })
++    try {
++      // 模型服务独立于本地服务，即使前面的清理拒绝也必须排空。
++      provider.closeAllConnections()
++      await new Promise<void>((resolve, reject) => provider.close(cause => cause ? reject(cause) : resolve()))
++    } catch (cause) { failures.push(cause) }
++    try { await rm(directory, { recursive: true, force: true }) } catch (cause) { failures.push(cause) }
+   }
++  if (failures.length === 1) throw failures[0]
++  if (failures.length > 1) throw new AggregateError(failures, 'Packaged runtime check and cleanup failed')
+ }
+-desktopCheckRuntime().catch(error => {
++if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) desktopCheckRuntime().catch(error => {
+   // 输出验证错误并设置失败退出码。
+    console.error(error); process.exitCode = 1 })

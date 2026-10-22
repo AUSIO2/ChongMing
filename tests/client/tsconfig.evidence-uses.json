@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "evidence-uses-state.spec.ts",
+    "../../apps/ui/features/evidence-library/evidence-uses.ts"
+  ],
+  "references": []
+}

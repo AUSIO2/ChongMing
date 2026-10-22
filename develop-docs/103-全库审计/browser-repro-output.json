@@ -1,0 +1,8 @@
+{
+  "case": "recovery-vite-port-zero",
+  "exactInstalledFunction": "node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:startServer",
+  "configuredPort": 0,
+  "actualRequestedPort": 5173,
+  "strictPort": true,
+  "opensNetworkListener": false
+}

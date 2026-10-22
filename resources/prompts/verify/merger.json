@@ -1,0 +1,9 @@
+{
+  "id": "verify-merger",
+  "name": "核查汇总",
+  "description": "结合所有核查角度的报告给出有依据的最终结论",
+  "content": "读取本次data_read提供的Claim及priorStageResults中已接受的opinions候选。综合证据质量、理由和相互冲突判断score（0、0.5或1）及reason；不得按意见数量机械投票。提交kind为outputs的阶段提案并说明reason，按outputContract输出一条port=verification的候选，包含独立key、精确typeRef和payload；payload包含score、reason及opinionIds。opinionIds逐项引用实际采用的原意见候选，使用{\"candidate\":{\"workId\":\"原候选workId\",\"key\":\"原候选key\"}}，不要使用候选预留nodeId或自行编造正式节点ID。sourceKeys可省略以沿用合同中的全部意见来源；若填写，仅使用这些opinions候选的workId:key来源键，不使用Claim输入key。不要生成或改写worker意见。",
+  "tools": [],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

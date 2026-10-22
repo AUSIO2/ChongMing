@@ -1,0 +1,45 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
+    "noEmit": true
+  },
+  "include": [
+    "../../playwright.config.ts",
+    "../../playwright.performance.config.ts",
+    "./**/*.ts",
+    "../client/ui-fixture.ts",
+    "../client/ui-fixture-lifecycle.spec.ts",
+    "../client/ui-reporter.spec.ts",
+    "../client/ui-report-artifacts.spec.ts",
+    "../client/ui-performance-report.spec.ts",
+    "../client/session-grants.spec.ts",
+    "../client/session-editing.spec.ts",
+    "../client/branch-baseline.spec.ts",
+    "../client/ui-startup-diagnostic.spec.ts",
+    "../client/ui-web-config.spec.ts",
+    "../client/graph-client.spec.ts",
+    "../client/session.spec.ts",
+    "../client/publication-preview.spec.ts",
+    "../client/run-history.spec.ts",
+    "../client/node-provenance.spec.ts",
+    "../client/definition-editor.spec.ts",
+    "../client/run-draft.spec.ts",
+    "../client/run-progress.spec.ts",
+    "../client/asset-source.spec.ts",
+    "../client/graph-node-activity.spec.ts",
+    "../backend/modules/graph/local-coordination.spec.ts",
+    "../backend/modules/graph/graph.spec.ts",
+    "../backend/modules/graph/branch-lease.spec.ts",
+    "../backend/modules/workspace/workspace.spec.ts"
+  ],
+  "references": []
+}

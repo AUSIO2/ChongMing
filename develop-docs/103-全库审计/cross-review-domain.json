@@ -1,0 +1,72 @@
+{
+  "scope": "cross-review-domain",
+  "reviewer": "/root/audit_domain",
+  "status": "complete",
+  "updatedAt": "2026-10-20T05:52:38.783Z",
+  "reviewed": [
+    {
+      "id": "PT01",
+      "result": "confirmed",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 70
+        }
+      ],
+      "evidence": "原函数先取得rabbit fixture，再await MongoMemoryReplSet.create，setup失败未有返回close也无catch/finally；重跑root-repro得到acquiredBrokerCount=1 cleanupCallsBeforeRejection=0。rabbitmq.ts明确独立broker由fixture拥有，提供共享broker时close空实现防误销毁。",
+      "retained": "借用broker不删除；后续namespace隔离与真实服务异常必须继续拒绝。",
+      "reproduction": "node --import tsx develop-docs/103-全库审计/root-repro.cjs，exit0；本审查输出保存cross-review-domain-repro.out.json。"
+    },
+    {
+      "id": "PTM01",
+      "result": "confirmed",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 287
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 288
+        }
+      ],
+      "evidence": "createWorkspace内生configuration:WorkspaceSeedInput，parse/split从seed-configuration.ts已必需，verificationConfiguration始终构造完整；if parse/split仍用[]回退已退役缺阶段seed。搜索未见此helper用于故意坏partial seed入口。",
+      "retained": "GraphAgentProfile.promptVars/defaultPriority/claimCategory真实可选值默认保留；独立seedReadInput未知边界必须拒绝坏值。",
+      "note": "root报告site275仅注释附近，建议精确为287/288。"
+    },
+    {
+      "id": "PM03",
+      "result": "confirmed",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-service.ts",
+          "line": 117
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-service.ts",
+          "line": 151
+        }
+      ],
+      "evidence": "私有freezeNode三调用collect根225、freezeBasis185、relations249均传同collect224新建的sourceMaps；readSourceMap的relation callback245同样传入；无外部/无缓存调用。",
+      "retained": "cache没有item时的DB read、deleted/workspace校验是必要路径；只能删cache对象不存在的optional形态。"
+    },
+    {
+      "id": "PM04",
+      "result": "confirmed_with_array_caveat",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 290
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 291
+        }
+      ],
+      "evidence": "已JSON检查的value同一步先hasOwn再Object.entries.find同token；没有mutation/await，缺字段早退后第二find的not-found分支对JSON自有可枚举字段无额外信息。",
+      "retained": "一次读取必须保持own-property、精确解码及真实array索引语义；不能用parseInt把01映射1，也不把array.length当JSON成员；路径目标与node引用身份比较仍保留。"
+    }
+  ],
+  "sourceEdited": false,
+  "limits": "只读源码/调用者及纯内存root-repro交叉确认；未启动真实Mongo/Rabbit/HTTP。"
+}

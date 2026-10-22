@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>画布侧栏布局回归</title></head>
+  <body>
+    <div id="fixture" style="height:100%;display:flex;flex-direction:column"></div>
+    <script type="module">
+      import { createApp, h, ref } from 'vue'
+      import '/apps/ui/style.css'
+      const shellModule = new URLSearchParams(location.search).has('baseline')
+        ? '/test-results/115-canvas-layout-fixes/panels/baseline/apps/ui/components/shell/AppShell.vue'
+        : '/apps/ui/components/shell/AppShell.vue'
+      const { default: AppShell } = await import(/* @vite-ignore */ shellModule)
+
+      createApp({
+        setup() {
+          // 外层宿主可独立于浏览器缩窄；尺寸计算仍全部由生产AppShell完成。
+          const width = ref(null)
+          const right = ref(true)
+          return () => h('div', { style: 'height:100%;display:flex;flex-direction:column;align-items:flex-start' }, [
+            h('nav', { 'aria-label': '测试宿主', style: 'height:44px;flex:none;display:flex;gap:6px' }, [
+              h('button', { onClick: () => { width.value = 1000 } }, '宿主1000'),
+              h('button', { onClick: () => { width.value = null } }, '宿主铺满'),
+              h('button', { onClick: () => { right.value = !right.value } }, '切换右栏'),
+            ]),
+            h('div', { id: 'shell-host', style: { display: 'flex', width: width.value === null ? '100%' : width.value + 'px', minHeight: '0', flex: '1' } }, [
+              h(AppShell, { showRightPanel: right.value }, {
+                top: () => h('header', { style: 'height:44px;flex:none' }, '布局测试工作台'),
+                'left-head': () => '工作区',
+                left: () => h('div', { style: 'width:100%;min-width:0;height:100%' }, '左侧材料'),
+                'center-head': () => '画布',
+                center: () => h('canvas', { id: 'panel-canvas', 'aria-label': '布局画布', style: 'display:block;width:100%;height:100%;min-width:0;min-height:0' }),
+                right: () => h('div', { style: 'width:100%;min-width:0;height:100%' }, '节点详情材料'),
+                footer: () => h('footer', { style: 'height:26px;flex:none' }, '布局测试状态'),
+              }),
+            ]),
+          ])
+        },
+      }).mount('#fixture')
+    </script>
+  </body>
+</html>

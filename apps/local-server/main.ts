@@ -1,0 +1,61 @@
+// 独立本地服务命令入口：解析参数、启动 SQLite/API/Host 并输出连接文件位置。
+import path from 'node:path'
+import { parseArgs } from 'node:util'
+import { RuntimeMessage } from '../../contracts/messages'
+import { accountReadMailEnvironment } from '../../backend/adapters/email/smtp-account-mailer'
+import { localCreateRuntime } from './runtime'
+import { localReadConfiguration } from '../config/local-settings'
+import { diagnosticCreateReporter } from '../../platform/node/diagnostics'
+import { processRunEntry } from '../../platform/node/process-boundary'
+import { sqliteCreatePersistence } from '../../backend/adapters/storage/sqlite/persistence'
+import { migrationMigrateBranches } from '../../backend/adapters/storage/branch-migration'
+import { DEFAULT_DEFINITION_PACKAGE } from '../config/default-prompts'
+
+const reporter = diagnosticCreateReporter({ component: 'local-service' })
+
+async function localStartProcess(): Promise<() => Promise<void>> {
+  // 解析本地运行参数并启动服务，监控队列异常并返回保留数据的关闭操作。
+  const { values } = parseArgs({ options: {
+    help: { type: 'boolean', short: 'h' }, directory: { type: 'string' }, port: { type: 'string' },
+    'dsh-home': { type: 'string' }, patch: { type: 'string', multiple: true }, concurrency: { type: 'string' },
+    'migrate-branches': { type: 'boolean' }, apply: { type: 'boolean' },
+    executor: { type: 'string' }, 'codex-bin': { type: 'string' },
+  } })
+  if (values.help) {
+    console.log('Usage: npm run local:serve -- [--directory .chongming-local] [--port 4320] [--executor dsh|codex] [--codex-bin PATH] [--dsh-home PATH] [--patch FILE] [--concurrency 1..64]\n       npm run local:serve -- --directory .chongming-local --migrate-branches [--apply]\nRequires Node.js 24+. Runs one local SQLite/API/Host; defaults to DSH, with Codex available only by explicit selection. No MongoDB or RabbitMQ. Migration mode takes the SQLite exclusive lock and does not start API/Host services.')
+    return async () => {
+      // 帮助模式没有创建运行资源，退出时无需清理。
+      }
+  }
+  const executor = values.executor ?? process.env.CHONGMING_EXECUTOR ?? 'dsh'
+  if (executor !== 'dsh' && executor !== 'codex') throw new Error(RuntimeMessage.EXECUTOR_MUST_BE_DSH_OR_CODEX)
+  const codexBin = values['codex-bin'] ?? process.env.CHONGMING_CODEX_BIN
+  if (values['migrate-branches']) {
+    // 离线模式只打开 SQLite 并获取其独占锁，不初始化 API、消息或 DSH Host。
+    const database = sqliteCreatePersistence(path.resolve(values.directory ?? '.chongming-local'))
+    try { console.log(JSON.stringify(await migrationMigrateBranches(database, values.apply === true, DEFAULT_DEFINITION_PACKAGE), null, 2)) }
+    finally { await database.close() }
+    return async () => {
+      // 迁移已在返回前关闭数据库，进程收尾无额外资源。
+      }
+  }
+  const local = await localReadConfiguration()
+  const concurrencyValue = values.concurrency ?? process.env.CHONGMING_HOST_CONCURRENCY
+  const runtime = await localCreateRuntime({ directory: values.directory ?? '.chongming-local', port: values.port === undefined ? undefined : Number(values.port), ...accountReadMailEnvironment(process.env),
+    dshHome: values['dsh-home'], executor, codexBin, patches: values.patch?.map(file => /* 将补丁文件转换为绝对路径。 */  path.resolve(file)), reporter,
+    concurrency: concurrencyValue === undefined ? undefined : Number(concurrencyValue),
+    env: Object.fromEntries(Object.entries(local.secrets).filter(([name]) => /* 仅把环境中缺少的密钥补充给本地运行时。 */  process.env[name] === undefined)) })
+  console.log(JSON.stringify({ event: 'local.ready', baseUrl: runtime.baseUrl, connectionPath: runtime.connectionPath, tokenPath: runtime.tokenPath }))
+  let closing = false
+  runtime.application.localQueue.closed.then(() => {
+    // 未主动关闭时队列结束视为运行故障，记录诊断并标记失败退出码。
+    if (!closing) {
+      reporter.report({ name: 'local.channel.closed', severity: 'fatal', context: { phase: 'runtime' } })
+      process.exitCode = 1
+    }
+  }).catch(error => /* 记录本地队列结束监听的异常。 */  reporter.report({ name: 'local.channel.failed', severity: 'fatal', error }))
+  return async () => {
+    // 标记主动关闭并等待运行时收尾，说明本地数据仍然保留。
+     closing = true; await runtime.close(); console.log('Local services stopped; data retained') }
+}
+processRunEntry({ component: 'local-service', reporter, start: localStartProcess })

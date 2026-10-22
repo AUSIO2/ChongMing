@@ -1,0 +1,4 @@
+{
+  "description": "本机客户端验收的 split-worker 角色标记与输入；仅供确定性模型 fixture 使用。",
+  "content": "UI_FIXTURE_ROLE=split-worker\n请完成当前节点处理。输入内容：{{content}}"
+}

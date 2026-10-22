@@ -1,0 +1,36 @@
+{
+  "case": "host-initial-grant-string-fields",
+  "method": "real Host + owned HTTP responses + existing WorkTransport/runner seams; no broker or model",
+  "results": [
+    {
+      "field": "runId",
+      "returnedType": "number",
+      "enteredRunner": true,
+      "runnerValue": 17
+    },
+    {
+      "field": "operationId",
+      "returnedType": "number",
+      "enteredRunner": true,
+      "runnerValue": 17
+    },
+    {
+      "field": "stageId",
+      "returnedType": "number",
+      "enteredRunner": true,
+      "runnerValue": 17
+    },
+    {
+      "field": "slotId",
+      "returnedType": "number",
+      "enteredRunner": true,
+      "runnerValue": 17
+    },
+    {
+      "field": "specHash",
+      "returnedType": "number",
+      "enteredRunner": true,
+      "runnerValue": 17
+    }
+  ]
+}

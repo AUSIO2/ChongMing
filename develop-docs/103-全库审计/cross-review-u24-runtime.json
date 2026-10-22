@@ -1,0 +1,123 @@
+{
+  "scope": "u24-runtime-cross-review",
+  "status": "complete",
+  "updatedAt": "2026-10-20T06:17:43.730173+00:00",
+  "readOnly": true,
+  "sourceEdited": false,
+  "testSuitesRun": false,
+  "newEnvironmentsStarted": 0,
+  "review": {
+    "id": "U24",
+    "result": "confirmed",
+    "kind": "behavior",
+    "subtype": "missing-lifecycle-cleanup",
+    "sites": [
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/composables/usePanelResize.ts",
+        "line": 80
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/composables/usePanelResize.ts",
+        "line": 105
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/composables/usePanelResize.ts",
+        "line": 114
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/composables/useBottomDockResize.ts",
+        "line": 64
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/components/shell/ResizableSplit.vue",
+        "line": 25
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/components/shell/ResizableRowSplit.vue",
+        "line": 21
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/components/shell/AppShell.vue",
+        "line": 17
+      },
+      {
+        "file": "/Users/xiong/ChongMing/apps/ui/views/WorkspacePage.vue",
+        "line": 764
+      }
+    ],
+    "evidence": "usePanelResize左右拖动各闭包安装window mousemove/mouseup，仅各自onUp移除；onUnmounted114只重置document.body.style.userSelect。useBottomDockResize没有卸载hook。两split各自onMouseDown再安装一个恢复文本选择的window mouseup，源码均没有卸载清理。AppShell17–18实际拥有两composable，49/64–66/78将真实split事件绑定各start函数。WorkspacePage739/764以bootstrap条件切换登录屏与AppShell，session.handleFailure260–261在当前身份401时调用disconnect，后者236同步clearSession、229置bootstrap=null，所以无需用户松开鼠标即可发生真实外壳卸载。",
+    "reproductionReview": "已只读核对reproduce-ui.cjs末段与已保存输出末两行。脚本使用真实Vue createRenderer挂载/卸载并调用实际两composable（包括其真实hook），SFC则AST提取当前onMouseDown原函数，经emit进入相同start函数；自有EventTarget仅替代窗口，不在此处模拟清理算法。unmount后再mousemove/mouseup，左200→250、下132→182，各3监听未被unmount清掉，mouseup各持久化1次。当前split无卸载hook，独立实际onMouseDown函数提取不会遗漏已存在的SFC卸载清理。",
+    "observations": [
+      {
+        "axis": "left",
+        "listenersAfterUnmount": 3,
+        "before": 200,
+        "after": 250,
+        "writesAfterUnmount": 1
+      },
+      {
+        "axis": "bottom",
+        "listenersAfterUnmount": 3,
+        "before": 132,
+        "after": 182,
+        "writesAfterUnmount": 1
+      }
+    ],
+    "proposedChange": "让当前拖动有明确结束/释放所有者：正常mouseup保存并解绑；组件卸载只撤销当前move/up监听与文本选择状态，避免卸载后再改ref和写旧布局。两split自身的mouseup恢复监听也需随所属组件卸载清理。",
+    "boundariesToKeep": [
+      "正常mouseup持久化、左右方向和高度范围",
+      "浏览器storage失败时保留内存布局的原语义",
+      "AppShell正常卸载及身份切换",
+      "文本选择状态恢复"
+    ],
+    "limits": [
+      "仅确认从unmount直到后续mouseup期间的残留；正常mouseup会remove这些监听，不称永久泄漏。",
+      "右栏同一闭包结构可静态证明同类归属缺口，但实际输出只测left/bottom，不声称已运行right。",
+      "未实测blur、窗口外松开或浏览器事件丢失，不以这些假设扩大发现。",
+      "没有浏览器/DOM布局测试；证据限真实Vue生命周期和原鼠标处理函数。"
+    ],
+    "counting": "同一拖动生命周期根因一组，不按左右、底部、split站点拆计。"
+  },
+  "reproductionArtifacts": [
+    "reproduce-ui.cjs",
+    "reproduce-ui-output.jsonl"
+  ],
+  "sourceHashChecks": [
+    {
+      "file": "apps/ui/composables/usePanelResize.ts",
+      "sha256": "53229e0916d535cfcc4132e8d589c60eb11f320bfba570528b465d996a96e8f0",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/composables/useBottomDockResize.ts",
+      "sha256": "44ace13ccc993589754b3aa6ba9ef327babb48a25c005ea290d9a76e4fcdb321",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/components/shell/ResizableSplit.vue",
+      "sha256": "25e17425987ddbc18b478cb65d633df96950111262ec242ec2099593326f7217",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/components/shell/ResizableRowSplit.vue",
+      "sha256": "fa66ff33fb574536873f425ec068af248f364e7b0fb9dae2e92ea80d7bd8ec87",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/components/shell/AppShell.vue",
+      "sha256": "efca53e033aa3e4f27b256343d3ecd0e23f25f8d319539a7d6d76104247d5d42",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/views/WorkspacePage.vue",
+      "sha256": "3528293c25870ca748e025d74fe25821075c91551cce196e333ad8bd217b8840",
+      "matchesInventory": true
+    },
+    {
+      "file": "apps/ui/state/client-session.ts",
+      "sha256": "bc66917f2a2deed769d6579a2c0e02caa94ec479bfb57734e42c1393b147d181",
+      "matchesInventory": true
+    }
+  ],
+  "freeze": "本文件保存后runtime不再写103工件，不运行progress/finalize记录生成器；后续工件整理交root。"
+}

@@ -1,0 +1,3 @@
+{"case":"P01-unfinished-enum-label","catalogAccepted":true,"inputOwnProto":true,"parsedOwnProto":false,"parsedKeys":["normal"],"normalRetained":true}
+{"case":"P01-unfinished-presentation-map","field":"fieldLabels","packageAccepted":true,"parsedOwnProto":false,"ordinaryPrototype":true}
+{"case":"P01-unfinished-presentation-map","field":"enumLabels","packageAccepted":true,"parsedOwnProto":false,"ordinaryPrototype":false}

@@ -1,0 +1,13 @@
+{
+  "tools": [
+    {
+      "name": "web_search",
+      "description": "搜索外部来源，发现公开证据"
+    },
+    {
+      "name": "web_fetch",
+      "description": "读取选定公开网页的内容，核对来源"
+    }
+  ],
+  "maxSlots": 8
+}

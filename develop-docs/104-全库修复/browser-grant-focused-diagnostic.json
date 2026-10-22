@@ -1,0 +1,53 @@
+{
+  "scope": "single focused collab grant M00-R01 rerun",
+  "status": "target-failure-reproduced",
+  "command": "npx playwright test --config playwright.config.ts tests/browser/workspace-grant-reliability.spec.ts --project collab -g M00-R01",
+  "artifact": "browser-grant-focused.txt",
+  "selectionNote": "两个test共享M00-R01；各运行一次。line115旧帧保护case通过，目标line154较新释放case在196再次失败。未重试目标。",
+  "result": [
+    {
+      "file": "tests/browser/workspace-grant-reliability.spec.ts",
+      "line": 115,
+      "status": "passed",
+      "durationMs": 2412
+    },
+    {
+      "file": "tests/browser/workspace-grant-reliability.spec.ts",
+      "line": 154,
+      "status": "failed",
+      "failureLine": 196,
+      "durationMs": 11717
+    }
+  ],
+  "sourceHashBeforeAfterSame": {
+    "apps/ui/features/graph/NodeInspector.vue": "b4efbdc76cafc6b5adc51d8d9bc4ee7108b04e258277af8b9f4699260ce7c440",
+    "apps/ui/state/client-session.ts": "a50dfedfb9d2b45416d081f469b41f92d14f6d0da35d2397f82d35b9467a5152",
+    "apps/ui/features/run/run-history.ts": "59f6aa437a0b6270aecaff56a84d2515b4461c936863fe3361d220aa2c91fcfc",
+    "apps/ui/features/reader/NodeReader.vue": "eb09e89e0b06d66e43f93f8478bcb164279cc2313319cc8274909b876c9db245"
+  },
+  "evidence": [
+    {
+      "file": "apps/ui/features/graph/NodeInspector.vue",
+      "line": 70,
+      "basis": "editable包含owned，真实撤权后正文disabled断言195已通过。"
+    },
+    {
+      "file": "apps/ui/features/graph/NodeInspector.vue",
+      "line": 72,
+      "basis": "canSave缺owned，注明允许释放部分授权后保留草稿交会话取得完整范围；proofReady为内容证明不代表仍有授权。"
+    },
+    {
+      "file": "apps/ui/features/graph/NodeInspector.vue",
+      "line": 191,
+      "basis": "保存按钮仅!canSave/!dirty/versionChanged禁用，故真实撤权时可以保持enabled。"
+    },
+    {
+      "baseline": "104 workspace.tar",
+      "file": "apps/ui/features/graph/NodeInspector.vue",
+      "line": 70,
+      "basis": "基线已有完全相同canSave公式和此设计注释；不是104 UI修复或当前OperationOrigin外部改动新增。"
+    }
+  ],
+  "risk": "不能直接补owned而不考虑现有声明引用联合范围保存的显式释放流程：注释明确区分编辑输入许可与由session重新取得完整范围的提交。若业务要求server撤权后只读、显式释放后仍可保存，需要表达这两个真实状态/意图。由root决定修复或范围归属。",
+  "changes": "只读诊断和104日志；未修改生产、测试、超时、等待或默认。"
+}

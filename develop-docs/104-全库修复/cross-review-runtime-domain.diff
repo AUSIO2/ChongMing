@@ -1,0 +1,1425 @@
+--- 104-baseline/backend/modules/graph/run-state.ts
++++ current/backend/modules/graph/run-state.ts
+@@ -33,7 +33,6 @@
+   definitionsFreezeExecution,
+   definitionsDigest,
+   definitionsReadTransition,
+-  definitionsValidatePayload,
+ } from '../shared/data-definition'
+ import type { GraphDocument } from './graph-record'
+ import { EvidenceMessage, type EvidenceFrozenClaim } from '../../../contracts/evidence-library'
+@@ -103,10 +102,26 @@
+   /* 需要校验规格及冻结输入的 Operation。 */ operation: GraphOperation,
+ ): { inputs: RunPortNode[]; context: RunPortNode[] } {
+   // 核对分支和规格，并返回本次已经解析的精确节点，供随后读取直接复用。
++  runValidateBranch(document, run)
++  return runReadOperationInputs(document, operation)
++}
++
++function runValidateBranch(
++  /* 本次检查共用、尚未改变的图快照。 */ document: GraphDocument,
++  /* 已通过执行状态缩窄、持有冻结分支证明的Run。 */ run: GraphCurrentRun,
++): void {
++  // 对当前Run核对一次完整分支版本；各Operation随后只验证自己的输入和规格。
+   const branch = run.branchState
+   if (branchReadSnapshot(document, branch.scope.rootIds).version !== branch.version) {
+     throw new GraphError(409, 'INPUT_STALE', RuntimeMessage.RUN_BRANCH_CHANGED_AFTER_START)
+   }
++}
++
++function runReadOperationInputs(
++  /* 已核对本Run分支的同一图快照。 */ document: GraphDocument,
++  /* 需核对每份精确输入、上下文和规格的Operation。 */ operation: GraphOperation,
++): { inputs: RunPortNode[]; context: RunPortNode[] } {
++  // 返回同次验证的引用与真实节点配对，不重新计算整个Run的分支摘要。
+   const readNodes = (/* 当前端口组冻结的精确输入引用。 */ refs: GraphPortDataRef[]): RunPortNode[] =>
+     /* 一次完成节点身份、版本及类型检查，保留引用与节点的对应关系。 */
+     refs.map((/* 一个已冻结的端口输入引用。 */ ref) =>
+@@ -220,15 +235,16 @@
+   /* 本次封闭输入与上下文组。 */ group: GraphOperationGroup,
+ ): GraphOperation {
+   // 建立Operation规格与阶段，仅绑定本步骤库refs及定义摘要，不复制材料全文。
+-  const groupRefs = (/* 封闭输入或上下文中的精确端口引用。 */ refs: GraphPortDataRef[]): Record<string, GraphPortDataRef[]> =>
+-    /* 将同一端口的输入组成执行规格绑定。 */ refs.reduce<Record<string, GraphPortDataRef[]>>((
+-      /* 已分组的端口引用。 */ result,
+-      /* 当前待归组的引用。 */ ref,
+-    ) => {
+-    // 稀疏端口首次出现时建立组，后续引用直接追加。
+-    (result[ref.port] ??= []).push(ref)
+-    return result
+-  }, {})
++  const groupRefs = (/* 封闭输入或上下文中的精确端口引用。 */ refs: GraphPortDataRef[]): Record<string, GraphPortDataRef[]> => {
++    // 用Map分组端口，避免合法端口名被对象继承属性冒充已有数组。
++    const grouped = new Map<string, GraphPortDataRef[]>()
++    for (const ref of refs) {
++      const group = grouped.get(ref.port)
++      if (group) group.push(ref)
++      else grouped.set(ref.port, [ref])
++    }
++    return Object.fromEntries(grouped)
++  }
+   const inputs = groupRefs(group.inputRefs)
+   const context = groupRefs(group.contextRefs)
+   const toInstances = (/* 已存在端口组中的完整引用数组。 */ refs: GraphPortDataRef[]): DataInstanceRef[] =>
+@@ -283,36 +299,51 @@
+   }
+ }
+ 
+-function runCreateGroups(document: GraphDocument, run: GraphRun, step: GraphRunStep): GraphOperationGroup[] {
+-  const inputNodes = Object.fromEntries(step.input.map(binding => [binding.port, runReadBindingNodes(document, run, binding)]))
+-  const contextRefs = step.context.flatMap(binding => runCreatePortRefs(binding.port, runReadBindingNodes(document, run, binding)))
++function runCreateGroups(
++  /* 已获得Run分支授权的当前图快照。 */ document: GraphDocument,
++  /* 具有完整有限计划和冻结目录的当前Run。 */ run: GraphRun,
++  /* 本次待实例化Operation的计划步骤。 */ step: GraphRunStep,
++): GraphOperationGroup[] {
++  // 解析步骤实际输入，按all、each或显式成员规则建立封闭Operation组。
++  const inputNodes = Object.fromEntries(step.input.map((/* 计划声明的输入端口及来源。 */ binding) =>
++    /* 读取该端口实际可用的完整节点。 */ [binding.port, runReadBindingNodes(document, run, binding)]))
++  const contextRefs = step.context.flatMap((/* 计划声明的上下文端口及来源。 */ binding) =>
++    /* 上下文为每组提供同一份精确引用。 */ runCreatePortRefs(binding.port, runReadBindingNodes(document, run, binding)))
+   if (step.grouping.mode === 'all') return [{
+     id: `${step.id}:all`,
+-    inputRefs: step.input.flatMap(binding => runCreatePortRefs(binding.port, inputNodes[binding.port])),
++    inputRefs: step.input.flatMap((/* all组包含的一个声明输入端口。 */ binding) =>
++      /* 汇入该端口全部可用节点。 */ runCreatePortRefs(binding.port, inputNodes[binding.port])),
+     contextRefs,
+     sealed: true,
+   }]
+   if (step.grouping.mode === 'each') {
+     const binding = step.input[0]
+-    return inputNodes[binding.port].map(node => ({
+-      id: `${step.id}:${node.id}`,
+-      inputRefs: runCreatePortRefs(binding.port, [node]),
++    return inputNodes[binding.port].map((/* each规则的一项独立输入。 */ node) =>
++      /* 每个输入建立一个独立且已封闭的Operation组。 */ ({
++        id: `${step.id}:${node.id}`,
++        inputRefs: runCreatePortRefs(binding.port, [node]),
++        contextRefs: structuredClone(contextRefs),
++        sealed: true,
++      }))
++  }
++  const available = new Map(step.input.map((/* 显式分组可使用的声明输入端口。 */ binding) =>
++    /* 为各端口建立可用节点索引，不接受其他端口的同名节点。 */ [binding.port,
++      new Map(inputNodes[binding.port].map((/* 该端口一项实际可用节点。 */ node) => /* 按节点身份解析显式成员。 */ [node.id, node]))]))
++  return step.grouping.groups.map((/* 用户已经声明的一个显式成员分组。 */ group) =>
++    /* 只从各端口自有成员表读取输入，缺省可选端口按空集合参与基数检查。 */ ({
++      id: group.id,
++      inputRefs: step.input.flatMap((/* 当前组需要解析的声明输入端口。 */ binding) =>
++        /* 继承字段不构成用户提供的成员列表。 */ (Object.prototype.hasOwnProperty.call(group.members, binding.port) ? group.members[binding.port] : []).map((
++          /* 当前端口明确选定的一个节点身份。 */ id,
++        ) => {
++          // 显式成员必须位于本端口已封闭的可用输入中。
++          const node = available.get(binding.port)?.get(id)
++          if (!node) throw new GraphError(422, 'INVALID_PLAN', messageFormat(RuntimeMessage.RUN_PLAN_INVALID_VALUE, `${step.id}.${group.id}`))
++          return runCreatePortRefs(binding.port, [node])[0]
++        })),
+       contextRefs: structuredClone(contextRefs),
+       sealed: true,
+     }))
+-  }
+-  const available = new Map(step.input.map(binding => [binding.port,
+-    new Map(inputNodes[binding.port].map(node => [node.id, node]))]))
+-  return step.grouping.groups.map(group => ({
+-    id: group.id,
+-    inputRefs: step.input.flatMap(binding => (group.members[binding.port] ?? []).map(id => {
+-      const node = available.get(binding.port)?.get(id)
+-      if (!node) throw new GraphError(422, 'INVALID_PLAN', messageFormat(RuntimeMessage.RUN_PLAN_INVALID_VALUE, `${step.id}.${group.id}`))
+-      return runCreatePortRefs(binding.port, [node])[0]
+-    })),
+-    contextRefs: structuredClone(contextRefs),
+-    sealed: true,
+-  }))
+ }
+ 
+ function runInstantiateReadySteps(document: GraphDocument, run: GraphRun): void {
+@@ -355,11 +386,16 @@
+   document.updatedAt = now
+ }
+ 
+-function runReadPointer(value: JsonValue, pointer?: string): JsonValue | undefined {
++function runReadPointer(
++  /* 已通过JSON边界检查的正文或投影对象。 */ value: JsonValue,
++  /* 定义声明的确定路径；未提供时读取整个值。 */ pointer?: string,
++): JsonValue | undefined {
++  // 仅沿自有属性读取模型可见字段，不把继承原型当作正文。
+   if (!pointer || pointer === '/') return value
+   let current: JsonValue | undefined = value
+-  for (const part of pointer.split('/').slice(1).map(item => item.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+-    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
++  for (const part of pointer.split('/').slice(1).map((/* 已编码的路径段。 */ item) =>
++    /* 还原JSON Pointer中的斜线和波浪号。 */ item.replace(/~1/g, '/').replace(/~0/g, '~'))) {
++    if (!current || typeof current !== 'object' || Array.isArray(current) || !Object.prototype.hasOwnProperty.call(current, part)) return undefined
+     current = current[part]
+   }
+   return current
+@@ -382,18 +418,18 @@
+   // 共用既有字段/可见字典投影规则，使库材料和本图输入遵循相同模型可见边界。
+   const output: GraphPayload = {}
+   for (const pointer of definition.agentProjection.include) {
+-    const parts = pointer.split('/').slice(1).map(item => item.replace(/~1/g, '/').replace(/~0/g, '~'))
++    const parts = pointer.split('/').slice(1).map((/* Agent投影声明的路径段。 */ item) => /* 还原字段名称。 */ item.replace(/~1/g, '/').replace(/~0/g, '~'))
+     if (!parts.length) continue
+     const value = runReadPointer(node.payload, pointer)
+     if (value === undefined) continue
+     let target: Record<string, JsonValue> = output
+     for (const part of parts.slice(0, -1)) {
+-      const prior = target[part]
++      const prior = Object.prototype.hasOwnProperty.call(target, part) ? target[part] : undefined
+       const next: Record<string, JsonValue> = prior && typeof prior === 'object' && !Array.isArray(prior) ? prior : {}
+-      if (prior === undefined) target[part] = next
++      if (prior === undefined) Object.defineProperty(target, part, { value: next, enumerable: true, writable: true, configurable: true })
+       target = next
+     }
+-    target[parts[parts.length - 1]] = structuredClone(value)
++    Object.defineProperty(target, parts[parts.length - 1], { value: structuredClone(value), enumerable: true, writable: true, configurable: true })
+   }
+   for (const filter of definition.agentProjection.mapEntryFilters) {
+     const map = runReadPointer(output, filter.path)
+@@ -419,41 +455,52 @@
+   return { agent, tools: planner!.plan!.tools.filter(tool => allowed.has(tool.name)) }
+ }
+ 
+-function runFormatBinding(values: JsonValue[], format: 'text' | 'json' | 'text-lines'): string {
++function runFormatBinding(
++  /* 只读模型输入值或已接纳的阶段计划和结果，均已由各自领域入口建立。 */ values: Array<JsonValue | GraphPlanSlot | GraphStageResult[]>,
++  /* 冻结绑定声明的文本或JSON呈现格式。 */ format: 'text' | 'json' | 'text-lines',
++): string {
++  // 只生成字符串，不修改或复制已验阶段材料，也不借断言把阶段合同伪装成通用JSON对象。
+   if (format === 'json') return JSON.stringify(values.length === 1 ? values[0] : values)
+-  const render = (value: JsonValue) => typeof value === 'string' ? value : JSON.stringify(value)
++  const render = (/* 一项已验正文、计划或阶段结果。 */ value: JsonValue | GraphPlanSlot | GraphStageResult[]): string =>
++    /* 字符串原样保留，结构值按JSON呈现。 */ typeof value === 'string' ? value : JSON.stringify(value)
+   return values.map(render).join(format === 'text-lines' ? '\n' : '\n\n')
+ }
+ 
+ function runCreatePromptVariables(
+-  operation: GraphOperation,
+-  stageId: string,
+-  slotId: string,
+-  inputs: GraphDataRead['inputs'],
+-  context: GraphDataRead['context'],
+-  sourceText: Record<string, string>,
++  /* 已核对Work阶段资格的Operation及冻结结果。 */ operation: GraphOperation,
++  /* 同次领域核验已经取得的实际冻结阶段。 */ stage: ExecutionSpec['stages'][number],
++  /* Work在该阶段的真实槽位身份。 */ slotId: string,
++  /* 当前Work已投影且按实际端口分组的输入节点。 */ inputs: GraphDataRead['inputs'],
++  /* 当前Work已投影且按实际端口分组的上下文节点。 */ context: GraphDataRead['context'],
++  /* 同一输入快照已冻结的来源正文，缺省变量不得从原型继承。 */ sourceText: Record<string, string>,
+ ): Record<string, string> {
+-  const stage = operation.executionSpec.stages.find(item => item.id === stageId)!
++  // 根据实际自有绑定生成模型变量，缺省可选端口为空，不读取继承的同名函数或对象。
+   const variables: Record<string, string> = {}
+   for (const [name, binding] of Object.entries(stage.promptBindings)) {
+     if (binding.source === 'source-text') {
+-      if (sourceText[name] !== undefined) variables[name] = sourceText[name]
++      if (Object.prototype.hasOwnProperty.call(sourceText, name)) variables[name] = sourceText[name]
+       continue
+     }
+     if (binding.source === 'stage') {
+-      const group = operation.stages.find(item => item.stageId === binding.stageId)
+-      const plannedSlot = group?.results.flatMap(result => result.mode === 'plan' ? result.plan.slots : []).find(slot => slot.id === slotId)
++      const group = operation.stages.find((/* Operation中的一个已接纳阶段。 */ item) => /* 取得绑定明确依赖的阶段结果。 */ item.stageId === binding.stageId)
++      const plannedSlot = group?.results.flatMap((/* 依赖阶段已经接纳的一份结果。 */ result) =>
++        /* 只有计划结果能够为当前槽位提供计划参数。 */ result.mode === 'plan' ? result.plan.slots : []).find((
++          /* 依赖计划实际提供的一项槽位。 */ slot,
++        ) => /* 选择当前Work所属的精确槽位。 */ slot.id === slotId)
+       const value = plannedSlot ?? group?.results ?? []
+-      variables[name] = runFormatBinding([structuredClone(value) as unknown as JsonValue], binding.format)
++      variables[name] = runFormatBinding([value], binding.format)
+       continue
+     }
+     if (binding.source === 'agents') {
+-      variables[name] = JSON.stringify(stage.plan?.agents.map(agent => ({ id: agent.ref.id, version: agent.ref.version,
+-        name: agent.profile.name, description: agent.profile.description, tools: agent.profile.tools })) ?? [])
++      variables[name] = JSON.stringify(stage.plan?.agents.map((/* 本阶段获准规划的一份冻结Agent配置。 */ agent) =>
++        /* 只交付计划选择需要的身份、说明和工具。 */ ({ id: agent.ref.id, version: agent.ref.version,
++          name: agent.profile.name, description: agent.profile.description, tools: agent.profile.tools })) ?? [])
+       continue
+     }
+-    const items = (binding.source === 'input' ? inputs : context)[binding.port] ?? []
+-    const values = items.flatMap(item => {
++    const ports = binding.source === 'input' ? inputs : context
++    const items = Object.prototype.hasOwnProperty.call(ports, binding.port) ? ports[binding.port] : []
++    const values = items.flatMap((/* 本端口实际存在的一项投影输入。 */ item) => {
++      // 只读取冻结绑定声明的具体正文路径。
+       const value = runReadPointer(item.node.payload, binding.path)
+       return value === undefined ? [] : [value]
+     })
+@@ -463,35 +510,57 @@
+   return variables
+ }
+ 
++type RunDataWork = Pick<GraphWork, 'runId' | 'operationId' | 'workId' | 'stageId' | 'slotId' | 'specHash'>
++
++interface RunWorkContext {
++  readonly run: GraphCurrentRun
++  readonly operation: GraphOperation
++  readonly stage: ExecutionSpec['stages'][number]
++  readonly resolved: { inputs: RunPortNode[]; context: RunPortNode[] }
++  readonly selected: ReturnType<typeof runReadStageAgent>
++}
++
++export function runReadWorkContext(
++  /* 本次读取或来源缓存提交所依据的当前图快照。 */ document: GraphDocument,
++  /* data_read明确请求的Operation身份。 */ operationId: string,
++  /* 已确认当前租约、但仍需核对领域归属与阶段资格的Work。 */ work: RunDataWork,
++): RunWorkContext {
++  // 在任何外部来源读取前核对Operation归属、冻结输入与阶段资格；异步后仍以新快照复验。
++  const run = runReadExecution(document, work.runId), operation = runReadOperation(run, operationId)
++  const resolved = runValidateInputs(document, run, operation)
++  if (work.operationId !== operation.id || operation.status !== 'running' || operation.specHash !== work.specHash) throw new GraphError(409, 'WORK_STOPPED', RuntimeMessage.OPERATION_IS_NOT_EXECUTABLE)
++  const group = operation.stages.find((/* Operation中的一个阶段组。 */ item) => /* 取得获权Work所属阶段。 */ item.stageId === work.stageId)
++  const stage = operation.executionSpec.stages.find((/* 冻结执行规格中的阶段声明。 */ item) => /* 只读取获权Work声明的阶段。 */ item.id === work.stageId)
++  if (!group || !stage || !group.expectedWorkIds.includes(work.workId) || group.results.some((/* 当前阶段已接纳的一份结果。 */ result) => /* 已有结果的Work不能再次读取执行输入。 */ result.workId === work.workId)
++    || !stage.dependsOn.every((/* 本阶段声明依赖的阶段身份。 */ id) => /* 所有依赖阶段必须封闭。 */ operation.stages.some((/* Operation中的依赖阶段组。 */ item) => /* 按身份确认当前封闭状态。 */ item.stageId === id && item.closed))) {
++    throw new GraphError(409, 'WORK_STOPPED', RuntimeMessage.STAGE_WORK_IS_NOT_READY)
++  }
++  const selected = runReadStageAgent(operation, work.stageId, work.slotId)
++  return { run, operation, stage, resolved, selected }
++}
++
+ export function runReadData(
+   /* 本次获权Work的图事务快照。 */ document: GraphDocument,
+   /* 与Work授权绑定的Operation身份。 */ operationId: string,
+-  /* 服务端已经确认租约的阶段与冻结规格身份。 */ work: Pick<GraphWork, 'runId' | 'workId' | 'stageId' | 'slotId' | 'specHash'>,
++  /* 服务端已经确认租约的阶段与冻结规格身份。 */ work: RunDataWork,
+   /* 来源读取器已冻结的正文变量，默认没有外部来源正文。 */ sourceText: Record<string, string> = {},
+ ): Omit<GraphDataRead, 'work'> {
+   // 核对输入版本与Work阶段，返回本图投影、当前步骤库投影和完整冻结输出合同。
+-  const run = runReadExecution(document, work.runId), operation = runReadOperation(run, operationId)
+-  const resolved = runValidateInputs(document, run, operation)
+-  if (operation.status !== 'running' || operation.specHash !== work.specHash) throw new GraphError(409, 'WORK_STOPPED', RuntimeMessage.OPERATION_IS_NOT_EXECUTABLE)
+-  const group = operation.stages.find(item => item.stageId === work.stageId)
+-  const stage = operation.executionSpec.stages.find(item => item.id === work.stageId)
+-  if (!group || !stage || !group.expectedWorkIds.includes(work.workId) || group.results.some(result => result.workId === work.workId)
+-    || !stage.dependsOn.every(id => operation.stages.some(item => item.stageId === id && item.closed))) {
+-    throw new GraphError(409, 'WORK_STOPPED', RuntimeMessage.STAGE_WORK_IS_NOT_READY)
+-  }
+-  const groupNodes = (/* 本次验证已取得的端口引用和节点配对。 */ nodes: RunPortNode[]): GraphDataRead['inputs'] =>
+-    /* 按端口分组并建立本次 Work 的独立输入投影。 */ nodes.reduce<GraphDataRead['inputs']>((
+-      /* 已累计的按端口分组结果。 */ result,
+-      /* 已验证的一个精确端口输入。 */ { ref, node },
+-    ) => {
+-      // 从同次验证取得的原节点投影正文，不重复查找和验证版本。
+-      ;(result[ref.port] ??= []).push({ key: ref.key, node: { ...structuredClone(node), payload: runProjectPayload(node, operation.executionSpec) } })
+-      return result
+-    }, {})
++  const { run, operation, stage, resolved, selected } = runReadWorkContext(document, operationId, work)
++  const groupNodes = (/* 本次验证已取得的端口引用和节点配对。 */ nodes: RunPortNode[]): GraphDataRead['inputs'] => {
++    // 按真实端口名称分组，为每个节点建立独立的模型可见投影。
++    const grouped = new Map<string, GraphDataRead['inputs'][string]>()
++    for (const { ref, node } of nodes) {
++      const item = { key: ref.key, node: { ...structuredClone(node), payload: runProjectPayload(node, operation.executionSpec) } }
++      const group = grouped.get(ref.port)
++      if (group) group.push(item)
++      else grouped.set(ref.port, [item])
++    }
++    return Object.fromEntries(grouped)
++  }
+   const inputs = groupNodes(resolved.inputs)
+   const context = groupNodes(resolved.context)
+-  const selected = runReadStageAgent(operation, work.stageId, work.slotId)
+-  const priorStageResults = stage.dependsOn.flatMap(id => operation.stages.find(item => item.stageId === id)?.results ?? [])
++  const priorStageResults = stage.dependsOn.flatMap((/* 当前Work明确依赖的阶段身份。 */ id) => /* 只交付这些阶段已接纳的结果。 */ operation.stages.find((/* Operation中的一个阶段组。 */ item) => /* 按依赖身份定位阶段结果。 */ item.stageId === id)?.results ?? [])
+   const libraryClaims = run.libraryClaimSets?.find((/* 本Run各步骤完整材料集合。 */ set) => /* 只返回当前Operation所属step。 */ set.stepId === operation.stepId)?.claims ?? []
+   return {
+     mapId: document.id,
+@@ -508,7 +577,7 @@
+       return result
+     }) } : {}),
+     priorStageResults: structuredClone(priorStageResults),
+-    promptVariables: runCreatePromptVariables(operation, work.stageId, work.slotId, inputs, context, sourceText),
++    promptVariables: runCreatePromptVariables(operation, stage, work.slotId, inputs, context, sourceText),
+     stage: { id: work.stageId, slotId: work.slotId, agent: structuredClone(selected.agent), tools: structuredClone(selected.tools),
+       ...(stage.plan ? { plan: structuredClone(stage.plan) } : {}) },
+     outputContract: structuredClone(stage.outputContract),
+@@ -535,18 +604,30 @@
+   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, runResolveCandidateRefs(item, ids)]))
+ }
+ 
++interface RunValidatedOutput {
++  // 仅本次提案分配的稳定正式身份，和下方已物化正文配对。
++  nodeId: string
++  parsed: ReturnType<typeof graphParseNodePayload>
++}
++
+ function runValidateStageOutputs(
+   /* 保存本图类型目录及运行策略的Run。 */ run: GraphRun,
+   /* 本次提案所属且已冻结材料集合的Operation。 */ operation: GraphOperation,
+-  /* Work获权的具体阶段身份。 */ stageId: string,
++  /* 入口已核对Work获权及依赖资格的具体冻结阶段。 */ stage: ExecutionSpec['stages'][number],
+   /* 用于候选引用身份组合的当前Work身份。 */ workId: string,
+-  /* 当前尝试独占的候选输出副本。 */ outputs: GraphProposedOutput[],
+-): void {
+-  // 校验输出基数、节点引用与库使用授权，非法候选在存入阶段结果前拒绝。
+-  const stage = operation.executionSpec.stages.find(item => item.id === stageId)!
+-  if (new Set(outputs.map(output => output.key)).size !== outputs.length) throw new GraphError(422, 'INVALID_OUTPUT', messageFormat(RuntimeMessage.DUPLICATE_VALUE, 'output key'))
++  /* 当前尝试独占且已经分配正式节点身份的候选输出副本。 */ outputs: Array<GraphProposedOutput & { nodeId: string }>,
++): Map<string, RunValidatedOutput> {
++  // 校验候选授权和引用后完整解析已物化正文，供本次同步发布直接复用。
++  const validated = new Map<string, RunValidatedOutput>()
++  const candidates = runReadCandidates(operation)
++  const candidateIds = new Map<string, string>()
++  for (const candidate of candidates) {
++    if (candidate.nodeId !== undefined) candidateIds.set(runCandidateKey(candidate.workId, candidate.key), candidate.nodeId)
++  }
++  for (const candidate of outputs) candidateIds.set(runCandidateKey(workId, candidate.key), candidate.nodeId)
++  if (new Set(outputs.map((/* 本次独占候选输出。 */ output) => /* 提取候选唯一键。 */ output.key)).size !== outputs.length) throw new GraphError(422, 'INVALID_OUTPUT', messageFormat(RuntimeMessage.DUPLICATE_VALUE, 'output key'))
+   for (const contract of stage.outputContract.ports) {
+-    const items = outputs.filter(output => output.port === contract.port)
++    const items = outputs.filter((/* 待分配到当前输出端口的候选。 */ output) => /* 只计入同名端口。 */ output.port === contract.port)
+     if (items.length < contract.count.min || items.length > contract.count.max) throw new GraphError(422, 'OUTPUT_CARDINALITY', messageFormat(RuntimeMessage.OUTPUT_CARDINALITY_VALUE, contract.port))
+     for (const output of items) {
+       for (const reference of output.libraryClaimRefs ?? []) {
+@@ -556,55 +637,55 @@
+       }
+       if (!runRefEqual(output.typeRef, contract.type)) throw new GraphError(422, 'INVALID_OUTPUT', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, output.key))
+       if (output.sourceKeys) {
+-        const candidates = runReadCandidates(operation)
+-        const allowed = new Set(contract.successorOf.flatMap(anchor => anchor.source === 'input'
+-          ? operation.group.inputRefs.filter(ref => ref.port === anchor.port).map(ref => ref.key)
+-          : candidates.filter(candidate => candidate.port === anchor.port).map(candidate => `${candidate.workId}:${candidate.key}`)))
+-        if (!output.sourceKeys.length || new Set(output.sourceKeys).size !== output.sourceKeys.length || output.sourceKeys.some(key => !allowed.has(key))) {
++        const allowed = new Set(contract.successorOf.flatMap((/* 当前输出允许继承的输入或候选端口。 */ anchor) => /* 汇总合法sourceKeys。 */ anchor.source === 'input'
++          ? operation.group.inputRefs.filter((/* 已冻结输入引用。 */ ref) => /* 只使用声明锚点端口。 */ ref.port === anchor.port).map((/* 合法输入来源。 */ ref) => /* 提取精确来源键。 */ ref.key)
++          : candidates.filter((/* 历史已接纳候选。 */ candidate) => /* 限制到声明候选端口。 */ candidate.port === anchor.port).map((/* 合法候选来源。 */ candidate) => /* 组合候选来源身份。 */ `${candidate.workId}:${candidate.key}`)))
++        if (!output.sourceKeys.length || new Set(output.sourceKeys).size !== output.sourceKeys.length || output.sourceKeys.some((/* 当前输出指定的来源键。 */ key) => /* 不接受声明锚点以外的来源。 */ !allowed.has(key))) {
+           throw new GraphError(422, 'INVALID_OUTPUT', RuntimeMessage.PROPOSAL_DOES_NOT_MATCH_STAGE_CONTRACT)
+         }
+       }
+-      const candidateIds = new Map(runReadCandidates(operation).map(candidate => [runCandidateKey(candidate.workId, candidate.key), candidate.nodeId!]))
+-      for (const candidate of outputs) candidateIds.set(runCandidateKey(workId, candidate.key), candidate.nodeId!)
+-      const candidatePaths: string[] = []
+-      const scan = (value: JsonValue, path = '') => {
+-        if (Array.isArray(value)) { value.forEach((item, index) => scan(item, `${path}/${index}`)); return }
++      const candidateReferences: Array<{ path: string; key: string }> = []
++      const scan = (
++        /* 当前候选正文或其子值。 */ value: JsonValue,
++        /* 当前成员已编码的具体JSON Pointer，根为零长度。 */ path = '',
++      ): void => {
++        // 一次收集候选引用的位置与身份，路径授权和依赖授权共用这份结果。
++        if (Array.isArray(value)) {
++          value.forEach((/* 数组中的候选子值。 */ item, /* 具体数组下标。 */ index) =>
++            /* 继续检查数组每个成员。 */ scan(item, `${path}/${index}`))
++          return
++        }
+         if (!value || typeof value !== 'object') return
+         const candidate = value.candidate
+         if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+           && typeof candidate.workId === 'string' && typeof candidate.key === 'string') {
+-          candidatePaths.push(path)
++          candidateReferences.push({ path, key: runCandidateKey(candidate.workId, candidate.key) })
+         } else for (const [key, item] of Object.entries(value)) scan(item, `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`)
+       }
+       scan(output.payload)
+-      const type = operation.executionSpec.dataTypes.find(item => runRefEqual(item, output.typeRef))
+-      const patterns = type?.references.filter(reference => reference.target.kind === 'node').map(reference => reference.path.split('/').slice(1)) ?? []
+-      const pathAllowed = (path: string) => {
++      const type = operation.executionSpec.dataTypes.find((/* 该Operation的冻结类型闭包。 */ item) => /* 使用当前候选的精确类型。 */ runRefEqual(item, output.typeRef))
++      const patterns = type?.references.filter((/* 冻结类型的引用声明。 */ reference) => /* 候选只能用于节点引用。 */ reference.target.kind === 'node').map((/* 合法节点引用声明。 */ reference) => /* 取已编码路径用于通配匹配。 */ reference.path.split('/').slice(1)) ?? []
++      const pathAllowed = (/* 本次扫描得到的具体候选引用路径。 */ path: string): boolean => {
++        // 具体候选引用必须处于类型声明允许的节点引用位置。
+         const parts = path.split('/').slice(1)
+-        return patterns.some(pattern => pattern.length === parts.length && pattern.every((part, index) => part === '*' || part === parts[index]))
+-      }
+-      const dependencies = new Set(runReadCandidates(operation).filter(candidate => stage.dependsOn.includes(candidate.stageId))
+-        .map(candidate => runCandidateKey(candidate.workId, candidate.key)))
++        return patterns.some((/* 冻结声明的一个节点引用路径模式。 */ pattern) => /* 按相同段数及通配语义匹配具体路径。 */ pattern.length === parts.length && pattern.every((/* 声明路径的一个已编码段。 */ part, /* 该段在具体路径中的位置。 */ index) => /* 只允许精确字段或声明星号。 */ part === '*' || part === parts[index]))
++      }
++      const dependencies = new Set(candidates.filter((/* 历史候选及其所属阶段。 */ candidate) => /* 只能引用本阶段已声明依赖的结果。 */ stage.dependsOn.includes(candidate.stageId))
++        .map((/* 本阶段获准使用的历史候选。 */ candidate) => /* 提取候选依赖组合键。 */ runCandidateKey(candidate.workId, candidate.key)))
+       for (const item of outputs) dependencies.add(runCandidateKey(workId, item.key))
+-      const referenced = new Set<string>()
+-      const readRefs = (value: JsonValue) => {
+-        if (Array.isArray(value)) { value.forEach(readRefs); return }
+-        if (!value || typeof value !== 'object') return
+-        const candidate = value.candidate
+-        if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+-          && typeof candidate.workId === 'string' && typeof candidate.key === 'string') referenced.add(runCandidateKey(candidate.workId, candidate.key))
+-        else Object.values(value).forEach(readRefs)
+-      }
+-      readRefs(output.payload)
+-      if (candidatePaths.some(path => !pathAllowed(path)) || [...referenced].some(key => !dependencies.has(key) || !candidateIds.get(key))) {
++      if (candidateReferences.some((/* 单个已收集的候选引用。 */ reference) =>
++        /* 同一具体引用必须同时获准路径、阶段依赖和已分配身份。 */ !pathAllowed(reference.path)
++          || !dependencies.has(reference.key) || !candidateIds.get(reference.key))) {
+         throw new GraphError(422, 'INVALID_OUTPUT', RuntimeMessage.PROPOSAL_DOES_NOT_MATCH_STAGE_CONTRACT)
+       }
+-      definitionsValidatePayload(run.definitions, output.typeRef, runResolveCandidateRefs(output.payload, candidateIds))
+-    }
+-  }
+-  if (outputs.some(output => !stage.outputContract.ports.some(contract => contract.port === output.port))) {
++      const parsed = graphParseNodePayload(run.definitions, output.typeRef, runResolveCandidateRefs(output.payload, candidateIds))
++      validated.set(runCandidateKey(workId, output.key), { nodeId: output.nodeId, parsed })
++    }
++  }
++  if (outputs.some((/* 当前提交的一个候选。 */ output) => /* 不接纳未在阶段声明的输出端口。 */ !stage.outputContract.ports.some((/* 本阶段的一个输出端口合同。 */ contract) => /* 按端口名确认候选归属。 */ contract.port === output.port))) {
+     throw new GraphError(422, 'INVALID_OUTPUT', RuntimeMessage.PROPOSAL_DOES_NOT_MATCH_STAGE_CONTRACT)
+   }
++  return validated
+ }
+ 
+ function runValidateSelection(operation: GraphOperation, stageId: string, selection: GraphDataProposal & { kind: 'selection' }): void {
+@@ -794,17 +875,20 @@
+   /* 当前执行及审核状态已允许发布且具备分支证明的 Run。 */ run: GraphCurrentRun,
+   /* 保存所有合法候选和冻结输出边界的Operation。 */ operation: GraphOperation,
+   /* 本次接纳或审核已构建的完整发布计划。 */ plan: RunPublicationPlan,
++  /* 同一提案已物化并完整解析的输出；历史候选与后续审核不在此集合。 */ validated: ReadonlyMap<string, RunValidatedOutput>,
+   /* 本次正式发布统一使用的ISO时间。 */ now: string,
+ ): RunPublicationResult {
+   // 发布已接受的候选节点和实际后继边，保留产物使用理由及可信producer身份。
+   const { candidates } = plan
+-  const ids = new Map(candidates.map(candidate => [runCandidateKey(candidate.workId, candidate.key), candidate.nodeId ?? randomUUID()]))
++  const ids = new Map(candidates.map((/* 本次权威计划内的正式发布候选。 */ candidate) => /* 复用服务端候选身份，历史未分配身份的候选在本次分配。 */ [runCandidateKey(candidate.workId, candidate.key), candidate.nodeId ?? randomUUID()]))
+   const publishedNodes: ParsedGraphNode[] = candidates.map((/* 本次正式发布的已接纳候选。 */ candidate) => {
+     // 重映射候选引用后完整解析一次，节点和真实引用共同交给后续提交检查。
+-    const parsed = graphParseNodePayload(run.definitions, candidate.typeRef, runResolveCandidateRefs(candidate.payload, ids))
++    const accepted = validated.get(runCandidateKey(candidate.workId, candidate.key))
++    const parsed = accepted ? accepted.parsed
++      : graphParseNodePayload(run.definitions, candidate.typeRef, runResolveCandidateRefs(candidate.payload, ids))
+     const selected = runReadStageAgent(operation, candidate.stageId, candidate.slotId)
+     const node: GraphNode = {
+-      id: ids.get(runCandidateKey(candidate.workId, candidate.key))!,
++      id: accepted ? accepted.nodeId : ids.get(runCandidateKey(candidate.workId, candidate.key))!,
+       revision: 0,
+       typeId: candidate.typeRef.id,
+       typeVersion: candidate.typeRef.version,
+@@ -825,12 +909,12 @@
+     return { node, references: parsed.references }
+   })
+   const nodes = publishedNodes.map((/* 已完整解析的正式节点与引用。 */ parsed) => /* 图状态保存该份已验节点。 */ parsed.node)
+-  const allowedReferenceTargets = new Set([...run.branchState.scope.nodeIds, ...nodes.map(node => node.id)])
+-  if (nodes.some(node => (node.payloadReferences ?? []).some(reference => !allowedReferenceTargets.has(reference.targetId)))) {
++  const allowedReferenceTargets = new Set([...run.branchState.scope.nodeIds, ...nodes.map((/* 本次正式发布的完整节点。 */ node) => /* 返回正式节点身份。 */ node.id)])
++  if (nodes.some((/* 本次准备发布的一个节点。 */ node) => /* 节点引用不能越过当前分支或本次新节点集合。 */ (node.payloadReferences ?? []).some((/* 从已验正文派生的节点引用。 */ reference) => /* 拒绝分支之外的引用目标。 */ !allowedReferenceTargets.has(reference.targetId)))) {
+     throw new GraphError(409, 'BRANCH_SCOPE_CONFLICT', RuntimeMessage.GRAPH_CHANGE_AFFECTS_DATA_OUTSIDE_THE_ACQUIRED_BRANCH)
+   }
+-  const nodeByCandidate = new Map(candidates.map((candidate, index) => [runCandidateKey(candidate.workId, candidate.key), nodes[index]]))
+-  const availableNodes = new Map([...document.nodes, ...nodes].map(node => [node.id, node]))
++  const nodeByCandidate = new Map(candidates.map((/* 发布计划中的一项候选。 */ candidate, /* 与已物化节点数组相同的位置。 */ index) => /* 配对候选组合身份与正式节点。 */ [runCandidateKey(candidate.workId, candidate.key), nodes[index]]))
++  const availableNodes = new Map([...document.nodes, ...nodes].map((/* 当前图或本次准备新增的完整节点。 */ node) => /* 为引用闭包验证建立真实目标索引。 */ [node.id, node]))
+   for (const parsed of publishedNodes) {
+     for (const reference of parsed.references) {
+       if (reference.definition.target.kind !== 'node') continue
+@@ -841,30 +925,33 @@
+       }
+     }
+   }
+-  const edges = candidates.flatMap(candidate => {
++  const edges = candidates.flatMap((/* 本次正式发布且已物化的候选。 */ candidate) => {
++    // 按冻结输出锚点为该节点建立实际后继边。
+     const node = nodeByCandidate.get(runCandidateKey(candidate.workId, candidate.key))!
+-    const output = operation.executionSpec.transition.ports.output.find(port => port.name === candidate.port)!
+-    return output.successorOf.flatMap(anchor => {
++    const output = operation.executionSpec.transition.ports.output.find((/* 冻结转换的一个输出端口。 */ port) => /* 使用候选已核对的同名端口规则。 */ port.name === candidate.port)!
++    return output.successorOf.flatMap((/* 当前输出声明的一个输入或输出锚点。 */ anchor) => {
++      // sourceKeys选择合法父节点；未提供时使用声明锚点的全部父节点。
+       const parents = anchor.source === 'input'
+-        ? operation.group.inputRefs.filter(ref => ref.port === anchor.port && (!candidate.sourceKeys || candidate.sourceKeys.includes(ref.key))).map(ref => ref.id)
+-        : candidates.filter(item => item.port === anchor.port && (!candidate.sourceKeys || candidate.sourceKeys.includes(`${item.workId}:${item.key}`)))
+-          .map(item => {
++        ? operation.group.inputRefs.filter((/* 已冻结的一个输入引用。 */ ref) => /* 限制到声明端口和候选选定的来源。 */ ref.port === anchor.port && (!candidate.sourceKeys || candidate.sourceKeys.includes(ref.key))).map((/* 获准使用的输入锚点。 */ ref) => /* 返回真实输入节点身份。 */ ref.id)
++        : candidates.filter((/* 同批发布的一个候选父节点。 */ item) => /* 仅使用声明输出端口和已选择的候选来源。 */ item.port === anchor.port && (!candidate.sourceKeys || candidate.sourceKeys.includes(`${item.workId}:${item.key}`)))
++          .map((/* 获准充当父节点的同批候选。 */ item) => {
++            // 父候选必须已经物化为本次正式发布节点。
+             const parent = nodeByCandidate.get(runCandidateKey(item.workId, item.key))
+             if (!parent) throw new GraphError(422, 'INVALID_OUTPUT', RuntimeMessage.PROPOSAL_DOES_NOT_MATCH_STAGE_CONTRACT)
+             return parent.id
+           })
+-      return parents.map(parent => ({ id: randomUUID(), revision: 0, kind: 'successor' as const, from: parent, to: node.id,
++      return parents.map((/* 已核对的真实父节点身份。 */ parent) => /* 为每项父子关系分配独立后继边身份。 */ ({ id: randomUUID(), revision: 0, kind: 'successor' as const, from: parent, to: node.id,
+         label: `${operation.transitionRef.id}@${operation.transitionRef.version}:${candidate.port}`, createdAt: now, updatedAt: now }))
+     })
+   })
+   const branch = run.branchState
+   const nextBranch = branchReadSnapshot({ ...document, nodes: [...document.nodes, ...nodes], edges: [...document.edges, ...edges] }, branch.scope.rootIds)
+-  if (nodes.some(node => !nextBranch.scope.nodeIds.includes(node.id))) {
++  if (nodes.some((/* 本次准备新增的正式节点。 */ node) => /* 所有新节点都必须从当前授权分支根可达。 */ !nextBranch.scope.nodeIds.includes(node.id))) {
+     throw new GraphError(409, 'BRANCH_SCOPE_CONFLICT', RuntimeMessage.NEW_DATA_MUST_BE_REACHABLE_FROM_THE_AUTHORIZED_BRANCH)
+   }
+   document.nodes.push(...nodes)
+   document.edges.push(...edges)
+-  operation.outputRefs = candidates.map(candidate => ({
++  operation.outputRefs = candidates.map((/* 已完成正式物化的发布候选。 */ candidate) => /* 保存正式节点与端口及原Work候选身份。 */ ({
+     id: nodeByCandidate.get(runCandidateKey(candidate.workId, candidate.key))!.id,
+     revision: 0,
+     port: candidate.port,
+@@ -873,13 +960,14 @@
+   }))
+   operation.status = 'completed'
+   run.branchState = { scope: nextBranch.scope, version: nextBranch.version }
+-  return { nodeIds: nodes.map(node => node.id), edgeIds: edges.map(edge => edge.id), publishedNodes }
++  return { nodeIds: nodes.map((/* 本次正式发布的完整节点。 */ node) => /* 返回正式节点身份。 */ node.id), edgeIds: edges.map((/* 已写入图草稿的正式后继边。 */ edge) => /* 返回本次建立的边身份。 */ edge.id), publishedNodes }
+ }
+ 
+ function runFinishResult(
+   /* 本次接纳结果使用的独立图草稿。 */ document: GraphDocument,
+   /* 已通过执行入口核对、持有当前分支证明的运行。 */ run: GraphCurrentRun,
+   /* 结果阶段已经结束的 Operation。 */ operation: GraphOperation,
++  /* 本次新接纳提案已完整解析的输出，未跨越异步或持久化边界。 */ validated: ReadonlyMap<string, RunValidatedOutput>,
+   /* 本次审核或正式发布共用的 ISO 时间。 */ now: string,
+ ): RunPublicationResult {
+   // 按冻结审核策略等待结果确认，或使用当前分支证明直接发布正式产物。
+@@ -887,7 +975,7 @@
+     if (!operation.review || operation.review.state === 'answered' || operation.review.kind !== 'result') runCreateReview(operation, 'result', now)
+     return { nodeIds: [], edgeIds: [], publishedNodes: [] }
+   }
+-  return runCreateOutputs(document, run, operation, runBuildPublicationPlan(operation), now)
++  return runCreateOutputs(document, run, operation, runBuildPublicationPlan(operation), validated, now)
+ }
+ 
+ export function runUpdateProposal(
+@@ -903,14 +991,15 @@
+     throw new GraphError(409, 'PROPOSAL_CONFLICT', RuntimeMessage.PROPOSAL_DOES_NOT_BELONG_TO_THIS_WORK_GRANT)
+   }
+   runValidateInputs(document, run, operation)
+-  const group = operation.stages.find(item => item.stageId === work.stageId)
+-  const stage = operation.executionSpec.stages.find(item => item.id === work.stageId)
++  const group = operation.stages.find((/* 获权Operation中的阶段组。 */ item) => /* 找到当前Work的阶段结果容器。 */ item.stageId === work.stageId)
++  const stage = operation.executionSpec.stages.find((/* 当前Operation的冻结阶段声明。 */ item) => /* 取得当前Work的输出合同。 */ item.id === work.stageId)
+   if (!group || !stage || stage.outputContract.mode !== proposal.kind || !group.expectedWorkIds.includes(work.workId)
+-    || !stage.dependsOn.every(id => operation.stages.some(item => item.stageId === id && item.closed))) {
++    || !stage.dependsOn.every((/* 当前阶段声明的依赖身份。 */ id) => /* 提案只能在全部依赖封闭后接纳。 */ operation.stages.some((/* 当前Operation的一个阶段组。 */ item) => /* 同一依赖必须已经封闭。 */ item.stageId === id && item.closed))) {
+     throw new GraphError(403, 'ROLE_NOT_ALLOWED', RuntimeMessage.PROPOSAL_DOES_NOT_MATCH_STAGE_CONTRACT)
+   }
+-  if (group.results.some(result => result.workId === work.workId)) throw new GraphError(409, 'RESULT_EXISTS', RuntimeMessage.STAGE_RESULT_WAS_ALREADY_ACCEPTED)
++  if (group.results.some((/* 当前阶段已保存的一份结果。 */ result) => /* 每个Work只接纳一次结果。 */ result.workId === work.workId)) throw new GraphError(409, 'RESULT_EXISTS', RuntimeMessage.STAGE_RESULT_WAS_ALREADY_ACCEPTED)
+   let result: GraphStageResult
++  let validated = new Map<string, RunValidatedOutput>()
+   if (proposal.kind === 'outputs') {
+     const outputs = proposal.outputs.map((/* 模型已通过HTTP边界或直接Graph协议提交的候选。 */ output) => {
+       // 候选本次独占副本保存经过校验的使用元信息，正式节点身份仍由服务端生成。
+@@ -918,7 +1007,7 @@
+         libraryClaimRefs: graphInputReadLibraryUseRefs(output.libraryClaimRefs, `outputs.${output.key}.libraryClaimRefs`),
+       }) }
+     })
+-    runValidateStageOutputs(run, operation, work.stageId, work.workId, outputs)
++    validated = runValidateStageOutputs(run, operation, stage, work.workId, outputs)
+     result = { workId: work.workId, stageId: work.stageId, slotId: work.slotId, acceptedAt: now,
+       reason: proposal.reason, mode: 'outputs', outputs }
+   } else if (proposal.kind === 'selection') {
+@@ -937,7 +1026,7 @@
+     else runApplyPlan(operation, result)
+   } else {
+     group.closed = group.results.length === group.expectedWorkIds.length
+-    if (group.closed && group.stageId === operation.executionSpec.resultStage) published = runFinishResult(document, run, operation, now)
++    if (group.closed && group.stageId === operation.executionSpec.resultStage) published = runFinishResult(document, run, operation, validated, now)
+   }
+   runUpdateProgress(document, run, now)
+   return { document, ...published }
+@@ -1041,9 +1130,16 @@
+   return document
+ }
+ 
+-export function runUpdatePause(document: GraphDocument, runId: string, paused: boolean, now: string): GraphDocument {
++export function runUpdatePause(
++  /* 本次暂停或恢复独占的事务图草稿。 */ document: GraphDocument,
++  /* 已获权操作的Run身份。 */ runId: string,
++  /* true暂停派发，false恢复派发。 */ paused: boolean,
++  /* 本次状态变更统一使用的ISO时间。 */ now: string,
++): GraphDocument {
++  // 同一Run分支只核对一次，再逐Operation核对不同的冻结输入和规格。
+   const run = runReadExecution(document, runId)
+-  for (const operation of run.operations) runValidateInputs(document, run, operation)
++  runValidateBranch(document, run)
++  for (const operation of run.operations) runReadOperationInputs(document, operation)
+   run.paused = paused
+   runUpdateProgress(document, run, now)
+   return document
+@@ -1075,7 +1171,7 @@
+       throw new GraphError(409, 'PUBLICATION_PREVIEW_CONFLICT', RuntimeMessage.PUBLICATION_PREVIEW_CHANGED)
+     }
+     operation.status = 'running'
+-    result = runCreateOutputs(document, run, operation, plan, now)
++    result = runCreateOutputs(document, run, operation, plan, new Map(), now)
+   }
+   review.state = 'answered'; review.decision = input.decision; review.answeredAt = now; review.revision++
+   runUpdateProgress(document, run, now)
+--- 104-baseline/backend/modules/graph/graph-service.ts
++++ current/backend/modules/graph/graph-service.ts
+@@ -33,7 +33,7 @@
+ import { definitionsReadType, type PayloadReferenceValue } from '../shared/data-definition'
+ import { GraphError } from '../shared/domain-error'
+ import {
+-  runAnswerReview, runCancelRun, runCreateRun, runReadData, runReadOperation, runReadPublicationPreview, runReadRun, runUpdatePause, runUpdateProposal,
++  runAnswerReview, runCancelRun, runCreateRun, runReadData, runReadWorkContext, runReadOperation, runReadPublicationPreview, runReadRun, runUpdatePause, runUpdateProposal,
+   type GraphRunStartContext,
+ } from './run-state'
+ import { storeCreateInputHash, type GraphBranchOwnershipRecord, type GraphDocument, type GraphOwnershipReceipt, type GraphReceipt, type GraphRunControlRecord } from './graph-record'
+@@ -434,8 +434,16 @@
+    * @param left 一侧根集合。
+    * @param right 另一侧根集合。
+    */
+-  function graphSameRoots(left: readonly string[], right: readonly string[]): boolean {
+-    return left.length === right.length && [...left].sort().every((id, index) => id === [...right].sort()[index])
++  function graphSameRoots(
++    /* 一侧已验证的根身份集合，不修改输入顺序。 */ left: readonly string[],
++    /* 待比较的另一侧已验证根集合。 */ right: readonly string[],
++  ): boolean {
++    // 各排序一次后比较授权范围，避免每个成员都重新排序整组根。
++    if (left.length !== right.length) return false
++    const sortedLeft = [...left].sort()
++    const sortedRight = [...right].sort()
++    return sortedLeft.every((/* 一侧排序后的根身份。 */ id, /* 与另一侧对应的位置。 */ index) =>
++      /* 根集合与输入原顺序无关。 */ id === sortedRight[index])
+   }
+ 
+   /**
+@@ -917,27 +925,35 @@
+      * @param operationId Operation 身份。
+      * @param proof 当前 Work 凭证。
+      */
+-    async readData(mapId: string, operationId: string, proof: GraphWorkProof): Promise<GraphDataRead> {
++    async readData(
++      /* 内部读取协议指定的目标图身份。 */ mapId: string,
++      /* 必须与当前Work授权一致的Operation身份。 */ operationId: string,
++      /* 当前Work的holder与fence租约证明。 */ proof: GraphWorkProof,
++    ): Promise<GraphDataRead> {
++      // 来源副作用前核对Work归属，冻结来源竞争后按新快照再次读取完整模型输入。
+       const fetched = new Map<string, string>()
+       for (let attempt = 0; attempt < 64; attempt++) {
+         let document = await graphReadMap(mapId), grant = workReadGrant(document, proof)
+         if (!await store.readLease(mapId, grant)) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_LEASE_IS_NOT_VALID)
+-        const run = document.runs.find(item => item.id === grant.runId)
++        const run = document.runs.find((/* 当前图中的一个活动Run。 */ item) => /* 读取租约明确绑定的Run。 */ item.id === grant.runId)
+         if (!run) throw new GraphError(409, 'LEASE_LOST', RuntimeMessage.WORK_NO_LONGER_BELONGS_TO_THE_ACTIVE_RUN)
+         graphRequireRunOwnership(document, grant.runId)
+-        const operation = runReadOperation(run, operationId), stage = operation.executionSpec.stages.find(item => item.id === grant.stageId)
++        const operation = runReadOperation(run, operationId)
++        const stage = operation.executionSpec.stages.find((/* 请求Operation的冻结阶段声明。 */ item) => /* 按租约阶段身份读取来源绑定。 */ item.id === grant.stageId)
+         if (!stage) throw new GraphError(409, 'WORK_STOPPED', RuntimeMessage.STAGE_WORK_IS_NOT_READY)
+-        const sourceBindings = Object.entries(stage.promptBindings).flatMap(([name, binding]) => {
++        const sourceBindings = Object.entries(stage.promptBindings).flatMap((/* 阶段中的变量名及冻结绑定声明。 */ [name, binding]) => {
++          // 只有显式source-text绑定会产生受限外部读取。
+           if (binding.source !== 'source-text') return []
+-          const refs = [...operation.group.inputRefs, ...operation.group.contextRefs].filter(item => item.port === binding.port)
++          const refs = [...operation.group.inputRefs, ...operation.group.contextRefs].filter((/* Operation的冻结输入或上下文引用。 */ item) => /* 只读取绑定端口的来源节点。 */ item.port === binding.port)
+           if (!refs.length) throw new GraphError(409, 'INPUT_STALE', RuntimeMessage.OPERATION_TARGET_IS_MISSING)
+-          return refs.map(ref => ({ name, binding, ref,
++          return refs.map((/* 该来源端口中的一个精确输入引用。 */ ref) => /* 缓存键绑定阶段、变量、路径及输入内容版本。 */ ({ name, binding, ref,
+             cacheKey: storeCreateInputHash({ stageId: stage.id, name, port: binding.port, path: binding.path, id: ref.id, revision: ref.revision }) }))
+         })
+-        const missing = sourceBindings.filter(item => operation.externalInputs[item.cacheKey] === undefined)
++        const missing = sourceBindings.filter((/* 本阶段的一项实际来源读取。 */ item) => /* 只补取尚未冻结的来源正文。 */ operation.externalInputs[item.cacheKey] === undefined)
++        if (missing.length) runReadWorkContext(document, operationId, grant)
+         for (const item of missing) {
+           if (!options.readSource) throw new GraphError(422, 'SOURCE_UNREADABLE', RuntimeMessage.SOURCE_READER_IS_NOT_CONFIGURED)
+-          const node = document.nodes.find(node => node.id === item.ref.id && node.revision === item.ref.revision)
++          const node = document.nodes.find((/* 当前授权快照中的一个完整节点。 */ node) => /* 精确匹配已核对的来源身份和内容版本。 */ node.id === item.ref.id && node.revision === item.ref.revision)
+           if (!node) throw new GraphError(409, 'INPUT_STALE', messageFormat(RuntimeMessage.OPERATION_INPUT_CHANGED_VALUE, item.ref.id))
+           if (!fetched.has(item.cacheKey)) fetched.set(item.cacheKey, await options.readSource(document.workspaceId, node, item.binding.path))
+         }
+@@ -945,7 +961,7 @@
+           const updated = structuredClone(document), nextRun = runReadRun(updated, grant.runId), nextOperation = runReadOperation(nextRun, operationId)
+           for (const item of missing) nextOperation.externalInputs[item.cacheKey] = fetched.get(item.cacheKey)!
+           updated.updatedAt = new Date().toISOString(); nextRun.updatedAt = updated.updatedAt
+-          const values = Object.fromEntries(missing.map(item => [item.cacheKey, fetched.get(item.cacheKey)!]))
++          const values = Object.fromEntries(missing.map((/* 本次已经取得正文的来源绑定。 */ item) => /* 把来源正文与其精确缓存键配对。 */ [item.cacheKey, fetched.get(item.cacheKey)!]))
+           const keys = Object.keys(values).sort()
+           // 同一冻结来源集合以首次成功提交的正文为准；并发读取动态 URL 即使返回不同正文，也重放赢家而不是形成幂等冲突。
+           const hash = storeCreateInputHash({ operationId, keys })
+@@ -956,9 +972,10 @@
+           grant = workReadGrant(document, proof)
+         }
+         const stored = runReadOperation(runReadRun(document, grant.runId), operationId).externalInputs
+-        const sourceText = Object.fromEntries(Object.entries(stage.promptBindings).flatMap(([name, binding]) => {
++        const sourceText = Object.fromEntries(Object.entries(stage.promptBindings).flatMap((/* 阶段中的变量名及冻结绑定声明。 */ [name, binding]) => {
++          // 从CAS赢家保存的正文构造来源变量，不交付竞争失败者取得的动态内容。
+           if (binding.source !== 'source-text') return []
+-          const values = sourceBindings.filter(item => item.name === name).map(item => stored[item.cacheKey]).filter((value): value is string => value !== undefined)
++          const values = sourceBindings.filter((/* 一项实际来源绑定。 */ item) => /* 汇总同一变量使用的所有来源。 */ item.name === name).map((/* 已属于该变量的来源绑定。 */ item) => /* 读取CAS赢家保存的正文。 */ stored[item.cacheKey]).filter((/* 赢家快照中的来源正文或未提供值。 */ value): value is string => /* 仅连接已经冻结的正文。 */ value !== undefined)
+           return [[name, values.join('\n\n')]]
+         }))
+         const data = runReadData(document, operationId, grant, sourceText)
+--- 104-baseline/backend/modules/graph/graph-input.ts
++++ current/backend/modules/graph/graph-input.ts
+@@ -9,39 +9,32 @@
+ const MAX_JSON_DEPTH = 32
+ const MAX_JSON_MEMBERS = 4096
+ 
+-/**
+- * 拒绝 undefined、非有限数字、非普通对象及过深/过大的值，避免把运行时对象写入 payload。
+- *
+- * @param value 尚未验证为可持久化 JSON 的任意值。
+- * @param label 报错中使用的字段路径。
+- * @param depth 当前递归深度。
+- * @param budget 全 payload 共用的成员计数器。
+- */
+ function graphInputReadJson(
+-  value: unknown,
+-  label: string,
+-  depth: number,
+-  budget: { members: number },
++  /* 尚未验证为可持久化JSON的边界值。 */ value: unknown,
++  /* 错误中使用的具体字段路径。 */ label: string,
++  /* 当前递归深度，根为零。 */ depth: number,
++  /* 整个正文共用的成员预算，递归时原地累加。 */ budget: { members: number },
+ ): JsonValue {
++  // 验证JSON类型与全局预算，复制自有字段时保留所有合法名称及普通对象原型。
+   if (depth > MAX_JSON_DEPTH) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, label))
+   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+   if (typeof value === 'number') {
+     if (!Number.isFinite(value)) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, label))
+     return value
+   }
+-  if (Array.isArray(value)) return value.map((item, index) => {
++  if (Array.isArray(value)) return value.map((/* 正文数组的当前成员。 */ item, /* 用于报错定位的数组下标。 */ index) => {
++    // 所有数组和对象成员计入同一预算。
+     if (++budget.members > MAX_JSON_MEMBERS) throw new GraphError(413, 'PAYLOAD_LIMIT', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, label))
+     return graphInputReadJson(item, `${label}[${index}]`, depth + 1, budget)
+   })
+   if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) {
+     throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, label))
+   }
+-  const result: Record<string, JsonValue> = {}
+-  for (const [key, item] of Object.entries(value)) {
++  return Object.fromEntries(Object.entries(value).map((/* 原对象的一个自有JSON成员。 */ [key, item]) => {
++    // 数据属性构造不触发__proto__ setter，仍逐成员检查全局预算。
+     if (++budget.members > MAX_JSON_MEMBERS) throw new GraphError(413, 'PAYLOAD_LIMIT', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, label))
+-    result[key] = graphInputReadJson(item, `${label}.${key}`, depth + 1, budget)
+-  }
+-  return result
++    return [key, graphInputReadJson(item, `${label}.${key}`, depth + 1, budget)]
++  }))
+ }
+ 
+ /**
+--- 104-baseline/backend/modules/assets/asset-service.ts
++++ current/backend/modules/assets/asset-service.ts
+@@ -11,7 +11,7 @@
+ import { ASSET_BYTE_LIMIT, BUNDLE_BYTE_LIMIT, bundlesAssertSize, bundlesCreateImport, bundlesReadAgents, bundlesReadDefinitionClosure, bundlesReadMapDocument, bundlesReadWorkspace } from './bundle-codec'
+ import { GraphError } from '../shared/domain-error'
+ import { SOURCE_MEDIA_TYPES, type SourceReader } from '../../ports/source-reader'
+-import { inputReadId, inputReadObject, inputReadRevision, inputReadString } from '../shared/input-validation'
++import { inputReadId, inputReadObject, inputReadRevision, inputReadString, type InputCommandEnvelope } from '../shared/input-validation'
+ import { GRAPH_COLLECTION, storeCreateInputHash } from '../graph/graph-record'
+ import { definitionsReadPayloadReferences, type PayloadReferenceValue } from '../shared/data-definition'
+ import { graphParseNodes, type ParsedGraphNode } from '../shared/data-reference-index'
+@@ -74,23 +74,36 @@
+  *
+  * @param input 除工作区和请求身份外、需要校验的上传元数据。
+  */
+-function assetsReadMetadata(input: Omit<AssetUploadInput, 'workspaceId' | 'requestId'>) {
++function assetsReadDisplayMetadata(
++  /* 上传或完整读包后仍需满足显示文件策略的名称和媒体类型。 */ input: Pick<AssetUploadInput, 'filename' | 'mediaType'>,
++): Pick<AssetUploadInput, 'filename' | 'mediaType'> {
++  // 校验安全显示文件名及媒体类型，导入包也必须满足与上传一致的使用约束。
+   const filename = inputReadString(input.filename, 'filename').trim()
+   if (Buffer.byteLength(filename) > 255 || /[\x00-\x1f\x7f/\\]/.test(filename)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.FILENAME_MUST_BE_A_SINGLE_SAFE_DISPLAY_NAME)
+   const mediaType = inputReadString(input.mediaType, 'mediaType').trim()
+   if (mediaType.length > 255 || /[\x00-\x1f\x7f]/.test(mediaType) || !/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+(?:;[^\r\n]*)?$/.test(mediaType)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.INVALID_MEDIATYPE)
++  return { filename, mediaType }
++}
++
++function assetsReadMetadata(
++  /* 未经过上传长度和摘要验证的元数据。 */ input: Omit<AssetUploadInput, 'workspaceId' | 'requestId'>,
++): Omit<AssetUploadInput, 'workspaceId' | 'requestId'> {
++  // 上传元数据独立验证大小及摘要，再由原始流读取核对实际字节。
++  const display = assetsReadDisplayMetadata(input)
+   const size = inputReadRevision(input.size, 'size')
+   if (size > ASSET_BYTE_LIMIT) throw new GraphError(413, 'ASSET_LIMIT', RuntimeMessage.ASSET_EXCEEDS_64_MIB)
+-  return { filename, mediaType, size, sha256: assetsReadHash(input.sha256) }
++  return { ...display, size, sha256: assetsReadHash(input.sha256) }
+ }
+ /**
+  * 解析资产删除或工作区导入命令，要求稳定请求身份和各自的前置条件。
+  *
+  * @param value 来自公共命令边界、尚未解析的资产删除或工作区导入命令。
+  */
+-export function assetsReadCommand(value: unknown): DeleteCommand | ImportCommand {
+-  const command = inputReadObject(value, ['requestId', 'method', 'params'], 'command')
+-  const requestId = inputReadId(command.requestId, 'requestId')
++export function assetsReadCommand(
++  /* 公共命令边界已核对字段白名单和请求UUID的信封。 */ command: InputCommandEnvelope,
++): DeleteCommand | ImportCommand {
++  // 只解析所属方法与未知业务参数，复用同次边界确认的请求身份。
++  const requestId = command.requestId
+   if (command.method === 'asset.delete') {
+     const item = inputReadObject(command.params, ['assetId', 'expectedSha256'], 'params')
+     return { requestId, method: 'asset.delete', params: { assetId: inputReadId(item.assetId, 'assetId'), expectedSha256: assetsReadHash(item.expectedSha256) } }
+@@ -249,11 +262,11 @@
+   ): Promise<AssetDocument[]> {
+     // 从同次解析直接取得附件引用，再检查固定快照内的可用元数据。
+     const references = nodes.flatMap((/* 已验正文及其真实引用。 */ parsed) =>
+-      /* 附件检查不再读取和编译第二份目录。 */ assetsReadParsedAssetReferences(parsed.node.payload, parsed.references))
+-    const ids = [...new Set(references.map(reference => reference.id))]
++      /* 附件检查不再读取和编译第二份目录。 */ assetsReadParsedAssetReferences(parsed.references))
++    const ids = [...new Set(references.map((/* 已完整解析的一项资产引用。 */ reference) => /* 汇总实际附件身份供快照批量读取。 */ reference.id))]
+     const rows = ids.length ? await metadata.list({ _id: ids, workspaceId, state: 'ready' }, ctx.session) : []
+-    if (rows.length !== ids.length || references.some(reference => reference.expectedMediaType !== undefined
+-      && rows.find(asset => asset._id === reference.id)?.mediaType !== reference.expectedMediaType)) {
++    if (rows.length !== ids.length || references.some((/* 带有同份正文相邻媒体约束的实际引用。 */ reference) => /* 实际资产必须满足定位项的媒体声明。 */ reference.expectedMediaType !== undefined
++      && rows.find((/* 同一快照内可用且属于目标工作区的资产。 */ asset) => /* 找到该引用对应的实际资产。 */ asset._id === reference.id)?.mediaType !== reference.expectedMediaType)) {
+       throw new GraphError(422, 'ASSET_REFERENCE', RuntimeMessage.A_REFERENCED_ASSET_IS_NOT_AVAILABLE)
+     }
+     return rows
+@@ -265,28 +278,28 @@
+    * @param nodes 已解析通用信封、准备写入或删除检查的节点。
+    */
+   function assetsCollectNodeAssetReferences(
+-    definitions: DefinitionCatalog,
+-    nodes: Array<Pick<GraphNodeInput, 'typeId' | 'typeVersion' | 'payload'>>,
++    /* 当前独立入口所属快照的已发布类型目录。 */ definitions: DefinitionCatalog,
++    /* 通用信封已经解析、具体正文仍需验证的节点。 */ nodes: Array<Pick<GraphNodeInput, 'typeId' | 'typeVersion' | 'payload'>>,
+   ): Array<{ id: string; expectedMediaType?: string }> {
++    // 独立入口完整解析各节点正文，后续资产约束只消费同次真实引用。
+     return nodes.flatMap((/* 当前独立输入入口提交的节点信封。 */ node) =>
+-      /* 独立入口完成正文与引用解析后复用同一资产约束。 */ assetsReadParsedAssetReferences(node.payload,
++      /* 独立入口完成正文与引用解析后复用同一资产约束。 */ assetsReadParsedAssetReferences(
+         definitionsReadPayloadReferences(definitions, { id: node.typeId, version: node.typeVersion }, node.payload)))
+   }
+ 
+   function assetsReadParsedAssetReferences(
+-    /* 与本组引用同次完整解析的对象正文。 */ payload: GraphPayload,
+     /* 完整 schema 解析已展开的真实引用。 */ references: readonly PayloadReferenceValue[],
+   ): Array<{ id: string; expectedMediaType?: string }> {
+     // 只从已验引用中提取资产身份和相邻媒体约束，不再次解释 schema。
+     return references.filter((/* 已展开的真实引用。 */ item) => /* 这里只处理资产引用。 */ item.definition.target.kind === 'asset').map((
+       /* 同份正文中一个实际资产引用。 */ item,
+     ) => {
+-        const parentPath = item.definition.path.replace(/\/[^/]+$/, '')
+-        const parent = assetsReadPointer(payload, parentPath)
+-        const expectedMediaType = parent && typeof parent === 'object' && !Array.isArray(parent)
+-          && typeof (parent as Record<string, unknown>).mediaType === 'string' ? String((parent as Record<string, unknown>).mediaType) : undefined
+-        return { id: item.value, ...(expectedMediaType ? { expectedMediaType } : {}) }
+-      })
++      // 相邻媒体约束属于该引用的真实父容器，包含数组及字典通配项。
++      const parent = item.parent
++      const expectedMediaType = parent && typeof parent === 'object' && !Array.isArray(parent)
++        && typeof parent.mediaType === 'string' ? parent.mediaType : undefined
++      return { id: item.value, ...(expectedMediaType ? { expectedMediaType } : {}) }
++    })
+   }
+   /**
+    * @param ctx 读取定义目录所用的授权事务。
+@@ -481,7 +494,7 @@
+     ): Promise<void> {
+       // 在同一事务核对真实资产状态与归属，不把已验正文退宽后再解析。
+       for (const reference of nodes.flatMap((/* 同次完整解析的一个节点。 */ parsed) =>
+-        /* 媒体约束直接读取与引用配对的正文。 */ assetsReadParsedAssetReferences(parsed.node.payload, parsed.references))) {
++        /* 媒体约束直接读取与引用配对的正文。 */ assetsReadParsedAssetReferences(parsed.references))) {
+         const asset = await metadata.get(reference.id, session)
+         if (!asset || asset.workspaceId !== workspaceId || asset.state !== 'ready'
+           || (reference.expectedMediaType !== undefined && asset.mediaType !== reference.expectedMediaType)) {
+@@ -511,9 +524,13 @@
+       if (document.sha256 !== command.params.expectedSha256) throw new GraphError(409, 'ASSET_CONFLICT', RuntimeMessage.ASSET_DIGEST_DOES_NOT_MATCH)
+       await options.assertAssetUnreferenced?.(ctx, document._id)
+       const graphRows = await graphs.list({ workspaceId: document.workspaceId, deletedAt: null }, ctx.session)
+-      const referenced = (await Promise.all(graphRows.map(async graph =>
+-        (await assetsReadNodeAssetReferences(ctx, document.workspaceId, graph.nodes)).some(reference => reference.id === document._id)))).some(Boolean)
+-      if (referenced) throw new GraphError(409, 'ASSET_IN_USE', RuntimeMessage.ASSET_IS_REFERENCED_BY_A_MAP)
++      if (graphRows.length) {
++        const definitions = await control.definitions(ctx, document.workspaceId)
++        const references = graphRows.flatMap((/* 同一删除事务中的一张现存图。 */ graph) =>
++          /* 全部图复用同版本目录，每份实际正文仍独立解析其引用。 */ assetsCollectNodeAssetReferences(definitions, graph.nodes))
++        if (references.some((/* 各图已完整展开的一个实际资产引用。 */ reference) =>
++          /* 所有图正文解析完毕后判定目标资产是否仍被使用。 */ reference.id === document._id)) throw new GraphError(409, 'ASSET_IN_USE', RuntimeMessage.ASSET_IS_REFERENCED_BY_A_MAP)
++      }
+       await metadata.replace({ ...document, state: 'deleted', deletedAt: new Date().toISOString() }, ctx.session)
+       const data = { assetId: document._id, deleted: true as const }
+       await receipts.insert({ _id: key, userId: ctx.actor.userId, hash, workspaceId: document.workspaceId, data }, ctx.session)
+@@ -618,8 +635,8 @@
+       let publishing = false
+       try {
+         for (const asset of prepared.assets) {
+-          const meta = assetsReadMetadata(asset.original)
+-          const blobId = await assetsWriteBlob(Readable.from([Buffer.from(asset.original.contentBase64, 'base64')]), meta)
++          const meta = { ...assetsReadDisplayMetadata(asset.original), size: asset.original.size, sha256: asset.original.sha256 }
++          const blobId = await blobs.write(Readable.from([asset.bytes]), meta.filename)
+           files.push({
+             _id: asset.id, workspaceId: prepared.workspace.id, ...meta,
+             blobId, state: 'ready', createdAt: new Date().toISOString(),
+--- 104-baseline/backend/modules/assets/bundle-codec.ts
++++ current/backend/modules/assets/bundle-codec.ts
+@@ -37,10 +37,16 @@
+   inputReadRevision,
+   inputReadString,
+ } from '../shared/input-validation'
+-import { controlReadAgent } from '../workspace/workspace-input'
++import { controlReadAgent, controlReadAgentFields } from '../workspace/workspace-input'
+ 
+ export const ASSET_BYTE_LIMIT = 64 * 1024 * 1024
+ export const BUNDLE_BYTE_LIMIT = ASSET_BYTE_LIMIT
++
++interface ParsedBundleAsset {
++  readonly asset: BundleAsset
++  // 读包时已经核对长度、规范Base64与SHA-256的独占字节，直接交付本次导入写入。
++  readonly bytes: Buffer
++}
+ 
+ interface ParsedBundleMap {
+   readonly map: BundleMap
+@@ -50,6 +56,7 @@
+ export interface ParsedWorkspaceBundle {
+   readonly bundle: WorkspaceBundle
+   readonly maps: readonly ParsedBundleMap[]
++  readonly assets: readonly ParsedBundleAsset[]
+ }
+ 
+ /**
+@@ -127,11 +134,14 @@
+  *
+  * @param value v4 包中一个可编辑 Agent 及其原工作区版本。
+  */
+-function bundlesReadAgent(value: unknown): BundleAgent {
++function bundlesReadAgent(
++  /* v4包内尚未核对可编辑字段和原版本的Agent记录。 */ value: unknown,
++): BundleAgent {
++  // 包入口一次核对白名单，再复用配置字段规则并保留原精确revision。
+   const item = inputReadObject(value, ['id', 'name', 'description', 'content', 'tools', 'provider', 'model', 'promptPath', 'kind',
+     'promptVars', 'defaultPriority', 'claimCategory', 'role', 'bindings', 'revision'], 'agent')
+   const revision = inputReadRevision(item.revision, 'agent.revision')
+-  const agent = controlReadAgent(Object.fromEntries(Object.entries(item).filter(([key]) => key !== 'revision')))
++  const agent = controlReadAgentFields(item)
+   return { ...agent, revision }
+ }
+ 
+@@ -325,7 +335,10 @@
+ /**
+  * @param value 数据包中尚未解码并核对摘要的附件记录。
+  */
+-function bundlesReadAsset(value: unknown): BundleAsset {
++function bundlesReadAsset(
++  /* 数据包中尚未解码并核对摘要的附件记录。 */ value: unknown,
++): ParsedBundleAsset {
++  // 一次验证附件元数据和实际字节，保持便携DTO与本次导入的已验字节配对。
+   const item = inputReadObject(value, ['id', 'filename', 'mediaType', 'size', 'sha256', 'contentBase64'], 'asset')
+   const size = inputReadRevision(item.size, 'asset size')
+   if (size > ASSET_BYTE_LIMIT) throw new GraphError(413, 'ASSET_LIMIT', RuntimeMessage.ASSET_EXCEEDS_64_MIB)
+@@ -335,21 +348,8 @@
+   const sha256 = inputReadString(item.sha256, 'sha256').toLowerCase()
+   if (content.length !== size || !/^[a-f0-9]{64}$/.test(sha256) || createHash('sha256').update(content).digest('hex') !== sha256
+     || content.toString('base64') !== contentBase64) throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.ASSET_LENGTH_OR_CHECKSUM_DOES_NOT_MATCH)
+-  return { id: inputReadId(item.id, 'asset id'), filename: inputReadString(item.filename, 'filename'),
+-    mediaType: inputReadString(item.mediaType, 'mediaType'), size, sha256, contentBase64 }
+-}
+-
+-/**
+- * @param value 已通过 schema 的 JSON 值。
+- * @param pointer 确定且不含通配符的 JSON Pointer。
+- */
+-function bundlesReadPointer(value: JsonValue, pointer: string): JsonValue | undefined {
+-  let current: JsonValue | undefined = value
+-  for (const part of pointer.slice(1).split('/').map(item => item.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+-    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined
+-    current = current[part]
+-  }
+-  return current
++  return { asset: { id: inputReadId(item.id, 'asset id'), filename: inputReadString(item.filename, 'filename'),
++    mediaType: inputReadString(item.mediaType, 'mediaType'), size, sha256, contentBase64 }, bytes: content }
+ }
+ 
+ /**
+@@ -363,18 +363,18 @@
+   /* 同一包中已校验字节与摘要的完整附件。 */ assets: BundleAsset[],
+ ): void {
+   // 检查真实目标与资产归属，沿用读包的引用，不重新验证旧正文。
+-  const assetMap = new Map(assets.map(asset => [asset.id, asset])), referencedAssets = new Set<string>()
++  const assetMap = new Map(assets.map((/* 本包已验证长度和摘要的一份附件。 */ asset) => /* 按唯一原身份解析实际资产引用。 */ [asset.id, asset])), referencedAssets = new Set<string>()
+   for (const { map, nodes } of maps) {
+-    const nodeMap = new Map(map.nodes.map(node => [node.id, node]))
+-    for (const { node, references } of nodes) for (const reference of references) {
++    const nodeMap = new Map(map.nodes.map((/* 本张便携图已验正文的一份节点。 */ node) => /* 禁止跨图按同名身份解析节点引用。 */ [node.id, node]))
++    for (const { references } of nodes) for (const reference of references) {
+       if (reference.definition.target.kind === 'node') {
+         const target = nodeMap.get(reference.value)
+-        if (!target || !reference.definition.target.types.some(ref => ref.id === target.typeId && ref.version === target.typeVersion)) {
++        if (!target || !reference.definition.target.types.some((/* 节点引用声明允许的一个精确类型。 */ ref) => /* 实际目标类型及版本都必须匹配。 */ ref.id === target.typeId && ref.version === target.typeVersion)) {
+           bundlesInvalid('Node payload reference is missing from its Map or has another type')
+         }
+       } else {
+         const asset = assetMap.get(reference.value)
+-        const parent = bundlesReadPointer(node.payload, reference.definition.path.replace(/\/[^/]+$/, ''))
++        const parent = reference.parent
+         const expectedMediaType = parent && typeof parent === 'object' && !Array.isArray(parent) && typeof parent.mediaType === 'string' ? parent.mediaType : undefined
+         if (!asset || (expectedMediaType !== undefined && asset.mediaType !== expectedMediaType)) {
+           throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.ASSET_REFERENCE_IS_MISSING_OR_HAS_ANOTHER_MEDIA_TYPE)
+@@ -383,7 +383,7 @@
+       }
+     }
+   }
+-  if (assets.some(asset => !referencedAssets.has(asset.id))) throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.BUNDLE_CONTAINS_AN_UNREFERENCED_ASSET)
++  if (assets.some((/* 包中携带的一份已验附件。 */ asset) => /* 拒绝不属于真实引用闭包的额外附件。 */ !referencedAssets.has(asset.id))) throw new GraphError(422, 'BUNDLE_INVALID', RuntimeMessage.BUNDLE_CONTAINS_AN_UNREFERENCED_ASSET)
+ }
+ 
+ /**
+@@ -472,7 +472,8 @@
+     }
+   }
+   const maps = parsedMaps.map((/* 已验图及其配对引用。 */ parsed) => /* 对外 DTO 不携带内部解析状态。 */ parsed.map)
+-  const assets = bundlesReadArray(item.assets, 1024, 'assets').map(bundlesReadAsset)
++  const parsedAssets = bundlesReadArray(item.assets, 1024, 'assets').map(bundlesReadAsset)
++  const assets = parsedAssets.map((/* 已验附件DTO与实际字节。 */ parsed) => /* 便携包仅保存可序列化字段。 */ parsed.asset)
+   bundlesValidateIds(maps.map(
+     /* 已解析的单张便携图。 */
+     map => /* 提取包内唯一图身份。 */ map.id,
+@@ -493,7 +494,7 @@
+   bundlesValidateDefinitionClosure(parsedDefinitions.definitions, parsedDefinitions.catalog, maps, workspace.agents)
+   bundlesValidateReferences(parsedMaps, assets)
+   return { bundle: { format: 'chongming-workspace', version: 4, id, exportedAt, workspace, maps,
+-    definitions: parsedDefinitions.definitions, assets }, maps: parsedMaps }
++    definitions: parsedDefinitions.definitions, assets }, maps: parsedMaps, assets: parsedAssets }
+ }
+ 
+ /**
+@@ -673,23 +674,30 @@
+   /* 本次读包入口建立、节点与引用保持配对的完整结果。 */ parsedBundle: ParsedWorkspaceBundle,
+   /* 新工作区已分配的稳定身份。 */ workspaceId: string,
+   /* 用户显式覆盖的名称；null 沿用原包名称。 */ overrideName: string | null,
+-) {
++): {
++  workspace: { id: string; name: string; description: string; agentSource: 'empty' }
++  agents: AgentInput[]
++  definitions: Pick<BundleDefinitions, 'packages' | 'agents'>
++  maps: GraphDocument[]
++  assets: Array<{ original: BundleAsset; bytes: Buffer; id: string }>
++} {
+   // 原包正文仅沿已验引用重写；新身份与新正文仍按重映射后的精确定义完整验证。
+   const bundle = parsedBundle.bundle
+   const now = new Date().toISOString()
+-  const agentIds = new Map(bundle.workspace.agents.map(agent => [agent.id, randomUUID()])), assetIds = new Map(bundle.assets.map(asset => [asset.id, randomUUID()]))
+-  const agents: AgentInput[] = bundle.workspace.agents.map(({ revision: _revision, ...agent }) => ({ ...agent, id: agentIds.get(agent.id)! }))
++  const agentIds = new Map(bundle.workspace.agents.map((/* 原工作区的可编辑Agent。 */ agent) => /* 为新工作区分配独立Agent身份。 */ [agent.id, randomUUID()])), assetIds = new Map(bundle.assets.map((/* 原包携带的唯一附件。 */ asset) => /* 为新工作区分配独立资产身份。 */ [asset.id, randomUUID()]))
++  const agents: AgentInput[] = bundle.workspace.agents.map((/* 去掉原版本、在新工作区从版本零建立的Agent。 */ { revision: _revision, ...agent }) => /* 保留编辑配置并改用已分配的新身份。 */ ({ ...agent, id: agentIds.get(agent.id)! }))
+   const agentRefs = new Map<string, DefinitionRef>()
+   for (const agent of bundle.workspace.agents) agentRefs.set(bundlesRefKey({ id: agent.id, version: agent.revision }), { id: agentIds.get(agent.id)!, version: 0 })
+-  const definitionAgents = bundle.definitions.agents.map(agent => {
++  const definitionAgents = bundle.definitions.agents.map((/* 原定义闭包中一份精确Agent快照。 */ agent) => {
++    // 当前可编辑版本绑定新身份，独立历史快照仍保留原精确引用。
+     const ref = agentRefs.get(bundlesRefKey(agent.ref)) ?? agent.ref
+     return { ref: structuredClone(ref), profile: { ...structuredClone(agent.profile), id: ref.id } }
+   })
+-  const packages = bundle.definitions.packages.map(packageItem => bundlesRemapPackageAgents(packageItem, agentRefs))
++  const packages = bundle.definitions.packages.map((/* 需要绑定新工作区当前Agent身份的原包。 */ packageItem) => /* 只重映射已选择的Agent引用，随后重验新目录。 */ bundlesRemapPackageAgents(packageItem, agentRefs))
+   const catalog = definitionsValidateCatalog(packages, definitionAgents)
+   const maps = parsedBundle.maps.map((/* 已验便携图及原节点引用。 */ { map, nodes: originalNodes }) => {
+     // 原身份映射作用于这张图的全部节点，不能跨图解析同名节点。
+-    const nodeIds = new Map(map.nodes.map(node => [node.id, randomUUID()]))
++    const nodeIds = new Map(map.nodes.map((/* 当前便携图中的一个原节点。 */ node) => /* 预先为整张图建立完整的新节点身份映射。 */ [node.id, randomUUID()]))
+     const nodes = originalNodes.map((/* 同次读包建立的原节点与真实引用。 */ originalParsed) => {
+       // 原引用不再重新解析，身份重写后的正文仍经过完整图协议入口。
+       const original = originalParsed.node
+@@ -706,7 +714,7 @@
+           agentRef: structuredClone(agentRefs.get(bundlesRefKey(original.producer.agentRef)) ?? original.producer.agentRef) } } : {}),
+       } satisfies GraphNode
+     })
+-    const edges = map.edges.map(edge => ({ ...edge, id: randomUUID(), from: nodeIds.get(edge.from)!, to: nodeIds.get(edge.to)!, updatedAt: now }))
++    const edges = map.edges.map((/* 原图中已验端点和来源锚点的一条关系。 */ edge) => /* 新边身份与端点同步重映射，保留原关系内容版本。 */ ({ ...edge, id: randomUUID(), from: nodeIds.get(edge.from)!, to: nodeIds.get(edge.to)!, updatedAt: now }))
+     const document: GraphDocument = { id: randomUUID(), workspaceId, revision: 0, name: map.name,
+       nodes, edges, retiredNodeIds: [], retiredEdgeIds: [], runs: [], runHistory: [], leases: {}, receipts: [], createdAt: now, updatedAt: now }
+     if (Buffer.byteLength(JSON.stringify(document)) > 8 * 1024 * 1024) throw new GraphError(413, 'GRAPH_LIMIT', RuntimeMessage.IMPORTED_MAP_EXCEEDS_8_MIB)
+@@ -714,5 +722,6 @@
+   })
+   return { workspace: { id: workspaceId, name: overrideName ?? bundle.workspace.name, description: bundle.workspace.description, agentSource: 'empty' as const },
+     agents, definitions: { packages, agents: definitionAgents }, maps,
+-    assets: bundle.assets.map(asset => ({ original: asset, id: assetIds.get(asset.id)! })) }
+-}
++    assets: parsedBundle.assets.map((/* 完整读包已验证的附件及其独占字节。 */ { asset, bytes }) =>
++      /* 导入直接写入已核对字节，不再次解码或计算同一内容摘要。 */ ({ original: asset, bytes, id: assetIds.get(asset.id)! })) }
++}
+--- 104-baseline/backend/modules/shared/data-definition.ts
++++ current/backend/modules/shared/data-definition.ts
+@@ -49,9 +49,14 @@
+ export interface PayloadReferenceValue {
+   definition: DataReferenceDefinition
+   value: string
++  // 已展开且转义正确的具体路径，与声明的通配路径分开保存。
++  path: string
++  // 同次解析正文中该引用值的实际父容器，供相邻约束读取。
++  parent: JsonValue
+ }
+ 
+ export interface ParsedDefinitionPayload {
++  definition: DataTypeDefinition
+   payload: JsonValue
+   references: PayloadReferenceValue[]
+ }
+@@ -319,13 +324,11 @@
+   return pointer
+ }
+ 
+-/**
+- * 解析声明式展示字段，不允许携带脚本或任意组件配置。
+- *
+- * @param value 尚未解析的可选展示声明。
+- * @param label 用于错误定位的定义字段路径。
+- */
+-function definitionReadPresentation(value: unknown, label: string): DataPresentationDefinition {
++function definitionReadPresentation(
++  /* 尚未核对字段与标签映射的展示声明。 */ value: unknown,
++  /* 写入定义错误的具体展示字段路径。 */ label: string,
++): DataPresentationDefinition {
++  // 验证声明式展示字段，所有动态标签键都构造为自有数据属性，不执行原型setter。
+   const input = definitionReadObject(value, label)
+   definitionCheckKeys(input, ['titlePath', 'summaryPath', 'fieldOrder', 'fieldLabels', 'enumLabels'], [], label)
+   const result: DataPresentationDefinition = {}
+@@ -333,16 +336,18 @@
+   if (input.summaryPath !== undefined) result.summaryPath = definitionReadPointer(input.summaryPath, `${label}.summaryPath`)
+   if (input.fieldOrder !== undefined) result.fieldOrder = definitionReadStringArray(input.fieldOrder, `${label}.fieldOrder`)
+   if (input.fieldLabels !== undefined) {
+-    result.fieldLabels = {}
+-    for (const [path, text] of Object.entries(definitionReadObject(input.fieldLabels, `${label}.fieldLabels`))) result.fieldLabels[path] = definitionReadString(text, `${label}.fieldLabels.${path}`)
++    result.fieldLabels = Object.fromEntries(Object.entries(definitionReadObject(input.fieldLabels, `${label}.fieldLabels`)).map((
++      /* 展示字段标签映射中的一个自有键和未知文字。 */ [path, text],
++    ) => /* 保留原键并验证对应的非空标签文字。 */ [path, definitionReadString(text, `${label}.fieldLabels.${path}`)]))
+   }
+   if (input.enumLabels !== undefined) {
+-    result.enumLabels = {}
+-    for (const [path, labels] of Object.entries(definitionReadObject(input.enumLabels, `${label}.enumLabels`))) {
+-      const parsed: Record<string, string> = {}
+-      for (const [key, text] of Object.entries(definitionReadObject(labels, `${label}.enumLabels.${path}`))) parsed[key] = definitionReadString(text, `${label}.enumLabels.${path}.${key}`)
+-      result.enumLabels[path] = parsed
+-    }
++    result.enumLabels = Object.fromEntries(Object.entries(definitionReadObject(input.enumLabels, `${label}.enumLabels`)).map((
++      /* 一项字段枚举映射的自有键及未知内层标签表。 */ [path, labels],
++    ) => /* 外层与内层都使用自有数据属性保存合法名称。 */ [path,
++      Object.fromEntries(Object.entries(definitionReadObject(labels, `${label}.enumLabels.${path}`)).map((
++        /* 该字段一项实际枚举值名称和未知标签文字。 */ [key, text],
++      ) => /* 枚举字符串__proto__与普通字符串遵守相同文字校验。 */ [key, definitionReadString(text, `${label}.enumLabels.${path}.${key}`)])),
++    ]))
+   }
+   return result
+ }
+@@ -685,33 +690,36 @@
+   return pointer.slice(1).split('/').map(part => /* 还原斜线和波浪号转义。 */ part.replace(/~1/g, '/').replace(/~0/g, '~'))
+ }
+ 
+-/**
+- * 从 payload 根按属性和星号集合成员读取全部值；星号同时支持数组及字典。
+- *
+- * @param value 已通过 schema 校验的 payload 或其子值。
+- * @param pointer 需要从 payload 根解析的 JSON Pointer。
+- */
+-function definitionValuesAt(value: JsonValue, pointer: string): JsonValue[] {
+-  /**
+-   * 递归展开一个属性或集合层，缺失字段返回空集合。
+-   *
+-   * @param current 当前 Pointer 段对应的 JSON 值。
+-   * @param parts 尚未消费的 Pointer 段。
+-   */
+-  const visit = (current: JsonValue, parts: string[]): JsonValue[] => {
+-    if (!parts.length) return [current]
++interface DefinitionPayloadMatch {
++  value: JsonValue
++  path: string
++  parent: JsonValue
++}
++
++function definitionValuesAt(
++  /* 已通过schema校验的独立正文根。 */ value: JsonValue,
++  /* 声明中已验证的属性或通配JSON Pointer。 */ pointer: string,
++): DefinitionPayloadMatch[] {
++  // 一次展开声明路径，保留每个真实值的具体位置和父容器。
++  const visit = (
++    /* 当前匹配的JSON值。 */ current: JsonValue,
++    /* 尚未消费的声明路径段。 */ parts: string[],
++    /* 已展开且已转义的具体路径。 */ path: string,
++    /* 当前值所属的实际父容器。 */ parent: JsonValue,
++  ): DefinitionPayloadMatch[] => {
++    // 遍历真实自有成员，避免消费者重新解释通配路径或按相同值反查位置。
++    if (!parts.length) return [{ value: current, path, parent }]
+     if (current === null || typeof current !== 'object') return []
+     const [head, ...rest] = parts
+     if (head === '*') {
+-      const children = Array.isArray(current) ? current : Object.values(current)
+-      const result: JsonValue[] = []
+-      for (const child of children) result.push(...visit(child, rest))
+-      return result
++      return Object.entries(current).flatMap((/* 当前数组或字典的自有成员。 */ [key, child]) =>
++        /* 把成员名称编码为具体JSON Pointer段，再继续剩余声明。 */ visit(child, rest,
++          `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`, current))
+     }
+     if (Array.isArray(current) || !Object.prototype.hasOwnProperty.call(current, head)) return []
+-    return visit(current[head], rest)
+-  }
+-  return visit(value, definitionPointerParts(pointer))
++    return visit(current[head], rest, `${path}/${head.replace(/~/g, '~0').replace(/\//g, '~1')}`, current)
++  }
++  return visit(value, definitionPointerParts(pointer), '', value)
+ }
+ 
+ /**
+@@ -1243,6 +1251,16 @@
+ export function definitionsParsePayload(
+   /* 已通过发布规则校验的精确目录。 */ catalog: DefinitionCatalog,
+   /* 本次正文对应的不可变类型版本。 */ typeRef: DefinitionRef,
++  /* 已由图JSON边界确认对象根的正文，解析只复制、不转换其JSON结构。 */ payload: Record<string, JsonValue>,
++): ParsedDefinitionPayload & { payload: Record<string, JsonValue> }
++export function definitionsParsePayload(
++  catalog: DefinitionCatalog,
++  typeRef: DefinitionRef,
++  payload: unknown,
++): ParsedDefinitionPayload
++export function definitionsParsePayload(
++  /* 已通过发布规则校验的精确目录。 */ catalog: DefinitionCatalog,
++  /* 本次正文对应的不可变类型版本。 */ typeRef: DefinitionRef,
+   /* 来自客户端、模型或存储的未知正文。 */ payload: unknown,
+ ): ParsedDefinitionPayload {
+   // 一次验证正文并展开实际引用，使同次业务写入共用两项可信结果。
+@@ -1252,28 +1270,26 @@
+   for (const reference of type.references) {
+     const condition = reference.when
+     if (condition && !definitionValuesAt(value, condition.path).some((/* 条件路径实际匹配的正文值。 */ item) =>
+-      /* 用规范 JSON 比较条件值，不执行类型转换。 */ definitionCanonical(item) === definitionCanonical(condition.equals))) continue
++      /* 用规范 JSON 比较条件值，不执行类型转换。 */ definitionCanonical(item.value) === definitionCanonical(condition.equals))) continue
+     for (const item of definitionValuesAt(value, reference.path)) {
+-      if (typeof item !== 'string') throw new GraphError(422, 'PAYLOAD_INVALID', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, `${reference.path} must contain a string reference`))
+-      result.push({ definition: structuredClone(reference), value: item })
+-    }
+-  }
+-  return { payload: value, references: result }
+-}
+-
+-/**
+- * 要求每个声明端口恰有一组满足数量和精确类型的冻结引用，且没有额外端口。
+- *
+- * @param actual 某类端口的冻结数据绑定。
+- * @param ports 转换声明的对应端口集合。
+- * @param label 用于错误定位的输入种类名称。
+- */
+-function definitionValidateBindings(actual: Record<string, DataInstanceRef[]>, ports: readonly TransitionInputPort[], label: string): Record<string, DataInstanceRef[]> {
+-  const allowed = new Set(ports.map(port => /* 返回端口名称。 */ port.name))
++      if (typeof item.value !== 'string') throw new GraphError(422, 'PAYLOAD_INVALID', messageFormat(RuntimeMessage.PAYLOAD_INVALID_VALUE, `${reference.path} must contain a string reference`))
++      result.push({ definition: structuredClone(reference), value: item.value, path: item.path, parent: item.parent })
++    }
++  }
++  return { definition: type, payload: value, references: result }
++}
++
++function definitionValidateBindings(
++  /* 某类端口实际提供的冻结数据绑定，自有字段才表示已提供端口。 */ actual: Record<string, DataInstanceRef[]>,
++  /* 转换声明的对应端口集合。 */ ports: readonly TransitionInputPort[],
++  /* 写入错误路径的输入种类名称。 */ label: string,
++): Record<string, DataInstanceRef[]> {
++  // 核对每个端口的数量和精确类型，并为合法端口建立独立自有数据字段。
++  const allowed = new Set(ports.map((/* 转换声明的一个输入端口。 */ port) => /* 已声明的合法端口名。 */ port.name))
+   for (const name of Object.keys(actual)) if (!allowed.has(name)) definitionFail(`${label} contains unknown port ${name}`)
+-  const result: Record<string, DataInstanceRef[]> = {}
+-  for (const port of ports) {
+-    const refs = actual[port.name] ?? []
++  return Object.fromEntries(ports.map((/* 本类绑定必须满足的一个声明端口。 */ port) => {
++    // 未提供的端口按空绑定参与基数检查，继承字段不算实际输入。
++    const refs = Object.prototype.hasOwnProperty.call(actual, port.name) ? actual[port.name] : []
+     if (refs.length < port.count.min || refs.length > port.count.max) throw new GraphError(422, 'OUTPUT_CARDINALITY', messageFormat(RuntimeMessage.OUTPUT_CARDINALITY_VALUE, `${label}.${port.name}`))
+     const ids = new Set<string>()
+     for (const ref of refs) {
+@@ -1282,9 +1298,8 @@
+       if (ids.has(ref.id)) definitionFail(`${label}.${port.name} repeats data ${ref.id}`)
+       ids.add(ref.id)
+     }
+-    result[port.name] = structuredClone(refs)
+-  }
+-  return result
++    return [port.name, structuredClone(refs)]
++  }))
+ }
+ 
+ /**
+--- 104-baseline/backend/modules/workspace/seed-configuration.ts
++++ current/backend/modules/workspace/seed-configuration.ts
+@@ -29,6 +29,13 @@
+ ): WorkspaceSeedInput {
+   // 验证完整阶段、工具和预算，并拒绝跨阶段重复身份或未注册工具。
+   const item = inputReadObject(value, ['parse', 'split', 'router', 'merger', 'agents', 'tools', 'maxSlots'], 'seed configuration')
++  return seedReadFields(item)
++}
++
++function seedReadFields(
++  /* 已在初始化或部署配置入口核对字段白名单的配置对象。 */ item: Readonly<Record<string, unknown>>,
++): WorkspaceSeedInput {
++  // 解析全部种子字段并核对跨阶段身份和工具，两个真实入口共用一套字段规则。
+   if (item.parse === undefined || item.split === undefined) {
+     throw new GraphError(500, 'DEFAULT_CONFIGURATION_INVALID', RuntimeMessage.DEFAULT_CONFIGURATION_REQUIRES_PARSE_AND_SPLIT)
+   }
+@@ -59,6 +66,5 @@
+ ): WorkspaceSeedConfiguration {
+   // 独立校验定义包与初始化内容，禁止配置中夹带未知字段。
+   const item = inputReadObject(value, ['parse', 'split', 'router', 'merger', 'agents', 'tools', 'maxSlots', 'definitionPackage'], 'seed configuration')
+-  const { definitionPackage, ...input } = item
+-  return { ...seedReadInput(input), definitionPackage: definitionsReadPackage(definitionPackage) }
++  return { ...seedReadFields(item), definitionPackage: definitionsReadPackage(item.definitionPackage) }
+ }
+--- 104-baseline/backend/modules/workspace/workspace-input.ts
++++ current/backend/modules/workspace/workspace-input.ts
+@@ -3,7 +3,7 @@
+ import type { AgentBinding, AgentInput, AgentScope, ControlCommand, ControlQuery, PromptKind, Role } from '../../../contracts/control'
+ import { definitionsReadPackage } from '../shared/data-definition'
+ import { GraphError } from '../shared/domain-error'
+-import { inputReadArray, inputReadId, inputReadNames, inputReadObject, inputReadRevision, inputReadString } from '../shared/input-validation'
++import { inputReadArray, inputReadId, inputReadNames, inputReadObject, inputReadRevision, inputReadString, type InputQueryEnvelope, type InputCommandEnvelope } from '../shared/input-validation'
+ 
+ export const CONTROL_PROMPT_VARIABLES: Record<PromptKind, string[]> = {
+   parseExtract: ['rawContent'], splitRoute: ['availableAgents', 'context', 'content'],
+@@ -87,6 +87,13 @@
+ ): AgentInput {
+   // 先验证通用角色与绑定组合，再按配置所属协议选择变量校验路径。
+   const agent = inputReadObject(value, ['id', 'name', 'description', 'content', 'tools', 'provider', 'model', 'promptPath', 'kind', 'promptVars', 'defaultPriority', 'claimCategory', 'role', 'bindings'], 'agent')
++  return controlReadAgentFields(agent)
++}
++
++export function controlReadAgentFields(
++  /* 管理命令或数据包入口已核对对象形状及各自白名单的Agent字段。 */ agent: Readonly<Record<string, unknown>>,
++): AgentInput {
++  // 解析角色、绑定、变量、工具和模型字段，保持两个独立入口使用同一配置规则。
+   const kind = controlReadKind(agent.kind)
+   const promptVars = controlReadNames(agent.promptVars, 'agent.promptVars')
+   const role = agent.role
+@@ -138,8 +145,10 @@
+  *
+  * @param value 来自公共查询边界、尚未按方法解析的输入。
+  */
+-export function controlReadQuery(value: unknown): ControlQuery {
+-  const query = inputReadObject(value, ['method', 'params'], 'query')
++export function controlReadQuery(
++  /* 公共查询边界已核对对象和字段白名单的信封。 */ query: InputQueryEnvelope,
++): ControlQuery {
++  // 按管理方法解析未知params，信封形状只由公共入口解析一次。
+   if (query.method === 'app.bootstrap') { inputReadObject(query.params, [], 'params'); return { method: query.method, params: {} } }
+   if (query.method === 'workspace.list' || query.method === 'asset.list') {
+     const params = inputReadObject(query.params, query.method === 'asset.list' ? ['workspaceId', 'cursor', 'limit'] : ['cursor', 'limit'], 'params')
+@@ -174,9 +183,11 @@
+  *
+  * @param value 来自公共写入边界、尚未按命令方法解析的输入。
+  */
+-export function controlReadCommand(value: unknown): ControlCommand {
+-  const command = inputReadObject(value, ['requestId', 'method', 'params'], 'command')
+-  const requestId = inputReadId(command.requestId, 'requestId')
++export function controlReadCommand(
++  /* 公共命令边界已核对字段白名单与请求UUID的信封。 */ command: InputCommandEnvelope,
++): ControlCommand {
++  // 按管理方法验证未知业务参数，复用公共边界建立的请求身份。
++  const requestId = command.requestId
+   const method = command.method
+   if (method === 'workspace.create') {
+     const p = inputReadObject(command.params, ['id', 'name', 'description', 'agentSource'], 'params')
+@@ -198,10 +209,10 @@
+       if (p.mode !== 'merge' && p.mode !== 'replace') throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.INVALID_COPY_MODE)
+       return { requestId, method, params: { ...base, libraryRevision: inputReadRevision(p.libraryRevision, 'libraryRevision'), agentIds: controlReadNames(p.agentIds, 'agentIds'), mode: p.mode } }
+     }
+-    const openMapIds = controlReadNames(p.openMapIds, 'openMapIds').map(id => /* 验证保存的每个打开标签页都是合法图标识。 */ inputReadId(id, 'openMapIds'))
++    const openMapIds = controlReadNames(p.openMapIds, 'openMapIds').map((/* 偏好中声明的一个打开标签身份。 */ id) => /* 验证保存的每个打开标签页都是合法图标识。 */ inputReadId(id, 'openMapIds'))
+     const rawSelection = p.nodeSelection
+     if (!rawSelection || typeof rawSelection !== 'object' || Array.isArray(rawSelection)) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.NODESELECTION_MUST_BE_AN_OBJECT)
+-    const nodeSelection = Object.fromEntries(Object.entries(rawSelection).map(([id, node]) => /* 校验图到节点选择的映射，允许用 null 表示未选节点。 */ [inputReadId(id, 'nodeSelection map'), node === null ? null : inputReadId(node, 'nodeSelection node')]))
++    const nodeSelection = Object.fromEntries(Object.entries(rawSelection).map((/* 一个图身份及其选中节点或显式null。 */ [id, node]) => /* 校验图到节点选择的映射，允许用 null 表示未选节点。 */ [inputReadId(id, 'nodeSelection map'), node === null ? null : inputReadId(node, 'nodeSelection node')]))
+     return { requestId, method, params: { ...base, openMapIds, currentMapId: p.currentMapId === null ? null : inputReadId(p.currentMapId, 'currentMapId'), nodeSelection } }
+   }
+   if (method === 'agent.create' || method === 'agent.update' || method === 'agent.delete') {
+@@ -223,14 +234,14 @@
+     const limits = inputReadObject(p.limits, ['maxAgentSlots'], 'limits')
+     const maxAgentSlots = inputReadRevision(limits.maxAgentSlots, 'maxAgentSlots')
+     if (maxAgentSlots < 1 || maxAgentSlots > 32) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.MAXAGENTSLOTS_MUST_BE_BETWEEN_1_AND_32)
+-    const tools = inputReadArray(p.tools, 'tools').map(value => {
++    const tools = inputReadArray(p.tools, 'tools').map((/* 边界提交的一份未知共享工具配置。 */ value) => {
+       // 解析共享工具定义并拒绝保留能力名称。
+       const tool = inputReadObject(value, ['name', 'description'], 'tool')
+       const name = controlReadName(tool.name, 'tool.name')
+       if (reservedTools.has(name) || name.startsWith('cordis_')) throw new GraphError(400, 'INVALID_ARGUMENT', RuntimeMessage.RESERVED_TOOL_NAME)
+       return { name, description: inputReadString(tool.description, 'tool.description') }
+     })
+-    controlReadNames(tools.map(tool => /* 提取共享工具名，复用名称列表校验防止重复注册。 */ tool.name), 'tools')
++    controlReadNames(tools.map((/* 已解析名称和说明的一份工具。 */ tool) => /* 提取共享工具名，复用名称列表校验防止重复注册。 */ tool.name), 'tools')
+     return { requestId, method, params: { expectedRevision: inputReadRevision(p.expectedRevision, 'expectedRevision'), llm: { provider: inputReadString(llm.provider, 'provider').trim(), model: inputReadString(llm.model, 'model').trim() }, tools, limits: { maxAgentSlots } } }
+   }
+   throw new GraphError(400, 'UNKNOWN_METHOD', RuntimeMessage.UNKNOWN_CONTROL_COMMAND)

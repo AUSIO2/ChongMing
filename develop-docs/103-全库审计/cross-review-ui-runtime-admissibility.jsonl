@@ -1,0 +1,2 @@
+{"case":"U10-rename-valid-string","inputValidatedByPublishedSchema":true,"resultingJson":"{}","ownProto":false}
+{"case":"U10-full-asset-constructor","publishedCatalogValid":true,"qualifiesRealSourceTypeSelector":true,"initialOptionalContainer":true,"resultingJson":"{}","prototypeChanged":true}

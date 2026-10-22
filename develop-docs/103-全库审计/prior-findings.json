@@ -1,0 +1,172 @@
+{
+  "prior": [
+    {
+      "id": "Q01",
+      "title": "合法端口名与原型同名导致运行报错",
+      "rawId": "P01",
+      "groupId": "G01",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q02",
+      "title": "UI原型同名键写入丢失/继承对象写入",
+      "rawId": "U10",
+      "groupId": "G01",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q03",
+      "title": "通配资产媒体约束失效",
+      "rawId": "D03",
+      "groupId": "G08",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q04",
+      "title": "SSE次生清理覆盖协议错误",
+      "rawId": "U11",
+      "groupId": "G02",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q05",
+      "title": "删除资产逐图编译目录",
+      "rawId": "D01",
+      "groupId": "G06",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q06",
+      "title": "候选即时自动发布重复解析与扫描",
+      "rawId": "D02",
+      "groupId": "G07",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q07",
+      "title": "HTTP委托重复解析信封",
+      "rawId": "R02",
+      "groupId": "G26",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q08",
+      "title": "Host续租同响应重复校验",
+      "rawId": "R01",
+      "groupId": "G25",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q09",
+      "title": "证据输入重复对象形状检查",
+      "rawId": "P03",
+      "groupId": "G17",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q10",
+      "title": "客户端续租DTO重复扫描",
+      "rawId": "U05",
+      "groupId": "G34",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q11",
+      "title": "运行目录Map身份二验",
+      "rawId": "U01",
+      "groupId": "G30",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q12",
+      "title": "来源定位修改字段双解析",
+      "rawId": "U02",
+      "groupId": "G31",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q13",
+      "title": "Reader ready后重新证明上下文",
+      "rawId": "U03",
+      "groupId": "G32",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q14",
+      "title": "连接成功时死active清理",
+      "rawId": "U04",
+      "groupId": "G33",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q15",
+      "title": "动态字段添加不可达schema回落",
+      "rawId": "U06",
+      "groupId": "G35",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q16",
+      "title": "单页可打开重复loading检查",
+      "rawId": "U07",
+      "groupId": "G36",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q17",
+      "title": "基线单根长度重复检查",
+      "rawId": "U08",
+      "groupId": "G37",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q18",
+      "title": "同一读取异常重复归一化",
+      "rawId": "U09",
+      "groupId": "G38",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q19",
+      "title": "理由重复非空检查",
+      "rawId": "PM01",
+      "groupId": "G19",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q20",
+      "title": "固定collect又防御其他方法",
+      "rawId": "PM02",
+      "groupId": "G20",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    },
+    {
+      "id": "Q21",
+      "title": "布局已存在父节点的零回落遗留",
+      "rawId": "U12",
+      "groupId": "G39",
+      "disposition": "reconfirmed",
+      "note": "本轮只读复核，代码未修改；同根项可能合并，非本轮新增问题。"
+    }
+  ]
+}

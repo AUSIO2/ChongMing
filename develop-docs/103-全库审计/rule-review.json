@@ -1,0 +1,1602 @@
+{
+  "candidates": [
+    {
+      "id": "C05:backend/modules/evidence-library/evidence-input.ts:186:83",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "同一条件中from/to均为已解析且未变字符串；重复Date.parse已确认，只复用解析结果，不删finite或顺序判断。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C05:backend/modules/evidence-library/evidence-input.ts:186:102",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "同一条件中from/to均为已解析且未变字符串；重复Date.parse已确认，只复用解析结果，不删finite或顺序判断。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:289:35",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同函数固定关键字数组（min/max Items/Length/数值或title/description），不是任意用户键；前置类型/范围解析后写该schema字段必要。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:294:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同函数固定关键字数组（min/max Items/Length/数值或title/description），不是任意用户键；前置类型/范围解析后写该schema字段必要。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:305:86",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同函数固定关键字数组（min/max Items/Length/数值或title/description），不是任意用户键；前置类型/范围解析后写该schema字段必要。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:337:113",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "实际definitionsReadPackage准入自有__proto__键后赋值丢键或改变临时字典原型；内层enum标签是明确合法enum值，外层只证明映射丢失，不扩大成UI路径使用结论。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:343:110",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "实际definitionsReadPackage准入自有__proto__键后赋值丢键或改变临时字典原型；内层enum标签是明确合法enum值，外层只证明映射丢失，不扩大成UI路径使用结论。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:344:7",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "实际definitionsReadPackage准入自有__proto__键后赋值丢键或改变临时字典原型；内层enum标签是明确合法enum值，外层只证明映射丢失，不扩大成UI路径使用结论。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:515:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "definitionReadIdentifier要求首字符字母，__proto__与旧setter名均不准入；constructor/toString普通赋值建立自有字段，安全。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C03:backend/modules/shared/data-definition.ts:1276:18",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "constructor合法端口缺省时读原型函数，实际FreezeExecution/Run复现。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:1285:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "port.name同样是准入identifier，__proto__不可达；constructor写入会建立自有属性。问题在前面的读取默认而非这次写入，不按同语法扩大。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C06:backend/modules/shared/input-validation.ts:16:7",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P02"
+      ],
+      "basis": "空字符串未知键是find实际返回值，truthy与undefined混淆；实际公共helper已复现。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C03:scripts/check-desktop-runtime.ts:17:41",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "process.argv[2]是明确可选CLI参数，未传入时以生成的.desktop-runtime目录为验证目标；该默认有实际调用。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C04:scripts/check-desktop-runtime.ts:121:33",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P05"
+      ],
+      "basis": "精确源函数体受控primary+secondary双故障实测覆盖主错；runtime finalizer还跳过provider清理。仅验证工具/fixture，不冒称产品行为。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:scripts/prepare-desktop-runtime.mjs:19:1",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "空字符串是npm lockfile root package的正式键，固定常量赋值不触发原型setter；不是固定请求白名单里的未知空键。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C04:tests/backend/fixtures/rabbitmq.ts:95:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P05"
+      ],
+      "basis": "精确源函数体受控primary+secondary双故障实测覆盖主错；runtime finalizer还跳过provider清理。仅验证工具/fixture，不冒称产品行为。",
+      "sourceRecord": "rule-review-root.json"
+    },
+    {
+      "id": "C02:backend/modules/assets/bundle-codec.ts:610:35",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此分支已Array.isArray(value)，index由0..children.length-1循环生成；写数组实际元素，不把任意字符串当普通字典键。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/assets/bundle-codec.ts:613:11",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同一value的Object.keys，children来自Object.values，期间只替换值不增删键；payload是完整解析后structuredClone的JSON，现有自有data字段（含自有__proto__）重写不会触发继承setter。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/assets/bundle-codec.ts:621:42",
+      "disposition": "retained",
+      "relatedFindings": [
+        "D03"
+      ],
+      "basis": "bundlesRewritePayload仅从已展开实际references选声明再克隆原payload；叶子须已有字符串值才赋值，标准JSON原型继承成员不是字符串。已存在自有字符串字段替换安全；通配具体path缺失的media/遍历问题另由D03处理，不把此写法机械判原型污染。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-input.ts:42:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "result是新普通对象，key来自未知JSON自有枚举字段，尚无自有数据属性；__proto__对象值赋值触发setter并丢字段，repro-domain D04-json-key已复现。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C07:backend/modules/graph/graph-service.ts:438:89",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D08"
+      ],
+      "basis": "right readonly且同步内不改，每次every都复制排序同一right，排序与index无关；左右各排序一次即可，长度/身份授权检查保留。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:531:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "leaseId来自本服务randomUUID或既有本服务建立的editor leaseId；公共proof按UUID解析，正常持久化生产者没有原型名key。不是任意外部字段名写对象；损坏存储应在独立存储边界讨论。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:585:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "控制leaseId为randomUUID或同服务已保存control记录的稳定UUID，写入branchPruneOwnerships用Object.fromEntries构造的自有记录；无合法原型同名键来源。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C05:backend/modules/graph/graph-service.ts:754:47",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "先前695在graph.apply分支，本处在run.start分支，两条命令互斥；stored也是各分支attempt内当前读取值，重试可换新版本。不是同次连续完整parse同一值。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:782:13",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "startedRun.id来自run.start params.id，HTTP按UUID解析并由Run身份禁复用规则绑定；作为Run占有字典键有明确UUID来源。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:787:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "controlLeaseId在本分支刚由randomUUID生成，固定安全身份写入占有字典；与schema任意属性名不同。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:946:39",
+      "disposition": "retained",
+      "relatedFindings": [
+        "D06"
+      ],
+      "basis": "cacheKey为storeCreateInputHash的64位SHA十六进制摘要，不会等于原型键，赋值自身安全；D06确认的缺陷是副作用前未绑定Operation资格，不能混称这里key不安全。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:229:6",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "新result={}按合法端口名聚合，constructor等名字允许且未建自有桶；??=读取原型函数，后续push TypeError，root及domain已复现。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:229:6",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "默认[]的稀疏端口语义本来必要，但普通对象继承constructor非null导致默认不触发；修自有键/字典所有权，不能直接删除空桶初始化。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:308:47",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "显式group.members允许省略某端口，空集合应走onEmpty/数量规则；合法constructor端口缺自有成员时取到原型函数，??[]不生效并.map崩溃。与229同根，保留真正缺成员时默认空集合。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:393:32",
+      "disposition": "retained",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "本条赋值仅在prior===undefined执行；__proto__的继承getter返回对象、constructor返回函数，均不进入这一写入，不能单独指控此表达式触发setter。D04投影实证来自391读取继承target并在396写下级字段，函数整体须修。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:396:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "target源于普通output且391可沿继承__proto__取得Object.prototype；此叶子赋值可污染全局原型或叶子__proto__丢字段。真实合法schema和runReadData复现已落D04-projection-key。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:440:43",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:447:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:451:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:455:19",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "inputs/context为groupNodes生成的稀疏普通对象，合法可选空端口可无自有key；constructor端口将读到原型函数并在items.flatMap失败。需自有查找同时保留空端口默认[]；公开启动的其他D04位置可能先失败，但同根修复须覆盖此后续读取。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:461:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:488:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "groupNodes result={}按ref.port聚合；合法constructor端口继承函数被当已建数组，push崩溃。与229同根，非所有动态写都如此。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:488:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "实际空桶初始化必要，但读取必须按自有字段；constructor非null使??=跳过，不能靠删除默认值修。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C05:backend/modules/workspace/workspace-service.ts:874:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "770属于agent.create/update/delete命令，本处属于agent.copy命令，互斥路径且agents分别为编辑后集合/拷贝合并后集合；均需跨配置唯一性，不是重复检查同值。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C05:backend/modules/workspace/workspace-service.ts:875:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "771与本处是互斥管理命令，各自agents不同；controlValidateTools还写settings fence防并发删除工具，有真实副作用，不能只看同源码参数删。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C01:experiments/evidence-library-tests/load-target.ts:22:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E01"
+      ],
+      "basis": "动态工厂结果是真unknown；String将[remote]转换合法remote，assertTarget错误授予标量类型。repro-experiments E01 acceptedArray=true。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:experiments/evidence-library-tests/mongo-target.ts:178:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "actor仅遍历owner/editor/viewer/outsider四个内生字面量；没有constructor/__proto__来源。普通actors写入不会触发原型特殊setter。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/relations-fixture.ts:212:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/relations-preview.ts:63:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:experiments/evidence-library-tests/stress.ts:97:10",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E06"
+      ],
+      "basis": "私有percentile已先拒空数组，生产仅以0.5/0.95/0.99调用；values来自latenciesMs.push的稠密数组，计算索引严格落在0..n-1。尾部??null不可达，只有前面的无样本return null有真实指标语义。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:experiments/evidence-library-tests/stress.ts:226:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E05",
+        "D04"
+      ],
+      "basis": "errors={}按未知target错误code计数；constructor使原型函数+1变string，__proto__计数无自有属性。实际measureRound已复现，合并共同动态字典根因。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:experiments/evidence-library-tests/stress.ts:226:32",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E05",
+        "D04"
+      ],
+      "basis": "??0对真正首次错误计数必要，但未限定自有字段，继承成员使0不触发；修字典所有权而非删除初值。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/ui-fixture.ts:97:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/ui-preview.ts:60:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:experiments/evidence-library-tests/usage-fixture.ts:107:44",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此fixture无外部Agent输入：先由当前seed默认库复制workspace，再选verifySubAgent，现有调用不改库；promptVars为固定旧kind合法列表。且后续stage变量名必须首字符字母，__proto__不合法，普通constructor赋值可安全建自有属性。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:experiments/evidence-library-tests/usage-fixture.ts:178:31",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "stepSelections是真可选helper参数；多数调用省略，文档约定各步均使用refs，budget用例stepCount=6正实际依赖该回落。这里是数字数组索引，和普通对象原型桶不同。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/usage-fixture.ts:260:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/usage-preview.ts:57:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C02:tests/backend/modules/graph/source-read-concurrency.spec.ts:75:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "work由真实runCreateRun/workReadItems生成，workId是operationId:stage-slot摘要，含分隔符且本fixture operationId UUID；给唯一有效测试lease赋值不是未知动态字段，也不可删该真实授权准备。",
+      "sourceRecord": "rule-review-domain.json"
+    },
+    {
+      "id": "C03:apps/cli/main.ts:136:18",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "--media-type确实可省；CLI上传允许未知文件按application/octet-stream；parseArgs只产声明选项键，不是继承字典取值。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:apps/config/local-settings.ts:60:13",
+      "disposition": "unresolved",
+      "relatedFindings": [],
+      "basis": "lock为本函数唯一持有的真实FileHandle，close释放与unlink锁都必要。若close也拒绝会盖write主错/跳unlink，但尚未证明正常所有权下该FileHandle close双故障可达，不凭finally await计问题；不建议删除清理。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:apps/config/local-settings.ts:68:36",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key只来自固定as const列表mongoUri/dataApiUrl/dshHome，均非原型名；在未知磁盘字段白名单后赋值，无任意键准入。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:apps/config/local-settings.ts:87:10",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "name在localUpdateSecret:82先secretNames.has，只允许固定DEEPSEEK/OPENAI/TAVILY/CHONGMING键，不能是__proto__/constructor。值仍需inputReadString拒空。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:28:18",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：host-id优先argv再env再随机UUID，后续显式字符范围检查；ID省略是真实部署选择。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:30:22",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：data-api优先argv/env/local/4320，Host独立部署可省，后续URL协议检查。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:31:32",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：dsh-home可省，依argv/env/local/当前Host目录，后续path.resolve建立自有尝试目录。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:32:21",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：max-tokens可省代表模型默认预算，存在时Host校正整数。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:33:21",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：max-rounds可省默认3；Host负责1..10校验，缺省不是坏值兼容。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:36:20",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：queue-url可来自argv/env/私有secret，全部缺失明确throw而非假连接。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:41:61",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：queue-namespace确有可省chongming，argv/env优先；Rabbit adapter仍校验名称。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:42:30",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：request-timeout-ms可省5000，Number后Host duration范围验证。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:43:13",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：dsh-bin可省则installed SDK解析真实同版本可执行文件，是部署边界。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/execution-host/main.ts:45:30",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Node parseArgs声明的固定选项/空原型values，加真实配置优先级：process-cwd可省沿Host dshHome，随后每Work创建独立process目录，非失败回退。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/graph-server/admin.ts:54:69",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "settings.read只遍历5个固定密钥名，env优先本机secrets只输出Boolean存在性，不返回原文；可省secret确实存在。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/graph-server/admin.ts:87:22",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "name已:86限制DEEPSEEK_API_KEY/OPENAI_API_KEY，env优先本机secret；都缺失在:88明确报配置错，不能删合法来源优先级。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:apps/graph-server/main.ts:32:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R07"
+      ],
+      "basis": "准确apiStartProcess体受控initialize主失败+connection.close次级失败，只抛secondary且primary不在cause/errors；无真实DB。应保清理并聚合两错，非删除close。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:apps/local-server/runtime.ts:102:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R07"
+      ],
+      "basis": "准确localCreateRuntime体同一双失败，close内部收集清理错后throw导致外层catch原startupError丢失；脚本实际输出primaryRetained=false。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:624:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 data/read；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:633:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 data/propose；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:640:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 activity；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/http/graph-http-server.ts:649:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "apiValidateToken分别位于互斥URL分支 work；每个成功分支结束return，同一HTTP请求最多执行一种。AST同参数跨分支不构成重复验证。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:backend/adapters/messaging/mongo-outbox.ts:143:7",
+      "disposition": "unresolved",
+      "relatedFindings": [],
+      "basis": "stream.close是实际Mongo游标资源边界，必须执行。已读安装驱动：ChangeStream.close→cursor.cleanup，killCursors错误被squash，隐式session.endSession仍可传播。未建立实际session-close双失败复现，不能仅凭finally await确认盖致命QUEUE_HANDLER；保留此清理并记录证据不足。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:backend/adapters/messaging/rabbitmq.ts:152:13",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "queue.close当前实现先abort，再queueCloseHandle捕获协议关闭拒绝/期限，queueWaitDeliveries用allSettled，finally终止transport。未有可拒绝关闭入口的当前生产证据；拓扑失败仍须回收真连接，不能直接删await。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:backend/adapters/sources/http-source.ts:76:40",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "外部HTTP来源可没有content-type；空串确保SOURCE_MEDIA_TYPES拒绝，不能把未知网络header假定必有。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/storage/branch-migration.ts:215:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "prior content调用在news分支，该分支校验context后return；当前调用在互斥claim分支。相同参数文本来自不同kind，不是同值重复路径。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:backend/adapters/storage/branch-migration.ts:398:35",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R05",
+        "P01"
+      ],
+      "basis": "node.id仅非空string准入，legacyProducers={}赋值__proto__触发setter，真实纯迁移结果migrate却丢元信息；与普通节点ID对照已保存。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/storage/branch-migration.ts:417:22",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R04"
+      ],
+      "basis": "source.edges在纯plan:313已migrationArray并扫描kind，至:417没有await/修改，再migrationArray只重复容器形状。后续edge字段/端点值检查仍新增且必要；可承接首个unknown[]而非重验。合并本plan解析所有权组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:backend/adapters/storage/branch-migration.ts:444:38",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R04"
+      ],
+      "basis": "同一verification reportIds原数组在:364已完整array/string检查，:444同值再次检查，无await/源修改；内存实际Array.isArray同原数组3次。保留首次坏旧输入及apply新快照复核。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:backend/adapters/storage/mongo/evidence-query.ts:266:36",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "键是固定字面量applicability.subject，不是input.subject本身；动态值进入Mongo等值参数，无原型setter风险。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:backend/adapters/storage/mongo/evidence-query.ts:267:34",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "键是固定字面量applicability.event，值已归一化范围；不是外部值作为对象属性名。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:backend/adapters/storage/sqlite/graph-store.ts:170:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "生产claim的work来自workReadItems→workCreateId(operation/stage/slot)组合，含分隔冒号；不能等于Object.prototype裸属性名。API/queue未知work仅线索，未找到实际work不会写租约；不把port直接任意伪对象当生产路径。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:backend/adapters/storage/sqlite/persistence.ts:184:73",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "数组第0项是实际查询首条记录；空结果返回null是StorageRecords.first合同，整数数组索引没有继承字符串键风险。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:backend/execution/dsh/dsh-business-plugin.mjs:45:36",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key仅for固定[type,enum,const,description,title,default]，全部非原型setter；schema值是发布树，structuredClone保持隔离。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:backend/execution/dsh/dsh-business-plugin.mjs:96:14",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "parent.properties由toolSchema的Object.fromEntries构造；reference路径已发布验证，实际存在的目标键成为自有数据属性，覆盖同名__proto__不触发setter。缺字段/oneOf转换丢路径需另证，未据语法擅自扩大U10。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:backend/execution/host-worker.ts:270:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "activity.close只abort并await singleflight task；activityRunPublish全请求/取消/body.cancel异常均在内部catch收敛，当前生产无可证明reject主错覆盖。必须等待inflight显示请求，不能按清理语法删除。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:backend/execution/host-worker.ts:288:32",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "这里仅在打开queue期间Host已经stop时关闭刚得到link，随后抛stop原因；close失败如发生属于尚未确认回收的主要关闭故障。实际Rabbit close已有限收敛，不是同一次已知主业务错被吞。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:platform/node/diagnostics.ts:43:35",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key已:42固定白名单requestId/mapId/runId/operationId/workId/phase/route/reason，__proto__等直接continue；写入自有固定安全键，字符串需脱敏。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:platform/node/diagnostics.ts:44:96",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "同固定诊断key白名单，当前分支限定有限number/boolean，和上一string分支是互斥类型处理，不是任意索引。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/backend/adapters/storage/branch-migration.spec.ts:133:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "写入fixture数组reports[0]现有整数位置，刻意制造矛盾旧报告用于blocked测试；不是未知对象字典/原型键。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/branch-migration.spec.ts:314:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "自建Mongo副本集用例finally关闭connection再stop，实际测试无close故障注入/主错覆盖实证；两个真实回收动作不能当冗余删除。若补双故障韧性需独立说明，不凭模式多计。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/branch-rebase.spec.ts:122:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "当前SQLite.close等待gate排空再关闭真实DB，后rm自有目录要求已确认writer结束；不能无条件并行或忽略close失败删目录。未证正常fixture该close会拒绝盖主错。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/branch-rebase.spec.ts:134:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "仅自建副本集connection可尚未建立，optional close处理部分启动；connection释放与replica.stop是不同资源。不把?.与finally本身判兼容。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C01:tests/backend/adapters/storage/work-replica.spec.ts:197:58",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "先限定实际mongo.MongoServerError，当前3成员本地Mongo stepdown返回数值/驱动约定code；Number用于驱动错误码而非裸未知JSON枚举。未证明真实数组等能经当前driver类进入测试；不和102的String枚举宽准入直接等同。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/adapters/storage/work-replica.spec.ts:236:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "前面已Promise.allSettled关闭所有连接并记录results；必须先stop真实副本集再报告连接失败，避免遗留数据库。当前未有replica.stop双失败盖主错实证，不把清理必要动作删掉。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/dsh-verify.spec.ts:379:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "dsh-verify finally先停止全部owned Host/orphans/provider再api.close和删自己目录，API是独立资源；不访问用户服务。未注入API关闭错误，本条不证明冗余或错分类。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:124:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "WorkAccessError重投用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:179:34",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "失租等待runner清理用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:208:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "busy→accepted重复用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:264:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "并发slot归属用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:319:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "单slot失租隔离用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:344:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "namespace错配启动用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:362:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "坏claim协议用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:404:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "重连码数组用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/backend/execution/host.spec.ts:450:34",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "断流重投用例finally worker.close→fixture.close各有真实所有权。Host.close先stop并观察starting拒绝，loop有终止catch将失败保给finished；这些当前受控场景无close拒绝注入。不能删等待Host排空，也不按相似finally扩成问题组。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:tests/browser/safe-reporter.ts:81:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "标题可能不含已登记case ID，regex match为null时unregistered是真实脱敏状态；完整自由title不能输出。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/safe-reporter.ts:89:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "workspaceReadErrorCategory只返回assertion/timeout/interrupted/other四个固定键，errorCounts事先全部有自有数值0；不是外部error.name当键。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/safe-reporter.ts:94:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "同固定四键纯helper，failed/timedOut没有errors时仍记录一次结构化类别，是明确报告合同。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-dataset.ts:40:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "bytes是SHA256 digest.subarray(0,16)实际Buffer，整数索引6写UUID版本位，非普通对象动态字典。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-dataset.ts:41:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "同16字节Buffer索引8写UUID variant位；固定范围，不可能setter原型键。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance-report.ts:99:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自固定counts五字段(nodes/edges/derivedReferences/payloadBytes/jsonBytes)，每项数值已验，初始化对象全部自有键。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance-report.ts:134:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key只来自LOAD_BASE_KEYS及固定PHASES×suffix构建的loadKeys，不来自rawLoad任意枚举；值只允许有限非负数。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:tests/browser/workspace-performance.spec.ts:99:10",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "B02"
+      ],
+      "basis": "private workspaceQuantile全部调用先保证samples.length或RAF>=2或durations>=100/1000，percentile仅0.5/.95/.99；索引天然0..n-1，??0与Math.max0不会生效。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:611:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}TargetDurationMs`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:611:66",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ActualDurationMs`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:612:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Scheduled`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:612:52",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Completed`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:613:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ReadCount`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:614:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}WriteCount`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:615:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}AuxiliaryCount`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:615:62",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Incomplete`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:616:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}UiFailures`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:617:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}MaxQueueDelayMs`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:618:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ConcurrencyLimit`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:618:66",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}OperationLimit`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:619:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}ActualRate`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C02:tests/browser/workspace-performance.spec.ts:620:47",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "本条生成key `${phaseName}Status${status}`；phaseName只从固定stress8/stress16/endurance循环，suffix固定（Status再加0..4整数）。不存在任意外部键/原型名；逐项报告独立实际统计，不是重复默认。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/browser/workspace-recovery.spec.ts:66:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "R07"
+      ],
+      "basis": "准确recoveryOpenPage函数体在context.newPage主错+context.close次级错的现有边界受控双失败，原cause丢失；与入口启动catch同根保主错组，不能删close。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C05:tests/browser/workspace-recovery.spec.ts:247:29",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "前一Date.parse位于重启后旧ownership保留比较，随后实际reopen/new context后再次解析ownership用于自然期限等待，跨多个await且ownership重新赋retained。不是同来源同步重复。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C04:tests/client/ui-fixture-lifecycle.spec.ts:114:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "故意databaseCloseAfterRelease故障仅在真实close成功后throw注入sentinel；如果原close失败应让测试暴露真实基础设施失败。不是清理后把既有主业务错覆盖，不能删这次真实释放。",
+      "sourceRecord": "rule-review-runtime.json"
+    },
+    {
+      "id": "C03:apps/ui/features/assets/AssetManagement.vue:63:16",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "原生file input取消选择或空FileList确实无files[0]；组件selectedFile/importFile用File|null表示当前选择，null是实际状态，不是失败伪成功。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/features/assets/AssetManagement.vue:103:21",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "文件名可能无txt/md/html/json后缀；空extension让mediaType继续使用浏览器file.type或octet-stream，普通未知格式资产仍允许上传，不能删真实匹配失败路径。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/assets/AssetManagement.vue:153:7",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10",
+        "D04"
+      ],
+      "basis": "注册JSON字段名允许__proto__/constructor；assetSetPointer先按target[part]读中间对象，可能沿继承__proto__到Object.prototype，后续constructor等非object分支可在继承target写child。普通字典payload初始{}无完整own保证，应按自有数据字段构造，不是一律禁止动态写。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/assets/AssetManagement.vue:157:3",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10",
+        "D04"
+      ],
+      "basis": "已发布pointer只保证路径格式，不保证新payload已有自有数据属性；叶子__proto__可能触发setter，继承中间target也可导致全局写，属既有JSON字段原型同名问题。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/assets/AssetManagement.vue:215:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "键固定为confirmed.mapId + 冒号 + asset.id，身份由服务端提交结果给出，含分隔符不可能等于__proto__/constructor；存的是确认revision供新快照前去重，有真实用途。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/features/evidence-library/EvidenceBasisEditor.vue:70:22",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "labels只记录本窗口后来明确选中的basis；打开旧草稿/未在窗口添加的basis没有label，需回落evidenceReadBasis提供的固定身份描述row.text。JSON.stringify对象键以大括号开头，不读标准原型名。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/evidence-library/EvidenceBasisEditor.vue:177:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key为按真实EvidenceBasisRef对象JSON.stringify得到的完整序列化文本，含kind/身份且以大括号开头，不是任意裸字段名；写的是窗口私有展示缓存。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C05:apps/ui/features/evidence-library/evidence-uses.ts:103:72",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U09"
+      ],
+      "basis": "同一catch、无await/修改的cause被clientReadError归一化两次用于两个code比较，acceptError还会再次处理；可保留一次解析结果，错误代次/401归属仍必要。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/graph/DataPayloadEditor.vue:174:3",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10",
+        "D04"
+      ],
+      "basis": "rename允许用户输入新的动态字典key，next由spread复制但新key尚非自有字段；将其重命名为__proto__时next[key]=value可改原型或丢字段，不能把已有自有字段安全更新与新增key混同。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/graph/DataPayloadEditor.vue:185:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "index由数组渲染/子项事件传入数字位置，next是arrayValue的数组副本；是在数组元素写JSON值，不是未知字符串写普通对象，保留单向数据流复制。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C08:apps/ui/features/graph/DataPayloadEditor.vue:232:1",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U14"
+      ],
+      "basis": "合法JSON枚举可区分数值/字符串等不同值，而option value与选择查找都String，1与字符串1会碰撞，甚至对象值同字符串；JSON.stringify仅作Vuekey不能挽救表单value，归已有枚举控件问题。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/features/graph/GraphScene.vue:303:49",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Three raycaster的外部hit可能无instanceId；即便有实例索引，layout props与GPU mesh更新可错帧，节点数组没有对应位置应返回null，不能默认拿别的节点或宣称必命中。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/graph/payload-labels.ts:60:61",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "pattern来自已发布presentation.enumLabels的JSON Pointer键，合同要求以斜杠开头；不是裸__proto__。options读取先hasOwn，declarations仅聚合真实声明，不能因普通赋值就判污染。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/reader/SourceAnchorEditor.vue:64:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field.path由实际文本字段枚举或已验sourceAnchor pointer建立，均为以斜杠开头的完整路径，不等于原型特殊键；drafts保存每字段真实编辑草稿。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/features/reader/SourceAnchorEditor.vue:125:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "selectedField取自已建立fields，完整path以斜杠开头；写空字符串表示用户明确清除该字段定位，是真编辑动作，不是默认吞掉无效锚点。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/features/reader/reader-content.ts:133:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10"
+      ],
+      "basis": "动态payload字段key可为constructor/toString；properties未声明该自有key时普通索引仍返回原型方法，从而屏蔽合法additionalProperties schema。保留真正未声明字段的additionalProperties路径，改为自有声明读取。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/features/reader/reader-sources.ts:58:60",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "正则第2捕获组只在5-7这类范围存在，单行5真实缺matched[2]，必须用matched[1]作为endLine；不是已保证数组元素的死默认。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/state/client-session.ts:317:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key固定由typeId + @ + typeVersion组成，版本正整数，格式不会等于标准原型成员；这是每个精确类型首次出现的计数，不是裸可变payload字段字典。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/state/client-session.ts:317:24",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "新类型计数在reduce初次没有自有值，0是实际加一初值；key有@version后缀，原型同名问题不成立。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/state/client-session.ts:577:76",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "selections是按当前已授权Map身份保存的稀疏用户选择；新开Map或已清选择可无记录，保存偏好要求显式null，真实缺省不能删。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/state/client-session.ts:1008:28",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "activeMapId来自当前工作区真实Map目录并在openMap验证；生产Map ID按UUID边界创建/导入，记录选择不是按任意JSON属性名扩展。测试简化Map名也非原型键。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C03:apps/ui/state/client-session.ts:1026:94",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "用户首次打开已授权目录中的Map可没有selections[id]；null正确表示未选节点，之后读取快照再校验选择是否仍存在，不能默认一个节点。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:apps/ui/state/client-session.ts:1351:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "id来自本次实际引用/编辑涉及的现有图节点，公开创建/Run/导入都分配或验证UUID，找到该node才写revision；不是裸schema字典字段。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C05:client/graph-client.ts:278:10",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "同一同步scope.time.from已在276以Date.parse验证可解释，278又解析同字符串做from<=to；可在字符串类型缩窄后复用毫秒值。仅小型重复转换，不删有效性或范围顺序两项约束，不引入新parser包装。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C05:client/graph-client.ts:278:40",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "scope.time.to在277有效性检查和278有序范围比较中重复解析同一JSON字符串，无await或写入。与同一from候选合为一个低影响局部转换复用点；UI审查者确认未纳入U05。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C05:client/graph-client.ts:669:116",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "654属于branch.ownership方法（editor）分支，669属于run.control方法分支；方法互斥、对象语义不同。branch.renew递归的通用扫描归U05，但此两个timestamp表达式不是同请求连续二次执行。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C04:client/graph-client.ts:1020:11",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U11"
+      ],
+      "basis": "已判定非SSE/缺body应抛INVALID_STREAM，但先await body.cancel，取消reject会跳过协议错误构造；次生资源清理不能取代明确协议主错，归现有U11。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-relations-client.spec.ts:75:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each固定workspaceId/entryId二选一，故意把真实响应身份改成另一UUID，断言公共客户端INVALID_RESPONSE；属于必须保留的坏响应边界，不是原型键来源。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-relations.spec.ts:413:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-selection.spec.ts:90:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:235:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:275:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:705:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "故意改本地draft条件数组第0项，配合修改transport副本和原草稿，验证重试沿独立冻结输入；真实数字数组元素赋值不是原型字典。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:896:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-uses-client.spec.ts:59:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each固定workspaceId/entryId二选一，故意把真实响应身份改成另一UUID，断言公共客户端INVALID_RESPONSE；属于必须保留的坏响应边界，不是原型键来源。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/evidence-uses-state.spec.ts:85:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/management.spec.ts:132:59",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此处写Uint8Array实际第0字节，分别模拟transport修改收到副本、调用方后来修改draft，以验证稳定重试副本与类型保存；数字数组/typed-array索引安全，属于所有权故障场景。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/management.spec.ts:138:38",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此处写Uint8Array实际第0字节，分别模拟transport修改收到副本、调用方后来修改draft，以验证稳定重试副本与类型保存；数字数组/typed-array索引安全，属于所有权故障场景。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/run-history.spec.ts:240:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:339:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:362:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:375:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:392:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:402:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:419:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:440:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:497:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:528:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:535:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量map.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:536:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:560:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:569:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:589:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:251:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:258:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:265:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:272:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:377:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:391:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:402:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:430:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:480:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:495:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:541:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:552:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:569:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:585:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:610:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:637:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:668:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:709:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:744:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:785:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:804:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处恢复原handler，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:819:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:863:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:866:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:893:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    },
+    {
+      "id": "C02:tests/client/session.spec.ts:912:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "next.nodes是本测试构造的图节点数组，第0项保存已接受graph.apply的模拟响应，配合首次NETWORK_ERROR证明重放；不是按外部字段名写对象。",
+      "sourceRecord": "rule-review-ui-domain.json"
+    }
+  ]
+}

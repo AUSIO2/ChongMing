@@ -1,0 +1,4 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+{"type":"test-end","id":"M00-R02","project":"collab","status":"passed","durationMs":22558,"location":{"file":"tests/browser/workspace-concurrency.spec.ts","line":366,"column":5},"errorCounts":{"assertion":0,"timeout":0,"interrupted":0,"other":0},"errorLocations":[]}
+{"type":"suppressed-output","stdoutChunks":0,"stderrChunks":3}
+{"type":"run-end","status":"passed","durationMs":29160.809999999998}

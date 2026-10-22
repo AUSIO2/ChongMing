@@ -1,0 +1,278 @@
+ M .gitignore
+ M apps/cli/main.ts
+ M apps/config/local-settings.ts
+ M apps/desktop/connection-manager.ts
+ M apps/desktop/credential-store.ts
+ M apps/desktop/ipc-handlers.ts
+ M apps/desktop/local-service-entry.ts
+ M apps/desktop/local-service-process.ts
+ M apps/desktop/main.ts
+ M apps/graph-server/admin.ts
+ M apps/graph-server/main.ts
+ M apps/ui/components/shell/WorkspaceSidebar.vue
+ M apps/ui/components/shell/WorkspaceViews.vue
+ M apps/ui/composables/usePanelResize.ts
+ M apps/ui/features/agents/agent-editor.ts
+ M apps/ui/features/assets/AssetManagement.vue
+ M apps/ui/features/evidence-library/EvidenceCollectDialog.vue
+ M apps/ui/features/evidence-library/EvidenceEntryDetails.vue
+ M apps/ui/features/evidence-library/EvidenceLibraryView.vue
+ M apps/ui/features/evidence-library/EvidenceSelectionPanel.vue
+ M apps/ui/features/evidence-library/evidence-presentation.ts
+ M apps/ui/features/evidence-library/evidence-selection.ts
+ M apps/ui/features/evidence-library/evidence-state.ts
+ M apps/ui/features/evidence-library/evidence-uses.ts
+ M apps/ui/features/graph/DataPayloadEditor.vue
+ M apps/ui/features/graph/GraphScene.vue
+ M apps/ui/features/graph/NodeInspector.vue
+ M apps/ui/features/graph/data-payload.ts
+ M apps/ui/features/graph/graph-3d-layout.ts
+ M apps/ui/features/graph/graph-layout.ts
+ M apps/ui/features/graph/payload-labels.ts
+ M apps/ui/features/reader/DataPayloadView.vue
+ M apps/ui/features/reader/NodeReader.vue
+ M apps/ui/features/reader/SourceAnchorEditor.vue
+ M apps/ui/features/reader/reader-content.ts
+ M apps/ui/features/run/OperationReview.vue
+ M apps/ui/features/run/RunReview.vue
+ M apps/ui/presentation/ui-labels.ts
+ M apps/ui/state/client-session.ts
+ M apps/ui/transport/client-gateway.ts
+ M apps/ui/views/WorkspacePage.vue
+ M backend/adapters/http/graph-http-server.ts
+ M backend/adapters/messaging/mongo-outbox.ts
+ M backend/adapters/messaging/rabbitmq.ts
+ M backend/adapters/storage/mongo/graph-store.ts
+ M backend/application/graph-application.ts
+ M backend/execution/dsh/dsh-business-plugin.mjs
+ M backend/execution/dsh/prompt-renderer.ts
+ M backend/execution/dsh/work-executor.ts
+ M backend/execution/host-worker.ts
+ M backend/modules/assets/asset-service.ts
+ M backend/modules/assets/bundle-codec.ts
+ M backend/modules/evidence-library/evidence-input.ts
+ M backend/modules/evidence-library/evidence-record.ts
+ M backend/modules/evidence-library/evidence-relations.ts
+ M backend/modules/evidence-library/evidence-service.ts
+ M backend/modules/evidence-library/evidence-tokenize.ts
+ M backend/modules/evidence-library/evidence-usage-record.ts
+ M backend/modules/evidence-library/evidence-usage.ts
+ M backend/modules/graph/branch-state.ts
+ M backend/modules/graph/graph-record.ts
+ M backend/modules/graph/graph-service.ts
+ M backend/modules/graph/library-claim-input.ts
+ M backend/modules/graph/run-state.ts
+ M backend/modules/identity/identity-service.ts
+ M backend/modules/shared/data-definition.ts
+ M backend/modules/shared/data-reference-index.ts
+ M backend/modules/shared/source-anchors.ts
+ M backend/modules/workspace/agent-configuration.ts
+ M backend/modules/workspace/workspace-input.ts
+ M backend/modules/workspace/workspace-service.ts
+ M client/graph-client.ts
+ M contracts/client.ts
+ M contracts/control.ts
+ M contracts/graph-api.ts
+ M contracts/graph-branch.ts
+ M contracts/graph-run.ts
+ M contracts/graph.ts
+ M contracts/messages.ts
+ M "develop-docs/096-implement-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220.md"
+ M "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220\345\256\236\346\226\275\350\256\241\345\210\222.md"
+ M develop-docs/counter.txt
+ M experiments/evidence-library-tests/mongo-target.ts
+ M experiments/evidence-library-tests/relations.spec.ts
+ M experiments/evidence-library-tests/usage.spec.ts
+ M package-lock.json
+ M package.json
+ M platform/node/process-boundary.ts
+ M tests/README.md
+ M tests/apps/cli/headless.spec.ts
+ M tests/apps/config/local-settings.spec.ts
+ M tests/apps/desktop/ipc-handlers.spec.ts
+ M tests/backend/adapters/http/error-boundary.spec.ts
+ M tests/backend/adapters/messaging/messaging.spec.ts
+ M tests/backend/adapters/messaging/queue.spec.ts
+ M tests/backend/adapters/storage/branch-rebase.spec.ts
+ M tests/backend/execution/dsh.spec.ts
+ M tests/backend/execution/host.spec.ts
+ M tests/backend/execution/library-contract.spec.ts
+ M tests/backend/execution/prompt.spec.ts
+ M tests/backend/modules/assets/asset-v4-integration.spec.ts
+ M tests/backend/modules/assets/bundle-v4.spec.ts
+ M tests/backend/modules/graph/branch-lease.spec.ts
+ M tests/backend/modules/graph/branch.spec.ts
+ M tests/backend/modules/graph/generic-run.spec.ts
+ M tests/backend/modules/graph/graph.spec.ts
+ M tests/backend/modules/graph/library-claim-run.spec.ts
+ M tests/backend/modules/graph/local-coordination.spec.ts
+ M tests/backend/modules/graph/run.spec.ts
+ M tests/backend/modules/shared/data-definition.spec.ts
+ M tests/backend/modules/shared/library-spec.spec.ts
+ M tests/backend/modules/workspace/seed-configuration.spec.ts
+ M tests/backend/modules/workspace/workspace.spec.ts
+ M tests/client/data-payload.spec.ts
+ M tests/client/evidence-http.spec.ts
+ M tests/client/evidence-presentation.spec.ts
+ M tests/client/evidence-relations-client.spec.ts
+ M tests/client/evidence-selection.spec.ts
+ M tests/client/evidence-state.spec.ts
+ M tests/client/evidence-uses-client.spec.ts
+ M tests/client/evidence-uses-state.spec.ts
+ M tests/client/files.spec.ts
+ M tests/client/graph-client.spec.ts
+ M tests/client/management.spec.ts
+ M tests/client/payload-labels.spec.ts
+ M tests/client/session.spec.ts
+ M tests/client/stream.spec.ts
+ M tests/client/ui-fixture.ts
+ M vitest.config.ts
+?? apps/ui/features/evidence-library/EvidenceBasisEditor.vue
+?? apps/ui/features/evidence-library/NodeEvidenceEditor.vue
+?? apps/ui/features/graph/branch-baseline.ts
+?? apps/ui/features/graph/node-origin.ts
+?? apps/ui/features/run/RunHistoryPanel.vue
+?? apps/ui/features/run/publication-preview.ts
+?? apps/ui/features/run/run-history.ts
+?? backend/modules/graph/run-history.ts
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M00-\346\226\207\344\273\266\344\270\216\345\207\275\346\225\260\350\256\276\350\256\241.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M00-\347\272\242\347\201\257\345\210\206\346\236\220\344\270\216\344\277\256\345\244\215\350\256\241\345\210\222.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M00-\351\252\214\346\224\266\345\237\272\347\241\200.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M01-\346\234\215\345\212\241\350\203\275\345\212\233\344\270\216\344\274\232\350\257\235\346\201\242\345\244\215.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M02-\345\233\276\347\256\241\347\220\206\344\270\216\345\205\263\347\263\273\347\274\226\350\276\221.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M03-\350\257\201\346\215\256\344\275\277\347\224\250\344\270\216\346\224\266\345\275\225.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M04-\345\256\241\346\240\270.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M05-\345\216\206\345\217\262\344\270\216\346\235\245\346\272\220.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M06-\345\256\232\344\271\211\344\270\216\346\231\272\350\203\275\344\275\223\351\205\215\347\275\256.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M07-\350\277\220\350\241\214\347\274\226\346\216\222.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M08-\345\233\272\345\256\232\350\257\201\346\215\256\345\205\263\347\263\273\351\230\205\350\257\273.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M09-\345\210\233\345\273\272\346\265\201\347\250\213.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M10-\345\233\276\345\206\205\346\264\273\345\212\250.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/M11-\344\272\244\344\273\230\351\252\214\346\224\266.md"
+?? "develop-docs/096-\345\211\215\345\220\216\347\253\257\345\212\237\350\203\275\350\241\245\351\275\220/README.md"
+?? "develop-docs/099-implement-\347\247\273\351\231\244\345\206\227\344\275\231\351\230\262\345\276\241\344\270\216\344\277\256\345\244\215\351\224\231\350\257\257\345\244\204\347\220\206.md"
+?? "develop-docs/099-\347\247\273\351\231\244\345\206\227\344\275\231\351\230\262\345\276\241\344\270\216\344\277\256\345\244\215\351\224\231\350\257\257\345\244\204\347\220\206.md"
+?? "develop-docs/100-implement-\345\205\250\345\272\223\351\230\262\345\276\241\344\270\216\345\205\274\345\256\271\351\200\273\350\276\221\345\244\215\346\237\245.md"
+?? "develop-docs/100-\345\205\250\345\272\223\351\230\262\345\276\241\344\270\216\345\205\274\345\256\271\351\200\273\350\276\221\345\244\215\346\237\245.md"
+?? "develop-docs/101-implement-\346\270\205\347\220\206\347\254\254\344\270\211\350\275\256\345\215\201\344\272\214\347\273\204\345\206\227\344\275\231.md"
+?? "develop-docs/101-\346\270\205\347\220\206\347\254\254\344\270\211\350\275\256\345\215\201\344\272\214\347\273\204\345\206\227\344\275\231.md"
+?? "develop-docs/102-implement-\346\270\205\347\220\206\347\254\254\345\233\233\350\275\256\350\267\250\345\261\202\351\207\215\345\244\215\344\270\216\350\241\214\344\270\272\351\227\256\351\242\230.md"
+?? "develop-docs/102-\346\270\205\347\220\206\347\254\254\345\233\233\350\275\256\350\267\250\345\261\202\351\207\215\345\244\215\344\270\216\350\241\214\344\270\272\351\227\256\351\242\230.md"
+?? "develop-docs/103-implement-\345\205\250\345\272\223\351\230\262\345\276\241\351\200\273\350\276\221\350\246\206\347\233\226\345\256\241\350\256\241.md"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/audit-report.md"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/browser-repro-output.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/browser-repro-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/browser-repro.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/candidate-index.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/candidate-rules.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/coverage.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-domain-repro.out.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-domain.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-final-runtime.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-root-ui.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-root.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-u24-runtime.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-ui-runtime-admissibility.jsonl"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-ui-runtime-output.jsonl"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-ui-runtime-repro-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-ui-runtime-repro.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/cross-review-ui-runtime.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/decisions-and-flows.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/files-domain.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/files-root.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/files-runtime.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/files-ui.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/findings.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/finish-audit.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/index-sources.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/inventory.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/prior-findings.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/raw-findings.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/render-report.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-domain-import-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-domain-import.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-domain-import.out.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-domain-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-domain.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-domain.out.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-experiments-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-experiments.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/repro-experiments.out.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/reproduce-ui-output.jsonl"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/reproduce-ui-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/reproduce-ui.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/reproduction-runs.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/root-repro-output.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/root-repro-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/root-repro.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rule-candidates.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rule-review-domain.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rule-review-root.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rule-review-runtime.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rule-review-ui-domain.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rule-review.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rules-domain.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rules-root.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rules-runtime.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/rules-ui.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/run-reproductions.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-cleanup-repro-output.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-cleanup-repro-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-cleanup-repro.cjs"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-cross-review.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-grant-repro-output.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-grant-repro-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-grant-repro.mts"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-repro-output.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-repro-stderr.txt"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/runtime-repro.mts"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-domain.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-root-experiments.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-root.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-runtime.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-ui-browser.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-ui-infrastructure.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/scope-ui.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/ui-findings-extra.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/ui-findings.json"
+?? "develop-docs/103-\345\205\250\345\272\223\345\256\241\350\256\241/verification.json"
+?? "develop-docs/103-\345\205\250\345\272\223\351\230\262\345\276\241\351\200\273\350\276\221\350\246\206\347\233\226\345\256\241\350\256\241.md"
+?? "develop-docs/104-\345\205\250\345\272\223\344\277\256\345\244\215/baseline.json"
+?? playwright.config.ts
+?? playwright.performance.config.ts
+?? tests/backend/modules/graph/run-history.spec.ts
+?? tests/browser/README.md
+?? tests/browser/fixtures/playwright-fault.config.ts
+?? tests/browser/fixtures/runner-fault.spec.ts
+?? tests/browser/fixtures/ui-boundaries.html
+?? tests/browser/fixtures/workspace-recovery-process.ts
+?? tests/browser/fixtures/workspace-startup-diagnostic.ts
+?? tests/browser/safe-reporter.ts
+?? tests/browser/tsconfig.json
+?? tests/browser/ui-boundaries.spec.ts
+?? tests/browser/workspace-acceptance.spec.ts
+?? tests/browser/workspace-concurrency.spec.ts
+?? tests/browser/workspace-dataset.ts
+?? tests/browser/workspace-editing-reliability.spec.ts
+?? tests/browser/workspace-fixture.ts
+?? tests/browser/workspace-grant-relay.ts
+?? tests/browser/workspace-grant-reliability.spec.ts
+?? tests/browser/workspace-load.config.ts
+?? tests/browser/workspace-performance-report.ts
+?? tests/browser/workspace-performance.spec.ts
+?? tests/browser/workspace-recovery-fixture.ts
+?? tests/browser/workspace-recovery-lifecycle.spec.ts
+?? tests/browser/workspace-recovery.spec.ts
+?? tests/browser/workspace-reliability.spec.ts
+?? tests/browser/workspace-vite.ts
+?? tests/client/branch-baseline.spec.ts
+?? tests/client/publication-preview.spec.ts
+?? tests/client/run-history.spec.ts
+?? tests/client/session-editing.spec.ts
+?? tests/client/session-grants.spec.ts
+?? tests/client/ui-fixture-lifecycle.spec.ts
+?? tests/client/ui-performance-report.spec.ts
+?? tests/client/ui-report-artifacts.spec.ts
+?? tests/client/ui-reporter.spec.ts
+?? tests/client/ui-startup-diagnostic.spec.ts
+?? tests/client/ui-web-config.spec.ts

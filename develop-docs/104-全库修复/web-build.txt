@@ -1,0 +1,21 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+vite v5.4.21 building for production...
+
+(!) outDir /tmp/chongming-104-web-CyL8Q3 is not inside project root and will not be emptied.
+Use --emptyOutDir to override.
+
+transforming...
+✓ 159 modules transformed.
+rendering chunks...
+computing gzip size...
+../../../tmp/chongming-104-web-CyL8Q3/index.html                           0.42 kB │ gzip:   0.35 kB
+../../../tmp/chongming-104-web-CyL8Q3/assets/index-C49R_L8b.css            4.56 kB │ gzip:   1.69 kB
+../../../tmp/chongming-104-web-CyL8Q3/assets/WorkspacePage-BUBmVUQN.css   77.19 kB │ gzip:  12.39 kB
+../../../tmp/chongming-104-web-CyL8Q3/assets/index-B0Wxb5c6.js           100.98 kB │ gzip:  39.79 kB
+../../../tmp/chongming-104-web-CyL8Q3/assets/WorkspacePage-C-FDg6hw.js   960.65 kB │ gzip: 271.52 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.72s

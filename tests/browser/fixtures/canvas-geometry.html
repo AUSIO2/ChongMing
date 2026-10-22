@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8"><title>画布几何回归</title></head>
+  <body>
+    <div id="fixture"></div>
+    <script type="module">
+      import { computed, createApp, h, ref } from 'vue'
+      import GraphScene from '/apps/ui/features/graph/GraphScene.vue'
+      import GraphCanvas from '/apps/ui/features/graph/GraphCanvas.vue'
+      import { graphArrangeScene } from '/apps/ui/features/graph/graph-3d-layout.ts'
+
+      const parameters = new URLSearchParams(location.search)
+      const svg = parameters.get('mode') === 'svg'
+      const visible = ref(parameters.get('hidden') !== '1')
+      const width = ref(svg ? 450 : 200)
+      const selected = ref(svg ? 'node-0' : null)
+      const statuses = ref(new Map())
+      const time = '2026-10-22T00:00:00.000Z'
+      const published = Array.from({ length: svg ? 5 : 4 }, (_, index) => ({
+        id: `node-${index}`, typeId: 'geometry.node', title: String(index + 1), summary: `节点${index + 1}`,
+        stale: false, color: '#557469', createdAt: time,
+      }))
+      const edges = published.slice(1).map((node, index) => ({
+        id: `edge-${index}`, from: published[index].id, to: node.id, kind: 'successor',
+      }))
+      const nodes = ref(svg ? published : published.slice(0, 2))
+      const layout = computed(() => {
+        const arranged = graphArrangeScene(nodes.value, edges)
+        // 两个节点足以验证大坐标跨度，避免用巨量节点掩盖取景距离边界。
+        return parameters.get('large') === '1'
+          ? { ...arranged, nodes: arranged.nodes.map(node => ({ ...node, x: node.x * 1000 })) }
+          : arranged
+      })
+      const snapshot = {
+        mapId: 'geometry-map', workspaceId: 'geometry-workspace', revision: 1, name: '几何回归图',
+        nodes: published.map(node => ({ id: node.id, typeId: node.typeId, typeVersion: 1, revision: 1,
+          payload: { content: node.summary }, validity: 'valid', createdAt: time, updatedAt: time })),
+        edges: edges.map(edge => ({ ...edge, revision: 1, createdAt: time, updatedAt: time })),
+        runs: [], ownershipRevision: 0, ownerships: [], runControls: [], updatedAt: time,
+      }
+      createApp({
+        setup() {
+          return () => h('div', [
+            h('div', { style: 'display:flex;gap:8px;margin-bottom:12px' }, [
+              h('button', { onClick: () => { width.value = 900 } }, '宽画布'),
+              h('button', { onClick: () => { width.value = 200 } }, '窄画布'),
+              h('button', { onClick: () => { visible.value = !visible.value } }, visible.value ? '隐藏画布' : '显示画布'),
+              h('button', { onClick: () => { nodes.value = [...published] } }, '发布后继'),
+              h('button', { onClick: () => { selected.value = 'node-0' } }, '选择节点'),
+              h('button', { onClick: () => { statuses.value = new Map([['node-0', '处理中']]) } }, '更新执行状态'),
+            ]),
+            h('div', { id: 'scene-frame', style: { display: 'flex', width: `${width.value}px`, height: svg ? '360px' : '600px' } }, [
+              svg ? h(GraphCanvas, { snapshot, selectedId: selected.value, active: visible.value,
+                style: { display: visible.value ? '' : 'none' }, onSelect: id => { selected.value = id } })
+                : h(GraphScene, { layout: layout.value, sceneKey: 'canvas-geometry', selectedId: selected.value,
+                  nodeStatus: statuses.value, active: visible.value, style: { display: visible.value ? '' : 'none' } }),
+            ]),
+          ])
+        },
+      }).mount('#fixture')
+    </script>
+  </body>
+</html>

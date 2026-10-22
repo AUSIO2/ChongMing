@@ -1,0 +1,12 @@
+{
+  "id": "numbers",
+  "name": "数据核查",
+  "description": "适合统计数值、比例、时间区间和口径的核对",
+  "content": "读取本次data_read提供的本slot任务，按angle/hint检查数字来源、统计口径、单位和时间区间，明确可确认与不可确认的部分。提交kind为outputs的阶段提案并说明reason，按outputContract输出一条port=opinions的候选，包含独立key、精确typeRef和payload；payload包含score（0、0.5或1）、reason及evidenceClaimIds，证据引用仅使用已提供的正式Claim节点，未引用时为空数组。",
+  "tools": [
+    "web_search",
+    "web_fetch"
+  ],
+  "provider": "deepseek-official",
+  "model": "deepseek-v4-flash"
+}

@@ -1,0 +1,28 @@
+{
+  "scope": "runtime-cross-review",
+  "status": "complete",
+  "readOnly": true,
+  "testsRun": false,
+  "findings": [
+    {
+      "id": "D06",
+      "result": "confirmed",
+      "evidence": "HTTP graph-http-server.ts:623-629 validates token/proof/body only and passes supplied operationId directly; application graph inherits graphBase.readData. graph-service.ts:928 selects supplied operation before :942 readSource/:953 cache receipt, :964 grant operation check happens too late."
+    },
+    {
+      "id": "P01",
+      "result": "confirmed",
+      "evidence": "data-definition.ts:343 enumLabels {} setter loses __proto__; run-state.ts:229 grouping reads inherited constructor Function; data-definition.ts:1276 also reads inherited actual binding. Root real parser/run results match."
+    },
+    {
+      "id": "P02",
+      "result": "confirmed",
+      "evidence": "input-validation.ts:15 .find returns empty-string unknown key, :16 truthy ignores it; normal unexpected key rejects. All inputReadObject HTTP call paths affected."
+    },
+    {
+      "id": "P04",
+      "result": "confirmed",
+      "evidence": "evidence-service.freezeNode:133 definitionsReadPayloadReferences invokes definitionsParsePayload cloning payload and definition, then :143 separately structuredClone(node)/definition; actual service payloadReads=2/definitionClones=2 correspond to implementation. Preserve same parse ownership and asset/version identity checks."
+    }
+  ]
+}

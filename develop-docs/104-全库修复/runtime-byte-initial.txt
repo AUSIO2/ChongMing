@@ -1,0 +1,35 @@
+
+ RUN  v4.1.9 /Users/xiong/ChongMing
+
+(node:73392) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/backend/adapters/http/request-encoding.spec.ts (2 tests | 1 failed) 34ms
+   × rejects malformed command bytes before dispatch and preserves a valid Unicode command 29ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/backend/adapters/http/request-encoding.spec.ts > rejects malformed command bytes before dispatch and preserves a valid Unicode command
+AssertionError: expected 201 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 201
+
+ ❯ tests/backend/adapters/http/request-encoding.spec.ts:50:29
+     48|     const accepted = await fetch(origin + '/api/v1/command', { method:…
+     49|       body: JSON.stringify({ requestId, method: 'workspace.create', pa…
+     50|     expect(accepted.status).toBe(200)
+       |                             ^
+     51|     expect(dispatch).toHaveBeenCalledWith('fixture', expect.objectCont…
+     52|   } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 12 passed (13)
+   Start at  14:51:26
+   Duration  820ms (transform 278ms, setup 0ms, import 383ms, tests 145ms, environment 0ms)
+

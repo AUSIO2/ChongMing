@@ -1,0 +1,1268 @@
+{
+  "scopes": [
+    {
+      "source": "scope-domain.json",
+      "retained": [
+        {
+          "files": [
+            "tests/backend/modules/assets/asset-list.spec.ts"
+          ],
+          "basis": "分页同时间排序/删除游标资产/50默认/200上限/跨工作区与坏游标/撤权/上传中隔离；真实HTTP+Mongo+队列；受控Promise暂停上传并finally释放，默认token仅fixture身份选择"
+        },
+        {
+          "files": [
+            "tests/backend/modules/assets/library-export.spec.ts"
+          ],
+          "basis": "非空库引用拒绝、缺省/显式空引用投影独立复制；纯codec边界；omitted与[]是当前写协议不同来源形状，非退役格式兼容"
+        },
+        {
+          "files": [
+            "tests/backend/modules/graph/library-commit.spec.ts"
+          ],
+          "basis": "成功CAS后回调一次/receipt跳过同步/省略保留显式[]清除/回调失败图和索引整体回滚；真实SQLite事务；hook故意throw是故障注入，必须传播并回滚；afterEach回收fixture资源"
+        },
+        {
+          "files": [
+            "tests/backend/modules/graph/node-run.spec.ts"
+          ],
+          "basis": "多输入独立Operation/一个待审核其他仍执行/共享后继不扩大scope/暂停撤权；真实HTTP调用；nullable claim通过用例断言证明，不用默认Work掩盖失效"
+        },
+        {
+          "files": [
+            "tests/backend/modules/graph/run-history.spec.ts"
+          ],
+          "basis": "25/100有界目录/等时稳定分页/current优先去重/取消旧review不计/精确过滤/游标绑定与过期；内存保存记录是目录合法输入，空execution fixture并非绕过执行校验；坏cursor直接走公开paramsparser"
+        },
+        {
+          "files": [
+            "tests/backend/modules/graph/source-anchors.spec.ts"
+          ],
+          "basis": "硬换行/转义pointer/继承属性拒绝/历史脚注保留/伪造引用原子拒绝；真实SQLite+HTTP+client路径；临时目录/客户端/服务器/消息/数据库由beforeAll/afterAll关闭"
+        },
+        {
+          "files": [
+            "tests/backend/modules/graph/source-read-concurrency.spec.ts"
+          ],
+          "basis": "动态URL两次读返回不同正文但两并发data_read共享唯一CAS赢家；GraphStore真实seam内存CAS替身；受控Promise等两fetch，不靠sleep，证明跨请求幂等与最终授权不能删"
+        },
+        {
+          "files": [
+            "tests/backend/modules/graph/work.spec.ts"
+          ],
+          "basis": "领取重放/竞争/续租不改revision/过期接管/fence/取消/旧release；真实租约adapter；80ms和2200ms用于2秒租期续租/到期边界，不是业务重试默认"
+        },
+        {
+          "files": [
+            "tests/backend/modules/workspace/seed-configuration.spec.ts"
+          ],
+          "basis": "缺parse/split拒绝/结果所有权/跨阶段重复Agent/工具目录/数组枚举拒绝；纯真实种子parser；故意破坏配置是负例输入，不把异常分支当冗余"
+        },
+        {
+          "id": "R-domain-storage-optionals",
+          "basis": "当前SQLite/导入及旧当前记录可缺retired/ownership/payloadReferences字段，保留空集合默认。editor-null guard由于SQLite浅schema仍必要。"
+        },
+        {
+          "id": "R-domain-blob-cleanup",
+          "basis": "孤立blob清理失败不盖原业务错误；commit结果不确定保留字节，非吞业务伪成功。"
+        },
+        {
+          "id": "R-domain-pointer-rejected-candidates",
+          "basis": "内存试验根/空段pointer及required空名被定义parser拒绝，未把内部/分支猜测误报为可达泄漏。"
+        },
+        {
+          "id": "R-domain-test-faults",
+          "basis": "损坏snapshot/specHash、暂停stream、CAS竞争、abort/close是有效故障及边界测试，未改任何测试或靠兜底使其成功。"
+        }
+      ],
+      "unresolved": [
+        {
+          "id": "U01",
+          "topic": "workReadStage未匹配slot时构造默认Work",
+          "sites": [
+            {
+              "file": "backend/modules/graph/work-state.ts",
+              "line": 36
+            }
+          ],
+          "limit": "当前生产构造器保持slots/workIds配对，但stored graph浅schema不覆盖planSlots；须区分明确支持旧记录和损坏记录，不直接删除默认。"
+        },
+        {
+          "id": "U02",
+          "topic": "editor过期null分支",
+          "sites": [
+            {
+              "file": "backend/modules/graph/branch-state.ts",
+              "line": 222
+            }
+          ],
+          "limit": "Mongo storeReadIso拒null，但SQLite仅浅验ownerships并返回JSON，可交付editor.expiresAt:null；删除null guard会令Date.parse(null)=NaN且<=now不成立，须先加持久化边界深验，当前不删。",
+          "resolution": "retained"
+        },
+        {
+          "id": "U03",
+          "topic": "read-only应用鉴权与graph.read重复读图",
+          "resolution": "structural_candidate_not_counted",
+          "limit": "ctx.session通常缺省，两个读取并非天然同版本；只有改为单次授权快照并交接文档后才能消除，不直接删除第二次存储边界校验。"
+        },
+        {
+          "id": "U04",
+          "topic": "受控上传测试release缺finally",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/tests/backend/modules/assets/assets.spec.ts",
+              "line": 173
+            }
+          ],
+          "resolution": "test_lifecycle_limitation",
+          "limit": "撤权步骤若先失败，resume未在finally调用，上传generator可能等到test超时；未注入该基础设施失败，不算已复现生产bug。"
+        }
+      ],
+      "flows": [
+        {
+          "id": "flow-source-read",
+          "steps": [
+            "HTTP internal map/operation路径+work proof",
+            "graph.readData读取grant/run/operation",
+            "source-text readSource并持久化externalInputs",
+            "runReadData最终stage/work校验"
+          ],
+          "review": "新V/L候选：operationId与grant.operationId尚未在外部读取前绑定，待内存复现；最终CAS本身必须保留。"
+        },
+        {
+          "id": "flow-graph-apply",
+          "steps": [
+            "HTTP信封/JSON预算",
+            "auth.transact+workspace editor fence",
+            "同session catalog",
+            "receipt优先",
+            "当前attempt graphParseNodes+before proof",
+            "新put完整parse+after授权范围",
+            "typed refs资产状态",
+            "store最终CAS/ownership/lease",
+            "同事务onGraphCommit"
+          ],
+          "retained": "授权fence/receipt顺序/新旧值分别解析/最终CAS保留；102已删跨层parse不重计。"
+        },
+        {
+          "id": "flow-run-start",
+          "steps": [
+            "未知plan parser",
+            "executionCatalog+DB Claims冻结",
+            "branch/editor proof",
+            "runCreateRun plan/claims对应",
+            "definitionsFreezeExecution",
+            "CAS接管Run ownership"
+          ],
+          "retained": "refs、DB重建Claim、Run持久化snapshot、Operation spec不是同一对象或同一信任来源。"
+        },
+        {
+          "id": "flow-proposal-review",
+          "steps": [
+            "候选信封/预算",
+            "graph lease+receipt",
+            "runUpdateProposal合同",
+            "publication闭包plan",
+            "重映射具体payload parse",
+            "typed资产hook",
+            "最终guard/CAS"
+          ],
+          "findings": [
+            "D02"
+          ],
+          "retained": "跨请求人审须解析存储候选；102同review的plan复用正确。"
+        },
+        {
+          "id": "flow-export",
+          "steps": [
+            "assetsReadSnapshot session",
+            "图+workspace授权",
+            "exportDefinitions一次catalog/packages/agents/profiles",
+            "graphParseNodes",
+            "纯closure/digest和资产元数据",
+            "快照外不可变blob长度sha",
+            "base64最终预算"
+          ],
+          "retained": "元数据snapshot与实际字节检查不同；库refs不受v4支持必须拒绝。"
+        },
+        {
+          "id": "flow-import",
+          "steps": [
+            "staging owner+receipt",
+            "外层blob完整性",
+            "UTF8/JSON/v4包未知parser",
+            "原payload完整parse",
+            "重映射新catalog/payload完整parse",
+            "asset bytes写blob",
+            "auth.transact再次owner/receipt/原包可用",
+            "新workspace定义与图写",
+            "receipt"
+          ],
+          "findings": [
+            "D07"
+          ],
+          "retained": "原值与新值不同，重映射后parse保留；不确定commit不能删blob。"
+        },
+        {
+          "id": "flow-workspace-write",
+          "steps": [
+            "未知control parser",
+            "auth.transact",
+            "mutation事务要求",
+            "receipt优先",
+            "role+workspace fence",
+            "版本与跨资源约束",
+            "tools/settings与library版本fence",
+            "版本CAS+receipt",
+            "视图"
+          ],
+          "retained": "requireRole/controlValidateTools写栅栏有副作用，不按关键字当纯重复read删。"
+        },
+        {
+          "id": "flow-run-history",
+          "steps": [
+            "未知params parser",
+            "viewer/undeleted map",
+            "current优先history去重",
+            "精确operation filter",
+            "未知cursor解码+query/member绑定",
+            "摘要+有界页"
+          ],
+          "retained": "只读不取控制权；limit25/归档去重/状态更新不使cursor失效有现行合同与测试。"
+        }
+      ],
+      "transversal": [
+        {
+          "category": "K",
+          "theme": "动态字典自有键",
+          "files": [
+            "backend/modules/graph/graph-input.ts",
+            "backend/modules/graph/run-state.ts",
+            "backend/modules/workspace/workspace-input.ts",
+            "backend/modules/workspace/workspace-service.ts",
+            "backend/modules/assets/bundle-codec.ts"
+          ],
+          "result": "D04确认JSON复制/端口桶/投影普通对象写。Map/Set/Object.fromEntries大多安全；/空段pointer另试被definitionsReadPointer拒绝，未列泄漏误报。固定kind变量表ownKey已保留。"
+        },
+        {
+          "category": "V",
+          "theme": "库refs到冻结claims",
+          "files": [
+            "backend/modules/graph/library-claim-input.ts",
+            "backend/modules/graph/run-state.ts",
+            "tests/backend/modules/graph/library-claim-run.spec.ts"
+          ],
+          "result": "原refs、DB重建完整claims、persisted snapshot以及Operation spec是不同实体/不同入口，无有界可信集合类型；数量/去重虽沿production链重复，本轮不列可直接删。"
+        },
+        {
+          "category": "L",
+          "theme": "source-text await与授权",
+          "files": [
+            "backend/modules/graph/graph-service.ts",
+            "tests/backend/modules/graph/source-read-concurrency.spec.ts"
+          ],
+          "result": "保留异步后最终lease/CAS与动态来源赢家冻结；新增D06必须在副作用前绑定Operation，最终拒绝不能撤销已单独提交的source.read。"
+        },
+        {
+          "category": "K",
+          "theme": "第二轮规则排除普通动态赋值误报",
+          "result": "stage变量名definitionReadIdentifier要求首字符字母，拒__proto__；constructor/toString普通赋值创建自有属性，四处variables[name]写保留。投影393只有prior===undefined才写，单条安全，实际D04为391继承target和396写。bundle重映射的数组数字index/已自有data属性写保留。"
+        }
+      ]
+    },
+    {
+      "source": "scope-runtime.json",
+      "retained": [
+        {
+          "id": "RK01",
+          "area": "F",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/apps/config/local-settings.ts",
+              "line": 25
+            },
+            {
+              "file": "/Users/xiong/ChongMing/apps/desktop/credential-store.ts",
+              "line": 47
+            }
+          ],
+          "reason": "ENOENT空配置、损坏凭据重新登录、OS加密不可用只保地址均有首次使用/密钥链实际路径；不能与JSON坏字节静默替换混同。"
+        },
+        {
+          "id": "RK02",
+          "area": "E",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/messaging/rabbitmq.ts",
+              "line": 127
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/mongo/persistence.ts",
+              "line": 162
+            }
+          ],
+          "reason": "关闭握手失败靠断流/期限，GridFS abort次级错保主错，属于资源回收；不计无谓catch。"
+        },
+        {
+          "id": "RK03",
+          "area": "V/L",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/http/graph-event-stream.ts",
+              "line": 82
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/http/graph-event-stream.ts",
+              "line": 89
+            }
+          ],
+          "reason": "每次异步读取之后重新鉴权保护并发撤权；读取不同阶段不能当同来源重复静态验证。"
+        },
+        {
+          "id": "RK04",
+          "area": "V/L",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/mongo/graph-store.ts",
+              "line": 435
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/sqlite/graph-store.ts",
+              "line": 268
+            }
+          ],
+          "reason": "最终CAS、holder/fence、到期、Run/ownership校验与先前业务检查处于不同持久化阶段，不能移除。"
+        },
+        {
+          "id": "RK05",
+          "area": "S",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/branch-migration.ts",
+              "line": 295
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/mongo/maintenance.ts",
+              "line": 13
+            }
+          ],
+          "reason": "旧data/run的显式管理员迁移/修复仍有真实入口和Mongo/SQLite合同测试；不以legacy词判冗余。"
+        },
+        {
+          "id": "RK06",
+          "area": "F/V",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/mongo/graph-store.ts",
+              "line": 120
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/storage/mongo/graph-store.ts",
+              "line": 129
+            }
+          ],
+          "reason": "retired/ownership等字段在GraphDocument或历史读取合同真实可省；runHistory为已声明旧记录恢复。runs/leases必填死默认已于099删除，不重列。"
+        },
+        {
+          "id": "RK07",
+          "area": "E/S/L",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/platform/node/diagnostics.ts",
+              "line": 109
+            },
+            {
+              "file": "/Users/xiong/ChongMing/platform/node/process-boundary.ts",
+              "line": 99
+            }
+          ],
+          "reason": "诊断sink最小fallback、fatal同步日志、有限关闭期限/日志关闭错误处理都真实故障路径；不递归日志。"
+        },
+        {
+          "id": "RK08",
+          "area": "F/E",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/backend/execution/dsh/work-executor.ts",
+              "line": 226
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/adapters/messaging/rabbitmq.ts",
+              "line": 271
+            }
+          ],
+          "reason": "原取消reason可显式为null；内存实测AbortController.abort(null)的reason为null，所以不能仅因aborted把??当死代码。"
+        },
+        {
+          "id": "RK09",
+          "area": "V/P",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/apps/desktop/ipc-handlers.ts",
+              "line": 27
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/execution/dsh/dsh-business-plugin.mjs",
+              "line": 192
+            }
+          ],
+          "reason": "renderer IPC、独立DSH进程patch/模型输出及未知网络响应是各自实际边界，不能因父进程有类型就删除验证。"
+        },
+        {
+          "id": "RK10",
+          "area": "L",
+          "sites": [
+            {
+              "file": "/Users/xiong/ChongMing/apps/desktop/local-service-process.ts",
+              "line": 77
+            },
+            {
+              "file": "/Users/xiong/ChongMing/backend/execution/host-worker.ts",
+              "line": 269
+            }
+          ],
+          "reason": "子进程/Work关闭必须确认退出并排空，再释放lease或重连；deadline与已创建部分资源检查均可达。"
+        }
+      ],
+      "unresolved": [
+        {
+          "id": "U01",
+          "status": "excluded-insufficient-evidence",
+          "site": {
+            "file": "/Users/xiong/ChongMing/backend/execution/host-worker.ts",
+            "line": 258
+          },
+          "question": "message.includes(LEASE_LOST)能否删除？",
+          "evidence": "工作执行器直接HTTP错误在work-executor:97为WorkAccessError；插件businessCall:231仍普通Error含远端code。当前SDK运行时run通常将模型/工具结果作为事件返回，但TransportClosedError仍可携带stderr tail。未证明所有跨进程lease文本只由WorkAccessError承担。",
+          "decision": "不计确认项、不建议本轮删除；若未来统一跨进程错误码合同后再审。"
+        },
+        {
+          "id": "U02",
+          "status": "excluded-insufficient-evidence",
+          "site": {
+            "file": "/Users/xiong/ChongMing/backend/execution/dsh/dsh-business-plugin.mjs",
+            "line": 207
+          },
+          "question": "业务插件默认4320是否死默认？",
+          "evidence": "标准Host经work-executor:214明确环境注入；插件apply/patch为独立DSH进程部署资源，仓库未声明只能经Host装配的稳定封闭约束，101也明确保留独立装配。",
+          "decision": "不计确认项；不能凭单一标准调用方移除独立部署默认。"
+        }
+      ],
+      "flows": [
+        {
+          "name": "Public query/command",
+          "path": [
+            "apps/cli/main.ts or desktop preload/IPC",
+            "client/graph-client.ts",
+            "backend/adapters/http/graph-http-server.ts apiReadBody/apiReadQuery/apiReadCommand",
+            "workspace/evidence/asset parser",
+            "application auth transaction",
+            "module dispatch",
+            "GraphStore CAS"
+          ],
+          "conclusion": "R02信封所有权重复及R03输入解码确认；授权、业务params、CAS保留。"
+        },
+        {
+          "name": "Host work lease",
+          "path": [
+            "apps/execution-host/main.ts or apps/local-server/runtime.ts",
+            "hostCreateWorker",
+            "hostReadQueue",
+            "claim→hostReadGrant→hostRunWork",
+            "renew→hostReadGrant→field equality",
+            "runner cleanup→release→ack/retry"
+          ],
+          "conclusion": "R01仅同次renew响应重复；异步重检、deadline、排空保留。"
+        },
+        {
+          "name": "DSH grant and model tools",
+          "path": [
+            "dshRunWork status/data response",
+            "persona render once",
+            "own work.patch + environment",
+            "dshCreateRuntime SDK child",
+            "plugin.apply config boundary",
+            "data_read/data_propose model and HTTP boundaries"
+          ],
+          "conclusion": "进程/模型/网络是不同未知边界；U01/U02缺充分删证；102死additionalProperties不重列。"
+        },
+        {
+          "name": "Mongo outbox/Rabbit recovery",
+          "path": [
+            "API graph commit dispatch flag",
+            "Mongo change stream before scan",
+            "outbox publish confirm",
+            "Rabbit consume→Host claim",
+            "disconnect cancels/inFlight drain",
+            "reconnect discover + access hint"
+          ],
+          "conclusion": "临时恢复/重推导不是重复parse；永久QUEUE_CONFIG已经修复。"
+        },
+        {
+          "name": "SQLite local runtime",
+          "path": [
+            "local entry",
+            "SQLite exclusive WAL",
+            "identity/config/workspace recovery",
+            "API random/fixed port",
+            "single Host/in-process queue",
+            "runtime close Host→HTTP→messaging→DB"
+          ],
+          "conclusion": "合法缺省、部分初始化恢复与资源回收保留。"
+        },
+        {
+          "name": "Authenticated SSE",
+          "path": [
+            "HTTP token/map route",
+            "eventsOpen subscription before baseline",
+            "snapshot await",
+            "authorizeMap again",
+            "dirty flush newest state",
+            "response close clears timer/listeners"
+          ],
+          "conclusion": "跨await复核为撤权仲裁，不能当重复静态校验。"
+        },
+        {
+          "name": "Explicit graph migration",
+          "path": [
+            "admin data.migrate-branches or local --migrate-branches",
+            "unknown records read",
+            "migrationPlanBranchGraph pure plan",
+            "old report/verification conversion",
+            "apply transaction reread/revision check"
+          ],
+          "conclusion": "R04纯plan重复与R05字典丢失；明确旧格式及apply重检保留。"
+        },
+        {
+          "name": "Desktop process",
+          "path": [
+            "main config/service/IPC assembly",
+            "connectLocal",
+            "spawn fixed runtime",
+            "validate ready/failed IPC",
+            "unexpected exit updates state",
+            "close IPC→TERM→KILL→confirmed exit"
+          ],
+          "conclusion": "回环身份与部分启动错误有真实外部边界；不因父装配可信删IPC校验。"
+        },
+        {
+          "name": "Local settings/admin",
+          "path": [
+            "argv/stdin or settings/secrets file",
+            "JSON decoding",
+            "field whitelist",
+            "wx configuration lock",
+            "locked reread",
+            "atomic temp rename"
+          ],
+          "conclusion": "R03坏UTF8被默认替换；ENOENT首次使用/锁竞争和FS错误传播保留。"
+        }
+      ],
+      "transversal": [
+        {
+          "category": "F",
+          "method": "对全部68文件默认/强转候选按可选合同及实际来源检查；横扫??、||、String/Number、UTF8 byte→string。",
+          "result": "R03默认解码替换行为；真实可省配置/lookup null保留，102严格枚举不重列。"
+        },
+        {
+          "category": "E",
+          "method": "检查catch覆盖范围、是否保留主错、次级清理、已发送响应和进程诊断。",
+          "result": "未新增可证宽catch冗余；真实网络恢复/资源释放/诊断fallback保留。"
+        },
+        {
+          "category": "V",
+          "method": "标记输入归属：argv/files/HTTP/IPC/SDK/model/store；比较验证发生前后是否同对象/同同步阶段。",
+          "result": "R01/R02；未知新输入及跨await授权/最终CAS排除。"
+        },
+        {
+          "category": "S",
+          "method": "核对分支前提及入口，查legacy/compat/closed/started/ready模式与历史契约。",
+          "result": "明确迁移、初建身份、平台密钥链与关闭状态可达；Host文本与4320U01/U02不计确认。"
+        },
+        {
+          "category": "P",
+          "method": "横扫JSON.parse、structuredClone、Object/Array遍历、多次store读取，区分同一纯计划和新快照。",
+          "result": "R02同信封和R04迁移同字段；BSON copy/图提交前后新读取/消息重推导保留。"
+        },
+        {
+          "category": "K",
+          "method": "逐动态键检查普通对象/Map、自有键、Pointer与用户可控ID来源。",
+          "result": "R05 legacyProducers自有键丢失；reportIds fromEntries、业务Map和root输入空键漏洞按各自权属。"
+        },
+        {
+          "category": "L",
+          "method": "检查每实例Promise/timer/listener/reader/process/queue/session所有者与关闭/迟到时序，并阅读对应26测试。",
+          "result": "现有排空/取消/代次/事务边界保留；不把两阶段cleanup或异步复核当重复。"
+        }
+      ]
+    },
+    {
+      "source": "scope-ui.json",
+      "retained": [
+        {
+          "topic": "真正optional与未选择状态",
+          "basis": "GraphDocument import/SQLite确实可缺runs/ownershipRevision等字段；UI未选node/run/null旧关系/缺schema items/additionalProperties true都真实可达。不能仅以TS属性必填删除默认。"
+        },
+        {
+          "topic": "raw输入与外部字节",
+          "basis": "structuredClone保留坏array raw类型，已有公共客户端回归；UTF8 fatal解码、JSON body上限、SSE字段限制、sha256/size都是所属真实边界。"
+        },
+        {
+          "topic": "身份/代次/租约",
+          "basis": "session-grants S1与session-editing S2完整现有用例证明同R不同O、延迟SSE/HTTP、A→B→A与同lease重确认、绝对expiry不可由leaseMs新起算；正常取消检查不是兜底。"
+        },
+        {
+          "topic": "浏览器能力与持久化",
+          "basis": "WebGL构建失败后的SVG降级、localStorage受禁/损坏、request/animation/pointer/observer真实清理应保留。usePanelResize当前持久化读不是已校验业务DTO，不将默认判内部冗余。"
+        },
+        {
+          "topic": "枚举文案自有键",
+          "basis": "payload-labels.ts对declared和builtin map均Object.hasOwn；实际合法constructor/toString enum省略label仍输出原字符串。reproduce-ui-output retained-enum-labels已确认。"
+        },
+        {
+          "topic": "固定关系跨响应关联",
+          "basis": "public client验证relations自身root闭包与role，evidence-state还需将rootNode.ref/contentDigest与独立get固定条目关联，不能整段删除；多余常量比较未另夸大计组。"
+        },
+        {
+          "topic": "可替换测试handler失败哨兵",
+          "basis": "mapped handler可被测试移除或替换、实际public stream需明确存在、固定node/snapshot prerequisite报错使测试失败有定位意义，不能因正常fixture总通过而机械删。"
+        }
+      ],
+      "unresolved": [
+        {
+          "id": "UI-held-assetSchemaHasPointer",
+          "status": "not-confirmed-no-finding",
+          "sites": [
+            {
+              "file": "apps/ui/features/assets/AssetManagement.vue",
+              "line": 163
+            }
+          ],
+          "basis": "直接properties[part]存在同名继承读取形态，但生产caller仅已发布titlePath或已发布asset ref parent的固定mediaType sibling；尚无合法已发布schema下可走错分支的正例，不能与assetSetPointer实际污染证据混列确认。"
+        },
+        {
+          "id": "UI-held-fixed-digest-sharing",
+          "status": "retained-contract-optimization-only",
+          "sites": [
+            {
+              "file": "apps/ui/views/WorkspacePage.vue",
+              "line": 635
+            },
+            {
+              "file": "client/graph-client.ts",
+              "line": 1131
+            }
+          ],
+          "basis": "两次SHA计算分别绑定当前ETag与冻结basis；若未来ClientFile携带公共已验证digest并统一desktop才可共享，不是现状可直接删校验。"
+        },
+        {
+          "id": "UI-held-resize-blur",
+          "status": "not-claimed",
+          "basis": "U24已用真实unmount确认活动drag残留并在mouseup后清理；没有声称blur/窗口外松开永久泄漏，不用未复现情形扩大结论。"
+        }
+      ],
+      "flows": [
+        {
+          "id": "UI-flow-HTTP-gateway",
+          "path": [
+            "client/graph-client.ts public read/dispatch/watch/download",
+            "apps/ui/transport/client-gateway.ts / desktop client bridge",
+            "apps/ui/state/client-session.ts",
+            "apps/ui/views/WorkspacePage.vue"
+          ],
+          "conclusion": "外部DTO/raw JSON/UTF8/stream先在所属边界校验；UI当前身份与异步代次是不同约束。U05仅同对象renew重复扫描，U01仅run.list已绑定mapId；U20证明真实缺少的edge.createdAt边界不能删。transport本轮由root另审。"
+        },
+        {
+          "id": "UI-flow-editor",
+          "path": [
+            "DataPayloadEditor / NodeInspector / SourceAnchorEditor / NodeEvidenceEditor",
+            "branch-baseline.ts",
+            "client-session saveNode/createChildNode/saveSourceAnchors/saveNodeReferences/saveNodeEvidence",
+            "graph.apply固定参数与原请求重放"
+          ],
+          "conclusion": "保留用户输入、精确类型/版本、旧引用与新目标联合授权、临时lease finally释放、跨await view内容重查。U02同输入双parse、U16同步派生后逆向确认、U18同attempt引用展开重复；U10/U14是合法JSON被UI误改。"
+        },
+        {
+          "id": "UI-flow-preview",
+          "path": [
+            "run.publication.preview public client边界",
+            "publication-preview.ts join frozen spec and actual candidates",
+            "OperationReview/RunReview ready union",
+            "client-session answerReview after control await"
+          ],
+          "conclusion": "102已删除preview键二验和joined.ok重查，当前ready联合已复核无回退。保留candidate正文、材料及review revision绑定；U17当前Run控制claim未绑定selection意图但answerReview自己的旧点击保护仍必要。"
+        },
+        {
+          "id": "UI-flow-history",
+          "path": [
+            "WorkspacePage.vue831",
+            "RunHistoryPanel.vue21",
+            "run-history.ts readPage/readDetail",
+            "public client run.list/run.get"
+          ],
+          "conclusion": "首屏25、有界continuation、detail按需只读；目录版本/重复ID/跨页状态与detail runId绑定保留。U01仅remove重复mapId，不动detail绑定或epoch。"
+        },
+        {
+          "id": "UI-flow-evidence",
+          "path": [
+            "evidence-state collect/search/select/retry/withdraw",
+            "public evidence DTO parser",
+            "evidence.relations fixed snapshot",
+            "evidence-presentation / reader"
+          ],
+          "conclusion": "库摘要与固定详情/关系是独立响应，digest/root ref关联必要；显式snapshot:null是旧记录真实语义，不以当前图补全。4种basis固定输入、未知提交原ID重试以及current401/old401分开保留。"
+        },
+        {
+          "id": "UI-flow-fixed-asset",
+          "path": [
+            "WorkspacePage.vue630 asset metadata fixed basis association",
+            "client/graph-client.ts1131 download bytes vs current ETag",
+            "WorkspacePage.vue635 bytes vs frozen basis.sha256 and asset.size"
+          ],
+          "conclusion": "元信息与固定basis、实际bytes与当前ETag、实际bytes与固定basis是不同边界；当前ClientFile不携带已验证digest且desktop路径也须统一，因此直接删UI fixed SHA验证不成立。共享计算是需改合同的优化候选，非本轮可直接删项。"
+        },
+        {
+          "id": "UI-flow-navigation",
+          "path": [
+            "use-workspace-view bookmarks full user/service/workspace/map/node identity",
+            "NodeReader ready/restoration revision",
+            "GraphScene interaction resources",
+            "AppShell drag/window listeners"
+          ],
+          "conclusion": "reader nextTick恢复及代次、场景RAF/observer/pointer capture归属保留；U03 ready重复查找可收口；U24真实卸载期间drag所有权未回收。"
+        }
+      ],
+      "transversal": [
+        {
+          "id": "UI-K-own-members",
+          "categories": [
+            "K",
+            "F",
+            "V"
+          ],
+          "scope": "全部动态JSON schema/payload/presentation/agent-kind/错误翻译/复合身份及reference pointer读写",
+          "findings": [
+            "U10",
+            "U13"
+          ],
+          "globalGroup": "K-own-members",
+          "conclusion": "原型名称合法输入已实际definitionsReadPackage/definitionsValidateCatalog/definitionsValidatePayload后复现；同一全局自有键根因合并，勿每站点独立计数。payload-labels的enumLabels和内置文案均Object.hasOwn，缺constructor/toString label实际返回原值；root的shared parser __proto__ enum label丢失另在同全局组。"
+        },
+        {
+          "id": "UI-P-same-attempt",
+          "categories": [
+            "P",
+            "V",
+            "S"
+          ],
+          "scope": "payload/schema/ref/DTO/preview/history/selection/layout及各state捕获与重试",
+          "findings": [
+            "U01",
+            "U02",
+            "U03",
+            "U05",
+            "U16",
+            "U18",
+            "U21"
+          ],
+          "conclusion": "只比较同一对象、同一输入和同一同步attempt且无mutation的重复；不将不同HTTP响应之间绑定、重试参数副本、跨await内容变化重查合并。Evidence times同值Date.parse统一引用root PM05，不增加U组。"
+        },
+        {
+          "id": "UI-E-primary-cleanup",
+          "categories": [
+            "E",
+            "L"
+          ],
+          "scope": "JSON/read stream/SSE/download、gateway close、management task、asset download、watch重连与UI卸载",
+          "findings": [
+            "U04",
+            "U11",
+            "U24"
+          ],
+          "conclusion": "102 JSON/download统一finally次生cancel保护已复核；U11非SSE类型拒绝路径仍让cancel拒绝覆盖主INVALID_STREAM。正常无WebGL→SVG降级、AbortError/旧代次不回填、storage受限catch和真实dispose均保留。"
+        },
+        {
+          "id": "UI-L-auth-intent",
+          "categories": [
+            "L",
+            "S",
+            "V"
+          ],
+          "scope": "user/service/workspace/map/run/node及list/detail/relations/preview/read/write/lease scopes",
+          "findings": [
+            "U17"
+          ],
+          "conclusion": "A→B→A复用业务身份不等于同意图。S1/S2现有测试证明lease/fence/O/绝对expiry和safe stale grant cleanup必需；U17实际下拉运行切换可发生于claim等待，viewEpoch不足。"
+        },
+        {
+          "id": "UI-test-oracle",
+          "categories": [
+            "V",
+            "E",
+            "F"
+          ],
+          "scope": "全部22业务client测试、graph-client错误断言横扫，runtime另审stream/integration",
+          "findings": [
+            "U22",
+            "U23"
+          ],
+          "conclusion": "U22四象限建立正常对照后确认单一坏node日期遮蔽目标；stream nodes[]有正例、integration真实节点无同源站点。session的any/as/Promise占位及handler哨兵属于受控fixture；U23仅特定初始化且捕获前无reset的11处optional调用，不泛化vi.fn。"
+        },
+        {
+          "id": "UI-prior-list",
+          "categories": [
+            "F",
+            "E",
+            "V",
+            "S",
+            "P",
+            "K",
+            "L"
+          ],
+          "scope": "前轮11项与layout同类遗留",
+          "findings": [
+            "U01",
+            "U02",
+            "U03",
+            "U04",
+            "U05",
+            "U06",
+            "U07",
+            "U08",
+            "U09",
+            "U10",
+            "U11",
+            "U12"
+          ],
+          "conclusion": "逐项以最新源码/实际caller复核，未重复列099–102已修项。U12 parent位置0 fallback同先前layout机制尾项单独标prior99关联，不冒充新大组。"
+        }
+      ]
+    },
+    {
+      "source": "scope-root.json",
+      "retained": [
+        {
+          "topic": "独立存储/外部边界",
+          "reason": "record/use/parser对未知Mongo/BSON及receipt各自建立身份、摘要、内容和上下文；不能因write路径构造过一次而删read边界。"
+        },
+        {
+          "topic": "schema类型与图对象根",
+          "reason": "注册schema可合法接受标量，图协议必须另核对象根；不会把二者当重复。"
+        },
+        {
+          "topic": "refs到claims集合",
+          "reason": "引用与读库后材料不是同值，且公共领域入口未表达已验有界集合；计数、身份/摘要、工作区及每步/总字节各自有边界依据。"
+        },
+        {
+          "topic": "无来源或分页的默认值",
+          "reason": "25/false、尚无目录的0、无relationSnapshot的null都是公开可选/历史合同；本轮不当作兼容删除。"
+        },
+        {
+          "topic": "消息/错误格式化",
+          "reason": "展示String转换与枚举允许值验证不同；activity已先完整检查字符串，messageFormat按设计格式化。"
+        }
+      ],
+      "unresolved": [],
+      "flows": [
+        {
+          "name": "证据新收录及重放",
+          "steps": [
+            "HTTP/API unknown envelope",
+            "evidenceReadEnvelope: id/workspace/size",
+            "authorized same transaction + workspace fence",
+            "receipt input hash replay",
+            "only new evidenceReadCommand",
+            "freezeSource/basis + exact schema/assets",
+            "fixed digest + bounded relation capture",
+            "entries/assets/catalog/receipt atomic writes"
+          ],
+          "boundaries": "不把收据后固定字段校验前移；来源和关系同snapshot，资产历史保护不随撤回释放。"
+        },
+        {
+          "name": "库查询与分页",
+          "steps": [
+            "evidenceReadQuery unknown params",
+            "read snapshot or create owned read transaction",
+            "viewer authorization",
+            "catalog/usage revision",
+            "cursor workspace/filter/version binding",
+            "Mongo indexed projection",
+            "public view"
+          ],
+          "boundaries": "独立cursor/存储解析仍必要；limit默认25及hasMore/after来自端口合同。"
+        },
+        {
+          "name": "正式产物使用历史",
+          "steps": [
+            "actual Graph CAS success",
+            "same outer transaction usage.syncGraphUses",
+            "end old consumer version",
+            "manual selected entry or work frozen authorization",
+            "strict historical summary/node projection",
+            "unique identity and fixed consumerDigest",
+            "advance affected entry usage catalogs"
+          ],
+          "boundaries": "历史较Graph元数据严格，不能删该转换边界；未提交图不登记使用。"
+        },
+        {
+          "name": "定义发布/实例解析/冻结",
+          "steps": [
+            "unknown definitionsReadPackage",
+            "catalog exact packages/agents/cross refs/schema",
+            "fresh catalog boundary or preserved storage definitions",
+            "definitionsParsePayload JSON/schema/references",
+            "graph object root / specific payload consumer",
+            "ExecutionSpec exact input/context/agent/tool freeze"
+          ],
+          "boundaries": "原始与重映射/候选物化新值分开；schema通用标量与图根对象不同；字典自有键一类横扫跨生产者/消费者。"
+        }
+      ],
+      "transversal": [
+        {
+          "class": "K",
+          "evidence": "扫描root全部动态element access、Object.entries/fromEntries、Pointer/Schema/References；对properties/definitions、原始JSON、enumLabels、输入端口、引用具体path逐项沿UI/domain/迁移核对；P01与D04/U10/R05合并，未把已安全的hasOwn读取列为新问题。"
+        },
+        {
+          "class": "V/P",
+          "evidence": "逐步核对evidence envelope→command、原始refs→冻结claims、unknown storage→public projection、same-attempt parse→clone；P03/P04确认，独立存储/新值/最终写guard保留。"
+        },
+        {
+          "class": "E/L",
+          "evidence": "catch/清理/await跨identity、evidence、scripts与自有fixture；权限/代次/事务/网络未知失败保持独立；测试工厂自有资源启动失败单列PT01，不当作产品故障。"
+        }
+      ]
+    },
+    {
+      "source": "scope-root-experiments.json",
+      "retained": [
+        {
+          "topic": "真实测试边界",
+          "basis": "畸形JSON/存储腐败/元数据额外字段/预算故障注入/不同版本断言都通过实际parser与事务，不删测试变绿。"
+        },
+        {
+          "topic": "取消与pending",
+          "basis": "stress bounded将race超时和真实原Promise结算分开；所有timer/listener有finally；mongo-target取消关闭真实资源，初始化Aggregate保留原错。"
+        },
+        {
+          "topic": "缺失未来能力",
+          "basis": "core工厂NOT_IMPLEMENTED明确失败，无reference实现或默认跳过；完整suite未来能力约定与当前core过滤分开。"
+        },
+        {
+          "topic": "枚举转换",
+          "basis": "grant fence转HTTP头String、Error诊断String、process.env数字解析属于序列化/真实string边界；只有E01 unknown enum不应强转。"
+        }
+      ],
+      "unresolved": [
+        {
+          "id": "E03-constructor-only",
+          "topic": "usage fixture在shared取得后同步装配app是否可能实际拒绝",
+          "sites": [
+            {
+              "file": "experiments/evidence-library-tests/usage-fixture.ts",
+              "line": 38
+            }
+          ],
+          "resolution": "controlled-only-not-counted",
+          "limit": "精确函数体可注入任意constructor异常，但实际shared保证就绪connection且同一装配此前已成功，尚无真实独立外部失败条件。保留为结构观察，不据此建议新增catch；E03只计三个真实mkdtemp边界。"
+        }
+      ],
+      "flows": [
+        {
+          "id": "experiment-target",
+          "steps": [
+            "显式TARGET动态import",
+            "未知factory/result shape",
+            "自有mkdtemp",
+            "真实Mongo factory",
+            "request映射原样生产parser",
+            "dispose关闭+rm"
+          ],
+          "findings": [
+            "E01"
+          ]
+        },
+        {
+          "id": "preview-owner",
+          "steps": [
+            "取得临时fixture",
+            "创建临时metadata目录",
+            "注册signal close",
+            "真实样本准备",
+            "0600令牌文件",
+            "close临时资源"
+          ],
+          "findings": [
+            "E02",
+            "E03"
+          ]
+        },
+        {
+          "id": "stress-driver",
+          "steps": [
+            "bounded初始化",
+            "真实seed+oracle",
+            "warmup",
+            "有限workers+限流+每请求signal",
+            "量化真实失败/pending",
+            "正确性",
+            "清理",
+            "JSON报告"
+          ],
+          "findings": [
+            "E05"
+          ],
+          "retained": "本轮未启动压测，不报告容量或通过成绩。"
+        }
+      ],
+      "transversal": [
+        {
+          "category": "E/L",
+          "theme": "初始化窗口/secondary覆盖primary",
+          "files": [
+            "ui-fixture.ts",
+            "relations-fixture.ts",
+            "usage-fixture.ts",
+            "ui-preview.ts",
+            "relations-preview.ts",
+            "usage-preview.ts",
+            "mongo-target.ts",
+            "load-target.ts"
+          ],
+          "result": "E02/E03已复现；mongo/load初始化路径正确Aggregate对照保留；editGraph finally release还可能覆盖primary但当前caller未删除整体root，不额外声称成功被改失败。"
+        },
+        {
+          "category": "K",
+          "theme": "动态字典/旧schema",
+          "result": "E04旧Opinion形状猜测横扫仅两处；E05错误码普通对象归root共同字典组；fixture其它身份多数UUID/Map/Object.fromEntries。"
+        }
+      ]
+    },
+    {
+      "source": "scope-ui-browser.json",
+      "retained": [
+        {
+          "id": "BK01",
+          "area": "S/V",
+          "reason": "bootstrap optional capabilities旧服务兼容有明确现行合同与C02行为测试；sqlite无库和none租约真实能力差异、mongo专项skip不按失效兼容清除。"
+        },
+        {
+          "id": "BK02",
+          "area": "E/F",
+          "reason": "safe-reporter/性能报告/启动诊断对未知框架对象投影为有限unknown/null，坏performance会整轮failed；这些是脱敏边界不是吞业务成功。"
+        },
+        {
+          "id": "BK03",
+          "area": "L",
+          "reason": "恢复child必须协议确认+实际close；parent拥有DB/broker/Vite，不以超时当释放；finally多资源尝试与AggregateError保真实清理失败。"
+        },
+        {
+          "id": "BK04",
+          "area": "P/L",
+          "reason": "SSE原Buffer、HTTP响应body的运输到达与浏览器实际消费是不同边界；只读观测catch不能改写原失败，不作为重复验证删除。"
+        },
+        {
+          "id": "BK05",
+          "area": "V/P",
+          "reason": "测试的独立API回读、正式receipt与UI交互是不同证据；多轮竞态用例不等于生产重复读取，不删除行为断言。"
+        },
+        {
+          "id": "BK06",
+          "area": "E/S",
+          "reason": "受控runner-fault故意失败供报告脱敏；只faultconfig发现，普通浏览器排除fixtures；不把故意失败当待修产品故障。"
+        },
+        {
+          "id": "BK07",
+          "area": "F/S",
+          "reason": "小规模短校准与正式容量/耐久分开，README明确后者暂缓；不运行长测、不把未执行记通过。"
+        }
+      ],
+      "unresolved": [
+        {
+          "id": "BU01",
+          "status": "excluded-minor-static-test-fixture-reference",
+          "site": {
+            "file": "/Users/xiong/ChongMing/tests/browser/safe-reporter.ts",
+            "line": 9
+          },
+          "evidence": "sourceFiles有不存在workspace-smoke.spec.ts，但tests/client/ui-reporter.spec.ts仍把该固定路径作为白名单正反例fixture使用；仅静态测试坐标，未构造运行兼容机制。",
+          "decision": "不单列清理组；若统一更名测试位置需同步现有报告投影覆盖，不能只删白名单让测试失去语义。"
+        }
+      ],
+      "flows": [
+        {
+          "name": "Ordinary browser fixture",
+          "path": [
+            "workspace-fixture storage project",
+            "fixtureCreateEnvironment real backend",
+            "public gateway token connect",
+            "Vite same-origin proxy + static document plugin",
+            "normal form login",
+            "framework teardown closes all owned resources"
+          ],
+          "conclusion": "真实边界及unknown解析保留；不直接注入生产store。"
+        },
+        {
+          "name": "Recovery fixture",
+          "path": [
+            "parent owns storage/broker/proxy/Vite",
+            "fork recovery-process private IPC",
+            "fresh or reopen auth",
+            "server ready fixed-origin",
+            "restart closes old before new",
+            "final close joins restart and confirms child exit"
+          ],
+          "conclusion": "B01 Vite端口装配缺陷；其他进程/存储所有权保护有实用路径。"
+        },
+        {
+          "name": "Grant/editing reliability",
+          "path": [
+            "real gateway prepare",
+            "real original SSE frames buffered",
+            "UI claim/save actual HTTP",
+            "release target frame/body unchanged",
+            "browser reader processed boundary",
+            "independent API compare"
+          ],
+          "conclusion": "不同运输/消费/业务阶段不是可删重复校验，保留隔离/代次。"
+        },
+        {
+          "name": "Acceptance/evidence/review/history",
+          "path": [
+            "normal UI operations",
+            "real public command/receipt",
+            "independent API verify",
+            "frozen evidence after source withdrawal",
+            "review preview exact identity",
+            "history read only keeps current Run control"
+          ],
+          "conclusion": "C02兼容与mongo-only路径有明确合同，所有额外context/listener有对应teardown。"
+        },
+        {
+          "name": "Performance/report",
+          "path": [
+            "fixed seed real dataset",
+            "public API persist+verify",
+            "real UI DOM/RAF/memory samples",
+            "stress/endurance driver keeps failures",
+            "JSON performance attachment",
+            "safe-reporter validates projection and rejects bad report"
+          ],
+          "conclusion": "B02仅helper死保护；样本门槛/不可用值/完整失败上报均保留。"
+        }
+      ],
+      "transversal": [
+        {
+          "category": "F",
+          "result": "按实际可省合同/量化采样前提检查所有默认与转换，B01/B02确认；metadata unknown及真实无观测保留。"
+        },
+        {
+          "category": "E",
+          "result": "逐catch确认主错、清理错误、框架诊断和真实route故障；不吞失败或以重试/缩规模假通过。"
+        },
+        {
+          "category": "V",
+          "result": "参数/IPC/Playwright元数据/模型服务/真实HTTP边界分开，assertions是测试证据而非生产冗余。"
+        },
+        {
+          "category": "S",
+          "result": "旧bootstrap能力明确兼容、storage专项skip和校准许可是真实状态；无按失败重跑补通过。"
+        },
+        {
+          "category": "P",
+          "result": "对重复parse/遍历/read核对对象与阶段；原帧位置、browser消费、API回读及新revision不是同份静态重复。"
+        },
+        {
+          "category": "K",
+          "result": "审查普通动态字典和Map/Set；profile和phase键先严格枚举，信号/帧身份用Map/Set，未新增强证据原型缺陷。"
+        },
+        {
+          "category": "L",
+          "result": "检查所有自建server/child/context/route/reader/timer归属、迟到交付和close/restart交错；真实资源保护保留。"
+        }
+      ]
+    },
+    {
+      "source": "scope-ui-infrastructure.json",
+      "retained": [
+        {
+          "id": "IK01",
+          "reason": "故障注入后的测试自身probe cleanup必须保留，不能因fixture也close判重复；先断言真实状态后独立收尾。"
+        },
+        {
+          "id": "IK02",
+          "reason": "报告设施接未知框架对象/附件，固定默认unknown/null为脱敏边界；坏性能会使整轮failed。"
+        },
+        {
+          "id": "IK03",
+          "reason": "files/stream/integration真实公共协议及跨阶段行为不当纯设施；102回归和新U11边界覆盖区别明确。"
+        }
+      ],
+      "unresolved": [],
+      "flows": [
+        {
+          "name": "Fixture startup/cleanup",
+          "path": [
+            "owned tmpdir",
+            "provider",
+            "real selected storage+app",
+            "queue/HTTP/Host",
+            "browser borrowers",
+            "close attempts all and confirms before rm"
+          ],
+          "conclusion": "现有正常/故障生命周期测试覆盖，不删除清理或新公开schema边界。"
+        },
+        {
+          "name": "Reporter artifacts",
+          "path": [
+            "real deliberate browser failure",
+            "fixed safe reporter",
+            "worker output suppressed",
+            "real child close",
+            "owned output directory scan"
+          ],
+          "conclusion": "未跑browser，只检查现有真实失败资格链；不是默认假通过。"
+        },
+        {
+          "name": "Public file/SSE/full integration",
+          "path": [
+            "actual public ClientApi",
+            "controlled fetch/real local HTTP or full fixture",
+            "protocol parsed response",
+            "cancel/disconnect/replay",
+            "independent state comparison"
+          ],
+          "conclusion": "保留未知输入、reader清理及异步版本/lease仲裁；U11另在UI scope确认，不重复计。"
+        }
+      ],
+      "transversal": [
+        {
+          "category": "F",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        },
+        {
+          "category": "E",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        },
+        {
+          "category": "V",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        },
+        {
+          "category": "S",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        },
+        {
+          "category": "P",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        },
+        {
+          "category": "K",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        },
+        {
+          "category": "L",
+          "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+        }
+      ]
+    }
+  ]
+}

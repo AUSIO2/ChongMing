@@ -1,0 +1,13 @@
+
+> chongming@0.2.0 test:desktop-runtime
+> npm run desktop:prepare && node --import tsx scripts/check-desktop-runtime.ts
+
+
+> chongming@0.2.0 desktop:prepare
+> node scripts/prepare-desktop-runtime.mjs
+
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+
+added 525 packages in 3s
+Desktop runtime ready: darwin arm64 v24.11.1
+Packaged Node + SQLite + DSH, restart and parent disconnect: passed

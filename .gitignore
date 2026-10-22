@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+dist-electron
+release
+.data
+*.local
+.env
+.chongming-host/
+.dsh-runtime/
+*.tsbuildinfo
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.chongming-local/
+
+.desktop-runtime/
+
+# M00 浏览器测试结果只保留本地诊断，不混入源码提交。
+test-results/
+playwright-report/
+
+# Local publishing artifacts and commit-tool credentials stay outside the release repository.
+/output/
+/.aixgit/

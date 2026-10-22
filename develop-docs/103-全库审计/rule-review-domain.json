@@ -1,0 +1,294 @@
+{
+  "reviewer": "domain",
+  "status": "complete",
+  "updatedAt": "2026-10-20T05:57:07.031Z",
+  "candidates": [
+    {
+      "id": "C02:backend/modules/assets/bundle-codec.ts:610:35",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此分支已Array.isArray(value)，index由0..children.length-1循环生成；写数组实际元素，不把任意字符串当普通字典键。"
+    },
+    {
+      "id": "C02:backend/modules/assets/bundle-codec.ts:613:11",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同一value的Object.keys，children来自Object.values，期间只替换值不增删键；payload是完整解析后structuredClone的JSON，现有自有data字段（含自有__proto__）重写不会触发继承setter。"
+    },
+    {
+      "id": "C02:backend/modules/assets/bundle-codec.ts:621:42",
+      "disposition": "retained",
+      "relatedFindings": [
+        "D03"
+      ],
+      "basis": "bundlesRewritePayload仅从已展开实际references选声明再克隆原payload；叶子须已有字符串值才赋值，标准JSON原型继承成员不是字符串。已存在自有字符串字段替换安全；通配具体path缺失的media/遍历问题另由D03处理，不把此写法机械判原型污染。"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-input.ts:42:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "result是新普通对象，key来自未知JSON自有枚举字段，尚无自有数据属性；__proto__对象值赋值触发setter并丢字段，repro-domain D04-json-key已复现。"
+    },
+    {
+      "id": "C07:backend/modules/graph/graph-service.ts:438:89",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D08"
+      ],
+      "basis": "right readonly且同步内不改，每次every都复制排序同一right，排序与index无关；左右各排序一次即可，长度/身份授权检查保留。"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:531:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "leaseId来自本服务randomUUID或既有本服务建立的editor leaseId；公共proof按UUID解析，正常持久化生产者没有原型名key。不是任意外部字段名写对象；损坏存储应在独立存储边界讨论。"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:585:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "控制leaseId为randomUUID或同服务已保存control记录的稳定UUID，写入branchPruneOwnerships用Object.fromEntries构造的自有记录；无合法原型同名键来源。"
+    },
+    {
+      "id": "C05:backend/modules/graph/graph-service.ts:754:47",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "先前695在graph.apply分支，本处在run.start分支，两条命令互斥；stored也是各分支attempt内当前读取值，重试可换新版本。不是同次连续完整parse同一值。"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:782:13",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "startedRun.id来自run.start params.id，HTTP按UUID解析并由Run身份禁复用规则绑定；作为Run占有字典键有明确UUID来源。"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:787:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "controlLeaseId在本分支刚由randomUUID生成，固定安全身份写入占有字典；与schema任意属性名不同。"
+    },
+    {
+      "id": "C02:backend/modules/graph/graph-service.ts:946:39",
+      "disposition": "retained",
+      "relatedFindings": [
+        "D06"
+      ],
+      "basis": "cacheKey为storeCreateInputHash的64位SHA十六进制摘要，不会等于原型键，赋值自身安全；D06确认的缺陷是副作用前未绑定Operation资格，不能混称这里key不安全。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:229:6",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "新result={}按合法端口名聚合，constructor等名字允许且未建自有桶；??=读取原型函数，后续push TypeError，root及domain已复现。"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:229:6",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "默认[]的稀疏端口语义本来必要，但普通对象继承constructor非null导致默认不触发；修自有键/字典所有权，不能直接删除空桶初始化。"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:308:47",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "显式group.members允许省略某端口，空集合应走onEmpty/数量规则；合法constructor端口缺自有成员时取到原型函数，??[]不生效并.map崩溃。与229同根，保留真正缺成员时默认空集合。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:393:32",
+      "disposition": "retained",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "本条赋值仅在prior===undefined执行；__proto__的继承getter返回对象、constructor返回函数，均不进入这一写入，不能单独指控此表达式触发setter。D04投影实证来自391读取继承target并在396写下级字段，函数整体须修。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:396:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "target源于普通output且391可沿继承__proto__取得Object.prototype；此叶子赋值可污染全局原型或叶子__proto__丢字段。真实合法schema和runReadData复现已落D04-projection-key。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:440:43",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:447:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:451:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:455:19",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "inputs/context为groupNodes生成的稀疏普通对象，合法可选空端口可无自有key；constructor端口将读到原型函数并在items.flatMap失败。需自有查找同时保留空端口默认[]；公开启动的其他D04位置可能先失败，但同根修复须覆盖此后续读取。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:461:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "真实definitionReadIdentifier要求变量名首字符字母，__proto__被拒绝；constructor/toString虽合法，但这里普通赋值会建立自有字段，和??桶读取原型不同。440的sourceText由graph.readData Object.fromEntries建立实际绑定，其他来源值也为本次格式化字符串。"
+    },
+    {
+      "id": "C02:backend/modules/graph/run-state.ts:488:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "groupNodes result={}按ref.port聚合；合法constructor端口继承函数被当已建数组，push崩溃。与229同根，非所有动态写都如此。"
+    },
+    {
+      "id": "C03:backend/modules/graph/run-state.ts:488:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "D04"
+      ],
+      "basis": "实际空桶初始化必要，但读取必须按自有字段；constructor非null使??=跳过，不能靠删除默认值修。"
+    },
+    {
+      "id": "C05:backend/modules/workspace/workspace-service.ts:874:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "770属于agent.create/update/delete命令，本处属于agent.copy命令，互斥路径且agents分别为编辑后集合/拷贝合并后集合；均需跨配置唯一性，不是重复检查同值。"
+    },
+    {
+      "id": "C05:backend/modules/workspace/workspace-service.ts:875:15",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "771与本处是互斥管理命令，各自agents不同；controlValidateTools还写settings fence防并发删除工具，有真实副作用，不能只看同源码参数删。"
+    },
+    {
+      "id": "C01:experiments/evidence-library-tests/load-target.ts:22:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E01"
+      ],
+      "basis": "动态工厂结果是真unknown；String将[remote]转换合法remote，assertTarget错误授予标量类型。repro-experiments E01 acceptedArray=true。"
+    },
+    {
+      "id": "C02:experiments/evidence-library-tests/mongo-target.ts:178:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "actor仅遍历owner/editor/viewer/outsider四个内生字面量；没有constructor/__proto__来源。普通actors写入不会触发原型特殊setter。"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/relations-fixture.ts:212:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/relations-preview.ts:63:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。"
+    },
+    {
+      "id": "C03:experiments/evidence-library-tests/stress.ts:97:10",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E06"
+      ],
+      "basis": "私有percentile已先拒空数组，生产仅以0.5/0.95/0.99调用；values来自latenciesMs.push的稠密数组，计算索引严格落在0..n-1。尾部??null不可达，只有前面的无样本return null有真实指标语义。"
+    },
+    {
+      "id": "C02:experiments/evidence-library-tests/stress.ts:226:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E05",
+        "D04"
+      ],
+      "basis": "errors={}按未知target错误code计数；constructor使原型函数+1变string，__proto__计数无自有属性。实际measureRound已复现，合并共同动态字典根因。"
+    },
+    {
+      "id": "C03:experiments/evidence-library-tests/stress.ts:226:32",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E05",
+        "D04"
+      ],
+      "basis": "??0对真正首次错误计数必要，但未限定自有字段，继承成员使0不触发；修字典所有权而非删除初值。"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/ui-fixture.ts:97:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/ui-preview.ts:60:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。"
+    },
+    {
+      "id": "C02:experiments/evidence-library-tests/usage-fixture.ts:107:44",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此fixture无外部Agent输入：先由当前seed默认库复制workspace，再选verifySubAgent，现有调用不改库；promptVars为固定旧kind合法列表。且后续stage变量名必须首字符字母，__proto__不合法，普通constructor赋值可安全建自有属性。"
+    },
+    {
+      "id": "C03:experiments/evidence-library-tests/usage-fixture.ts:178:31",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "stepSelections是真可选helper参数；多数调用省略，文档约定各步均使用refs，budget用例stepCount=6正实际依赖该回落。这里是数字数组索引，和普通对象原型桶不同。"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/usage-fixture.ts:260:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。"
+    },
+    {
+      "id": "C04:experiments/evidence-library-tests/usage-preview.ts:57:5",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "E02"
+      ],
+      "basis": "处于已有主错误的catch，await close若拒绝会跳过后面的throw error而遮盖主错；close本身逐资源清理/令牌rm仍必要，应将原错与清理失败共同保留。实际ui fixture primary start+secondary stop复现不含primary。"
+    },
+    {
+      "id": "C02:tests/backend/modules/graph/source-read-concurrency.spec.ts:75:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "work由真实runCreateRun/workReadItems生成，workId是operationId:stage-slot摘要，含分隔符且本fixture operationId UUID；给唯一有效测试lease赋值不是未知动态字段，也不可删该真实授权准备。"
+    }
+  ],
+  "summary": {
+    "total": 39,
+    "confirmed": 19,
+    "retained": 20,
+    "unresolved": 0
+  },
+  "limits": "按固定39条回读真实上下文及caller/合同；confirmed为候选主题归属，可与已有同根finding合并，不等于39个独立缺陷。受审源码未编辑。"
+}

@@ -1,0 +1,307 @@
+{
+  "scope": "Independent final cross-review of root P03/PM01/PM02/PM05/PTM01",
+  "status": "complete-frozen",
+  "reviewer": "audit_ui",
+  "date": "2026-10-20",
+  "constraints": {
+    "readOnlySources": true,
+    "newReproductionsRun": false,
+    "basis": "实际JSON解码生产链、内部独占普通对象、已解码存储记录及现行必需seed合同；未以任意getter/Proxy或全局原型修改假设扩展结论。"
+  },
+  "items": [
+    {
+      "id": "P03",
+      "verdict": "confirmed",
+      "confidence": "high",
+      "severity": "P3",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 28
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 38
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 44
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 204
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 206
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 209
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 212
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 215
+        }
+      ],
+      "callerEvidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/adapters/http/graph-http-server.ts",
+          "line": 58,
+          "basis": "apiReadBody JSON.parse创建普通JSON记录；715/723/725传到application"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/application/graph-application.ts",
+          "line": 200,
+          "basis": "显式evidence方法分派至evidence.dispatch"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-service.ts",
+          "line": 406,
+          "basis": "readEnvelope后信封为局部所有，requireRole/receipt await不修改params形状；420仅未命中收据后readCommand"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 29,
+          "basis": "params用对象展开创建独立普通对象；readCommand38/44形状重复，新增字段白名单仍必要"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 204,
+          "basis": "同一次for迭代readObject(item)后读JSON kind，206/209/212/215再次形状检查；无await/写操作"
+        }
+      ],
+      "conclusion": "两处属于同一形状与字段白名单职责混合造成的重复机制，可分清未知对象形状与已收窄字段白名单。根记录首站39是return行，实际重复调用在38（withdraw44），建议精确引用。",
+      "retain": [
+        "初次未知值plain-object/array/prototype验证",
+        "新命令字段白名单、unknown kind拒绝和每字段值限制",
+        "信封身份/体积先于收据、业务固定字段只在未命中收据之后解析",
+        "nested claim/ref/time仍首次未知对象解析，不能跟随删除"
+      ]
+    },
+    {
+      "id": "PM01",
+      "verdict": "confirmed-minor",
+      "confidence": "high",
+      "severity": "P4",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 163
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 164
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 135
+        }
+      ],
+      "callerEvidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 41,
+          "basis": "新collect reason经过readReason"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 46,
+          "basis": "withdraw同一理由入口"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 154,
+          "basis": "持久化entry决策理由也复用该固定字段解析"
+        }
+      ],
+      "conclusion": "163对不可变string已确认typeof与trim非空；164 readText的135重复相同判断，136字节上限才是新约束。可局部合并，不扩大到一般readText调用者。",
+      "retain": [
+        "EVIDENCE_REASON_REQUIRED专用错误分类",
+        "原文不trim写回",
+        "TEXT_BYTES=65536及413 EVIDENCE_INPUT_LIMIT"
+      ]
+    },
+    {
+      "id": "PM02",
+      "verdict": "confirmed-minor",
+      "confidence": "high",
+      "severity": "P4",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 154
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 158
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 37
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 39
+        }
+      ],
+      "callerEvidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 60,
+          "basis": "未知存储entry经过readEntry"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 101,
+          "basis": "withdraw收据中的未知entry仍完整解析"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 106,
+          "basis": "collect收据entry仍完整解析"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-record.ts",
+          "line": 154,
+          "basis": "readEntry自身构造字面method:evidence.collect，readEnvelope原样保留，readCommand固定进入collect返回同method，无共享可变输入"
+        }
+      ],
+      "conclusion": "parsed.method非collect分支不可达；宽联合返回类型导致防御。可用准确分支输入输出合同承接，不能简单as/非空断言或删整个unknown storage parser。",
+      "retain": [
+        "完整collect字段解析和异常映射invalidRecord",
+        "node/type/origin精确一致性、状态组合、UUID/时间/digest验证",
+        "持久化entry摘要重算及receipt关联"
+      ]
+    },
+    {
+      "id": "PM05",
+      "verdict": "confirmed-minor",
+      "confidence": "high",
+      "severity": "P4",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 185
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 186
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 276
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 277
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 278
+        }
+      ],
+      "callerEvidence": [
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/evidence-library/evidence-input.ts",
+          "line": 185,
+          "basis": "from/to已是readText返回的不可变string；同if先parse判finite，再parse比顺序"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 784,
+          "basis": "HTTP响应由JSON.parse解码，无getter/Proxy；clientAssertEvidenceEntry中scope.time两个string同一同步条件前后未修改"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 276,
+          "basis": "首次Date.parse(from) NaN检查"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 277,
+          "basis": "首次Date.parse(to) NaN检查"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/client/graph-client.ts",
+          "line": 278,
+          "basis": "重复同值parse用于from<=to比较"
+        }
+      ],
+      "conclusion": "每端各转换一次复用即可。仅局部重复转换，严格保留非空/类型、可解析性和范围顺序，统一root PM05不归U05或新增UI问题组。",
+      "retain": [
+        "string原值",
+        "无效时间拒绝",
+        "from<=to",
+        "time:null合法未知范围"
+      ]
+    },
+    {
+      "id": "PTM01",
+      "verdict": "confirmed-test-minor",
+      "confidence": "high",
+      "severity": "P4",
+      "sites": [
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 281
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 287
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 288
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+          "line": 13
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+          "line": 14
+        }
+      ],
+      "callerEvidence": [
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/verification.ts",
+          "line": 11,
+          "basis": "返回类型WorkspaceSeedInput"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/verification.ts",
+          "line": 28,
+          "basis": "无条件提供parse"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/verification.ts",
+          "line": 29,
+          "basis": "无条件提供完整split"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/tests/backend/fixtures/graph-api.ts",
+          "line": 303,
+          "basis": "createRun的configuration缺省由verificationConfiguration完整构造；306同对象传createWorkspace"
+        },
+        {
+          "file": "/Users/xiong/ChongMing/backend/modules/workspace/seed-configuration.ts",
+          "line": 32,
+          "basis": "真正unknown输入仍在seedReadInput拒缺parse/split，边界需保留"
+        }
+      ],
+      "conclusion": "helper只受现行WorkspaceSeedInput必需合同和完整fixture调用；parse/split条件展开兼容已退役缺省形态，可直接装配两者。没有将profile真实可选promptVars/defaultPriority/claimCategory默认判冗余，也不延伸到未知seed边界。",
+      "retain": [
+        "seedReadInput unknown完整校验",
+        "profile真实optional字段默认",
+        "显式坏seed测试仍应走真实unknown parser"
+      ]
+    }
+  ],
+  "summary": "5项均确认，P03为重复形状机制，其余4项为低影响局部/测试小项；未发现需要改变root结论的额外边界。",
+  "sourceFilesModified": false
+}

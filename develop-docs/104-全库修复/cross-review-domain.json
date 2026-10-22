@@ -1,0 +1,68 @@
+{
+  "reviewer": "domain",
+  "baseline": "104 workspace.tar.gz",
+  "status": "reviewed",
+  "root": {
+    "files": [
+      "backend/modules/evidence-library/evidence-input.ts",
+      "backend/modules/evidence-library/evidence-service.ts",
+      "backend/modules/evidence-library/evidence-record.ts",
+      "backend/modules/evidence-library/evidence-relations.ts",
+      "tests/backend/fixtures/graph-api.ts",
+      "scripts/check-desktop-runtime.ts"
+    ],
+    "conclusion": "未发现误删未知或持久化输入边界、越过事务缓存、具体指针路径或资源归属回归。",
+    "checks": [
+      "sourceMaps只由collect在同事务建立，所有私有调用传同一Map；原optional死分支可删。",
+      "freezeNode复用同次已复制的definition/payload；metadata独立复制；GraphError仍映射为claim/basis领域错误。",
+      "具体引用路径保持转义、数组下标和字典语义；持久化稳定声明路径索引不变；parent不进入证据存储。",
+      "参数和basis分支仅去重复形状，字段白名单、UUID、理由专用错误、UTF8大小、时间范围仍保留。",
+      "fixture取得资源后登记清理，逆序清理不会在共享代理关闭之后删除命名空间；借用代理仍由套件所有。",
+      "desktop多项清理独立执行，环境、HTTP、目录继续释放；原始和次级失败保留。"
+    ],
+    "requestedChanges": [
+      {
+        "file": "scripts/check-desktop-runtime.ts",
+        "issue": "restartFailures只有一个错误时不需要AggregateError再包一层。",
+        "resolution": "root已修正为单错原样抛出，多错聚合。"
+      }
+    ]
+  },
+  "ui": {
+    "status": "reviewed",
+    "files": [
+      "apps/ui/state/client-session.ts",
+      "apps/ui/features/graph/DataPayloadEditor.vue",
+      "apps/ui/features/graph/data-payload.ts",
+      "apps/ui/composables/useMouseResize.ts",
+      "apps/ui/composables/usePanelResize.ts",
+      "apps/ui/composables/useBottomDockResize.ts",
+      "apps/ui/components/shell/ResizableSplit.vue",
+      "apps/ui/components/shell/ResizableRowSplit.vue"
+    ],
+    "testsRead": [
+      "tests/client/session.spec.ts",
+      "tests/browser/ui-boundaries.spec.ts",
+      "tests/browser/fixtures/ui-boundaries.html"
+    ],
+    "conclusion": "未发现实质行为或过度防御回归。",
+    "checks": [
+      "RunControlClaimIntent独占busy，完成旧意图不结束新意图；view/session/runSelectionEpoch共同隔离迟到响应。",
+      "同Run迟到ack在新意图结果明确前等待；当前相同lease/holder/fence不误释放；在途已发release先等待，未知结果换holder防晚提交撤销后来复用授权。",
+      "selectedRunControl是shallowRef，因此按对象identity核对续租响应不会被Vue深代理破坏；晚续租不能复活已替换的同字段grant。",
+      "最新selectRun在await释放前同步交接选择；已读A→B→A及A→B→C释放在途的两个新回归。",
+      "enum以索引作为DOM身份，提交原JsonValue；深比较保留标量类型、数组顺序及对象键序无关语义，消除String碰撞。",
+      "resize窗口监听由同一个scope owner安装及移除；新拖动和卸载只取消，正常mouseup才保存；两个Split不再持有第二份窗口监听。",
+      "必要的合法可选值默认与UI生命周期取消/释放错误隔离保留；没有为同一字段新增unknown解析或通用缓存。"
+    ],
+    "minorNotes": [
+      {
+        "files": [
+          "apps/ui/components/shell/ResizableSplit.vue",
+          "apps/ui/components/shell/ResizableRowSplit.vue"
+        ],
+        "note": "首行说明仍写管理文本选择，实际已交父composable；已请UI顺手更新，无行为影响。"
+      }
+    ]
+  }
+}

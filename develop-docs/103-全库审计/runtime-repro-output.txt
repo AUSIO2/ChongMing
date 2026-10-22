@@ -1,0 +1,62 @@
+{
+  "case": "actual-http-envelope-visits",
+  "visits": [
+    {
+      "method": "app.bootstrap",
+      "count": 1
+    },
+    {
+      "method": "app.bootstrap",
+      "count": 2
+    },
+    {
+      "method": "evidence.get",
+      "count": 1
+    },
+    {
+      "method": "evidence.get",
+      "count": 2
+    },
+    {
+      "method": "workspace.create",
+      "count": 1
+    },
+    {
+      "method": "workspace.create",
+      "count": 2
+    },
+    {
+      "method": "asset.delete",
+      "count": 1
+    },
+    {
+      "method": "asset.delete",
+      "count": 2
+    },
+    {
+      "method": "map.rename",
+      "count": 1
+    }
+  ]
+}
+{
+  "case": "invalid-utf8-http-command",
+  "sentByte": 255,
+  "status": 200,
+  "decodedName": "�",
+  "applicationReceived": "�"
+}
+{
+  "case": "invalid-utf8-diagnostic-prompt",
+  "status": 200,
+  "response": "{\"type\":\"result\",\"result\":{\"sessionId\":\"audit\",\"finalResponse\":\"�\",\"events\":[]}}\n"
+}
+{"case":"abort-reason-domain","aborted":true,"reasonIsNull":false,"reasonIsUndefined":false}
+{"case":"abort-reason-domain","input":null,"aborted":true,"reasonIsNull":true,"reasonIsUndefined":false}
+{"case":"abort-reason-domain","input":0,"aborted":true,"reasonIsNull":false,"reasonIsUndefined":false}
+{"case":"abort-reason-domain","input":"","aborted":true,"reasonIsNull":false,"reasonIsUndefined":false}
+{"case":"abort-reason-domain","input":false,"aborted":true,"reasonIsNull":false,"reasonIsUndefined":false}
+{"case":"migration-same-reportIds-array-checks","status":"migrate","sameReportArrayChecks":3,"sourceUnchanged":true}
+{"case":"migration-producer-dictionary","id":"ordinary-node","status":"migrate","sourceProducer":{"operationId":"legacy-operation","marker":"must-retain"},"migratedProducer":{"kind":"generic-data-v4","migratedAt":"2026-10-01T00:00:00.000Z","legacyReportIds":{},"legacyProducers":{"ordinary-node":{"operationId":"legacy-operation","marker":"must-retain"}}}}
+{"case":"migration-producer-dictionary","id":"__proto__","status":"migrate","sourceProducer":{"operationId":"legacy-operation","marker":"must-retain"},"migratedProducer":{"kind":"generic-data-v4","migratedAt":"2026-10-01T00:00:00.000Z","legacyReportIds":{}}}
+{"case":"invalid-utf8-local-settings","configuration":{"settings":{"dshHome":"�"},"secrets":{}}}

@@ -1,0 +1,91 @@
+// 图 API 服务入口：协调 Mongo、消息服务与 HTTP 的启动、故障退出和资源回收。
+import { RuntimeMessage } from '../../contracts/messages'
+import { accountReadMailEnvironment } from '../../backend/adapters/email/smtp-account-mailer'
+import { modelLoadSecretCodec } from '../../backend/adapters/identity/model-secrets'
+import path from 'node:path'
+import { apiCreateServer } from '../../backend/adapters/http/graph-http-server'
+import { applicationCreateService } from './application'
+import { storeCreateConnection } from '../../backend/adapters/storage/mongo/connection'
+import { localReadConfiguration } from '../config/local-settings'
+import { diagnosticCreateReporter } from '../../platform/node/diagnostics'
+import { processRunClose, processRunEntry } from '../../platform/node/process-boundary'
+
+const port = Number(process.env.CHONGMING_GRAPH_PORT ?? '4320')
+const leaseMs = Number(process.env.CHONGMING_LEASE_MS ?? '15000')
+
+if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+  throw new Error(RuntimeMessage.CHONGMING_GRAPH_PORT_MUST_BE_AN_INTEGER_FROM_1_TO_65535)
+}
+
+const reporter = diagnosticCreateReporter({ component: 'graph-api' })
+
+async function apiStartProcess(): Promise<() => Promise<void>> {
+  // 读取部署配置并依次启动持久化应用、消息服务与 HTTP，返回共享关闭操作。
+  const local = await localReadConfiguration()
+  const accountOptions = accountReadMailEnvironment(process.env)
+  const modelSecrets = await modelLoadSecretCodec(path.resolve(process.env.CHONGMING_CONFIG_DIR ?? '.chongming-host'))
+  const uri = process.env.CHONGMING_MONGO_URI ?? local.settings.mongoUri ?? 'mongodb://127.0.0.1:27017/chongming_graph'
+  const amqpUrl = process.env.CHONGMING_AMQP_URL ?? local.secrets.CHONGMING_AMQP_URL
+  if (!amqpUrl) throw new Error(RuntimeMessage.CONFIGURE_CHONGMING_AMQP_URL_BEFORE_STARTING_THE_GRAPH_API)
+  const connection = await storeCreateConnection(uri)
+  let application: ReturnType<typeof applicationCreateService>
+  try {
+    application = applicationCreateService(connection, { leaseMs, ...accountOptions, modelSecrets,
+      messaging: { url: amqpUrl, namespace: process.env.CHONGMING_QUEUE_NAMESPACE ?? 'chongming' }, reporter,
+    })
+    await application.initialize()
+  } catch (error) {
+    try { await connection.close() }
+    catch (cleanupError) {
+      // 启动主错仍交给入口诊断；数据库清理是独立的实际失败。
+      reporter.report({ name: 'startup.connection.close.failed', severity: 'error', error: cleanupError })
+    }
+    throw error
+  }
+  const server = apiCreateServer(application, { internalToken: process.env.CHONGMING_DATA_TOKEN ?? local.secrets.CHONGMING_DATA_TOKEN, reporter })
+  try {
+    await application.startMessaging()
+    await new Promise<void>((resolve, reject) => {
+      // 等待 HTTP 绑定本机端口，监听失败时拒绝启动。
+      server.once('error', reject)
+      server.listen(port, '127.0.0.1', () => {
+        // 绑定成功后移除启动错误监听并完成启动等待。
+         server.removeListener('error', reject); resolve() })
+    })
+  } catch (error) {
+    server.closeAllConnections()
+    await processRunClose({ reporter, timeoutMs: 5000, close: async () => {
+      // 启动失败时并行尝试关闭消息服务和数据库，收集双方的结束结果。
+      const results = await Promise.allSettled([application.closeMessaging(), connection.close()])
+      const errors = results.flatMap((/* 本次资源清理结果。 */ result) => /* 保留每个实际清理失败供诊断。 */ result.status === 'rejected' ? [result.reason] : [])
+      for (const error of errors) reporter.report({ name: 'startup.resource.close.failed', severity: 'error', error })
+      if (errors.length) throw new AggregateError(errors, RuntimeMessage.RESOURCE_CLEANUP_FAILED)
+    } })
+    throw error
+  }
+  console.log(`Graph API listening at http://127.0.0.1:${port}`)
+  let closing: Promise<void> | undefined
+  const closeProcess = () => /* 重复关闭请求共享同一个服务收尾过程。 */  closing ??= (async () => {
+    // 停止接收业务并关闭连接，待 HTTP 与消息服务收尾后关闭数据库，再传播清理错误。
+    server.beginShutdown()
+    server.closeAllConnections()
+    const results = await Promise.allSettled([
+      new Promise<void>((resolve, reject) => /* 将 HTTP 服务关闭回调转为可等待的 Promise。 */  server.close(error => /* HTTP 关闭失败时拒绝等待，否则确认关闭完成。 */  error ? reject(error) : resolve())),
+      application.closeMessaging(),
+    ])
+    const errors = results.flatMap((/* HTTP 或消息的关闭结果。 */ result) => /* 保留所有结束失败。 */ result.status === 'rejected' ? [result.reason] : [])
+    try { await connection.close() } catch (error) { errors.push(error) }
+    for (const error of errors) reporter.report({ name: 'shutdown.resource.close.failed', severity: 'error', error })
+    if (errors.length) throw new AggregateError(errors, RuntimeMessage.RESOURCE_CLEANUP_FAILED)
+  })()
+  void application.messagingFinished().then(error => {
+    // 消息服务异常终止时报告致命故障并关闭 API，防止继续接受无法派发的工作。
+    if (error === undefined || closing) return
+    reporter.report({ name: 'messaging.terminated', severity: 'fatal', error })
+    void closeProcess().finally(() => /* 消息终止触发的清理结束后以失败码退出。 */  process.exit(1))
+  }).catch(error => {
+    // 监控处理本身异常时记录致命故障并退出。
+     reporter.report({ name: 'messaging.monitor.failed', severity: 'fatal', error }); process.exit(1) })
+  return closeProcess
+}
+processRunEntry({ component: 'graph-api', reporter, start: apiStartProcess })

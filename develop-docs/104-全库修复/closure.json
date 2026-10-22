@@ -1,0 +1,1888 @@
+{
+  "status": "complete",
+  "themes": 50,
+  "behaviorThemes": 14,
+  "rawRecords": 60,
+  "missingRawRecords": [],
+  "groups": [
+    {
+      "id": "G01",
+      "kind": "behavior",
+      "title": "动态字典没有按自有字段读写，导致合法同名键丢失、类型失配或原型污染",
+      "status": "fixed",
+      "rawIds": [
+        "P01",
+        "D04",
+        "R05",
+        "U10",
+        "U13",
+        "E05"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/shared/data-definition.ts",
+          "line": 343
+        },
+        {
+          "file": "backend/modules/shared/data-definition.ts",
+          "line": 1276
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 229
+        },
+        {
+          "file": "backend/modules/shared/data-definition.ts",
+          "line": 337
+        },
+        {
+          "file": "backend/modules/shared/data-definition.ts",
+          "line": 344
+        },
+        {
+          "file": "backend/modules/graph/graph-input.ts",
+          "line": 39
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 488
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 383
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 308
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 375
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 377
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 398
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 462
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 174
+        },
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 149
+        },
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 153
+        },
+        {
+          "file": "apps/ui/features/assets/AssetManagement.vue",
+          "line": 157
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 50
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 243
+        },
+        {
+          "file": "apps/ui/features/graph/data-payload.ts",
+          "line": 109
+        },
+        {
+          "file": "apps/ui/features/reader/reader-content.ts",
+          "line": 133
+        },
+        {
+          "file": "apps/ui/features/agents/AgentManagement.vue",
+          "line": 303
+        },
+        {
+          "file": "experiments/evidence-library-tests/stress.ts",
+          "line": 226
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "P01",
+          "part": null
+        },
+        {
+          "file": "domain-result.json",
+          "rawId": "D04",
+          "part": null
+        },
+        {
+          "file": "runtime-result.json",
+          "rawId": "R05",
+          "part": null
+        },
+        {
+          "file": "ui-result.json",
+          "rawId": "U10",
+          "part": null
+        },
+        {
+          "file": "ui-result.json",
+          "rawId": "U13",
+          "part": null
+        },
+        {
+          "file": "runtime-result.json",
+          "rawId": "E05",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/agents/AgentManagement.vue",
+        "apps/ui/features/assets/AssetManagement.vue",
+        "apps/ui/features/graph/DataPayloadEditor.vue",
+        "apps/ui/features/graph/data-payload.ts",
+        "apps/ui/features/reader/reader-content.ts",
+        "apps/ui/state/client-session.ts",
+        "backend/adapters/storage/branch-migration.ts",
+        "backend/modules/graph/graph-input.ts",
+        "backend/modules/graph/run-state.ts",
+        "backend/modules/shared/data-definition.ts",
+        "experiments/evidence-library-tests/stress.ts",
+        "tests/browser/fixtures/ui-boundaries.html",
+        "tests/browser/ui-boundaries.spec.ts",
+        "tests/client/data-payload.spec.ts",
+        "tests/client/reader-sources.spec.ts"
+      ]
+    },
+    {
+      "id": "G02",
+      "kind": "behavior",
+      "title": "次生清理失败覆盖主错误；部分路径还跳过后续清理",
+      "status": "fixed",
+      "rawIds": [
+        "P05",
+        "U11",
+        "R07",
+        "E02"
+      ],
+      "originalSites": [
+        {
+          "file": "scripts/check-desktop-runtime.ts",
+          "line": 121
+        },
+        {
+          "file": "tests/backend/fixtures/rabbitmq.ts",
+          "line": 95
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 1020
+        },
+        {
+          "file": "apps/graph-server/main.ts",
+          "line": 32
+        },
+        {
+          "file": "apps/local-server/runtime.ts",
+          "line": 102
+        },
+        {
+          "file": "tests/browser/workspace-recovery.spec.ts",
+          "line": 66
+        },
+        {
+          "file": "experiments/evidence-library-tests/ui-fixture.ts",
+          "line": 97
+        },
+        {
+          "file": "experiments/evidence-library-tests/relations-fixture.ts",
+          "line": 212
+        },
+        {
+          "file": "experiments/evidence-library-tests/usage-fixture.ts",
+          "line": 260
+        },
+        {
+          "file": "experiments/evidence-library-tests/ui-preview.ts",
+          "line": 60
+        },
+        {
+          "file": "experiments/evidence-library-tests/relations-preview.ts",
+          "line": 63
+        },
+        {
+          "file": "experiments/evidence-library-tests/usage-preview.ts",
+          "line": 57
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "P05",
+          "part": null
+        },
+        {
+          "file": "ui-result.json",
+          "rawId": "U11",
+          "part": "public-client-SSE"
+        },
+        {
+          "file": "runtime-result.json",
+          "rawId": "R07",
+          "part": null
+        },
+        {
+          "file": "root-result.json",
+          "rawId": "R07",
+          "part": "browser-recovery"
+        },
+        {
+          "file": "runtime-result.json",
+          "rawId": "E02",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/graph-server/main.ts",
+        "apps/local-server/runtime.ts",
+        "client/graph-client.ts",
+        "experiments/evidence-library-tests/relations-fixture.ts",
+        "experiments/evidence-library-tests/relations-preview.ts",
+        "experiments/evidence-library-tests/ui-fixture.ts",
+        "experiments/evidence-library-tests/ui-preview.ts",
+        "experiments/evidence-library-tests/usage-fixture.ts",
+        "experiments/evidence-library-tests/usage-preview.ts",
+        "scripts/check-desktop-runtime.ts",
+        "tests/apps/desktop/runtime-check.spec.ts",
+        "tests/browser/workspace-recovery.spec.ts",
+        "tests/client/graph-client.spec.ts"
+      ]
+    },
+    {
+      "id": "G03",
+      "kind": "behavior",
+      "title": "取得资源后初始化清理责任建立过晚，中途失败遗留自有资源",
+      "status": "fixed",
+      "rawIds": [
+        "PT01",
+        "E03"
+      ],
+      "originalSites": [
+        {
+          "file": "tests/backend/fixtures/graph-api.ts",
+          "line": 70
+        },
+        {
+          "file": "experiments/evidence-library-tests/ui-preview.ts",
+          "line": 15
+        },
+        {
+          "file": "experiments/evidence-library-tests/relations-preview.ts",
+          "line": 11
+        },
+        {
+          "file": "experiments/evidence-library-tests/usage-preview.ts",
+          "line": 12
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "PT01",
+          "part": null
+        },
+        {
+          "file": "runtime-result.json",
+          "rawId": "E03",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "experiments/evidence-library-tests/relations-preview.ts",
+        "experiments/evidence-library-tests/ui-preview.ts",
+        "experiments/evidence-library-tests/usage-preview.ts",
+        "tests/backend/fixtures/graph-api.spec.ts",
+        "tests/backend/fixtures/graph-api.ts"
+      ]
+    },
+    {
+      "id": "G04",
+      "kind": "minor",
+      "title": "私有分位数 helper 在已保证非空/有效分位的分支保留不可达回落",
+      "status": "fixed",
+      "rawIds": [
+        "B02",
+        "E06"
+      ],
+      "originalSites": [
+        {
+          "file": "tests/browser/workspace-performance.spec.ts",
+          "line": 99
+        },
+        {
+          "file": "experiments/evidence-library-tests/stress.ts",
+          "line": 97
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "B02",
+          "part": null
+        },
+        {
+          "file": "runtime-result.json",
+          "rawId": "E06",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "experiments/evidence-library-tests/stress.ts",
+        "tests/browser/workspace-performance.spec.ts"
+      ]
+    },
+    {
+      "id": "G05",
+      "kind": "behavior",
+      "title": "恢复夹具误把Vite port:0当随机口，实际回退固定5173且strictPort失败",
+      "status": "fixed",
+      "rawIds": [
+        "B01"
+      ],
+      "originalSites": [
+        {
+          "file": "tests/browser/workspace-recovery-fixture.ts",
+          "line": 271
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "B01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "tests/browser/workspace-recovery-fixture.ts"
+      ]
+    },
+    {
+      "id": "G06",
+      "kind": "redundancy",
+      "title": "asset.delete对每张图重编同一事务目录",
+      "status": "fixed",
+      "rawIds": [
+        "D01"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/assets/asset-service.ts",
+          "line": 513
+        },
+        {
+          "file": "backend/modules/assets/asset-service.ts",
+          "line": 301
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/assets/asset-service.ts"
+      ]
+    },
+    {
+      "id": "G07",
+      "kind": "redundancy",
+      "title": "同次自动发布重复完整解析候选及双扫描candidate哨兵",
+      "status": "fixed",
+      "rawIds": [
+        "D02"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 602
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 802
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 579
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 598
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D02",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/graph/run-state.ts"
+      ]
+    },
+    {
+      "id": "G08",
+      "kind": "behavior",
+      "title": "已展开引用未保留具体path，通配资产媒体约束被省略",
+      "status": "fixed",
+      "rawIds": [
+        "D03"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/assets/asset-service.ts",
+          "line": 284
+        },
+        {
+          "file": "backend/modules/assets/bundle-codec.ts",
+          "line": 377
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D03",
+          "part": null
+        },
+        {
+          "file": "root-result.json",
+          "rawId": "D03",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/assets/asset-service.ts",
+        "backend/modules/assets/bundle-codec.ts",
+        "backend/modules/evidence-library/evidence-relations.ts",
+        "backend/modules/shared/data-definition.ts"
+      ]
+    },
+    {
+      "id": "G09",
+      "kind": "minor",
+      "title": "确定rest形状又做通用对象白名单检查",
+      "status": "fixed",
+      "rawIds": [
+        "D05"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/workspace/seed-configuration.ts",
+          "line": 61
+        },
+        {
+          "file": "backend/modules/workspace/seed-configuration.ts",
+          "line": 63
+        },
+        {
+          "file": "backend/modules/assets/bundle-codec.ts",
+          "line": 131
+        },
+        {
+          "file": "backend/modules/assets/bundle-codec.ts",
+          "line": 134
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D05",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/assets/bundle-codec.ts",
+        "backend/modules/workspace/seed-configuration.ts",
+        "backend/modules/workspace/workspace-input.ts"
+      ]
+    },
+    {
+      "id": "G10",
+      "kind": "behavior",
+      "title": "data_read未先绑定Operation，拒绝前已读取并提交另一Operation外部来源",
+      "status": "fixed",
+      "rawIds": [
+        "D06"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/graph/graph-service.ts",
+          "line": 928
+        },
+        {
+          "file": "backend/modules/graph/graph-service.ts",
+          "line": 942
+        },
+        {
+          "file": "backend/modules/graph/graph-service.ts",
+          "line": 953
+        },
+        {
+          "file": "backend/modules/graph/graph-service.ts",
+          "line": 964
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 623
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D06",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/graph/graph-service.ts",
+        "backend/modules/graph/run-state.ts"
+      ]
+    },
+    {
+      "id": "G11",
+      "kind": "redundancy",
+      "title": "内嵌附件丢弃已验bytes后再解码和完整哈希",
+      "status": "fixed",
+      "rawIds": [
+        "D07"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/assets/bundle-codec.ts",
+          "line": 335
+        },
+        {
+          "file": "backend/modules/assets/bundle-codec.ts",
+          "line": 337
+        },
+        {
+          "file": "backend/modules/assets/asset-service.ts",
+          "line": 622
+        },
+        {
+          "file": "backend/modules/assets/asset-service.ts",
+          "line": 131
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D07",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/assets/asset-service.ts",
+        "backend/modules/assets/bundle-codec.ts"
+      ]
+    },
+    {
+      "id": "G12",
+      "kind": "minor",
+      "title": "graphSameRoots每个元素重新排序同一right集合",
+      "status": "fixed",
+      "rawIds": [
+        "D08"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/graph/graph-service.ts",
+          "line": 438
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D08",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/graph/graph-service.ts"
+      ]
+    },
+    {
+      "id": "G13",
+      "kind": "redundancy",
+      "title": "pause/resume对同Run每个Operation重复计算相同branch证明",
+      "status": "fixed",
+      "rawIds": [
+        "D10"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 1046
+        },
+        {
+          "file": "backend/modules/graph/run-state.ts",
+          "line": 108
+        }
+      ],
+      "records": [
+        {
+          "file": "domain-result.json",
+          "rawId": "D10",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/graph/run-state.ts"
+      ]
+    },
+    {
+      "id": "G14",
+      "kind": "behavior",
+      "title": "动态工厂executionModel先String导致数组被接受",
+      "status": "fixed",
+      "rawIds": [
+        "E01"
+      ],
+      "originalSites": [
+        {
+          "file": "experiments/evidence-library-tests/load-target.ts",
+          "line": 22
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "E01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "experiments/evidence-library-tests/load-target.ts"
+      ]
+    },
+    {
+      "id": "G15",
+      "kind": "redundancy",
+      "title": "隔离当前应用fixture仍猜测退役Opinion evidenceIds形状",
+      "status": "fixed",
+      "rawIds": [
+        "E04"
+      ],
+      "originalSites": [
+        {
+          "file": "experiments/evidence-library-tests/relations-fixture.ts",
+          "line": 141
+        },
+        {
+          "file": "experiments/evidence-library-tests/usage-fixture.ts",
+          "line": 226
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "E04",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "experiments/evidence-library-tests/relations-fixture.ts",
+        "experiments/evidence-library-tests/usage-fixture.ts"
+      ]
+    },
+    {
+      "id": "G16",
+      "kind": "behavior",
+      "title": "空字符串未知字段绕过固定白名单",
+      "status": "fixed",
+      "rawIds": [
+        "P02"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/shared/input-validation.ts",
+          "line": 15
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "P02",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/shared/input-validation.ts",
+        "tests/backend/modules/shared/input-validation.spec.ts"
+      ]
+    },
+    {
+      "id": "G17",
+      "kind": "redundancy",
+      "title": "证据输入对刚收窄的对象重复校验形状",
+      "status": "fixed",
+      "rawIds": [
+        "P03"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-input.ts",
+          "line": 39
+        },
+        {
+          "file": "backend/modules/evidence-library/evidence-input.ts",
+          "line": 203
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "P03",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-input.ts",
+        "tests/backend/modules/evidence-library/evidence-input.spec.ts"
+      ]
+    },
+    {
+      "id": "G18",
+      "kind": "redundancy",
+      "title": "证据冻结丢弃同次完整parse的正文/定义，再复制原值",
+      "status": "fixed",
+      "rawIds": [
+        "P04"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-service.ts",
+          "line": 133
+        },
+        {
+          "file": "backend/modules/evidence-library/evidence-service.ts",
+          "line": 143
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "P04",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-service.ts",
+        "backend/modules/shared/data-definition.ts"
+      ]
+    },
+    {
+      "id": "G19",
+      "kind": "minor",
+      "title": "理由非空检查后再次readText重复相同条件",
+      "status": "fixed",
+      "rawIds": [
+        "PM01"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-input.ts",
+          "line": 163
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "PM01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-input.ts"
+      ]
+    },
+    {
+      "id": "G20",
+      "kind": "minor",
+      "title": "固定collect解析后防御返回其他方法",
+      "status": "fixed",
+      "rawIds": [
+        "PM02"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-record.ts",
+          "line": 158
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "PM02",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-input.ts",
+        "backend/modules/evidence-library/evidence-record.ts"
+      ]
+    },
+    {
+      "id": "G21",
+      "kind": "minor",
+      "title": "私有来源缓存始终传入却声明可选",
+      "status": "fixed",
+      "rawIds": [
+        "PM03"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-service.ts",
+          "line": 118
+        },
+        {
+          "file": "backend/modules/evidence-library/evidence-service.ts",
+          "line": 153
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "PM03",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-service.ts"
+      ]
+    },
+    {
+      "id": "G22",
+      "kind": "minor",
+      "title": "关系固定路径先查自有键再枚举查同一键",
+      "status": "fixed",
+      "rawIds": [
+        "PM04"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-record.ts",
+          "line": 290
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "PM04",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-record.ts"
+      ]
+    },
+    {
+      "id": "G23",
+      "kind": "minor",
+      "title": "同一时间范围条件重复解析不变的from/to字符串",
+      "status": "fixed",
+      "rawIds": [
+        "PM05"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/modules/evidence-library/evidence-input.ts",
+          "line": 186
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 278
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "PM05",
+          "part": "client"
+        },
+        {
+          "file": "root-result.json",
+          "rawId": "PM05",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/modules/evidence-library/evidence-input.ts",
+        "client/graph-client.ts"
+      ]
+    },
+    {
+      "id": "G24",
+      "kind": "minor",
+      "title": "测试工作区装配仍兼容缺失parse/split种子",
+      "status": "fixed",
+      "rawIds": [
+        "PTM01"
+      ],
+      "originalSites": [
+        {
+          "file": "tests/backend/fixtures/graph-api.ts",
+          "line": 287
+        }
+      ],
+      "records": [
+        {
+          "file": "root-result.json",
+          "rawId": "PTM01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "tests/backend/fixtures/graph-api.ts"
+      ]
+    },
+    {
+      "id": "G25",
+      "kind": "redundancy",
+      "title": "Host 对同一续租响应完整校验后又逐字段相等比较，并丢弃新冻结副本",
+      "status": "fixed",
+      "rawIds": [
+        "R01"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/execution/host-worker.ts",
+          "line": 217
+        },
+        {
+          "file": "backend/execution/host-worker.ts",
+          "line": 163
+        },
+        {
+          "file": "backend/execution/host-worker.ts",
+          "line": 219
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "R01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/execution/host-worker.ts"
+      ]
+    },
+    {
+      "id": "G26",
+      "kind": "redundancy",
+      "title": "HTTP 路由预解析后委托解析器重复检查同一同步信封",
+      "status": "fixed",
+      "rawIds": [
+        "R02"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 148
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 150
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 186
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 264
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 267
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 408
+        },
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 409
+        },
+        {
+          "file": "backend/modules/workspace/workspace-input.ts",
+          "line": 142
+        },
+        {
+          "file": "backend/modules/workspace/workspace-input.ts",
+          "line": 178
+        },
+        {
+          "file": "backend/modules/assets/asset-service.ts",
+          "line": 92
+        },
+        {
+          "file": "backend/modules/evidence-library/evidence-input.ts",
+          "line": 55
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "R02",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/adapters/http/graph-http-server.ts",
+        "backend/modules/evidence-library/evidence-input.ts",
+        "backend/modules/shared/input-validation.ts"
+      ]
+    },
+    {
+      "id": "G27",
+      "kind": "behavior",
+      "title": "运行端 JSON 字节边界静默替换非法 UTF-8 后继续处理",
+      "status": "fixed",
+      "rawIds": [
+        "R03"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/adapters/http/graph-http-server.ts",
+          "line": 58
+        },
+        {
+          "file": "backend/adapters/http/dsh-diagnostic-server.ts",
+          "line": 33
+        },
+        {
+          "file": "apps/config/local-settings.ts",
+          "line": 23
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "R03",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/cli/main.ts",
+        "apps/config/local-settings.ts",
+        "apps/desktop/connection-manager.ts",
+        "apps/desktop/credential-store.ts",
+        "apps/graph-server/admin.ts",
+        "backend/adapters/http/dsh-diagnostic-server.ts",
+        "backend/adapters/http/graph-http-server.ts",
+        "backend/adapters/messaging/rabbitmq.ts",
+        "backend/execution/dsh/dsh-business-plugin.mjs",
+        "backend/execution/dsh/runtime.ts",
+        "backend/execution/dsh/work-executor.ts",
+        "backend/execution/host-worker.ts"
+      ]
+    },
+    {
+      "id": "G28",
+      "kind": "redundancy",
+      "title": "同一纯迁移计划中反复验证 verification 的 score/reportIds",
+      "status": "fixed",
+      "rawIds": [
+        "R04"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 221
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 364
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 381
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 386
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 388
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 444
+        },
+        {
+          "file": "backend/adapters/storage/branch-migration.ts",
+          "line": 417
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "R04",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/adapters/storage/branch-migration.ts"
+      ]
+    },
+    {
+      "id": "G29",
+      "kind": "behavior",
+      "title": "Host初次授权将真值数字当作必填字符串交给执行器",
+      "status": "fixed",
+      "rawIds": [
+        "R06"
+      ],
+      "originalSites": [
+        {
+          "file": "backend/execution/host-worker.ts",
+          "line": 165
+        },
+        {
+          "file": "backend/execution/host-worker.ts",
+          "line": 240
+        },
+        {
+          "file": "backend/execution/dsh/work-executor.ts",
+          "line": 128
+        }
+      ],
+      "records": [
+        {
+          "file": "runtime-result.json",
+          "rawId": "R06",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "backend/execution/host-worker.ts"
+      ]
+    },
+    {
+      "id": "G30",
+      "kind": "redundancy",
+      "title": "运行目录再次验证公共客户端已绑定的Map身份",
+      "status": "fixed",
+      "rawIds": [
+        "U01"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/run/run-history.ts",
+          "line": 121
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U01",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/run/run-history.ts",
+        "tests/client/run-history.spec.ts"
+      ]
+    },
+    {
+      "id": "G31",
+      "kind": "redundancy",
+      "title": "来源行定位同一修改字段被完整解析两次",
+      "status": "fixed",
+      "rawIds": [
+        "U02"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/reader/SourceAnchorEditor.vue",
+          "line": 86
+        },
+        {
+          "file": "apps/ui/features/reader/SourceAnchorEditor.vue",
+          "line": 99
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U02",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/reader/SourceAnchorEditor.vue"
+      ]
+    },
+    {
+      "id": "G32",
+      "kind": "redundancy",
+      "title": "Reader只返回ready字符串导致重新证明节点与上下文",
+      "status": "fixed",
+      "rawIds": [
+        "U03"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/reader/reader-content.ts",
+          "line": 47
+        },
+        {
+          "file": "apps/ui/features/reader/NodeReader.vue",
+          "line": 47
+        },
+        {
+          "file": "apps/ui/features/reader/NodeReader.vue",
+          "line": 71
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U03",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/reader/NodeReader.vue",
+        "apps/ui/features/reader/reader-content.ts"
+      ]
+    },
+    {
+      "id": "G33",
+      "kind": "redundancy",
+      "title": "网关连接成功时active清理不可达",
+      "status": "fixed",
+      "rawIds": [
+        "U04"
+      ],
+      "originalSites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 1247
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U04",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "client/graph-client.ts"
+      ]
+    },
+    {
+      "id": "G34",
+      "kind": "redundancy",
+      "title": "续租DTO递归验证同一data时重复通用扫描",
+      "status": "fixed",
+      "rawIds": [
+        "U05"
+      ],
+      "originalSites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 583
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 587
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 665
+        },
+        {
+          "file": "client/graph-client.ts",
+          "line": 679
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U05",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "client/graph-client.ts"
+      ]
+    },
+    {
+      "id": "G35",
+      "kind": "minor",
+      "title": "动态字段添加的字符串schema fallback无生产入口",
+      "status": "fixed",
+      "rawIds": [
+        "U06"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 159
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U06",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/graph/DataPayloadEditor.vue"
+      ]
+    },
+    {
+      "id": "G36",
+      "kind": "minor",
+      "title": "可打开单页条件重复loading约束",
+      "status": "fixed",
+      "rawIds": [
+        "U07"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/workspace/use-workspace-view.ts",
+          "line": 48
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U07",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/workspace/use-workspace-view.ts"
+      ]
+    },
+    {
+      "id": "G37",
+      "kind": "minor",
+      "title": "已建立单根baseline又检查单根长度",
+      "status": "fixed",
+      "rawIds": [
+        "U08"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/graph/branch-baseline.ts",
+          "line": 52
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U08",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/graph/branch-baseline.ts"
+      ]
+    },
+    {
+      "id": "G38",
+      "kind": "minor",
+      "title": "同一个读取失败被反复归一化",
+      "status": "fixed",
+      "rawIds": [
+        "U09"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/evidence-library/evidence-uses.ts",
+          "line": 103
+        },
+        {
+          "file": "apps/ui/features/evidence-library/evidence-uses.ts",
+          "line": 75
+        },
+        {
+          "file": "apps/ui/features/evidence-library/evidence-state.ts",
+          "line": 241
+        },
+        {
+          "file": "apps/ui/features/evidence-library/evidence-state.ts",
+          "line": 294
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U09",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/evidence-library/evidence-state.ts",
+        "apps/ui/features/evidence-library/evidence-uses.ts"
+      ]
+    },
+    {
+      "id": "G39",
+      "kind": "minor",
+      "title": "2D布局父节点已存在却仍有零fallback的前轮同类遗留",
+      "status": "fixed",
+      "rawIds": [
+        "U12"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/graph/graph-layout.ts",
+          "line": 236
+        },
+        {
+          "file": "apps/ui/features/graph/graph-layout.ts",
+          "line": 237
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U12",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/graph/graph-layout.ts"
+      ]
+    },
+    {
+      "id": "G40",
+      "kind": "behavior",
+      "title": "枚举控件字符串化混淆合法JSON值类型",
+      "status": "fixed",
+      "rawIds": [
+        "U14"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 231
+        },
+        {
+          "file": "apps/ui/features/graph/DataPayloadEditor.vue",
+          "line": 232
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U14",
+          "part": null
+        },
+        {
+          "file": "root-result.json",
+          "rawId": "U14",
+          "part": "browser-acceptance"
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/graph/DataPayloadEditor.vue",
+        "apps/ui/features/graph/payload-labels.ts",
+        "tests/browser/fixtures/ui-boundaries.html",
+        "tests/browser/ui-boundaries.spec.ts",
+        "tests/browser/workspace-acceptance.spec.ts"
+      ]
+    },
+    {
+      "id": "G41",
+      "kind": "minor",
+      "title": "单调用纯转发包装不拥有实际规则或资源",
+      "status": "fixed",
+      "rawIds": [
+        "U15"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/reader/NodeReader.vue",
+          "line": 195
+        },
+        {
+          "file": "apps/ui/features/graph/GraphSceneFallback.vue",
+          "line": 139
+        },
+        {
+          "file": "apps/ui/features/evidence-library/EvidenceLibraryView.vue",
+          "line": 131
+        },
+        {
+          "file": "apps/ui/features/evidence-library/EvidenceUsesPanel.vue",
+          "line": 29
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U15",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/evidence-library/EvidenceLibraryView.vue",
+        "apps/ui/features/evidence-library/EvidenceUsesPanel.vue",
+        "apps/ui/features/graph/GraphSceneFallback.vue",
+        "apps/ui/features/reader/NodeReader.vue"
+      ]
+    },
+    {
+      "id": "G42",
+      "kind": "redundancy",
+      "title": "新增证据把同源selected引用投影反向join并重复证明数量",
+      "status": "fixed",
+      "rawIds": [
+        "U16"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 90
+        },
+        {
+          "file": "apps/ui/features/evidence-library/NodeEvidenceEditor.vue",
+          "line": 95
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U16",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/evidence-library/NodeEvidenceEditor.vue"
+      ]
+    },
+    {
+      "id": "G43",
+      "kind": "behavior",
+      "title": "切换Run后迟到领取仍持有并续租旧Run控制权",
+      "status": "fixed",
+      "rawIds": [
+        "U17"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 954
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 964
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 974
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 993
+        },
+        {
+          "file": "apps/ui/views/WorkspacePage.vue",
+          "line": 821
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U17",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/state/client-session.ts",
+        "tests/client/session.spec.ts"
+      ]
+    },
+    {
+      "id": "G44",
+      "kind": "redundancy",
+      "title": "保存引用变化时同一对payload重复展开引用目标",
+      "status": "fixed",
+      "rawIds": [
+        "U18"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 1414
+        },
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 1399
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U18",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/state/client-session.ts"
+      ]
+    },
+    {
+      "id": "G45",
+      "kind": "minor",
+      "title": "固定字符串split后的空数组检查恒假",
+      "status": "fixed",
+      "rawIds": [
+        "U19"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/state/client-session.ts",
+          "line": 1370
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U19",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/state/client-session.ts"
+      ]
+    },
+    {
+      "id": "G46",
+      "kind": "behavior",
+      "title": "公共Map边界未拒绝实际reader必需的边createdAt缺失",
+      "status": "fixed",
+      "rawIds": [
+        "U20"
+      ],
+      "originalSites": [
+        {
+          "file": "client/graph-client.ts",
+          "line": 638
+        },
+        {
+          "file": "apps/ui/features/reader/reader-sources.ts",
+          "line": 82
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U20",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "client/graph-client.ts",
+        "tests/client/graph-client.spec.ts"
+      ]
+    },
+    {
+      "id": "G47",
+      "kind": "redundancy",
+      "title": "2D布局每个节点重新展开同一份Run operations集合",
+      "status": "fixed",
+      "rawIds": [
+        "U21"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/features/graph/graph-layout.ts",
+          "line": 218
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U21",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/features/graph/graph-layout.ts"
+      ]
+    },
+    {
+      "id": "G48",
+      "kind": "minor",
+      "title": "旧branch proof测试被无关坏node日期提前拒绝，未隔离目标条件",
+      "status": "fixed",
+      "rawIds": [
+        "U22"
+      ],
+      "originalSites": [
+        {
+          "file": "tests/client/graph-client.spec.ts",
+          "line": 430
+        },
+        {
+          "file": "tests/client/graph-client.spec.ts",
+          "line": 432
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U22",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "tests/client/graph-client.spec.ts"
+      ]
+    },
+    {
+      "id": "G49",
+      "kind": "minor",
+      "title": "固定会话fixture捕获的基础mock实现仍走optional调用分支",
+      "status": "fixed",
+      "rawIds": [
+        "U23"
+      ],
+      "originalSites": [
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 351
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 522
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 582
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 628
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 686
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 716
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 907
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1744
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1828
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1861
+        },
+        {
+          "file": "tests/client/session.spec.ts",
+          "line": 1898
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U23",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "tests/client/session.spec.ts"
+      ]
+    },
+    {
+      "id": "G50",
+      "kind": "behavior",
+      "title": "活动布局拖动在外壳卸载后仍更新状态并保存旧布局",
+      "status": "fixed",
+      "rawIds": [
+        "U24"
+      ],
+      "originalSites": [
+        {
+          "file": "apps/ui/composables/usePanelResize.ts",
+          "line": 80
+        },
+        {
+          "file": "apps/ui/composables/usePanelResize.ts",
+          "line": 105
+        },
+        {
+          "file": "apps/ui/composables/usePanelResize.ts",
+          "line": 114
+        },
+        {
+          "file": "apps/ui/composables/useBottomDockResize.ts",
+          "line": 64
+        },
+        {
+          "file": "apps/ui/components/shell/ResizableSplit.vue",
+          "line": 25
+        },
+        {
+          "file": "apps/ui/components/shell/ResizableRowSplit.vue",
+          "line": 21
+        },
+        {
+          "file": "apps/ui/views/WorkspacePage.vue",
+          "line": 764
+        }
+      ],
+      "records": [
+        {
+          "file": "ui-result.json",
+          "rawId": "U24",
+          "part": null
+        }
+      ],
+      "modifiedOrCoordinatedFiles": [
+        "apps/ui/components/shell/ResizableRowSplit.vue",
+        "apps/ui/components/shell/ResizableSplit.vue",
+        "apps/ui/composables/useBottomDockResize.ts",
+        "apps/ui/composables/useMouseResize.ts",
+        "apps/ui/composables/usePanelResize.ts",
+        "tests/browser/fixtures/ui-boundaries.html",
+        "tests/browser/ui-boundaries.spec.ts"
+      ]
+    }
+  ],
+  "openWithinSpecifiedThemes": [],
+  "validation": "validation.json"
+}

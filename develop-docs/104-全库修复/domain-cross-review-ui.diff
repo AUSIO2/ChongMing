@@ -1,0 +1,564 @@
+--- 104-baseline/apps/ui/state/client-session.ts
++++ current/apps/ui/state/client-session.ts
+@@ -90,6 +90,13 @@
+   // 完成意图等待，允许旧授权在当前领取结果明确后安全决定是否释放。
+   end(): void
+ }
++interface RunControlClaimIntent {
++  readonly mapId: string
++  readonly runId: string
++  readonly ended: Promise<void>
++  // 本地意图结束后，迟到授权才能判断是否仍被下一次同Run领取使用。
++  end(): void
++}
+ /**
+  * 将异常转换为界面可展示的问题，统一已知错误文案并为缺失的诊断编号生成标识。
+  *
+@@ -159,6 +166,8 @@
+   let selectionEpoch = 0, branchClaimRequest = 0
+   // 运行选择代次只隔离本会话的旧审核点击，返回同一运行也不恢复先前意图。
+   let runSelectionEpoch = 0
++  let runControlClaim: RunControlClaimIntent | null = null
++  const runControlReleases = new Set<{ mapId: string; runId: string; scope: number; finished: Promise<void> }>()
+   let branchClaimBusyRequest: BranchClaimIntent | null = null
+   const branchReleases = new Set<{ mapId: string; scope: number; nodeIds: readonly string[]; finished: Promise<void> }>()
+   // 命令和偏好保存属于会话；图读取和订阅属于视图，切图不向服务端取消已经提交的运行。
+@@ -169,6 +178,7 @@
+   let branchExpiryTimer: ReturnType<typeof setTimeout> | undefined
+   let runControlRenewTimer: ReturnType<typeof setTimeout> | undefined
+   const branchHolderId = crypto.randomUUID()
++  let runControlHolderId = branchHolderId
+   // 未确认的旧释放仍可能晚提交，后续编辑领取不能复用它可撤销的 holder/lease。
+   let editorHolderId = branchHolderId
+   let preferenceTimer: ReturnType<typeof setTimeout> | undefined
+@@ -223,6 +233,7 @@
+     // 使旧会话及其请求失效，释放当前视图资源并清空登录后的界面状态。
+     sessionEpoch++
+     editorHolderId = crypto.randomUUID()
++    runControlHolderId = crypto.randomUUID()
+     sessionController.abort()
+     sessionController = new AbortController()
+     clearWorkspace()
+@@ -934,36 +945,93 @@
+    * @param expected 调度时捕获的 grant，迟到响应不得复活已替换授权。
+    */
+   async function renewRunControl(expected: GraphRunControlGrant): Promise<void> {
+-    if (selectedRunControl.value?.leaseId !== expected.leaseId || selectedRunControl.value.fence !== expected.fence || !activeMapId.value) return
++    if (selectedRunControl.value !== expected || !activeMapId.value) return
+     try {
+       const result = await gateway.dispatch(crypto.randomUUID(), 'run.control.renew', { mapId: activeMapId.value, runId: expected.runId,
+         control: { leaseId: expected.leaseId, holderId: expected.holderId, fence: expected.fence } }, sessionController.signal)
+-      if (selectedRunControl.value?.leaseId !== expected.leaseId || selectedRunControl.value.fence !== expected.fence) return
++      if (selectedRunControl.value !== expected) return
+       selectedRunControl.value = result.data
+       scheduleRunControlRenewal(result.data)
+     } catch (cause) {
+-      if (selectedRunControl.value?.leaseId === expected.leaseId && selectedRunControl.value.fence === expected.fence) {
++      if (selectedRunControl.value === expected) {
+         selectedRunControl.value = null; clearTimeout(runControlRenewTimer)
+         error.value = sessionReadProblem(cause)
+       }
+     }
+   }
+-  /**
+-   * @param runId 目标 Run；省略时领取当前选择。
+-   */
+-  async function claimRunControl(runId = selectedRun.value?.id): Promise<boolean> {
++  function finishRunControlClaim(/* 已完成或已被新选择取消的领取意图。 */ intent: RunControlClaimIntent): void {
++    // 仅当前领取所有者归还busy，旧任务完成不能结束下一份领取。
++    intent.end()
++    if (runControlClaim === intent) {
++      runControlClaim = null
++      busy.value = false
++    }
++  }
++  async function releaseUnusedRunControl(
++    /* 取得授权时的原图，不借用后来视图。 */ mapId: string,
++    /* 仅在不被新确认或在途同Run意图复用时释放的完整授权。 */ grant: GraphRunControlGrant,
++    /* 原连接/身份代次，跨服务后不发送旧释放。 */ scope: number,
++  ): Promise<void> {
++    // 同holder同Run可能复用lease/fence；等待新的同Run领取明确后再决定旧授权清理。
++    while (scope === sessionEpoch) {
++      const current = selectedRunControl.value
++      if (activeMapId.value === mapId && current && current.leaseId === grant.leaseId
++        && current.holderId === grant.holderId && current.fence === grant.fence) return
++      const pending = runControlClaim
++      if (pending?.mapId === mapId && pending.runId === grant.runId) {
++        await pending.ended
++        continue
++      }
++      const finished = gateway.dispatch(crypto.randomUUID(), 'run.control.release', { mapId, runId: grant.runId,
++        control: { leaseId: grant.leaseId, holderId: grant.holderId, fence: grant.fence } }, sessionController.signal).then(
++        () => { /* 该份控制权释放已经得到确认。 */ },
++        () => {
++          // 释放结果未知时，新领取改用holder，避免晚提交撤销后来复用的同一租约。
++          if (scope === sessionEpoch && runControlHolderId === grant.holderId) runControlHolderId = crypto.randomUUID()
++        },
++      )
++      const release = { mapId, runId: grant.runId, scope, finished }
++      runControlReleases.add(release)
++      try { await finished } finally { runControlReleases.delete(release) }
++      return
++    }
++  }
++  async function claimRunControl(
++    /* 本次动作的目标Run，缺省使用当前选择；后续选择不改写本意图。 */ runId = selectedRun.value?.id,
++  ): Promise<boolean> {
++    // 授权和busy只归当前会话、视图及选择意图；同Run再次选择也不能恢复旧点击。
+     if (!clientLeasesRequired.value) return canEdit.value
+     const mapId = activeMapId.value
+-    if (!mapId || !runId || !canEdit.value) return false
++    if (!mapId || !runId || !canEdit.value || busy.value) return false
+     if (selectedRunControl.value?.runId === runId) return true
+-    if (selectedRunControl.value) await releaseRunControl()
+-    const scope = sessionEpoch, epoch = viewEpoch
+-    busy.value = true; error.value = null
+-    try {
+-      const result = await gateway.dispatch(crypto.randomUUID(), 'run.control.claim', { mapId, runId, holderId: branchHolderId }, sessionController.signal)
+-      if (scope !== sessionEpoch || epoch !== viewEpoch || activeMapId.value !== mapId) {
+-        if (result.data.status === 'claimed') void gateway.dispatch(crypto.randomUUID(), 'run.control.release', { mapId, runId,
+-          control: { leaseId: result.data.grant.leaseId, holderId: result.data.grant.holderId, fence: result.data.grant.fence } }).catch(() => {})
++    const scope = sessionEpoch, epoch = viewEpoch, selection = runSelectionEpoch, selected = selectedRunId.value
++    const completion = new AbortController()
++    const ended = new Promise<void>((/* 解除迟到授权对本次领取的等待。 */ resolve) => {
++      // 本地意图完成只解除交接等待，不取消HTTP或假定后端提交已经回滚。
++      completion.signal.addEventListener('abort', () => { /* 意图结束后释放唯一完成监听。 */ resolve() }, { once: true })
++    })
++    const intent: RunControlClaimIntent = { mapId, runId, ended,
++      end(): void { /* 成功、选择取消与finally都可幂等结束本地意图。 */ completion.abort() },
++    }
++    const isCurrent = (): boolean => /* 只有原选择与请求所有者仍有效时才接纳结果。 */
++      scope === sessionEpoch && epoch === viewEpoch && selection === runSelectionEpoch && selected === selectedRunId.value
++      && activeMapId.value === mapId && runControlClaim === intent && canEdit.value
++    runControlClaim = intent
++    busy.value = true
++    error.value = null
++    try {
++      const previous = selectedRunControl.value
++      selectedRunControl.value = null
++      clearTimeout(runControlRenewTimer)
++      if (previous) await releaseUnusedRunControl(mapId, previous, scope)
++      await Promise.all([...runControlReleases].filter((/* 同连接仍在途的控制权释放。 */ release) =>
++        /* 同Run必须等释放明确，其他Run不阻塞当前选择。 */ release.scope === scope && release.mapId === mapId && release.runId === runId)
++        .map((/* 该Run先前已经发送的释放。 */ release) => /* 领取不能复用仍可能被撤销的旧lease。 */ release.finished))
++      if (!isCurrent()) return false
++      const result = await gateway.dispatch(crypto.randomUUID(), 'run.control.claim', { mapId, runId, holderId: runControlHolderId }, sessionController.signal)
++      if (!isCurrent()) {
++        finishRunControlClaim(intent)
++        if (result.data.status === 'claimed') await releaseUnusedRunControl(mapId, result.data.grant, scope)
+         return false
+       }
+       if (result.data.status === 'busy') {
+@@ -974,24 +1042,32 @@
+       selectedRunControl.value = result.data.grant
+       scheduleRunControlRenewal(result.data.grant)
+       return true
+-    } catch (cause) { await handleFailure(cause, scope, epoch); return false }
+-    finally { if (scope === sessionEpoch) busy.value = false }
++    } catch (cause) {
++      if (isCurrent()) await handleFailure(cause, scope, epoch)
++      return false
++    } finally {
++      finishRunControlClaim(intent)
++    }
+   }
+   async function releaseRunControl(): Promise<void> {
++    // 离开选择先结束本地领取所有权；已有控制权沿原身份有界交回，不接纳旧清理错误。
++    if (runControlClaim) finishRunControlClaim(runControlClaim)
+     const control = selectedRunControl.value, mapId = activeMapId.value
+-    clearTimeout(runControlRenewTimer); runControlRenewTimer = undefined; selectedRunControl.value = null
+-    if (!control || !mapId) return
+-    try { await gateway.dispatch(crypto.randomUUID(), 'run.control.release', { mapId, runId: control.runId,
+-      control: { leaseId: control.leaseId, holderId: control.holderId, fence: control.fence } }, sessionController.signal) }
+-    catch { /* 释放失败由租期回收；离开视图不让次级错误覆盖主流程。 */ }
++    clearTimeout(runControlRenewTimer)
++    runControlRenewTimer = undefined
++    selectedRunControl.value = null
++    if (control && mapId) await releaseUnusedRunControl(mapId, control, sessionEpoch)
+   }
+   /**
+    * @param runId 用户在同图多个 Run 中选择查看和控制的身份。
+    */
+-  async function selectRun(runId: string | null): Promise<void> {
+-    // 先使离开前的审核点击失效，再释放旧运行控制权并选择当前图中的有效运行。
+-    if (runId !== selectedRunId.value) { runSelectionEpoch++; await releaseRunControl() }
+-    selectedRunId.value = runId && snapshot.value?.runs.some(run => run.id === runId) ? runId : null
++  async function selectRun(/* 用户最后明确选择的图内运行，null表示清空。 */ runId: string | null): Promise<void> {
++    // 选择意图在等待旧释放前同步交接，迟到释放结束后不再覆盖后来选择。
++    const changed = runId !== selectedRunId.value
++    if (changed) runSelectionEpoch++
++    selectedRunId.value = runId && snapshot.value?.runs.some((/* 当前Map中的真实运行。 */ run) =>
++      /* 无效身份只清空选择，不借其他Map的Run。 */ run.id === runId) ? runId : null
++    if (changed) await releaseRunControl()
+   }
+   /**
+    * 仅选中当前快照中存在的节点，记住该图的选择并安排保存偏好。
+@@ -1362,14 +1438,16 @@
+       || !definition.references.some((/* 类型真实声明的引用。 */ reference) => /* 首版只将节点数组字段作为此明确意图入口。 */ reference.target.kind === 'node' && reference.path === `${input.path}/*`)) return false
+     const payload = structuredClone(node.payload)
+     const parts = input.path.slice(1).split('/').map((/* JSON Pointer的一段。 */ part) => /* 恢复字段原名称。 */ part.replace(/~1/g, '/').replace(/~0/g, '~'))
+-    let container: JsonValue = payload
++    let container: JsonValue | undefined = payload
+     for (const part of parts.slice(0, -1)) {
+       if (!container || typeof container !== 'object') return false
+-      container = Array.isArray(container) ? container[Number(part)] : container[part]
+-    }
+-    if (!container || typeof container !== 'object' || !parts.length) return false
++      container = Array.isArray(container) ? container[Number(part)] : Object.prototype.hasOwnProperty.call(container, part) ? container[part] : undefined
++    }
++    if (!container || typeof container !== 'object') return false
+     Object.defineProperty(container, parts[parts.length - 1], { value: [...input.targetIds], enumerable: true, configurable: true, writable: true })
+-    return saveReferencedPayload(node, definition, payload)
++    return saveReferencedPayload(node, payload, {
++      previous: sessionReadReferenceTargets(definition, node.payload), next: sessionReadReferenceTargets(definition, payload),
++    })
+   }
+   async function saveNodeEvidence(
+     /* 固定消费者图、节点原版本及用户明确保存的完整库引用；[]表示清空。 */
+@@ -1392,13 +1470,14 @@
+   }
+   async function saveReferencedPayload(
+     /* 当前图中仍匹配编辑基线的引用来源。 */ node: GraphNode,
+-    /* 来源的精确类型定义，决定引用字段和允许目标。 */ definition: DataTypeDefinition,
+     /* 包含本次引用变化及其余未丢失正文的完整草稿。 */ payload: GraphPayload,
++    /* 本次保存已按精确定义展开一次的旧、新引用。 */ references: {
++      previous: ReturnType<typeof sessionReadReferenceTargets>; next: ReturnType<typeof sessionReadReferenceTargets>
++    },
+   ): Promise<boolean> {
+     // 联合授权覆盖来源及旧、新目标，保留正文与原有固定证据引用。
+-    const next = sessionReadReferenceTargets(definition, payload)
+-    if (!referencesAreValid(next) || !snapshot.value) return false
+-    const targets = [...sessionReadReferenceTargets(definition, node.payload), ...next]
++    if (!referencesAreValid(references.next) || !snapshot.value) return false
++    const targets = [...references.previous, ...references.next]
+     return submitScopedChanges({ mapId: snapshot.value.mapId, nodeRevisions: revisionsFor([node.id, ...targets.map((/* 旧或新声明引用。 */ target) => /* 这些节点共同参与授权。 */ target.id)]),
+       changes: { nodes: { put: [{ id: node.id, typeId: node.typeId, typeVersion: node.typeVersion, payload }] } } })
+   }
+@@ -1411,12 +1490,15 @@
+     // 声明引用变化需要覆盖旧、新目标；先核对正文原证明，再建立联合范围，不能提升脏稿基线。
+     const node = snapshot.value?.nodes.find((/* 当前图中的实际节点。 */ item) => /* 本次保存的来源身份。 */ item.id === input.nodeId)
+     const definition = node ? payloadFindType(catalog.value, node) : undefined
+-    if (node && definition && JSON.stringify(sessionReadReferenceTargets(definition, node.payload)) !== JSON.stringify(sessionReadReferenceTargets(definition, input.payload))) {
++    const references = node && definition ? {
++      previous: sessionReadReferenceTargets(definition, node.payload), next: sessionReadReferenceTargets(definition, input.payload),
++    } : null
++    if (node && references && JSON.stringify(references.previous) !== JSON.stringify(references.next)) {
+       if (!selectedBranch.value || selectedBranch.value.version !== input.branch.expectedVersion || selectedBranch.value.rootRevisions[node.id] !== node.revision) {
+         error.value = sessionReadProblem(new ClientError({ status: 409, code: 'REVISION_CONFLICT', retryable: false, message: RuntimeMessage.BRANCH_VERSION_CHANGED }))
+         return false
+       }
+-      return saveReferencedPayload(node, definition, input.payload)
++      return saveReferencedPayload(node, input.payload, references)
+     }
+     if (clientLeasesRequired.value && !sessionReadLeaseProof() && !await claimBranch(input.branch.rootIds)) return false
+     const lease = clientLeasesRequired.value ? sessionReadLeaseProof() : undefined
+--- 104-baseline/apps/ui/features/graph/DataPayloadEditor.vue
++++ current/apps/ui/features/graph/DataPayloadEditor.vue
+@@ -47,7 +47,12 @@
+   ? props.modelValue as Record<string, JsonValue> : {})
+ const arrayValue = computed<JsonValue[]>(() => Array.isArray(props.modelValue) ? props.modelValue : [])
+ const knownFields = computed(() => Object.entries(resolved.value.properties ?? {}))
+-const dynamicFields = computed(() => Object.keys(objectValue.value).filter(key => !resolved.value.properties?.[key]))
++const dynamicFields = computed(() => {
++  // schema字典只声明自有字段，原型同名的正文仍属于可编辑扩展项。
++  const properties = resolved.value.properties
++  return Object.keys(objectValue.value).filter((/* 当前正文的自有键。 */ key) =>
++    /* 未发布为固定字段的键继续显示为动态字段。 */ !properties || !Object.prototype.hasOwnProperty.call(properties, key))
++})
+ const displayLabel = computed(() => props.label || (resolved.value.title ? payloadReadFieldLabel(props.path, props.fieldLabels, resolved.value.title) : ''))
+ const nodeReference = computed(() => {
+   // 只有已声明的节点引用数组使用选择控件，资产引用和普通数组继续使用原表单。
+@@ -152,11 +157,10 @@
+   delete next[key]
+   emit('update:modelValue', next)
+ }
+-function editorAddObject(): void {
++function editorAddObject(/* 添加按钮已选中的动态字段声明。 */ child: DataSchema): void {
+   // 为 additionalProperties schema 建立不冲突的稳定临时键，用户随后可以重命名。
+   let index = 1, key = '字段1'
+   while (Object.prototype.hasOwnProperty.call(objectValue.value, key)) key = `字段${++index}`
+-  const child = typeof resolved.value.additionalProperties === 'object' ? resolved.value.additionalProperties : { type: 'string' as const }
+   editorUpdateObject(key, payloadCreateInitial(editorResolveSchema(child), root.value))
+ }
+ /**
+@@ -165,14 +169,14 @@
+  * @param oldKey 原字典键。
+  * @param nextKey 用户输入的新字典键。
+  */
+-function editorRenameObject(oldKey: string, nextKey: string): void {
++function editorRenameObject(/* 正文中实际存在的动态键。 */ oldKey: string, /* 用户输入的新名称。 */ nextKey: string): void {
++  // 重命名自有字段并保留原值，计算属性不会触发__proto__继承setter。
+   const key = nextKey.trim()
+   if (!key || (key !== oldKey && Object.prototype.hasOwnProperty.call(objectValue.value, key))) return
+   const next = { ...objectValue.value }
+   const value = next[oldKey]
+   delete next[oldKey]
+-  next[key] = value
+-  emit('update:modelValue', next)
++  emit('update:modelValue', { ...next, [key]: value })
+ }
+ /**
+  * 数组更新复制容器，保持 Vue 单向数据流。
+@@ -200,6 +204,22 @@
+   if (type.value === 'boolean') return (input as HTMLInputElement).checked
+   if (type.value === 'number' || type.value === 'integer') return input.value === '' ? 0 : Number(input.value)
+   return input.value
++}
++function editorEnumValueMatches(
++  /* 发布枚举中一个保留原JSON类型的值。 */ candidate: JsonValue,
++  /* 正文当前已经保存的JSON值。 */ value: JsonValue,
++): boolean {
++  // 按JSON值比较枚举，数字和字符串不同，对象键顺序不影响相等性。
++  if (candidate === value) return true
++  if (candidate === null || value === null || typeof candidate !== 'object' || typeof value !== 'object') return false
++  if (Array.isArray(candidate)) return Array.isArray(value) && candidate.length === value.length
++    && candidate.every((/* 枚举数组元素。 */ item, /* 相同位置的正文元素。 */ index) =>
++      /* 数组顺序属于枚举值本身。 */ editorEnumValueMatches(item, value[index]))
++  if (Array.isArray(value)) return false
++  const keys = Object.keys(candidate)
++  return keys.length === Object.keys(value).length && keys.every((/* 枚举对象的自有键。 */ key) =>
++    /* 不读取正文的继承属性，且保留每个子值的类型。 */ Object.prototype.hasOwnProperty.call(value, key)
++      && editorEnumValueMatches(candidate[key], value[key]))
+ }
+ /**
+  * 切换判别联合会建立该分支的最小新值，避免残留另一分支的非法字段。
+@@ -228,8 +248,8 @@
+ 
+     <template v-if="modelValue !== null">
+       <output v-if="resolved.const !== undefined">{{ payloadReadValueLabel(path, resolved.const, enumLabels) }}</output>
+-      <select v-else-if="resolved.enum" :value="String(modelValue)" @change="emit('update:modelValue', resolved.enum!.find(item => String(item) === ($event.target as HTMLSelectElement).value) ?? null)">
+-        <option v-for="item in resolved.enum" :key="JSON.stringify(item)" :value="String(item)">{{ payloadReadValueLabel(path, item, enumLabels) }}</option>
++      <select v-else-if="resolved.enum" :value="resolved.enum.findIndex(item => editorEnumValueMatches(item, modelValue))" @change="emit('update:modelValue', resolved.enum[Number(($event.target as HTMLSelectElement).value)])">
++        <option v-for="(item, index) in resolved.enum" :key="index" :value="index">{{ payloadReadValueLabel(path, item, enumLabels) }}</option>
+       </select>
+       <template v-else-if="type === 'oneOf'">
+         <select :value="selectedVariant" @change="editorSelectVariant(Number(($event.target as HTMLSelectElement).value))">
+@@ -240,14 +260,14 @@
+       </template>
+       <template v-else-if="type === 'object'">
+         <DataPayloadEditor v-for="([key, field]) in knownFields" :key="key" :schema="field" :root-schema="root"
+-          :label="payloadReadFieldLabel(editorFieldPath(key), fieldLabels, field.title)" :path="editorFieldPath(key)" :field-labels="fieldLabels" :enum-labels="enumLabels" :references="references" :nodes="nodes" :catalog="catalog" :model-value="objectValue[key] === undefined ? payloadCreateInitial(editorResolveSchema(field), root) : objectValue[key]" :disabled="disabled"
++          :label="payloadReadFieldLabel(editorFieldPath(key), fieldLabels, field.title)" :path="editorFieldPath(key)" :field-labels="fieldLabels" :enum-labels="enumLabels" :references="references" :nodes="nodes" :catalog="catalog" :model-value="Object.prototype.hasOwnProperty.call(objectValue, key) ? objectValue[key] : payloadCreateInitial(editorResolveSchema(field), root)" :disabled="disabled"
+           @update:model-value="editorUpdateObject(key, $event)" />
+         <div v-for="key in dynamicFields" :key="key" class="dynamic-field">
+           <div class="dynamic-field-header"><input :value="key" aria-label="字段名称" placeholder="字段名称" @change="editorRenameObject(key, ($event.target as HTMLInputElement).value)"><button class="remove-field" type="button" @click="editorRemoveObject(key)">移除</button></div>
+           <DataPayloadEditor :schema="typeof resolved.additionalProperties === 'object' ? resolved.additionalProperties : { type: 'string' }"
+             :root-schema="root" :model-value="objectValue[key]" :disabled="disabled" :path="editorFieldPath(key)" :field-labels="fieldLabels" :enum-labels="enumLabels" :references="references" :nodes="nodes" :catalog="catalog" @update:model-value="editorUpdateObject(key, $event)" />
+         </div>
+-        <button v-if="typeof resolved.additionalProperties === 'object'" class="add-field" type="button" @click="editorAddObject">＋ 添加字段</button>
++        <button v-if="typeof resolved.additionalProperties === 'object'" class="add-field" type="button" @click="editorAddObject(resolved.additionalProperties)">＋ 添加字段</button>
+       </template>
+       <template v-else-if="type === 'array' && nodeReference">
+         <p v-if="!referenceNodes.length" class="reference-note">当前图没有符合字段类型的可选节点。</p>
+--- 104-baseline/apps/ui/features/graph/data-payload.ts
++++ current/apps/ui/features/graph/data-payload.ts
+@@ -106,7 +106,7 @@
+     if (Array.isArray(current)) {
+       if (!/^\d+$/.test(key)) return undefined
+       current = current[Number(key)]
+-    } else if (current !== null && typeof current === 'object') current = current[key]
++    } else if (current !== null && typeof current === 'object') current = Object.prototype.hasOwnProperty.call(current, key) ? current[key] : undefined
+     else return undefined
+   }
+   return current
+--- 104-baseline/apps/ui/composables/useMouseResize.ts
++++ current/apps/ui/composables/useMouseResize.ts
+@@ -0,0 +1,37 @@
++// 一次面板拖动持有窗口监听；正常松开保存，作用域结束只撤销未完成的拖动。
++import { onScopeDispose } from 'vue'
++
++export function useMouseResize(): (
++  /* 当前拖动对窗口鼠标坐标的更新操作。 */ onMove: (/* 本次窗口派发的鼠标移动。 */ event: MouseEvent) => void,
++  /* 正常松开后保存最终尺寸；卸载取消时不执行。 */ onFinish: () => void,
++) => void {
++  // 当前组件作用域最多拥有一次拖动，新拖动与卸载都会先清理旧监听。
++  let cancel: (() => void) | null = null
++  onScopeDispose(() => {
++    // 组件卸载后不再修改尺寸或写入上一视图的布局。
++    cancel?.()
++  })
++  return function startResize(
++    /* 当前拖动对窗口鼠标坐标的更新操作。 */ onMove: (/* 本次窗口派发的鼠标移动。 */ event: MouseEvent) => void,
++    /* 正常结束后的尺寸持久化操作。 */ onFinish: () => void,
++  ): void {
++    // 监听和文本选择状态一同交给本次拖动，取消不会被当作正常保存。
++    cancel?.()
++    function cleanup(): void {
++      // 移除本次监听并归还文本选择，随后可开始新的拖动。
++      window.removeEventListener('mousemove', onMove)
++      window.removeEventListener('mouseup', finish)
++      document.body.style.userSelect = ''
++      cancel = null
++    }
++    function finish(): void {
++      // 正常松开先交还窗口资源，再持久化已完成的尺寸。
++      cleanup()
++      onFinish()
++    }
++    cancel = cleanup
++    document.body.style.userSelect = 'none'
++    window.addEventListener('mousemove', onMove)
++    window.addEventListener('mouseup', finish)
++  }
++}
+--- 104-baseline/apps/ui/composables/usePanelResize.ts
++++ current/apps/ui/composables/usePanelResize.ts
+@@ -1,5 +1,6 @@
+ // 左右侧栏尺寸：按拖动调整宽度并恢复、保存浏览器中的布局偏好。
+-import { onMounted, onUnmounted, ref } from 'vue'
++import { ref, type Ref } from 'vue'
++import { useMouseResize } from './useMouseResize'
+ 
+ const STORAGE_KEY = 'chongming.panelWidths'
+ 
+@@ -45,8 +46,13 @@
+  *
+  * @param defaults 没有已保存偏好时的像素宽度；默认左栏 200、右栏 320，不修改传入对象。
+  */
+-export function usePanelResize(/* 没有本地布局偏好时使用的左右栏像素宽度。 */ defaults: PanelWidths = { left: 200, right: 320 }) {
++export function usePanelResize(/* 没有本地布局偏好时使用的左右栏像素宽度。 */ defaults: PanelWidths = { left: 200, right: 320 }): {
++  leftWidth: Ref<number>; rightWidth: Ref<number>
++  startResizeLeft(/* 左栏按下时的视口横坐标。 */ startX: number): void
++  startResizeRight(/* 右栏按下时的视口横坐标。 */ startX: number): void
++} {
+   // 一次读取同一份本地布局，左右两栏共享这次恢复结果。
++  const startResize = useMouseResize()
+   const saved = loadWidths(defaults)
+   const leftWidth = ref(saved.left)
+   const rightWidth = ref(saved.right)
+@@ -71,14 +77,7 @@
+     function onMove(e: MouseEvent) {
+       leftWidth.value = Math.min(400, Math.max(160, startWidth + e.clientX - startX))
+     }
+-    function onUp() {
+-      // 保存左栏拖动结果并移除窗口鼠标监听。
+-      persist()
+-      window.removeEventListener('mousemove', onMove)
+-      window.removeEventListener('mouseup', onUp)
+-    }
+-    window.addEventListener('mousemove', onMove)
+-    window.addEventListener('mouseup', onUp)
++    startResize(onMove, persist)
+   }
+ 
+   /**
+@@ -96,25 +95,9 @@
+     function onMove(e: MouseEvent) {
+       rightWidth.value = Math.min(520, Math.max(260, startWidth - (e.clientX - startX)))
+     }
+-    function onUp() {
+-      // 保存右栏拖动结果并移除窗口鼠标监听。
+-      persist()
+-      window.removeEventListener('mousemove', onMove)
+-      window.removeEventListener('mouseup', onUp)
+-    }
+-    window.addEventListener('mousemove', onMove)
+-    window.addEventListener('mouseup', onUp)
++    startResize(onMove, persist)
+   }
+ 
+-  onMounted(() => {
+-    // 组件挂载时恢复正文的默认文本选择行为。
+-    document.body.style.userSelect = ''
+-  })
+-
+-  onUnmounted(() => {
+-    // 组件卸载时恢复正文的默认文本选择行为。
+-    document.body.style.userSelect = ''
+-  })
+ 
+   return { leftWidth, rightWidth, startResizeLeft, startResizeRight }
+ }
+--- 104-baseline/apps/ui/composables/useBottomDockResize.ts
++++ current/apps/ui/composables/useBottomDockResize.ts
+@@ -1,5 +1,6 @@
+ // 底部面板尺寸：按窗口空间约束拖动高度，并持久化布局偏好。
+-import { ref } from 'vue'
++import { ref, type Ref } from 'vue'
++import { useMouseResize } from './useMouseResize'
+ 
+ const STORAGE_KEY = 'chongming.bottomDockHeight'
+ const MIN_HEIGHT = 72
+@@ -32,9 +33,13 @@
+   }
+ }
+ 
+-export function useBottomDockResize() {
++export function useBottomDockResize(): {
++  dockHeight: Ref<number>
++  startResizeBottom(/* 底栏按下时的视口纵坐标。 */ startY: number): void
++} {
+   // 持有底部面板高度，提供拖动调整与结束后保存的操作。
+   const dockHeight = ref(loadHeight())
++  const startResize = useMouseResize()
+ 
+   /**
+    * 记录拖动起始高度，并安装窗口级鼠标移动和松开监听。
+@@ -55,14 +60,10 @@
+         Math.max(MIN_HEIGHT, startHeight + (startY - e.clientY)),
+       )
+     }
+-    function onUp() {
+-      // 保存最终高度，并移除本次拖动的窗口监听。
++    startResize(onMove, () => {
++      // 仅正常松开保存当前高度，卸载取消由共享拖动所有者清理。
+       saveHeight(dockHeight.value)
+-      window.removeEventListener('mousemove', onMove)
+-      window.removeEventListener('mouseup', onUp)
+-    }
+-    window.addEventListener('mousemove', onMove)
+-    window.addEventListener('mouseup', onUp)
++    })
+   }
+ 
+   return { dockHeight, startResizeBottom }
+--- 104-baseline/apps/ui/components/shell/ResizableSplit.vue
++++ current/apps/ui/components/shell/ResizableSplit.vue
+@@ -9,20 +9,14 @@
+ }>()
+ 
+ /**
+- * 阻止拖动时选中文本，并向父组件发送侧栏拖动起点。
++ * 阻止原生选择，并向持有拖动生命周期的父组件发送侧栏起点。
+  *
+  * @param e 来自竖向分隔条的鼠标按下事件，clientX 提供视口像素起点。
+  */
+ function onMouseDown(e: MouseEvent) {
+   e.preventDefault()
+-  document.body.style.userSelect = 'none'
+   emit('dragStart', e.clientX)
+-  const onUp = () => {
+-    // 鼠标松开后恢复文本选择并移除本次拖动监听。
+-    document.body.style.userSelect = ''
+-    window.removeEventListener('mouseup', onUp)
+-  }
+-  window.addEventListener('mouseup', onUp)
++
+ }
+ </script>
+ 
+--- 104-baseline/apps/ui/components/shell/ResizableRowSplit.vue
++++ current/apps/ui/components/shell/ResizableRowSplit.vue
+@@ -5,20 +5,14 @@
+ }>()
+ 
+ /**
+- * 阻止拖动时选中文本，并向父组件发送底部面板拖动起点。
++ * 阻止原生选择，并向持有拖动生命周期的父组件发送底部面板起点。
+  *
+  * @param e 来自横向分隔条的鼠标按下事件，clientY 提供视口像素起点。
+  */
+ function onMouseDown(e: MouseEvent) {
+   e.preventDefault()
+-  document.body.style.userSelect = 'none'
+   emit('dragStart', e.clientY)
+-  const onUp = () => {
+-    // 鼠标松开后恢复文本选择并移除本次拖动监听。
+-    document.body.style.userSelect = ''
+-    window.removeEventListener('mouseup', onUp)
+-  }
+-  window.addEventListener('mouseup', onUp)
++
+ }
+ </script>
+ 

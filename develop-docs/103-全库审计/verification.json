@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-10-20T06:32:11.922Z",
+  "files": 301,
+  "categoryChecks": 2107,
+  "areas": {
+    "implementation": 163,
+    "test": 112,
+    "experiment": 26
+  },
+  "runtimeSourceFiles": 154,
+  "rawFindings": 60,
+  "rootCauseGroups": 50,
+  "kinds": {
+    "behavior": 14,
+    "redundancy": 18,
+    "minor": 18
+  },
+  "productionGroups": 42,
+  "toolingOnlyGroups": 8,
+  "genericAstCandidates": 26053,
+  "highSignalCandidates": 214,
+  "ruleDispositions": {
+    "confirmed": 44,
+    "retained": 168,
+    "unresolved": 2
+  },
+  "priorFindingsReconciled": 21,
+  "contextFiles": 56,
+  "pending": [],
+  "drift": [],
+  "addedCode": [],
+  "ruleMissing": []
+}

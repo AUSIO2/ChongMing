@@ -1,0 +1,5 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+{"type":"test-end","id":"M02-C05","project":"local","status":"passed","durationMs":5743,"location":{"file":"tests/browser/workspace-acceptance.spec.ts","line":867,"column":5},"errorCounts":{"assertion":0,"timeout":0,"interrupted":0,"other":0},"errorLocations":[]}
+{"type":"test-end","id":"M02-C05","project":"collab","status":"passed","durationMs":12757,"location":{"file":"tests/browser/workspace-acceptance.spec.ts","line":867,"column":5},"errorCounts":{"assertion":0,"timeout":0,"interrupted":0,"other":0},"errorLocations":[]}
+{"type":"suppressed-output","stdoutChunks":0,"stderrChunks":6}
+{"type":"run-end","status":"passed","durationMs":27672.628}

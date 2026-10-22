@@ -1,0 +1,45 @@
+apps/graph-server/main.ts(34,38): error TS2304: Cannot find name 'AggregateError'.
+apps/graph-server/main.ts(53,36): error TS2304: Cannot find name 'AggregateError'.
+apps/graph-server/main.ts(69,34): error TS2304: Cannot find name 'AggregateError'.
+apps/local-server/runtime.ts(49,38): error TS2304: Cannot find name 'AggregateError'.
+apps/local-server/runtime.ts(104,38): error TS2304: Cannot find name 'AggregateError'.
+apps/ui/features/agents/AgentManagement.vue(303,220): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+apps/ui/features/assets/AssetManagement.vue(149,26): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+apps/ui/features/evidence-library/EvidenceUsesPanel.vue(45,132): error TS2339: Property 'refresh' does not exist on type 'CreateComponentPublicInstanceWithMixins<ToResolvedProps<__VLS_Props, { unauthorized: () => any; openConsumer: (ref: EvidenceClaimRef) => any; selectionChanged: () => any; }>, ... 24 more ..., {}>'.
+apps/ui/features/evidence-library/EvidenceUsesPanel.vue(49,196): error TS2339: Property 'selectUsage' does not exist on type 'CreateComponentPublicInstanceWithMixins<ToResolvedProps<__VLS_Props, { unauthorized: () => any; openConsumer: (ref: EvidenceClaimRef) => any; selectionChanged: () => any; }>, ... 24 more ..., {}>'.
+apps/ui/features/graph/data-payload.ts(109,82): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+apps/ui/features/graph/DataPayloadEditor.vue(54,55): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+apps/ui/features/graph/DataPayloadEditor.vue(246,253): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+apps/ui/features/graph/GraphSceneFallback.vue(5,30): error TS6196: 'Graph3DNode' is declared but never used.
+apps/ui/features/reader/reader-content.ts(135,52): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+apps/ui/features/reader/SourceAnchorEditor.vue(77,18): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(iterable?: Iterable<readonly [string, { readonly anchors: readonly []; readonly error: null; }]> | null | undefined): Map<string, { readonly anchors: readonly []; readonly error: null; }>', gave the following error.
+    Argument of type '(readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }])[]' is not assignable to parameter of type 'Iterable<readonly [string, { readonly anchors: readonly []; readonly error: null; }]>'.
+      The types returned by '[Symbol.iterator]().next(...)' are incompatible between these types.
+        Type 'IteratorResult<readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }], undefined>' is not assignable to type 'IteratorResult<readonly [string, { readonly anchors: readonly []; readonly error: null; }], any>'.
+          Type 'IteratorYieldResult<readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }]>' is not assignable to type 'IteratorResult<readonly [string, { readonly anchors: readonly []; readonly error: null; }], any>'.
+            Type 'IteratorYieldResult<readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }]>' is not assignable to type 'IteratorYieldResult<readonly [string, { readonly anchors: readonly []; readonly error: null; }]>'.
+              Type 'readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }]' is not assignable to type 'readonly [string, { readonly anchors: readonly []; readonly error: null; }]'.
+                Type 'readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }]' is not assignable to type 'readonly [string, { readonly anchors: readonly []; readonly error: null; }]'.
+                  Type at position 1 in source is not compatible with type at position 1 in target.
+                    The types of 'anchors' are incompatible between these types.
+                      Type 'GraphSourceAnchor[]' is not assignable to type 'readonly []'.
+                        Target allows only 0 element(s) but source may have more.
+  Overload 2 of 4, '(entries?: readonly (readonly [string, { readonly anchors: readonly []; readonly error: null; }])[] | null | undefined): Map<string, { readonly anchors: readonly []; readonly error: null; }>', gave the following error.
+    Argument of type '(readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }])[]' is not assignable to parameter of type 'readonly (readonly [string, { readonly anchors: readonly []; readonly error: null; }])[]'.
+      Type 'readonly [string, { readonly anchors: readonly []; readonly error: null; }] | readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }] | readonly [string, { readonly anchors: readonly []; readonly error: string; }]' is not assignable to type 'readonly [string, { readonly anchors: readonly []; readonly error: null; }]'.
+        Type 'readonly [string, { readonly anchors: GraphSourceAnchor[]; readonly error: null; }]' is not assignable to type 'readonly [string, { readonly anchors: readonly []; readonly error: null; }]'.
+          Type at position 1 in source is not compatible with type at position 1 in target.
+            The types of 'anchors' are incompatible between these types.
+              Type 'GraphSourceAnchor[]' is not assignable to type 'readonly []'.
+                Target allows only 0 element(s) but source may have more.
+apps/ui/features/reader/SourceAnchorEditor.vue(112,30): error TS2339: Property 'startLine' does not exist on type 'never'.
+apps/ui/features/reader/SourceAnchorEditor.vue(112,58): error TS2339: Property 'endLine' does not exist on type 'never'.
+apps/ui/state/client-session.ts(1368,79): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+backend/modules/evidence-library/evidence-service.ts(144,62): error TS2322: Type 'JsonValue' is not assignable to type 'GraphPayload'.
+  Type 'null' is not assignable to type 'GraphPayload'.
+backend/modules/graph/run-state.ts(309,54): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+backend/modules/graph/run-state.ts(368,86): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+backend/modules/graph/run-state.ts(397,28): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+backend/modules/shared/data-definition.ts(719,43): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.
+backend/modules/shared/data-definition.ts(1282,25): error TS2550: Property 'hasOwn' does not exist on type 'ObjectConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2022' or later.

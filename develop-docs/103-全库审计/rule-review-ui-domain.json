@@ -1,0 +1,518 @@
+{
+  "reviewer": "domain-cross-ui",
+  "status": "complete",
+  "updatedAt": "2026-10-20T06:03:06.735Z",
+  "candidates": [
+    {
+      "id": "C03:apps/ui/features/assets/AssetManagement.vue:63:16",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "原生file input取消选择或空FileList确实无files[0]；组件selectedFile/importFile用File|null表示当前选择，null是实际状态，不是失败伪成功。"
+    },
+    {
+      "id": "C03:apps/ui/features/assets/AssetManagement.vue:103:21",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "文件名可能无txt/md/html/json后缀；空extension让mediaType继续使用浏览器file.type或octet-stream，普通未知格式资产仍允许上传，不能删真实匹配失败路径。"
+    },
+    {
+      "id": "C02:apps/ui/features/assets/AssetManagement.vue:153:7",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10",
+        "D04"
+      ],
+      "basis": "注册JSON字段名允许__proto__/constructor；assetSetPointer先按target[part]读中间对象，可能沿继承__proto__到Object.prototype，后续constructor等非object分支可在继承target写child。普通字典payload初始{}无完整own保证，应按自有数据字段构造，不是一律禁止动态写。"
+    },
+    {
+      "id": "C02:apps/ui/features/assets/AssetManagement.vue:157:3",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10",
+        "D04"
+      ],
+      "basis": "已发布pointer只保证路径格式，不保证新payload已有自有数据属性；叶子__proto__可能触发setter，继承中间target也可导致全局写，属既有JSON字段原型同名问题。"
+    },
+    {
+      "id": "C02:apps/ui/features/assets/AssetManagement.vue:215:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "键固定为confirmed.mapId + 冒号 + asset.id，身份由服务端提交结果给出，含分隔符不可能等于__proto__/constructor；存的是确认revision供新快照前去重，有真实用途。"
+    },
+    {
+      "id": "C03:apps/ui/features/evidence-library/EvidenceBasisEditor.vue:70:22",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "labels只记录本窗口后来明确选中的basis；打开旧草稿/未在窗口添加的basis没有label，需回落evidenceReadBasis提供的固定身份描述row.text。JSON.stringify对象键以大括号开头，不读标准原型名。"
+    },
+    {
+      "id": "C02:apps/ui/features/evidence-library/EvidenceBasisEditor.vue:177:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key为按真实EvidenceBasisRef对象JSON.stringify得到的完整序列化文本，含kind/身份且以大括号开头，不是任意裸字段名；写的是窗口私有展示缓存。"
+    },
+    {
+      "id": "C05:apps/ui/features/evidence-library/evidence-uses.ts:103:72",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U09"
+      ],
+      "basis": "同一catch、无await/修改的cause被clientReadError归一化两次用于两个code比较，acceptError还会再次处理；可保留一次解析结果，错误代次/401归属仍必要。"
+    },
+    {
+      "id": "C02:apps/ui/features/graph/DataPayloadEditor.vue:174:3",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10",
+        "D04"
+      ],
+      "basis": "rename允许用户输入新的动态字典key，next由spread复制但新key尚非自有字段；将其重命名为__proto__时next[key]=value可改原型或丢字段，不能把已有自有字段安全更新与新增key混同。"
+    },
+    {
+      "id": "C02:apps/ui/features/graph/DataPayloadEditor.vue:185:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "index由数组渲染/子项事件传入数字位置，next是arrayValue的数组副本；是在数组元素写JSON值，不是未知字符串写普通对象，保留单向数据流复制。"
+    },
+    {
+      "id": "C08:apps/ui/features/graph/DataPayloadEditor.vue:232:1",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U14"
+      ],
+      "basis": "合法JSON枚举可区分数值/字符串等不同值，而option value与选择查找都String，1与字符串1会碰撞，甚至对象值同字符串；JSON.stringify仅作Vuekey不能挽救表单value，归已有枚举控件问题。"
+    },
+    {
+      "id": "C03:apps/ui/features/graph/GraphScene.vue:303:49",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "Three raycaster的外部hit可能无instanceId；即便有实例索引，layout props与GPU mesh更新可错帧，节点数组没有对应位置应返回null，不能默认拿别的节点或宣称必命中。"
+    },
+    {
+      "id": "C02:apps/ui/features/graph/payload-labels.ts:60:61",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "pattern来自已发布presentation.enumLabels的JSON Pointer键，合同要求以斜杠开头；不是裸__proto__。options读取先hasOwn，declarations仅聚合真实声明，不能因普通赋值就判污染。"
+    },
+    {
+      "id": "C02:apps/ui/features/reader/SourceAnchorEditor.vue:64:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field.path由实际文本字段枚举或已验sourceAnchor pointer建立，均为以斜杠开头的完整路径，不等于原型特殊键；drafts保存每字段真实编辑草稿。"
+    },
+    {
+      "id": "C02:apps/ui/features/reader/SourceAnchorEditor.vue:125:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "selectedField取自已建立fields，完整path以斜杠开头；写空字符串表示用户明确清除该字段定位，是真编辑动作，不是默认吞掉无效锚点。"
+    },
+    {
+      "id": "C03:apps/ui/features/reader/reader-content.ts:133:9",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U10"
+      ],
+      "basis": "动态payload字段key可为constructor/toString；properties未声明该自有key时普通索引仍返回原型方法，从而屏蔽合法additionalProperties schema。保留真正未声明字段的additionalProperties路径，改为自有声明读取。"
+    },
+    {
+      "id": "C03:apps/ui/features/reader/reader-sources.ts:58:60",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "正则第2捕获组只在5-7这类范围存在，单行5真实缺matched[2]，必须用matched[1]作为endLine；不是已保证数组元素的死默认。"
+    },
+    {
+      "id": "C02:apps/ui/state/client-session.ts:317:9",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key固定由typeId + @ + typeVersion组成，版本正整数，格式不会等于标准原型成员；这是每个精确类型首次出现的计数，不是裸可变payload字段字典。"
+    },
+    {
+      "id": "C03:apps/ui/state/client-session.ts:317:24",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "新类型计数在reduce初次没有自有值，0是实际加一初值；key有@version后缀，原型同名问题不成立。"
+    },
+    {
+      "id": "C03:apps/ui/state/client-session.ts:577:76",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "selections是按当前已授权Map身份保存的稀疏用户选择；新开Map或已清选择可无记录，保存偏好要求显式null，真实缺省不能删。"
+    },
+    {
+      "id": "C02:apps/ui/state/client-session.ts:1008:28",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "activeMapId来自当前工作区真实Map目录并在openMap验证；生产Map ID按UUID边界创建/导入，记录选择不是按任意JSON属性名扩展。测试简化Map名也非原型键。"
+    },
+    {
+      "id": "C03:apps/ui/state/client-session.ts:1026:94",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "用户首次打开已授权目录中的Map可没有selections[id]；null正确表示未选节点，之后读取快照再校验选择是否仍存在，不能默认一个节点。"
+    },
+    {
+      "id": "C02:apps/ui/state/client-session.ts:1351:17",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "id来自本次实际引用/编辑涉及的现有图节点，公开创建/Run/导入都分配或验证UUID，找到该node才写revision；不是裸schema字典字段。"
+    },
+    {
+      "id": "C05:client/graph-client.ts:278:10",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "同一同步scope.time.from已在276以Date.parse验证可解释，278又解析同字符串做from<=to；可在字符串类型缩窄后复用毫秒值。仅小型重复转换，不删有效性或范围顺序两项约束，不引入新parser包装。"
+    },
+    {
+      "id": "C05:client/graph-client.ts:278:40",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "scope.time.to在277有效性检查和278有序范围比较中重复解析同一JSON字符串，无await或写入。与同一from候选合为一个低影响局部转换复用点；UI审查者确认未纳入U05。"
+    },
+    {
+      "id": "C05:client/graph-client.ts:669:116",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "654属于branch.ownership方法（editor）分支，669属于run.control方法分支；方法互斥、对象语义不同。branch.renew递归的通用扫描归U05，但此两个timestamp表达式不是同请求连续二次执行。"
+    },
+    {
+      "id": "C04:client/graph-client.ts:1020:11",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "U11"
+      ],
+      "basis": "已判定非SSE/缺body应抛INVALID_STREAM，但先await body.cancel，取消reject会跳过协议错误构造；次生资源清理不能取代明确协议主错，归现有U11。"
+    },
+    {
+      "id": "C02:tests/client/evidence-relations-client.spec.ts:75:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each固定workspaceId/entryId二选一，故意把真实响应身份改成另一UUID，断言公共客户端INVALID_RESPONSE；属于必须保留的坏响应边界，不是原型键来源。"
+    },
+    {
+      "id": "C02:tests/client/evidence-relations.spec.ts:413:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/evidence-selection.spec.ts:90:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:235:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:275:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:705:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "故意改本地draft条件数组第0项，配合修改transport副本和原草稿，验证重试沿独立冻结输入；真实数字数组元素赋值不是原型字典。"
+    },
+    {
+      "id": "C02:tests/client/evidence-state.spec.ts:896:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/evidence-uses-client.spec.ts:59:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each固定workspaceId/entryId二选一，故意把真实响应身份改成另一UUID，断言公共客户端INVALID_RESPONSE；属于必须保留的坏响应边界，不是原型键来源。"
+    },
+    {
+      "id": "C02:tests/client/evidence-uses-state.spec.ts:85:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/management.spec.ts:132:59",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此处写Uint8Array实际第0字节，分别模拟transport修改收到副本、调用方后来修改draft，以验证稳定重试副本与类型保存；数字数组/typed-array索引安全，属于所有权故障场景。"
+    },
+    {
+      "id": "C02:tests/client/management.spec.ts:138:38",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "此处写Uint8Array实际第0字节，分别模拟transport修改收到副本、调用方后来修改draft，以验证稳定重试副本与类型保存；数字数组/typed-array索引安全，属于所有权故障场景。"
+    },
+    {
+      "id": "C02:tests/client/run-history.spec.ts:240:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "field来自it.each声明的userId/connectionKey/workspaceId/mapId/entryId等固定身份维度；在真实状态机fixture里切换身份并断言abort、旧成功/401隔离或选择清空。非任意用户JSON属性名，不应删掉负例。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:339:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:362:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:375:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:392:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:402:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:419:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:440:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:497:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:528:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:535:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量map.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:536:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:560:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量graph.apply（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:569:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-editing.spec.ts:589:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:251:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:258:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:265:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:272:3",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:377:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:391:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:402:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:430:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:480:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:495:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:541:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:552:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:569:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.get（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:585:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:610:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:637:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:668:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:709:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:744:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:785:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:804:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处恢复原handler，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:819:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.claim（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:863:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:866:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.release（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session-grants.spec.ts:893:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "测试独占handler表仅替换固定方法字面量branch.renew（含点号、非原型特殊键），用受控Promise/真实commit helper分别保留服务端已提交事实与迟到运输结果；此处注入延迟/拒绝或记录参数，是授权代次/配对状态测试seam，不能当动态JSON键bug或删掉故障注入。"
+    },
+    {
+      "id": "C02:tests/client/session.spec.ts:912:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "next.nodes是本测试构造的图节点数组，第0项保存已接受graph.apply的模拟响应，配合首次NETWORK_ERROR证明重放；不是按外部字段名写对象。"
+    }
+  ],
+  "summary": {
+    "total": 79,
+    "confirmed": 9,
+    "retained": 70,
+    "unresolved": 0
+  },
+  "additionalNotes": [
+    {
+      "topic": "Date.parse局部复用",
+      "sites": [
+        "client/graph-client.ts:276-278"
+      ],
+      "impact": "低影响小项，同from/to的有效性及有序检查均须保留；UI审查者确认无现成findingID，不合入U05、不按两次builtin调用凑主要组。"
+    }
+  ],
+  "limits": "仅读固定79候选的实际上下文、合同及既有测试观察；未运行新复现，未修改UI或任何受审实现。confirmed多site归已有主题，不代表独立缺陷数量。"
+}

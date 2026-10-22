@@ -1,0 +1,9 @@
+
+ RUN  v4.1.9 /Users/xiong/ChongMing
+
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  15:04:43
+   Duration  821ms (transform 47ms, setup 0ms, import 71ms, tests 680ms, environment 0ms)
+

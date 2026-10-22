@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "fixtures/library-claims.ts",
+    "modules/shared/library-spec.spec.ts",
+    "modules/graph/library-claim-run.spec.ts",
+    "modules/graph/library-commit.spec.ts",
+    "modules/assets/library-export.spec.ts",
+    "execution/library-contract.spec.ts"
+  ],
+  "references": []
+}

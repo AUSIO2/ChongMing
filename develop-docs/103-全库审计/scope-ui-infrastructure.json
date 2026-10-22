@@ -1,0 +1,1349 @@
+{
+  "scope": "ui-infrastructure",
+  "status": "review-complete-awaiting-cross-review",
+  "scopeCount": 10,
+  "files": [
+    {
+      "file": "tests/client/files.spec.ts",
+      "kind": "test",
+      "lines": 225,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "fileResponse默认fixture字节；下载kind只固定3种，错误数组/URL不强转；合法compressed wire长度不同于decodedbytes。",
+          "candidateCount": 5,
+          "sites": [
+            29,
+            30,
+            84,
+            110,
+            135
+          ]
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "102次级cancel失败保FILE_TOO_LARGE/transport原错并reader unlocked的真实回归；资源server afterEach关闭。",
+          "candidateCount": 7,
+          "sites": [
+            37,
+            42,
+            50,
+            57,
+            68,
+            84,
+            110
+          ]
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "完整字节/摘要/文件名/长度/权限/取消未知外部边界必须保留，不删为重复校验。",
+          "candidateCount": 2,
+          "sites": [
+            84,
+            110
+          ]
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "upload请求冻结重放、late download disconnect隔离、错误stream各独立状态；没自动重试测试。",
+          "candidateCount": 4,
+          "sites": [
+            56,
+            67,
+            84,
+            110
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "前后bytes和digest比对是上传冻结/正式返回证据；不是内部同payload重复JSON解析。",
+          "candidateCount": 2,
+          "sites": [
+            120,
+            135
+          ]
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定endpoint/id，Uint8Array与任意URL/路径负例；测试不从原型lookup决定资源。",
+          "candidateCount": 3,
+          "sites": [
+            101,
+            135
+          ]
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "client.close、gateway.disconnect及受控reader取消有硬断言；没有真实浏览器/DB。",
+          "candidateCount": 44,
+          "sites": [
+            12,
+            14,
+            41,
+            42,
+            55,
+            57,
+            66,
+            68,
+            82,
+            86,
+            87,
+            108,
+            116,
+            117,
+            124,
+            132,
+            134,
+            141,
+            148,
+            149,
+            150,
+            152,
+            153,
+            154,
+            155,
+            168,
+            175,
+            176,
+            177,
+            178,
+            179,
+            192,
+            196,
+            197,
+            199,
+            200,
+            218,
+            220,
+            221,
+            222,
+            223
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "29137562f7c8e3155d37406b5a250c365c5929e3c9ca55e70c29924017161003",
+        "ranges": [
+          [
+            1,
+            225
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/integration.spec.ts",
+      "kind": "test",
+      "lines": 181,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "waitForMap slotfallback仅错误诊断，最终仍throw；超时可由调用方指定有明确异步业务用途。",
+          "candidateCount": 6,
+          "sites": [
+            28,
+            37,
+            38,
+            40,
+            111,
+            128
+          ]
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "Run失败立即throw附有限runtime诊断，beforeAll失败afterAll?.清理；未将失败当空结果继续。",
+          "candidateCount": 6,
+          "sites": [
+            44,
+            51,
+            62,
+            81,
+            103,
+            111
+          ]
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实client/backend/nativeDSH+公开branch lease/Runcontrol双review，未知边界不能按fixtures删除。",
+          "candidateCount": 2,
+          "sites": [
+            162,
+            164
+          ]
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "来源parse/新闻split由精确已注册transition独立选择；token撤回实际401，非旧business兼容。",
+          "candidateCount": 33,
+          "sites": [
+            24,
+            25,
+            35,
+            36,
+            38,
+            39,
+            40,
+            42,
+            43,
+            46,
+            49,
+            62,
+            81,
+            103,
+            106,
+            108,
+            111,
+            121,
+            124,
+            125,
+            126,
+            136,
+            171
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "有界poll读取新snapshot等待业务，重复requestId确认原receipt是幂等测试，非重复静态parse。",
+          "candidateCount": 26,
+          "sites": [
+            32,
+            49,
+            50,
+            67,
+            79,
+            94,
+            95,
+            109,
+            126,
+            139,
+            140,
+            143,
+            144,
+            147,
+            152,
+            162,
+            164,
+            169,
+            170,
+            171,
+            177
+          ]
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "按typeId/id/revision/slot/agent精确匹配，固定graph plan协议，不依赖用户原型键。",
+          "candidateCount": 1,
+          "sites": [
+            40
+          ]
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "fixture拥有真实Mongo/Rabbit/Host/provider，gateway先disconnect；不运行本长集成，仅只读检查。",
+          "candidateCount": 45,
+          "sites": [
+            17,
+            20,
+            24,
+            25,
+            32,
+            47,
+            67,
+            68,
+            74,
+            79,
+            80,
+            88,
+            90,
+            91,
+            92,
+            94,
+            97,
+            99,
+            101,
+            106,
+            115,
+            119,
+            122,
+            124,
+            130,
+            135,
+            137,
+            139,
+            152,
+            155,
+            157,
+            159,
+            161,
+            166,
+            168,
+            176,
+            177,
+            178,
+            179
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "da3a758c604da30358b4ccb8a848c7d0baecf8174b2fc4f176db0c5e47dd8f3c",
+        "ranges": [
+          [
+            1,
+            181
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/stream.spec.ts",
+      "kind": "test",
+      "lines": 171,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "快照revision/end stream标志是测试参数；缺基线/未知帧/非法UTF8明确拒绝不造默认snapshot。",
+          "candidateCount": 3,
+          "sites": [
+            12,
+            25,
+            93
+          ]
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "本地onEvent错误保原对象、fetch/read网络错误可retry；结构化401前/中流均保留。",
+          "candidateCount": 3,
+          "sites": [
+            55,
+            57,
+            77
+          ]
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "实际client SSE parser覆盖逐字节UTF8/CRLF、frame/idle/baseline大小；这是外部协议而非设施可省。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "heartbeat不代替baseline，正常结束是STREAM_ENDED可重连；disconnect不排在长watch之后。",
+          "candidateCount": 2,
+          "sites": [
+            33,
+            65
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "相同snapshot不同revision是新事件；frame encode+parse用于真实传输，不是重复业务遍历。",
+          "candidateCount": 1,
+          "sites": [
+            84
+          ]
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "固定map/workspace身份绑定，scope数组假枚举/未知activity输入拒绝；无动态普通字典写。",
+          "candidateCount": 5,
+          "sites": [
+            93,
+            94,
+            150
+          ]
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "live reader取消、gatewaydisconnect、client.close均等待受控结果；未覆盖U11坏header cancel盖错不误称已覆盖。",
+          "candidateCount": 27,
+          "sites": [
+            33,
+            53,
+            57,
+            74,
+            77,
+            89,
+            95,
+            111,
+            113,
+            116,
+            118,
+            127,
+            130,
+            133,
+            136,
+            145,
+            149,
+            150,
+            159,
+            162,
+            163,
+            169
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "6823639bf0348e213ab7dc3570250c50893858aa4fbbf0d5172dee36b33186ee",
+        "ranges": [
+          [
+            1,
+            171
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-fixture-lifecycle.spec.ts",
+      "kind": "test",
+      "lines": 516,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "faults可省表示真实正常流程；directoryState默认removed仅正常关闭约定，错误用retained显式。",
+          "candidateCount": 6,
+          "sites": [
+            65,
+            183,
+            209,
+            213,
+            243,
+            469
+          ]
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "readFailure只为断言保实际错误对象；includesFailure追cause/errors检查原identity；finally额外probe确保测试自清理。",
+          "candidateCount": 20,
+          "sites": [
+            83,
+            115,
+            145,
+            152,
+            160,
+            164,
+            198,
+            233,
+            235,
+            266,
+            277,
+            294,
+            316,
+            341,
+            365,
+            383,
+            399,
+            420,
+            441,
+            509
+          ]
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实SQLite/HTTP与存储锁状态，不以mock次数代替释放；注入在已有initialize/close边界。",
+          "candidateCount": 14,
+          "sites": [
+            83,
+            213,
+            216,
+            234,
+            276,
+            293,
+            315,
+            338,
+            340,
+            364,
+            382,
+            398,
+            419,
+            508
+          ]
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "并发重复close/消息错误/DB关前关后错误/HTTP listeningfalse仍有连接为不同真实状态。",
+          "candidateCount": 27,
+          "sites": [
+            83,
+            111,
+            112,
+            129,
+            130,
+            164,
+            183,
+            212,
+            213,
+            215,
+            216,
+            219,
+            234,
+            278,
+            295,
+            317,
+            342,
+            366,
+            384,
+            400,
+            421,
+            442,
+            487,
+            505,
+            510,
+            511,
+            512
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "事前捕获原close不是compat绕过产品，而是故障测试自身兜底，先断言fixture实际结果再清理。",
+          "candidateCount": 1,
+          "sites": [
+            265
+          ]
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "visited Set避免循环cause，固定enum故障标签；captured目录来源真实constructor，不扫用户路径。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "probe自己登记server/db/application资源并dispose；只有实际close后删除目录有真实测试。",
+          "candidateCount": 140,
+          "sites": [
+            23,
+            107,
+            111,
+            112,
+            114,
+            128,
+            130,
+            144,
+            151,
+            158,
+            159,
+            174,
+            179,
+            186,
+            196,
+            231,
+            248,
+            250,
+            261,
+            264,
+            265,
+            267,
+            270,
+            271,
+            272,
+            273,
+            274,
+            275,
+            276,
+            278,
+            279,
+            289,
+            290,
+            292,
+            293,
+            295,
+            296,
+            313,
+            315,
+            317,
+            318,
+            336,
+            340,
+            342,
+            343,
+            353,
+            354,
+            355,
+            356,
+            357,
+            358,
+            359,
+            360,
+            364,
+            366,
+            367,
+            378,
+            379,
+            382,
+            384,
+            385,
+            395,
+            396,
+            398,
+            400,
+            401,
+            410,
+            414,
+            417,
+            419,
+            421,
+            422,
+            432,
+            433,
+            437,
+            438,
+            442,
+            443,
+            456,
+            477,
+            483,
+            495,
+            498,
+            501,
+            504,
+            505,
+            506,
+            507,
+            508,
+            510,
+            511,
+            512,
+            513
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "2f00b3ac22df41db355d84cdb872c66e162f87ee4268c41e45467be523231bae",
+        "ranges": [
+          [
+            1,
+            516
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-fixture.ts",
+      "kind": "test",
+      "lines": 391,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "hostAdmin/modelDelay/storage默认为明确fixture参数；tool结果非JSON→error正文供失败模型回报而非补业务成功。",
+          "candidateCount": 21,
+          "sites": [
+            48,
+            91,
+            145,
+            160,
+            201,
+            208,
+            216,
+            224,
+            228,
+            237,
+            238,
+            255,
+            272,
+            280,
+            288,
+            342,
+            343
+          ]
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "close逐项捕获全错误并AggregateError；启动+清理同时失败保原cause；真实HTTP close仅ERR_SERVER_NOT_RUNNING幂等接受。",
+          "candidateCount": 13,
+          "sites": [
+            91,
+            170,
+            190,
+            202,
+            212,
+            227,
+            255,
+            287,
+            360,
+            364,
+            365,
+            367,
+            387
+          ]
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "只脚本本地模型协议，真实API/Host/SDK/数据库；profile按固定json变量装配，不替代生产校验。",
+          "candidateCount": 10,
+          "sites": [
+            47,
+            48,
+            91,
+            205,
+            226,
+            274,
+            288,
+            342
+          ]
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "sqlite/localqueue与mongo/Rabbit是真模式；当前7角色不同确定性工具流程不是legacy shim。",
+          "candidateCount": 44,
+          "sites": [
+            47,
+            48,
+            50,
+            71,
+            91,
+            104,
+            112,
+            175,
+            178,
+            179,
+            180,
+            181,
+            184,
+            186,
+            187,
+            190,
+            200,
+            201,
+            211,
+            212,
+            213,
+            228,
+            241,
+            242,
+            243,
+            248,
+            255,
+            257,
+            262,
+            269,
+            270,
+            272,
+            275,
+            279,
+            283,
+            288,
+            301,
+            319,
+            342,
+            356,
+            375,
+            386
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "provider解析每次真实模型请求和工具历史；相同工具结果查找为本次历史用途，未重复生产payload schema验证。",
+          "candidateCount": 19,
+          "sites": [
+            47,
+            49,
+            205,
+            206,
+            214,
+            219,
+            226,
+            228,
+            248,
+            270,
+            271,
+            274,
+            283,
+            284
+          ]
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "prompts/vars键固定role联合；calls Map按toolCallId，diagnostic Object.fromEntries不写原型setter。",
+          "candidateCount": 16,
+          "sites": [
+            49,
+            70,
+            72,
+            211,
+            230,
+            238,
+            244,
+            258,
+            263,
+            276,
+            282,
+            290,
+            386
+          ]
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "所有资源在try内获取，close有各组件确认布尔值防未close删目录；先Host再API/provider/DB保持依赖。",
+          "candidateCount": 56,
+          "sites": [
+            89,
+            105,
+            110,
+            115,
+            147,
+            160,
+            168,
+            175,
+            176,
+            177,
+            178,
+            179,
+            180,
+            181,
+            182,
+            184,
+            186,
+            188,
+            213,
+            293,
+            295,
+            307,
+            308,
+            309,
+            314,
+            316,
+            317,
+            318,
+            319,
+            320,
+            321,
+            328,
+            353,
+            355,
+            363,
+            375,
+            380
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "aa0f25cb4be9682b500b61e0d6353d0d2b848ec6f89857f0ae3940bd81b68708",
+        "ranges": [
+          [
+            1,
+            391
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-performance-report.spec.ts",
+      "kind": "test",
+      "lines": 112,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "无效NaN/Infinity/字符串/未知enum整份null，缺观测unavailable和[]保持而不填0假样本。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "没有业务catch吞失败；期望每个恶意已知字段拒绝，大小超限不截断继续报告。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "真实report parser验证units/id/limits，合法样本新副本正例；不是重复实现生产验证。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "不同profile/case/version字段是测试反例；正式容量运行未发生，不冒充浏览器成绩。",
+          "candidateCount": 7,
+          "sites": [
+            35,
+            36,
+            110
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "多次调用为独立变体与最大边界，序列化结果检查canary不泄漏。",
+          "candidateCount": 2,
+          "sites": [
+            45,
+            107
+          ]
+        },
+        "K": {
+          "status": "reviewed",
+          "basis": "load/env/metric固定键+未知诊断键对照，payload无用户字典索引。",
+          "candidateCount": 6,
+          "sites": [
+            35,
+            36,
+            93,
+            110
+          ]
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯同步附件DTO测试，无server/timer/进程资源。",
+          "candidateCount": 0,
+          "sites": []
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "08c3df0e0610b5080263ead52459c7d2b689bfc734c427ad0a0f7521771c8468",
+        "ranges": [
+          [
+            1,
+            112
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-report-artifacts.spec.ts",
+      "kind": "test",
+      "lines": 192,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "观察child未建可省；SIGTERM/KILL等待以真实close为准，timeout不会默认已清理。",
+          "candidateCount": 5,
+          "sites": [
+            97,
+            140
+          ]
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "runner启动/超时/收尾失败固定说明防秘密泄漏；finally未确认close则不删目录。",
+          "candidateCount": 9,
+          "sites": [
+            101,
+            103,
+            121,
+            131,
+            140,
+            142,
+            181,
+            186
+          ]
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "真实Playwright故障子进程/最终产物扫描，白名单JSON元数据非业务输入形状重复。",
+          "candidateCount": 5,
+          "sites": [
+            139,
+            140,
+            178,
+            179
+          ]
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "故意密码断言失败必须exit1且有stdout/stderr抑制计数；没有用skip把故障变绿。",
+          "candidateCount": 21,
+          "sites": [
+            42,
+            44,
+            45,
+            46,
+            47,
+            48,
+            69,
+            86,
+            97,
+            99,
+            103,
+            112,
+            126,
+            129,
+            131,
+            140,
+            184,
+            186,
+            188
+          ]
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "递归只读自有输出目录，符号链接只读link文本不跟随；不从错误原文推断成功。",
+          "candidateCount": 2,
+          "sites": [
+            137,
+            139
+          ]
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "输出events先JSON对象验证，固定canary只布尔比较；路径都由当前tmpdir生成。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "从spawn即监听close，25s运行+5s收尾deadline，关闭自己的进程组并移除listeners/timer。",
+          "candidateCount": 26,
+          "sites": [
+            26,
+            40,
+            45,
+            47,
+            48,
+            68,
+            82,
+            115,
+            116,
+            118,
+            121,
+            129,
+            131,
+            149,
+            152,
+            154,
+            156,
+            169,
+            180,
+            184,
+            185,
+            186,
+            188,
+            189
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "ca7616c4eb9167494c23a1c0dcf5355b61d1ef5d1ce60cf1632dd4d5d2b05be0",
+        "ranges": [
+          [
+            1,
+            192
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-reporter.spec.ts",
+      "kind": "test",
+      "lines": 204,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "reviewed",
+          "basis": "unknown/0/emptyerrorcounts为被测脱敏metadata，不修改真实status；smoke静态坐标仍是白名单fixture。",
+          "candidateCount": 2,
+          "sites": [
+            147,
+            179
+          ]
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "坏性能附件/缺附件使onEnd failed，不吞错误成passed；mock stdout每例还原。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "V": {
+          "status": "reviewed",
+          "basis": "实际Reporter回调+DTO投影，秘密message/stack/attachment只作负断言；来源位置必须已登记。",
+          "candidateCount": 3,
+          "sites": [
+            166,
+            193,
+            199
+          ]
+        },
+        "S": {
+          "status": "not-applicable",
+          "basis": "从A01到C11精确编号边界、badproject、timeout/interrupted不同合法框架状态。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "P": {
+          "status": "reviewed",
+          "basis": "每次workspaceReadSafeResult输入反例不同，多JSON输出逐行检查不是产品重复parse。",
+          "candidateCount": 5,
+          "sites": [
+            166,
+            193,
+            199
+          ]
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "测试注册内/外路径以及行列合法性，固定来源白名单验证；不对用户动态普通字典赋值。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "无业务服务/浏览器进程；spies afterEach restore，reporter无后台输出句柄。",
+          "candidateCount": 2,
+          "sites": [
+            159,
+            192
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "0d236e9ddf9340c48505e21ace42d60cc80d9d57cee74ab71ac8cfcccc8328a8",
+        "ranges": [
+          [
+            1,
+            204
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-startup-diagnostic.spec.ts",
+      "kind": "test",
+      "lines": 47,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "未知code→unregistered是固定脱敏语义，原failure仍保持不假成功。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "E": {
+          "status": "not-applicable",
+          "basis": "getter刻意抛/计数验证不会执行，输出cause不含原始异常；无吞主错逻辑。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "纯投影DTO边界正反例含Symbol和访问器，不冒称完整真实IPC/进程资格。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "S": {
+          "status": "not-applicable",
+          "basis": "不同固定stage/code枚举和额外字段反例，非旧兼容接受。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "create→read是child构造/parent读取不同边界，测试两者配对保留。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "own descriptor/ownKeys拒绝继承与getter，unknown恶意属性有实际负例。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "L": {
+          "status": "not-applicable",
+          "basis": "纯函数无资源；旧重型故障runner明确暂缓，不记为本测试通过。",
+          "candidateCount": 0,
+          "sites": []
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "983c919113be2b358564b413518f7fcefb90fb3f8ea33f049a4b074e4aa6d09f",
+        "ranges": [
+          [
+            1,
+            47
+          ]
+        ]
+      }
+    },
+    {
+      "file": "tests/client/ui-web-config.spec.ts",
+      "kind": "test",
+      "lines": 25,
+      "status": "reviewed",
+      "categories": {
+        "F": {
+          "status": "not-applicable",
+          "basis": "恢复env undefined是保持先前不存在状态，不默认继承另一例配置。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "E": {
+          "status": "reviewed",
+          "basis": "finally无论断言结果恢复Web/API env；真实Vite配置失败传播。",
+          "candidateCount": 1,
+          "sites": [
+            18
+          ]
+        },
+        "V": {
+          "status": "not-applicable",
+          "basis": "实际resolveConfig合并后watch=null，HMR仍可配置；不同框架阶段不是重复手写校验。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "S": {
+          "status": "reviewed",
+          "basis": "inline null被Vite忽略是安装依赖真实行为，post插件必要，不是旧应用兼容。",
+          "candidateCount": 2,
+          "sites": [
+            20,
+            22
+          ]
+        },
+        "P": {
+          "status": "not-applicable",
+          "basis": "只resolve一次，未建立整套重启/DB/Host环境来模拟配置。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "K": {
+          "status": "not-applicable",
+          "basis": "固定env键和vite路径，无未知字典/指针。",
+          "candidateCount": 0,
+          "sites": []
+        },
+        "L": {
+          "status": "reviewed",
+          "basis": "纯配置解析不listen/no watcher创建；环境变量按finally归还。",
+          "candidateCount": 1,
+          "sites": [
+            14
+          ]
+        }
+      },
+      "notes": [],
+      "readCoverage": {
+        "mode": "manual full source/functions plus caller/contract review",
+        "sha256": "d614b6624e164a62b4d66da1f5d91ca61c497f3b09fd386bbfcbc9483787b7ff",
+        "ranges": [
+          [
+            1,
+            25
+          ]
+        ]
+      }
+    }
+  ],
+  "pendingFiles": [],
+  "findings": [],
+  "retained": [
+    {
+      "id": "IK01",
+      "reason": "故障注入后的测试自身probe cleanup必须保留，不能因fixture也close判重复；先断言真实状态后独立收尾。"
+    },
+    {
+      "id": "IK02",
+      "reason": "报告设施接未知框架对象/附件，固定默认unknown/null为脱敏边界；坏性能会使整轮failed。"
+    },
+    {
+      "id": "IK03",
+      "reason": "files/stream/integration真实公共协议及跨阶段行为不当纯设施；102回归和新U11边界覆盖区别明确。"
+    }
+  ],
+  "unresolved": [],
+  "flows": [
+    {
+      "name": "Fixture startup/cleanup",
+      "path": [
+        "owned tmpdir",
+        "provider",
+        "real selected storage+app",
+        "queue/HTTP/Host",
+        "browser borrowers",
+        "close attempts all and confirms before rm"
+      ],
+      "conclusion": "现有正常/故障生命周期测试覆盖，不删除清理或新公开schema边界。"
+    },
+    {
+      "name": "Reporter artifacts",
+      "path": [
+        "real deliberate browser failure",
+        "fixed safe reporter",
+        "worker output suppressed",
+        "real child close",
+        "owned output directory scan"
+      ],
+      "conclusion": "未跑browser，只检查现有真实失败资格链；不是默认假通过。"
+    },
+    {
+      "name": "Public file/SSE/full integration",
+      "path": [
+        "actual public ClientApi",
+        "controlled fetch/real local HTTP or full fixture",
+        "protocol parsed response",
+        "cancel/disconnect/replay",
+        "independent state comparison"
+      ],
+      "conclusion": "保留未知输入、reader清理及异步版本/lease仲裁；U11另在UI scope确认，不重复计。"
+    }
+  ],
+  "transversal": [
+    {
+      "category": "F",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    },
+    {
+      "category": "E",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    },
+    {
+      "category": "V",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    },
+    {
+      "category": "S",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    },
+    {
+      "category": "P",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    },
+    {
+      "category": "K",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    },
+    {
+      "category": "L",
+      "result": "10份文件逐项依据见对应category.basis；原始AST候选只导航，未自动当缺陷。"
+    }
+  ],
+  "progress": {
+    "reviewed": 10,
+    "total": 10
+  },
+  "delegated": {
+    "from": "root",
+    "uiAgentConfirmedNotStarted": true
+  },
+  "method": "Read-only seven-category audit; last files/stream/integration retain real public client protocol semantics, not treated as fixture only",
+  "completedAt": "2026-10-20T05:57:02.927660+00:00",
+  "verification": {
+    "auditedFilesChanged": false,
+    "inventoryHashesMatched": true,
+    "testSuitesRun": false,
+    "sourceTestsConfigEdited": false,
+    "files": 10,
+    "categoryCells": 70
+  }
+}

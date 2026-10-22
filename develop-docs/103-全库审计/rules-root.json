@@ -1,0 +1,191 @@
+[
+  {
+    "rule": "C05",
+    "file": "backend/modules/evidence-library/evidence-input.ts",
+    "owner": "root",
+    "line": 186,
+    "column": 83,
+    "evidence": {
+      "priorLine": 186,
+      "sameTextArguments": true,
+      "awaitBetween": false,
+      "note": "相同源码参数可能已改变；必须人工判值、循环和异步边界。"
+    },
+    "source": "Date.parse(from)",
+    "id": "C05:backend/modules/evidence-library/evidence-input.ts:186:83",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C05",
+    "file": "backend/modules/evidence-library/evidence-input.ts",
+    "owner": "root",
+    "line": 186,
+    "column": 102,
+    "evidence": {
+      "priorLine": 186,
+      "sameTextArguments": true,
+      "awaitBetween": false,
+      "note": "相同源码参数可能已改变；必须人工判值、循环和异步边界。"
+    },
+    "source": "Date.parse(to)",
+    "id": "C05:backend/modules/evidence-library/evidence-input.ts:186:102",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 289,
+    "column": 35,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "schema[key] = definitionReadInteger(input[key], `${label}.${key}`, 0)",
+    "id": "C02:backend/modules/shared/data-definition.ts:289:35",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 294,
+    "column": 7,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "schema[key] = input[key]",
+    "id": "C02:backend/modules/shared/data-definition.ts:294:7",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 305,
+    "column": 86,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "schema[key] = definitionReadString(input[key], `${label}.${key}`)",
+    "id": "C02:backend/modules/shared/data-definition.ts:305:86",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 337,
+    "column": 113,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "result.fieldLabels[path] = definitionReadString(text, `${label}.fieldLabels.${path}`)",
+    "id": "C02:backend/modules/shared/data-definition.ts:337:113",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 343,
+    "column": 110,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "parsed[key] = definitionReadString(text, `${label}.enumLabels.${path}.${key}`)",
+    "id": "C02:backend/modules/shared/data-definition.ts:343:110",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 344,
+    "column": 7,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "result.enumLabels[path] = parsed",
+    "id": "C02:backend/modules/shared/data-definition.ts:344:7",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 515,
+    "column": 5,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "promptBindings[definitionReadIdentifier(name, `${label}.promptBindings key`)] = definitionReadPromptBinding(binding, `${label}.promptBindings.${name}`)",
+    "id": "C02:backend/modules/shared/data-definition.ts:515:5",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C03",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 1276,
+    "column": 18,
+    "evidence": "核对可缺省合同、自有键保证和生产构造者；默认值可能正确，也可能读到继承字段。",
+    "source": "actual[port.name] ?? []",
+    "id": "C03:backend/modules/shared/data-definition.ts:1276:18",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "backend/modules/shared/data-definition.ts",
+    "owner": "root",
+    "line": 1285,
+    "column": 5,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "result[port.name] = structuredClone(refs)",
+    "id": "C02:backend/modules/shared/data-definition.ts:1285:5",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C06",
+    "file": "backend/modules/shared/input-validation.ts",
+    "owner": "root",
+    "line": 16,
+    "column": 7,
+    "evidence": {
+      "findLine": 15,
+      "note": "字符串空键与undefined不同；检查实际输入是否允许该键。"
+    },
+    "source": "unknown",
+    "id": "C06:backend/modules/shared/input-validation.ts:16:7",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C03",
+    "file": "scripts/check-desktop-runtime.ts",
+    "owner": "root",
+    "line": 17,
+    "column": 41,
+    "evidence": "核对可缺省合同、自有键保证和生产构造者；默认值可能正确，也可能读到继承字段。",
+    "source": "process.argv[2] ?? '.desktop-runtime'",
+    "id": "C03:scripts/check-desktop-runtime.ts:17:41",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C04",
+    "file": "scripts/check-desktop-runtime.ts",
+    "owner": "root",
+    "line": 121,
+    "column": 33,
+    "evidence": "清理拒绝可能覆盖主错误或跳过后续释放；区分真实主要清理失败、次生失败及既有错误归属。",
+    "source": "await service.close()",
+    "id": "C04:scripts/check-desktop-runtime.ts:121:33",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C02",
+    "file": "scripts/prepare-desktop-runtime.mjs",
+    "owner": "root",
+    "line": 19,
+    "column": 1,
+    "evidence": "区分普通字典、已有自有数据属性、数组及UUID键；不能一律判原型问题。",
+    "source": "runtimeLock.packages[''] = { name: runtimePackage.name, version: runtimePackage.version, dependencies: runtimePackage.dependencies }",
+    "id": "C02:scripts/prepare-desktop-runtime.mjs:19:1",
+    "reviewer": "root"
+  },
+  {
+    "rule": "C04",
+    "file": "tests/backend/fixtures/rabbitmq.ts",
+    "owner": "root",
+    "line": 95,
+    "column": 21,
+    "evidence": "清理拒绝可能覆盖主错误或跳过后续释放；区分真实主要清理失败、次生失败及既有错误归属。",
+    "source": "await close();",
+    "id": "C04:tests/backend/fixtures/rabbitmq.ts:95:21",
+    "reviewer": "root"
+  }
+]

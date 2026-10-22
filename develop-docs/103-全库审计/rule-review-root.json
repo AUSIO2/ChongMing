@@ -1,0 +1,119 @@
+{
+  "reviewer": "root",
+  "candidates": [
+    {
+      "id": "C05:backend/modules/evidence-library/evidence-input.ts:186:83",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "同一条件中from/to均为已解析且未变字符串；重复Date.parse已确认，只复用解析结果，不删finite或顺序判断。"
+    },
+    {
+      "id": "C05:backend/modules/evidence-library/evidence-input.ts:186:102",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "PM05"
+      ],
+      "basis": "同一条件中from/to均为已解析且未变字符串；重复Date.parse已确认，只复用解析结果，不删finite或顺序判断。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:289:35",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同函数固定关键字数组（min/max Items/Length/数值或title/description），不是任意用户键；前置类型/范围解析后写该schema字段必要。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:294:7",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同函数固定关键字数组（min/max Items/Length/数值或title/description），不是任意用户键；前置类型/范围解析后写该schema字段必要。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:305:86",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "key来自同函数固定关键字数组（min/max Items/Length/数值或title/description），不是任意用户键；前置类型/范围解析后写该schema字段必要。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:337:113",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "实际definitionsReadPackage准入自有__proto__键后赋值丢键或改变临时字典原型；内层enum标签是明确合法enum值，外层只证明映射丢失，不扩大成UI路径使用结论。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:343:110",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "实际definitionsReadPackage准入自有__proto__键后赋值丢键或改变临时字典原型；内层enum标签是明确合法enum值，外层只证明映射丢失，不扩大成UI路径使用结论。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:344:7",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "实际definitionsReadPackage准入自有__proto__键后赋值丢键或改变临时字典原型；内层enum标签是明确合法enum值，外层只证明映射丢失，不扩大成UI路径使用结论。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:515:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "definitionReadIdentifier要求首字符字母，__proto__与旧setter名均不准入；constructor/toString普通赋值建立自有字段，安全。"
+    },
+    {
+      "id": "C03:backend/modules/shared/data-definition.ts:1276:18",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P01"
+      ],
+      "basis": "constructor合法端口缺省时读原型函数，实际FreezeExecution/Run复现。"
+    },
+    {
+      "id": "C02:backend/modules/shared/data-definition.ts:1285:5",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "port.name同样是准入identifier，__proto__不可达；constructor写入会建立自有属性。问题在前面的读取默认而非这次写入，不按同语法扩大。"
+    },
+    {
+      "id": "C06:backend/modules/shared/input-validation.ts:16:7",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P02"
+      ],
+      "basis": "空字符串未知键是find实际返回值，truthy与undefined混淆；实际公共helper已复现。"
+    },
+    {
+      "id": "C03:scripts/check-desktop-runtime.ts:17:41",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "process.argv[2]是明确可选CLI参数，未传入时以生成的.desktop-runtime目录为验证目标；该默认有实际调用。"
+    },
+    {
+      "id": "C04:scripts/check-desktop-runtime.ts:121:33",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P05"
+      ],
+      "basis": "精确源函数体受控primary+secondary双故障实测覆盖主错；runtime finalizer还跳过provider清理。仅验证工具/fixture，不冒称产品行为。"
+    },
+    {
+      "id": "C02:scripts/prepare-desktop-runtime.mjs:19:1",
+      "disposition": "retained",
+      "relatedFindings": [],
+      "basis": "空字符串是npm lockfile root package的正式键，固定常量赋值不触发原型setter；不是固定请求白名单里的未知空键。"
+    },
+    {
+      "id": "C04:tests/backend/fixtures/rabbitmq.ts:95:21",
+      "disposition": "confirmed",
+      "relatedFindings": [
+        "P05"
+      ],
+      "basis": "精确源函数体受控primary+secondary双故障实测覆盖主错；runtime finalizer还跳过provider清理。仅验证工具/fixture，不冒称产品行为。"
+    }
+  ]
+}

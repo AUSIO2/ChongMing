@@ -1,0 +1,1831 @@
+--- 104-baseline/apps/cli/main.ts
++++ current/apps/cli/main.ts
+@@ -63,7 +63,7 @@
+  * @param file 可选输入来源；横杠表示标准输入，省略时使用空对象。
+  */
+ async function cliReadInput(file?: string): Promise<Record<string, unknown>> {
+-  let source = '{}'
++  let source: Uint8Array = new TextEncoder().encode('{}')
+   if (file === '-') {
+     const chunks: Buffer[] = []; let size = 0
+     for await (const chunk of process.stdin) {
+@@ -71,10 +71,10 @@
+       if (size > CLIENT_FILE_LIMIT) cliThrowUsage('Input exceeds 64 MiB')
+       chunks.push(bytes)
+     }
+-    source = Buffer.concat(chunks).toString('utf8')
+-  } else if (file) source = Buffer.from(await cliReadBytes(file)).toString('utf8')
++    source = Buffer.concat(chunks)
++  } else if (file) source = await cliReadBytes(file)
+   let value: unknown
+-  try { value = JSON.parse(source) } catch { cliThrowUsage('Input must be valid JSON') }
++  try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(source)) } catch { cliThrowUsage('Input must be valid JSON') }
+   if (!value || typeof value !== 'object' || Array.isArray(value)) cliThrowUsage('Input must be a JSON object')
+   return value as Record<string, unknown>
+ }
+--- 104-baseline/apps/config/local-settings.ts
++++ current/apps/config/local-settings.ts
+@@ -20,12 +20,15 @@
+  * @param name 配置目录内由程序选定的 JSON 文件名。
+  */
+ async function localReadFile(name: string): Promise<Record<string, unknown>> {
+-  try { return JSON.parse(await readFile(path.join(localReadDirectory(), name), 'utf8')) }
++  // 文件缺失仅表示尚未配置；字节读取错误与内容错误分别处理。
++  let bytes: Buffer
++  try { bytes = await readFile(path.join(localReadDirectory(), name)) }
+   catch (error) {
+     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+-    if (error instanceof SyntaxError) throw new Error(messageFormat(RuntimeMessage.INVALID_LOCAL_CONFIGURATION_VALUE, name))
+     throw error
+   }
++  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)) }
++  catch { throw new Error(messageFormat(RuntimeMessage.INVALID_LOCAL_CONFIGURATION_VALUE, name)) }
+ }
+ 
+ /**
+--- 104-baseline/apps/desktop/connection-manager.ts
++++ current/apps/desktop/connection-manager.ts
+@@ -24,7 +24,7 @@
+   const initialized = (async () => {
+     // 恢复上次选择的模式；首次使用允许文件不存在，其他读取或内容错误留给后续操作报告。
+     try {
+-      const value = JSON.parse(await readFile(modeFile, 'utf8'))
++      const value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(modeFile)))
+       if (value.mode !== 'local' && value.mode !== 'remote') throw new Error(RuntimeMessage.INVALID_DESKTOP_MODE)
+       mode = value.mode
+     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+--- 104-baseline/apps/desktop/credential-store.ts
++++ current/apps/desktop/credential-store.ts
+@@ -42,7 +42,10 @@
+     async load() {
+       // 恢复连接地址并尝试解密令牌；未授权记住或解密失败时只返回地址。
+       try {
+-        const value = JSON.parse(await readFile(filename, 'utf8'))
++        const bytes = await readFile(filename)
++        let value
++        try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)) }
++        catch { return null }
+         if (value.version !== 1 || typeof value.baseUrl !== 'string') return null
+         const baseUrl = clientReadBaseUrl(value.baseUrl)
+         if (typeof value.encryptedToken !== 'string' || !clientReadStoragePermission()) return { baseUrl, token: null, remembered: false }
+@@ -51,7 +54,7 @@
+           return { baseUrl, token, remembered: !!token }
+         } catch { return { baseUrl, token: null, remembered: false } }
+       } catch (error) {
+-        if (error instanceof SyntaxError || (error instanceof Error && 'code' in error && error.code === 'ENOENT')) return null
++        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null
+         throw error
+       }
+     },
+--- 104-baseline/apps/graph-server/admin.ts
++++ current/apps/graph-server/admin.ts
+@@ -26,7 +26,7 @@
+  * @param file 可选 JSON 文件路径；未提供时从标准输入读取，空输入视为空对象。
+  */
+ async function adminReadInput(file?: string): Promise<unknown> {
+-  if (file) return JSON.parse(await readFile(file, 'utf8'))
++  if (file) return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(file)))
+   const chunks: Buffer[] = []
+   let size = 0
+   for await (const chunk of process.stdin) {
+@@ -34,7 +34,7 @@
+     if (size > 1_048_576) throw new Error(RuntimeMessage.ADMIN_INPUT_EXCEEDS_1_MIB)
+     chunks.push(Buffer.from(chunk))
+   }
+-  return chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
++  return chunks.length ? JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks))) : {}
+ }
+ 
+ async function adminRunCommand(): Promise<unknown> {
+@@ -95,7 +95,7 @@
+     try {
+       const response = await fetch(request)
+       if (data.kind === 'llm') {
+-        const result = await response.json() as { choices?: unknown[] }
++        const result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await response.arrayBuffer())) as { choices?: unknown[] }
+         return { ok: response.ok && Array.isArray(result.choices) && result.choices.length > 0,
+           status: response.status, latencyMs: Math.round(performance.now() - started),
+         }
+--- 104-baseline/apps/graph-server/main.ts
++++ current/apps/graph-server/main.ts
+@@ -29,7 +29,14 @@
+       messaging: { url: amqpUrl, namespace: process.env.CHONGMING_QUEUE_NAMESPACE ?? 'chongming' }, reporter,
+     })
+     await application.initialize()
+-  } catch (error) { await connection.close(); throw error }
++  } catch (error) {
++    try { await connection.close() }
++    catch (cleanupError) {
++      // 启动主错仍交给入口诊断；数据库清理是独立的实际失败。
++      reporter.report({ name: 'startup.connection.close.failed', severity: 'error', error: cleanupError })
++    }
++    throw error
++  }
+   const server = apiCreateServer(application, { internalToken: process.env.CHONGMING_DATA_TOKEN ?? local.secrets.CHONGMING_DATA_TOKEN, reporter })
+   try {
+     await application.startMessaging()
+@@ -44,7 +51,10 @@
+     server.closeAllConnections()
+     await processRunClose({ reporter, timeoutMs: 5000, close: async () => {
+       // 启动失败时并行尝试关闭消息服务和数据库，收集双方的结束结果。
+-      await Promise.allSettled([application.closeMessaging(), connection.close()])
++      const results = await Promise.allSettled([application.closeMessaging(), connection.close()])
++      const errors = results.flatMap((/* 本次资源清理结果。 */ result) => /* 保留每个实际清理失败供诊断。 */ result.status === 'rejected' ? [result.reason] : [])
++      for (const error of errors) reporter.report({ name: 'startup.resource.close.failed', severity: 'error', error })
++      if (errors.length) throw new AggregateError(errors, RuntimeMessage.RESOURCE_CLEANUP_FAILED)
+     } })
+     throw error
+   }
+@@ -58,9 +68,10 @@
+       new Promise<void>((resolve, reject) => /* 将 HTTP 服务关闭回调转为可等待的 Promise。 */  server.close(error => /* HTTP 关闭失败时拒绝等待，否则确认关闭完成。 */  error ? reject(error) : resolve())),
+       application.closeMessaging(),
+     ])
+-    await connection.close()
+-    const failure = results.find(result => /* 查找并传播 HTTP 或消息关闭中出现的首个拒绝。 */  result.status === 'rejected')
+-    if (failure?.status === 'rejected') throw failure.reason
++    const errors = results.flatMap((/* HTTP 或消息的关闭结果。 */ result) => /* 保留所有结束失败。 */ result.status === 'rejected' ? [result.reason] : [])
++    try { await connection.close() } catch (error) { errors.push(error) }
++    for (const error of errors) reporter.report({ name: 'shutdown.resource.close.failed', severity: 'error', error })
++    if (errors.length) throw new AggregateError(errors, RuntimeMessage.RESOURCE_CLEANUP_FAILED)
+   })()
+   void application.messagingFinished().then(error => {
+     // 消息服务异常终止时报告致命故障并关闭 API，防止继续接受无法派发的工作。
+--- 104-baseline/apps/local-server/runtime.ts
++++ current/apps/local-server/runtime.ts
+@@ -29,24 +29,33 @@
+   function close(): Promise<void> {
+     // 复用同一关闭任务，保证部分初始化失败也能走统一清理流程。
+     return closing ??= (async () => {
+-      // 按 Host、HTTP、消息、数据库的顺序尝试全部清理，最后传播首个失败。
++      // 按 Host、HTTP、消息、数据库的顺序尝试全部清理，最后保留全部失败。
+       const failures: unknown[] = []
+       /**
+        * 执行单个清理步骤并收集错误，避免某项失败跳过后续资源回收。
+        *
+        * @param action 需要尝试的单项异步清理，错误先收集以便后续资源仍能回收。
+        */
+-      async function run(action: () => Promise<unknown>) {
+-         try { await action() } catch (error) { failures.push(error) } }
++      async function closeResource(
++        /* 当前资源的诊断阶段，不包含用户数据或凭据。 */ phase: string,
++        /* 当前所有者需要尝试的实际关闭操作。 */ action: () => Promise<unknown>,
++      ): Promise<void> {
++        // 单项关闭失败保留原错误并写诊断，其他自有资源仍继续释放。
++        try { await action() }
++        catch (error) {
++          failures.push(error)
++          input.reporter?.report({ name: 'runtime.resource.close.failed', severity: 'error', context: { phase }, error })
++        }
++      }
+       server?.beginShutdown()
+-      await run(() => /* 等待已创建的 Host 停止，尚未创建时直接完成。 */  host?.close() ?? Promise.resolve())
++      await closeResource('host', () => /* 等待已创建的 Host 停止，尚未创建时直接完成。 */  host?.close() ?? Promise.resolve())
+       if (server?.listening) {
+         server.closeAllConnections()
+-        await run(() => /* 为仍在监听的 HTTP 服务建立关闭等待。 */  new Promise<void>((resolve, reject) => /* 请求关闭 HTTP 服务并由回调完成等待。 */  server!.close(error => /* HTTP 关闭失败时传播错误，否则确认结束。 */  error ? reject(error) : resolve())))
++        await closeResource('http', () => /* 为仍在监听的 HTTP 服务建立关闭等待。 */  new Promise<void>((resolve, reject) => /* 请求关闭 HTTP 服务并由回调完成等待。 */  server!.close(error => /* HTTP 关闭失败时传播错误，否则确认结束。 */  error ? reject(error) : resolve())))
+       }
+-      await run(() => /* 等待本地消息服务关闭。 */  application.closeMessaging())
+-      await run(() => /* 等待 SQLite 持久化释放连接与目录占用。 */  database.close())
+-      if (failures.length) throw failures[0]
++      await closeResource('messaging', () => /* 等待本地消息服务关闭。 */  application.closeMessaging())
++      await closeResource('database', () => /* 等待 SQLite 持久化释放连接与目录占用。 */  database.close())
++      if (failures.length) throw new AggregateError(failures, RuntimeMessage.RESOURCE_CLEANUP_FAILED)
+     })()
+   }
+   try {
+@@ -99,5 +108,13 @@
+     await rename(temporary, connectionPath)
+     await writeFile(tokenPath, userToken + '\n', { mode: 0o600 })
+     return { application, database, host, baseUrl, workspaceId: identity.workspaceId, userToken, connectionPath, tokenPath, close }
+-  } catch (error) { await close(); throw error }
++  } catch (error) {
++    try { await close() }
++    catch (cleanupError) {
++      // 聚合错误供直接调用者检查；主错另交实际诊断器，避免只有聚合栈丢失原故障。
++      input.reporter?.report({ name: 'runtime.start.failed', severity: 'error', error })
++      throw new AggregateError([error, cleanupError], RuntimeMessage.RESOURCE_CLEANUP_FAILED)
++    }
++    throw error
++  }
+ }
+--- 104-baseline/backend/adapters/http/dsh-diagnostic-server.ts
++++ current/backend/adapters/http/dsh-diagnostic-server.ts
+@@ -30,7 +30,7 @@
+     if (size > MAX_BODY_BYTES) throw new Error(RuntimeMessage.REQUEST_BODY_EXCEEDS_1_MIB)
+     chunks.push(buffer)
+   }
+-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
++  return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)))
+ }
+ /**
+  * 只接受非空提示词和可选会话身份，拒绝未知字段。
+--- 104-baseline/backend/adapters/http/graph-http-server.ts
++++ current/backend/adapters/http/graph-http-server.ts
+@@ -19,13 +19,14 @@
+ import type { ApplicationService } from '../../application/graph-application'
+ import { controlReadCommand, controlReadQuery } from '../../modules/workspace/workspace-input'
+ import { assetsReadCommand } from '../../modules/assets/asset-service'
+-import { evidenceReadEnvelope, evidenceReadQuery, type EvidenceCommandEnvelope } from '../../modules/evidence-library/evidence-input'
++import { evidenceReadCommandEnvelope, evidenceReadQuery, type EvidenceCommandEnvelope } from '../../modules/evidence-library/evidence-input'
+ import { eventsOpen } from './graph-event-stream'
+ import type { DiagnosticReporter } from '../../../contracts/diagnostics'
+ import {
+   inputReadObject as apiReadObject, inputReadString as apiReadString, inputReadId as apiReadId,
+   inputReadRevision as apiReadRevision, inputReadArray as apiReadArray,
+   inputReadNames as apiReadNames, inputReadIds as apiReadIds,
++  inputReadQueryEnvelope, inputReadCommandEnvelope,
+ } from '../../modules/shared/input-validation'
+ 
+ const MAX_BODY_BYTES = 1_048_576
+@@ -55,7 +56,7 @@
+     chunks.push(buffer)
+   }
+   try {
+-    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
++    return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks)))
+   } catch {
+     throw new GraphError(400, 'INVALID_JSON', RuntimeMessage.BODY_MUST_BE_VALID_JSON)
+   }
+@@ -145,9 +146,9 @@
+   /* 尚未校验方法、身份和审核版本的 HTTP 查询。 */ value: unknown,
+ ): GraphQuery | ControlQuery | EvidenceQuery {
+   // 查询只解析只读参数，不接纳控制证明或写入版本条件。
+-  const envelope = apiReadObject(value, ['method', 'params'], 'query')
++  const envelope = inputReadQueryEnvelope(value)
+   if (envelope.method === 'evidence.get' || envelope.method === 'evidence.search' || envelope.method === 'evidence.relations'
+-    || envelope.method === 'evidence.uses' || envelope.method === 'evidence.use.get') return evidenceReadQuery(value)
++    || envelope.method === 'evidence.uses' || envelope.method === 'evidence.use.get') return evidenceReadQuery(envelope)
+   if (envelope.method === 'map.list') {
+     const params = apiReadObject(envelope.params, ['workspaceId'], 'params')
+     const workspaceId = apiReadId(params.workspaceId, 'params.workspaceId')
+@@ -183,7 +184,7 @@
+     const params = apiReadObject(envelope.params, ['assetId'], 'params')
+     return { method: 'asset.get', params: { assetId: apiReadId(params.assetId, 'assetId') } }
+   }
+-  return controlReadQuery(value)
++  return controlReadQuery(envelope)
+ }
+ /**
+  * 来源只能绑定显式 scope 成员或一个已声明前序步骤的命名输出端口。
+@@ -261,10 +262,10 @@
+   /* 尚未解析请求编号、方法和业务参数的 HTTP 写命令。 */ value: unknown,
+ ): GraphCommand | ControlCommand | EvidenceCommandEnvelope {
+   // 按公开命令的字段白名单解析写入输入，保留请求编号供授权后的收据去重。
+-  const envelope = apiReadObject(value, ['requestId', 'method', 'params'], 'command')
++  const envelope = inputReadCommandEnvelope(value)
+   // 证据写命令只解析授权信封，固定字段及来源校验留在收据检查之后。
+-  if (envelope.method === 'evidence.collect' || envelope.method === 'evidence.withdraw') return evidenceReadEnvelope(value)
+-  const requestId = apiReadId(envelope.requestId, 'requestId')
++  if (envelope.method === 'evidence.collect' || envelope.method === 'evidence.withdraw') return evidenceReadCommandEnvelope(envelope)
++  const requestId = envelope.requestId
+   if (envelope.method === 'map.create') {
+     const params = apiReadObject(envelope.params, ['workspaceId', 'expectedRevision', 'id', 'name'], 'params')
+     const workspaceId = apiReadId(params.workspaceId, 'params.workspaceId')
+@@ -405,8 +406,8 @@
+       },
+     }
+   }
+-  if (envelope.method === 'asset.delete' || envelope.method === 'workspace.import') return assetsReadCommand(value)
+-  return controlReadCommand(value)
++  if (envelope.method === 'asset.delete' || envelope.method === 'workspace.import') return assetsReadCommand(envelope)
++  return controlReadCommand(envelope)
+ }
+ /**
+  * 要求输入是真正的布尔值，避免字符串被隐式转换。
+--- 104-baseline/backend/adapters/messaging/rabbitmq.ts
++++ current/backend/adapters/messaging/rabbitmq.ts
+@@ -74,7 +74,7 @@
+  */
+ function queueReadJson(content: Buffer): unknown {
+   if (content.byteLength > 8192) throw new QueueError('INVALID_MESSAGE', RuntimeMessage.QUEUE_MESSAGE_EXCEEDS_8_KIB)
+-  try { return JSON.parse(content.toString('utf8')) }
++  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(content)) }
+   catch { throw new QueueError('INVALID_MESSAGE', RuntimeMessage.QUEUE_MESSAGE_IS_NOT_JSON) }
+ }
+ /**
+--- 104-baseline/backend/adapters/storage/branch-migration.ts
++++ current/backend/adapters/storage/branch-migration.ts
+@@ -193,14 +193,14 @@
+  * @param data 去除 kind 前的旧节点内容。
+  */
+ function migrationValidateLegacyPayload(
+-  /* 已通过旧节点类型白名单的业务类型。 */ kind: string,
++  /* 已通过旧节点类型白名单的业务类型。 */ kind: 'source' | 'news' | 'claim' | 'verification',
+   /* 去除旧 kind 前、仍需验证字段含义的节点内容。 */ data: RawObject,
+-): void {
+-  // 验证旧节点能保留到当前定义的字段，不从原材料推断新的事实陈述。
++): string[] {
++  // 校验能保留到当前定义的旧字段，并返回去重报告引用；其他类型没有旧报告引用。
+   if (kind === 'source') {
+     migrationValidateLocator(data.locator)
+     if (data.label !== null && typeof data.label !== 'string') throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+-    return
++    return []
+   }
+   if (kind === 'news') {
+     migrationString(data.content, 'node.data.content')
+@@ -209,20 +209,22 @@
+       const item = migrationObject(field, 'node.data.context field')
+       if (typeof item.value !== 'string' || typeof item.visibleToAI !== 'boolean') throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+     }
+-    return
++    return []
+   }
+   if (kind === 'claim') {
+     migrationString(data.content, 'node.data.content')
+     if (data.category !== null && data.category !== 'data' && data.category !== 'quote' && data.category !== 'causal') {
+       throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+     }
+-    return
+-  }
+-  if (kind === 'verification') {
+-    if (data.score !== 0 && data.score !== 0.5 && data.score !== 1) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+-    migrationString(data.reason, 'node.data.reason')
+-    if (!migrationArray(data.reportIds, 'node.data.reportIds').length) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+-  }
++    return []
++  }
++  if (data.score !== 0 && data.score !== 0.5 && data.score !== 1) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
++  migrationString(data.reason, 'node.data.reason')
++  const reportIds = migrationArray(data.reportIds, 'node.data.reportIds').map(
++    (/* 旧结论中的报告身份。 */ item) => /* 首次解析并保留实际发布的文本身份。 */ migrationString(item, 'reportId'),
++  )
++  if (!reportIds.length) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
++  return [...new Set(reportIds)]
+ }
+ 
+ /**
+@@ -310,7 +312,8 @@
+       const node = migrationObject(value, 'node')
+       return !('data' in node) && 'payload' in node && 'typeId' in node && 'typeVersion' in node
+     })
+-    const oldEdges = migrationArray(source.edges, 'map.edges').some(/* 存储中的未知关系记录。 */ value => {
++    const sourceEdges = migrationArray(source.edges, 'map.edges')
++    const oldEdges = sourceEdges.some(/* 存储中的未知关系记录。 */ value => {
+       // 识别尚未转换为通用 successor/reference 的旧关系。
+       const kind = migrationObject(value, 'edge').kind
+       return kind === 'derived-from' || kind === 'mentions' || kind === 'verifies' || kind === 'related-to'
+@@ -346,6 +349,16 @@
+     const activeLease = migrationReadLeaseActive(source.leases, serverNow)
+     if (activeRun || activeLease) return migrationBlocked(mapId, true, 'Active Run or execution lease must be stopped before migration')
+ 
++    const legacyNodes = rawNodes.map((/* 尚未解析的旧节点。 */ value) => {
++      // 同次迁移只解析一份旧载荷，发布集合、正式节点及关系共用已确认的引用。
++      const node = migrationObject(value, 'node'), id = migrationString(node.id, 'node.id'), data = migrationObject(node.data, 'node.data')
++      const kind = migrationString(data.kind, 'node.data.kind')
++      // Evidence 没有 Claim 对等字段，保持原记录并阻断显式迁移。
++      if (kind !== 'source' && kind !== 'news' && kind !== 'claim' && kind !== 'verification') throw new Error(messageFormat(RuntimeMessage.VALUE_KIND_IS_INVALID, 'node.data'))
++      const selectedReportIds = migrationValidateLegacyPayload(kind, data)
++      return { node, id, data, kind, selectedReportIds }
++    })
++
+     const reports = new Map<string, RawObject>()
+     const remember = (/* 已验证字段的历史报告。 */ report: RawObject): void => {
+       // 按稳定报告身份去重，矛盾副本阻断迁移而不选择其中一份。
+@@ -354,17 +367,12 @@
+       reports.set(id, report)
+     }
+     for (const report of runReports) remember(report)
+-    for (const value of rawNodes) {
+-      const data = migrationObject(migrationObject(value, 'node').data, 'node.data')
+-      if (data.kind === 'verification') for (const report of migrationArray(data.opinions, 'verification.opinions')) remember(migrationReadReport(report))
++    for (const { data, kind } of legacyNodes) {
++      if (kind === 'verification') for (const report of migrationArray(data.opinions, 'verification.opinions')) remember(migrationReadReport(report))
+     }
+     const published = new Set<string>()
+-    for (const value of rawNodes) {
+-      const data = migrationObject(migrationObject(value, 'node').data, 'node.data')
+-      if (data.kind === 'verification') for (const id of migrationArray(data.reportIds, 'verification.reportIds').map(
+-        /* 旧结论中引用的未知报告身份。 */ item =>
+-          /* 验证发布身份，以便只迁移实际发布的意见。 */ migrationString(item, 'reportId'),
+-      )) {
++    for (const { selectedReportIds } of legacyNodes) {
++      for (const id of selectedReportIds) {
+         if (!reports.has(id)) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+         published.add(id)
+       }
+@@ -372,36 +380,23 @@
+     const reportIds = Object.fromEntries([...published].map(/* 已发布旧报告的稳定身份。 */ id =>
+       /* 为正式意见节点分配新身份，并保存旧到新的映射。 */ [id, randomUUID()],
+     ))
+-    const nodeKinds = new Map<string, string>(), nodes: RawObject[] = [], legacyProducers: Record<string, unknown> = {}
+-    for (const value of rawNodes) {
+-      const node = migrationObject(value, 'node'), id = migrationString(node.id, 'node.id'), data = migrationObject(node.data, 'node.data')
+-      const kind = migrationString(data.kind, 'node.data.kind')
+-      // Evidence 的 locator/capturedAt 没有 Claim 对等字段，保持原记录并阻断显式迁移。
+-      if (!['source', 'news', 'claim', 'verification'].includes(kind)) throw new Error(messageFormat(RuntimeMessage.VALUE_KIND_IS_INVALID, 'node.data'))
+-      migrationValidateLegacyPayload(kind, data)
++    const nodeKinds = new Map<string, string>(), nodes: RawObject[] = [], legacyProducers: Array<[string, unknown]> = []
++    for (const { node, id, data, kind, selectedReportIds } of legacyNodes) {
+       nodeKinds.set(id, kind)
+       const payload = structuredClone(data) as RawObject
+       delete payload.kind
++      const opinionIds = selectedReportIds.map((/* 已验证并去重的旧报告身份。 */ reportId) =>
++        /* 发布集合已为每个报告分配本次正式意见身份。 */ reportIds[reportId])
+       if (kind === 'verification') {
+-        const score = payload.score
+-        if (score !== 0 && score !== 0.5 && score !== 1) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+-        const selected = [...new Set(migrationArray(payload.reportIds, 'verification.reportIds').map(
+-          /* 旧结论引用的未知报告身份。 */ item =>
+-            /* 验证并去重结论引用，避免重复发布同一意见。 */ migrationString(item, 'reportId'),
+-        ))]
+-        Object.assign(payload, { opinionIds: selected.map(/* 去重后的已发布旧报告身份。 */ reportId =>
+-          /* 让结论指向此次转换生成的正式意见节点。 */ reportIds[reportId],
+-        ) })
++        Object.assign(payload, { opinionIds })
+         delete payload.reportIds; delete payload.opinions
+       }
+       const { data: _data, producer, ...envelope } = node
+-      if (producer !== undefined) legacyProducers[id] = structuredClone(producer)
++      if (producer !== undefined) legacyProducers.push([id, structuredClone(producer)])
+       nodes.push({ ...structuredClone(envelope), id, revision: migrationRevision(node.revision, 'node.revision'),
+         typeId: `factcheck.${kind}`, typeVersion: migrationDataVersion, payload,
+-        payloadReferences: kind === 'verification' ? migrationArray(payload.opinionIds, 'verification.opinionIds')
+-          .map(/* 转换后的意见节点身份。 */ targetId =>
+-            /* 将结论载荷的意见引用纳入通用引用元数据。 */ ({ path: '/opinionIds/*', targetId: migrationString(targetId, 'verification.opinionId') }),
+-          ) : [],
++        payloadReferences: opinionIds.map((/* 本次结论实际发布的意见身份。 */ targetId) =>
++          /* 复用已确认的正式引用，不再验证自建数组。 */ ({ path: '/opinionIds/*', targetId })),
+         createdAt: migrationTime(node.createdAt, 'node.createdAt'), updatedAt: migrationTime(node.updatedAt, 'node.updatedAt') })
+     }
+     for (const legacyId of published) {
+@@ -414,7 +409,7 @@
+           agentName: report.agentName, angle: report.angle, tools: report.tools, createdAt: report.createdAt,
+         } }, payloadReferences: [], createdAt: report.createdAt, updatedAt: report.createdAt })
+     }
+-    const rawEdges = migrationArray(source.edges, 'map.edges').map(/* 存储中的未知旧关系记录。 */ value => {
++    const rawEdges = sourceEdges.map(/* 存储中的未知旧关系记录。 */ value => {
+       // 验证旧关系身份、端点和方向，保证转换后仍引用同一批正式节点。
+       const edge = migrationObject(value, 'edge'), id = migrationString(edge.id, 'edge.id'), from = migrationString(edge.from, 'edge.from'), to = migrationString(edge.to, 'edge.to')
+       if (!nodeKinds.has(from) || !nodeKinds.has(to) || from === to) throw new Error(RuntimeMessage.EDGE_ENDPOINTS_MUST_EXIST_IN_THE_SAME_MAP)
+@@ -432,19 +427,14 @@
+       from: edge.legacyKind === 'derived-from' ? edge.to : edge.from, to: edge.legacyKind === 'derived-from' ? edge.from : edge.to,
+       label: `legacy:${edge.legacyKind}`, createdAt: edge.createdAt, updatedAt: edge.updatedAt }),
+     )
+-    for (const value of rawNodes) {
+-      const node = migrationObject(value, 'node'), data = migrationObject(node.data, 'node.data')
+-      if (data.kind !== 'verification') continue
+-      const verificationId = migrationString(node.id, 'verification.id')
++    for (const { node, id: verificationId, kind, selectedReportIds } of legacyNodes) {
++      if (kind !== 'verification') continue
+       const claims = rawEdges.filter(/* 已验证的旧关系。 */ edge =>
+         /* 取得当前结论原来核查的全部事实。 */ edge.legacyKind === 'verifies' && edge.from === verificationId,
+       ).map(/* 当前结论的一条事实引用关系。 */ edge =>
+         /* 关系端点已在读取时验证为文本身份。 */ edge.to,
+       )
+-      for (const legacyId of new Set(migrationArray(data.reportIds, 'verification.reportIds').map(
+-        /* 当前结论引用的未知旧报告身份。 */ item =>
+-          /* 去重报告关系，避免同一意见重复连接结论。 */ migrationString(item, 'reportId'),
+-      ))) {
++      for (const legacyId of selectedReportIds) {
+         const opinionId = reportIds[legacyId], report = reports.get(legacyId)
+         if (!report) throw new Error(RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+         edges.push({ id: randomUUID(), revision: 0, kind: 'successor', from: opinionId, to: verificationId,
+@@ -460,7 +450,7 @@
+     Object.assign(document, { nodes, edges, retiredNodeIds: [], retiredEdgeIds: [], runs: currentRuns, runHistory: history, leases: {}, revision: revision + 1,
+       updatedAt: new Date(serverNow).toISOString(), dataFormat: 4,
+       migration: { kind: 'generic-data-v4', migratedAt: new Date(serverNow).toISOString(), legacyReportIds: reportIds,
+-        ...(Object.keys(legacyProducers).length ? { legacyProducers } : {}) } })
++        ...(legacyProducers.length ? { legacyProducers: Object.fromEntries(legacyProducers) } : {}) } })
+     return { status: 'migrate', mapId, expectedRevision: revision, document, reportIds }
+   } catch (error) {
+     return migrationBlocked(mapId, false, error instanceof Error ? error.message : RuntimeMessage.STORED_RUN_DATA_DOES_NOT_MATCH_THE_SUPPORTED_LEGACY_SCHEMA)
+--- 104-baseline/backend/execution/dsh/dsh-business-plugin.mjs
++++ current/backend/execution/dsh/dsh-business-plugin.mjs
+@@ -227,7 +227,7 @@
+       },
+       body: JSON.stringify({ ...body, mapId: grant.mapId, operationId: grant.operationId }), signal,
+     })
+-    const result = await response.json()
++    const result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await response.arrayBuffer()))
+     if (!response.ok || result.ok !== true) throw new Error(result.error?.code
+       ? messageFormat(RuntimeMessage.REMOTE_ERROR_WITH_CODE, result.error.code, result.error.message)
+       : messageFormat(RuntimeMessage.DATA_API_RETURNED_STATUS, response.status))
+--- 104-baseline/backend/execution/dsh/runtime.ts
++++ current/backend/execution/dsh/runtime.ts
+@@ -27,7 +27,7 @@
+   // 从当前 SDK 依赖的安装清单解析 DSH 可执行文件路径。
+   const sdk = createRequire(import.meta.url).resolve('@deepseek-ai/dsh-sdk-client')
+   const manifest = createRequire(sdk).resolve('@deepseek-ai/dsh/package.json')
+-  const metadata = JSON.parse(readFileSync(manifest, 'utf8'))
++  const metadata = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(manifest)))
+   if (typeof metadata.bin?.dsh !== 'string') throw new Error(RuntimeMessage.INSTALLED_DSH_HAS_NO_DECLARED_EXECUTABLE)
+   return path.resolve(path.dirname(manifest), metadata.bin.dsh)
+ }
+--- 104-baseline/backend/execution/dsh/work-executor.ts
++++ current/backend/execution/dsh/work-executor.ts
+@@ -63,11 +63,12 @@
+  * @param headers 可选额外请求头，默认空对象，读取输入时用于携带租约凭证。
+  */
+ async function dshReadWorkReply<T>(
+-  input: DshWorkInput,
+-  path: string,
+-  body: unknown,
+-  headers: Record<string, string> = {},
++  /* 已领取工作的端点、凭据和取消生命周期。 */ input: DshWorkInput,
++  /* 工作 API 内的固定路由。 */ path: string,
++  /* 本次读取或提交使用的实际业务载荷。 */ body: unknown,
++  /* 当前 Work 的身份与隔离栅栏请求头。 */ headers: Record<string, string> = {},
+ ): Promise<T> {
++  // 网络读流失败保留可重试访问错误；完整字节的非法编码或 JSON 属于响应协议错误。
+   input.signal?.throwIfAborted()
+   const url = new URL(path, input.dataApiUrl)
+   const request = new Request(url, {
+@@ -83,11 +84,17 @@
+     throw new WorkAccessError(RuntimeMessage.WORK_API_CONNECTION_COULD_NOT_BE_CONFIRMED)
+   }
+   const unavailable = response.status >= 500 || response.status === 429
++  let bytes: ArrayBuffer
++  try { bytes = await response.arrayBuffer() }
++  catch {
++    input.signal?.throwIfAborted()
++    throw new WorkAccessError(RuntimeMessage.WORK_API_RESPONSE_COULD_NOT_BE_RECEIVED)
++  }
+   let result
+-  try { result = await response.json() }
+-  catch (error) {
+-    input.signal?.throwIfAborted()
+-    if (unavailable || !(error instanceof SyntaxError)) throw new WorkAccessError(RuntimeMessage.WORK_API_RESPONSE_COULD_NOT_BE_RECEIVED)
++  try { result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
++  catch {
++    input.signal?.throwIfAborted()
++    if (unavailable) throw new WorkAccessError(RuntimeMessage.WORK_API_RESPONSE_COULD_NOT_BE_RECEIVED)
+     throw new Error(RuntimeMessage.WORK_API_RETURNED_INVALID_JSON)
+   }
+   if (!response.ok || result?.ok !== true) {
+--- 104-baseline/backend/execution/host-worker.ts
++++ current/backend/execution/host-worker.ts
+@@ -134,7 +134,11 @@
+    * @param command 待提交的工作命令；undefined 表示改为读取消息配置。
+    * @param signal 可选生命周期信号，与每次请求的独立超时共同限制 API 调用。
+    */
+-  async function hostCallApi<T>(command: GraphWorkCommand | undefined, signal?: AbortSignal): Promise<T> {
++  async function hostCallApi<T>(
++    /* Work 命令；undefined 表示只读消息配置。 */ command: GraphWorkCommand | undefined,
++    /* Host 或投递的可选取消信号。 */ signal?: AbortSignal,
++  ): Promise<T> {
++    // 独立请求期限覆盖响应字节读取，严格解码后才解释 JSON 协议。
+     const timeout = new AbortController()
+     const timer = setTimeout(() =>
+       /* 请求超过时限时中止 fetch，避免启动、续租或释放无限等待。 */
+@@ -146,7 +150,7 @@
+         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+         ...(command ? { body: JSON.stringify(command) } : {}),
+       })
+-      const body = await response.json() as { ok: boolean; data?: T; error?: { code?: string; message?: string } }
++      const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await response.arrayBuffer())) as { ok: boolean; data?: T; error?: { code?: string; message?: string } }
+       if (!response.ok || body.ok !== true) {
+         throw new HostApiError(response.status, body.error?.code ?? String(response.status), body.error?.message ?? RuntimeMessage.WORK_API_REQUEST_FAILED)
+       }
+@@ -160,10 +164,16 @@
+    * @param grant API 返回的授权对象，仍需核对 Host、工作身份与租约参数。
+    * @param holderId 本次领取请求随机生成的持有者身份，响应必须原样匹配。
+    */
+-  function hostReadGrant(grant: GraphWorkGrant, holderId: string): GraphWorkGrant {
++  function hostReadGrant(
++    /* HTTP 首次领取返回、仍需建立身份类型的授权。 */ grant: GraphWorkGrant,
++    /* 本次随机领取身份，必须由服务原样回显。 */ holderId: string,
++  ): GraphWorkGrant {
++    // 在执行前建立完整字符串身份、归属和租约时长，并交付独立冻结副本。
+     if (!grant || grant.hostId !== hostId || grant.holderId !== holderId
+-      || !grant.workId || !grant.mapId || !grant.runId || !grant.operationId
+-      || !grant.stageId || !grant.slotId || !grant.specHash
++      || !grant.workId || !grant.mapId
++      || typeof grant.runId !== 'string' || !grant.runId || typeof grant.operationId !== 'string' || !grant.operationId
++      || typeof grant.stageId !== 'string' || !grant.stageId || typeof grant.slotId !== 'string' || !grant.slotId
++      || typeof grant.specHash !== 'string' || !grant.specHash
+       || !Number.isSafeInteger(grant.fence) || grant.fence < 1) {
+       throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_ANOTHER_OR_INVALID_EXECUTION_GRANT)
+     }
+@@ -214,7 +224,10 @@
+           if (renewalSignal.aborted) return
+           const requestStartedAt = performance.now()
+           const renewed = await hostCallApi<GraphWorkGrant>({ method: 'renew', params: proof }, renewalSignal)
+-          hostReadGrant(renewed, grant.holderId)
++          if (!renewed || renewed.hostId !== grant.hostId || renewed.holderId !== grant.holderId) {
++            throw new HostProtocolError(RuntimeMessage.WORK_API_RETURNED_ANOTHER_OR_INVALID_EXECUTION_GRANT)
++          }
++          hostReadDuration(renewed.leaseMs, 'grant.leaseMs')
+           // 续租只能延长有效期，不能替换工作、阶段、槽位、冻结规格或隔离旧持有者的 fence。
+           if (renewed.workId !== grant.workId || renewed.mapId !== grant.mapId || renewed.runId !== grant.runId
+             || renewed.operationId !== grant.operationId || renewed.fence !== grant.fence
+--- 104-baseline/backend/modules/evidence-library/evidence-input.ts
++++ current/backend/modules/evidence-library/evidence-input.ts
+@@ -1,6 +1,7 @@
+ // 校验证据库的输入白名单、固定判断、范围与引用，不访问来源或持久化记录。
+ import { EvidenceMessage, type EvidenceApplicability, type EvidenceBasisRef, type EvidenceClaimRef, type EvidenceCollectParams, type EvidenceCommand, type EvidenceQuery, type EvidenceSearchParams } from '../../../contracts/evidence-library'
+ import { GraphError } from '../shared/domain-error'
++import type { InputCommandEnvelope, InputQueryEnvelope } from '../shared/input-validation'
+ 
+ const INPUT_BYTES = 262_144
+ const TEXT_BYTES = 65_536
+@@ -15,6 +16,13 @@
+   | { method: 'evidence.collect'; requestId: string; params: EvidenceCollectParams & { confidence: 0 | 1 } }
+   | Extract<EvidenceCommand, { method: 'evidence.withdraw' }>
+ 
++export function evidenceReadEnvelope(
++  /* 明确收录意图的未知命令，仍完整校验信封与固定授权范围。 */
++  value: { method: 'evidence.collect'; requestId: unknown; params: unknown },
++): EvidenceCommandEnvelope & { method: 'evidence.collect' }
++export function evidenceReadEnvelope(
++  /* 来自独立服务入口、方法仍未知的完整命令。 */ value: unknown,
++): EvidenceCommandEnvelope
+ export function evidenceReadEnvelope(
+   /* 来自传输或内部调用、尚未解析固定字段的完整命令。 */
+   value: unknown,
+@@ -25,23 +33,48 @@
+   if (input.method !== 'evidence.collect' && input.method !== 'evidence.withdraw') {
+     throw new GraphError(501, 'EVIDENCE_NOT_IMPLEMENTED', EvidenceMessage.NOT_IMPLEMENTED)
+   }
+-  const params = readObject(input.params)
+-  return { method: input.method, requestId: readId(input.requestId), params: { ...params, workspaceId: readId(params.workspaceId) } }
+-}
+-
++  return readCommandParams(input.method, readId(input.requestId), input.params)
++}
++
++export function evidenceReadCommandEnvelope(
++  /* HTTP 已确认白名单与请求 UUID 的命令，固定业务字段仍未解析。 */
++  input: InputCommandEnvelope,
++): EvidenceCommandEnvelope {
++  // 传输信封不重复解析；证据库仍拥有独立体积与授权范围边界。
++  assertInputSize(input)
++  if (input.method !== 'evidence.collect' && input.method !== 'evidence.withdraw') {
++    throw new GraphError(501, 'EVIDENCE_NOT_IMPLEMENTED', EvidenceMessage.NOT_IMPLEMENTED)
++  }
++  return readCommandParams(input.method, input.requestId, input.params)
++}
++
++function readCommandParams(
++  /* 所属入口已经确认的证据写命令方法。 */ method: EvidenceCommand['method'],
++  /* 所属入口已经验证的请求 UUID。 */ requestId: string,
++  /* 仍待确认对象形状与工作区身份的业务参数。 */ value: unknown,
++): EvidenceCommandEnvelope {
++  // 两个真实入口共用授权范围读取，来源及固定字段检查留在收据之后。
++  const params = readObject(value)
++  return { method, requestId, params: { ...params, workspaceId: readId(params.workspaceId) } }
++}
++
++export function evidenceReadCommand(envelope: EvidenceCommandEnvelope & { method: 'evidence.collect' }): Extract<EvidenceParsedCommand, { method: 'evidence.collect' }>
++export function evidenceReadCommand(envelope: EvidenceCommandEnvelope): EvidenceParsedCommand
+ export function evidenceReadCommand(
+   /* 已建立幂等身份与授权范围、业务参数仍待逐项解析的信封。 */
+   envelope: EvidenceCommandEnvelope,
+ ): EvidenceParsedCommand {
+   // 只为未命中收据的新命令解析固定字段，保留信封阶段已确认的身份和体积。
+   if (envelope.method === 'evidence.collect') {
+-    const params = readObject(envelope.params, ['workspaceId', 'claim', 'confidence', 'applicability', 'reason', 'basisRefs'])
++    const params = envelope.params
++    assertKeys(params, ['workspaceId', 'claim', 'confidence', 'applicability', 'reason', 'basisRefs'])
+     return { method: envelope.method, requestId: envelope.requestId, params: {
+       workspaceId: envelope.params.workspaceId, claim: readClaimRef(params.claim), confidence: readConfidence(params.confidence),
+       applicability: readApplicability(params.applicability), reason: readReason(params.reason), basisRefs: readBasisRefs(params.basisRefs),
+     } }
+   }
+-  const params = readObject(envelope.params, ['workspaceId', 'entryId', 'expectedRevision', 'reason'])
++  const params = envelope.params
++  assertKeys(params, ['workspaceId', 'entryId', 'expectedRevision', 'reason'])
+   return { method: envelope.method, requestId: envelope.requestId, params: {
+     workspaceId: envelope.params.workspaceId, entryId: readId(params.entryId), expectedRevision: readRevision(params.expectedRevision), reason: readReason(params.reason),
+   } }
+@@ -49,11 +82,10 @@
+ 
+ export function evidenceReadQuery(
+   /* 需要校验身份、筛选条件和页大小的公共读查询。 */
+-  value: unknown,
++  input: InputQueryEnvelope,
+ ): EvidenceQuery {
+   // 固定条目与关系共用精确身份边界，有界搜索保留数字零作为有效筛选条件。
+-  const input = readObject(value, ['method', 'params'])
+-  assertInputSize(value)
++  assertInputSize(input)
+   if (input.method === 'evidence.get' || input.method === 'evidence.relations') {
+     const params = readObject(input.params, ['workspaceId', 'entryId'])
+     return { method: input.method, params: { workspaceId: readId(params.workspaceId), entryId: readId(params.entryId) } }
+@@ -110,8 +142,16 @@
+   // 拒绝数组及非普通对象，使用可选字段白名单阻止夹带固定内容修改。
+   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) failInput()
+   const object = value as Record<string, unknown>
+-  if (keys) for (const key of Object.keys(object)) if (!keys.includes(key)) failInput()
++  if (keys) assertKeys(object, keys)
+   return object
++}
++
++function assertKeys(
++  /* 当前入口已建立普通对象形状的参数或依据。 */ object: Record<string, unknown>,
++  /* 当前业务分支唯一允许的自有字段。 */ keys: readonly string[],
++): void {
++  // 只检查字段归属，已收窄对象不再重复验证形状。
++  for (const key of Object.keys(object)) if (!keys.includes(key)) failInput()
+ }
+ 
+ function readId(
+@@ -133,8 +173,16 @@
+ ): string {
+   // 不裁剪正文；只判断空白内容和字节上限，避免改变收录材料。
+   if (typeof value !== 'string' || !allowEmpty && !value.trim()) failInput()
++  assertTextSize(value, maxBytes)
++  return value
++}
++
++function assertTextSize(
++  /* 已建立内容规则、将原样保存的字符串。 */ value: string,
++  /* 当前字段允许的最大 UTF-8 字节数。 */ maxBytes: number,
++): void {
++  // 理由和一般文本共用体积边界，空白错误仍由各自字段决定。
+   if (Buffer.byteLength(value) > maxBytes) throw new GraphError(413, 'EVIDENCE_INPUT_LIMIT', EvidenceMessage.INPUT_LIMIT)
+-  return value
+ }
+ 
+ function readRevision(
+@@ -161,7 +209,8 @@
+ ): string {
+   // 理由必须有实际内容，但保存时保留用户原文。
+   if (typeof value !== 'string' || !value.trim()) throw new GraphError(422, 'EVIDENCE_REASON_REQUIRED', EvidenceMessage.REASON_REQUIRED)
+-  return readText(value)
++  assertTextSize(value, TEXT_BYTES)
++  return value
+ }
+ 
+ function readClaimRef(
+@@ -183,7 +232,8 @@
+   if (input.time !== null) {
+     const range = readObject(input.time, ['from', 'to'])
+     const from = readText(range.from, 128), to = readText(range.to, 128)
+-    if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) > Date.parse(to)) failInput()
++    const fromTime = Date.parse(from), toTime = Date.parse(to)
++    if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime > toTime) failInput()
+     time = { from, to }
+   }
+   if (!Array.isArray(input.conditions) || input.conditions.length > 64) failInput()
+@@ -203,16 +253,16 @@
+   for (const item of value) {
+     const input = readObject(item)
+     if (input.kind === 'manual') {
+-      readObject(input, ['kind', 'text'])
++      assertKeys(input, ['kind', 'text'])
+       refs.push({ kind: input.kind, text: readText(input.text) })
+     } else if (input.kind === 'node') {
+-      readObject(input, ['kind', 'ref'])
++      assertKeys(input, ['kind', 'ref'])
+       refs.push({ kind: input.kind, ref: readClaimRef(input.ref) })
+     } else if (input.kind === 'asset') {
+-      readObject(input, ['kind', 'assetId', 'sha256'])
++      assertKeys(input, ['kind', 'assetId', 'sha256'])
+       refs.push({ kind: input.kind, assetId: readId(input.assetId), sha256: readDigest(input.sha256) })
+     } else if (input.kind === 'library') {
+-      readObject(input, ['kind', 'ref'])
++      assertKeys(input, ['kind', 'ref'])
+       const ref = readObject(input.ref, ['entryId', 'contentDigest'])
+       refs.push({ kind: input.kind, ref: { entryId: readId(ref.entryId), contentDigest: readDigest(ref.contentDigest) } })
+     } else failInput()
+--- 104-baseline/backend/modules/shared/input-validation.ts
++++ current/backend/modules/shared/input-validation.ts
+@@ -1,6 +1,26 @@
+ // 将不可信输入解析为领域所需的对象、标识、版本及评分，拒绝额外字段。
+ import { RuntimeMessage, messageFormat } from '../../../contracts/messages'
+ import { GraphError } from './domain-error'
++
++// 信封只确认公共传输字段；业务方法与 params 仍由所属模块解析。
++export interface InputQueryEnvelope { method: unknown; params: unknown }
++export interface InputCommandEnvelope extends InputQueryEnvelope { requestId: string }
++
++export function inputReadQueryEnvelope(
++  /* HTTP 尚未解析的完整查询，只在这里检查信封白名单。 */ value: unknown,
++): InputQueryEnvelope {
++  // 建立查询信封，未知方法仍交给所属业务的错误分类。
++  const input = inputReadObject(value, ['method', 'params'], 'query')
++  return { method: input.method, params: input.params }
++}
++
++export function inputReadCommandEnvelope(
++  /* HTTP 尚未解析的完整命令，包含用于幂等提交的请求身份。 */ value: unknown,
++): InputCommandEnvelope {
++  // 一次建立信封字段及请求 UUID，业务参数留给命令所属模块。
++  const input = inputReadObject(value, ['requestId', 'method', 'params'], 'command')
++  return { method: input.method, requestId: inputReadId(input.requestId, 'requestId'), params: input.params }
++}
+ 
+ /**
+  * 验证普通对象及允许字段列表，返回已收窄对象，便于后续逐字段解析。
+@@ -13,7 +33,7 @@
+   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_MUST_BE_AN_OBJECT, label))
+   const object = value as Record<string, unknown>
+   const unknown = Object.keys(object).find(key => /* 找出白名单以外的字段，避免静默接受拼写错误或额外参数。 */ !keys.includes(key))
+-  if (unknown) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_VALUE_IS_NOT_ALLOWED, label, unknown))
++  if (unknown !== undefined) throw new GraphError(400, 'INVALID_ARGUMENT', messageFormat(RuntimeMessage.VALUE_VALUE_IS_NOT_ALLOWED, label, unknown))
+   return object
+ }
+ 
+--- 104-baseline/contracts/messages.ts
++++ current/contracts/messages.ts
+@@ -353,6 +353,7 @@
+   SHA256_MUST_CONTAIN_64_HEX_DIGITS = "sha256 must contain 64 hex digits",
+   SHARED_SETTINGS_HAVE_NOT_BEEN_SEEDED = "Shared settings have not been seeded",
+   SHUTDOWN_DEADLINE_ELAPSED = "Shutdown deadline elapsed",
++  RESOURCE_CLEANUP_FAILED = "Resource cleanup failed",
+   SLOT_HINT_MUST_BE_A_STRING = "slot.hint must be a string",
+   SOURCE_ASSET_IS_NOT_AVAILABLE_IN_THIS_WORKSPACE = "Source asset is not available in this Workspace",
+   SOURCE_EXCEEDS_1_MIB = "Source exceeds 1 MiB",
+--- 104-baseline/experiments/evidence-library-tests/load-target.ts
++++ current/experiments/evidence-library-tests/load-target.ts
+@@ -19,7 +19,7 @@
+   // 只验证接入能力存在，不替业务实现校验输入或生成结果。
+   if (!isRecord(value) || !isRecord(value.info) || value.info.isolated !== true
+     || value.info.backend !== backend || typeof value.info.name !== 'string' || !value.info.name.trim()
+-    || !['single-owner', 'pooled', 'remote'].includes(String(value.info.executionModel))
++    || value.info.executionModel !== 'single-owner' && value.info.executionModel !== 'pooled' && value.info.executionModel !== 'remote'
+     || typeof value.workspaceId !== 'string' || typeof value.otherWorkspaceId !== 'string'
+     || !value.workspaceId || !value.otherWorkspaceId
+     || value.workspaceId === value.otherWorkspaceId || typeof value.request !== 'function'
+--- 104-baseline/experiments/evidence-library-tests/relations-fixture.ts
++++ current/experiments/evidence-library-tests/relations-fixture.ts
+@@ -136,11 +136,10 @@
+       /* 意见原始分数，默认保留中间值。 */ score = 0.5,
+       /* 可指定多个真实意见的固定身份。 */ id = randomUUID(),
+     ): Promise<GraphNodeInput> {
+-      // Opinion 暂按当前目录二选一的引用字段构造空数组，不制造旧 Evidence 实例。
++      // 使用当前工厂发布的精确 Opinion 类型与 evidenceClaimIds，不制造旧 Evidence 实例。
+       const type = await readType(workspaceId, 'factcheck.opinion')
+-      const field = type.schema.properties?.evidenceClaimIds ? 'evidenceClaimIds' : 'evidenceIds'
+       return { id, typeId: type.id, typeVersion: type.version,
+-        payload: { score, reason: '该核查意见原分数为 0.5。', [field]: [] } }
++        payload: { score, reason: '该核查意见原分数为 0.5。', evidenceClaimIds: [] } }
+     }
+ 
+     async function createGraph(
+@@ -209,7 +208,8 @@
+     return { baseUrl, ownerToken, viewerToken, outsiderToken, connection, client: connectedClient,
+       createWorkspace, readType, nodeInput, opinionInput, createGraph, editGraph, relationResponse, relations, close }
+   } catch (error) {
+-    await close()
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], RelationFixtureMessage.CLEANUP_FAILED) }
+     throw error
+   }
+ }
+--- 104-baseline/experiments/evidence-library-tests/relations-preview.ts
++++ current/experiments/evidence-library-tests/relations-preview.ts
+@@ -6,30 +6,40 @@
+ 
+ import { evidenceCreateRelationFixture, relationClaimRef, relationCollectParams } from './relations-fixture'
+ 
++enum RelationPreviewMessage { CLEANUP_FAILED = 'Relation preview cleanup failed.' }
++
+ async function start(): Promise<void> {
+   // 建立真实五节点链与显式 node 依据，供图连线和固定邻域阅读验收。
+   const fixture = await evidenceCreateRelationFixture()
+-  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-relation-preview-'))
++  let directory: string | undefined
+   let closing: Promise<void> | undefined
+   function close(): Promise<void> {
+     // 重复退出信号共用一次关闭，始终移除临时令牌目录。
+     return closing ??= (async () => {
+       // 先停HTTP/数据库，再删本进程的认证文件。
+-      try { await fixture.close() }
+-      finally { await rm(directory, { recursive: true, force: true }) }
++      process.removeListener('SIGINT', stop)
++      process.removeListener('SIGTERM', stop)
++      const errors: unknown[] = []
++      try { await fixture.close() } catch (error) { errors.push(error) }
++      if (directory !== undefined) {
++        try { await rm(directory, { recursive: true, force: true }) } catch (error) { errors.push(error) }
++      }
++      if (errors.length) throw new AggregateError(errors, RelationPreviewMessage.CLEANUP_FAILED)
+     })()
+   }
+   function stop(): void {
+     // 等待实际资源清理后结束预览，不输出身份令牌。
+     void close().then(() => /* 自有资源全部关闭后正常退出。 */ process.exit(0), (/* 清理失败。 */ error) => {
+       // 只输出关闭诊断，不输出认证或原始数据库内容。
+-      process.stderr.write(String(error) + '\n')
++      console.error(error)
+       process.exit(1)
+     })
+   }
+   process.once('SIGINT', stop)
+   process.once('SIGTERM', stop)
+   try {
++    directory = await mkdtemp(path.join(tmpdir(), 'chongming-relation-preview-'))
++    const metadataPath = path.join(directory, 'connection.json')
+     const workspaceId = await fixture.createWorkspace()
+     const source = await fixture.nodeInput(workspaceId, 'factcheck.source', {
+       locator: { kind: 'url', url: 'https://example.test/bus-archive' }, label: '澄川公交试点档案',
+@@ -54,19 +64,19 @@
+     params.basisRefs = [{ kind: 'manual', text: '原文出处与核查下游均为收录时保存的版本。' },
+       { kind: 'node', ref: relationClaimRef(graph, opinion.id) }]
+     const entry = (await fixture.client.dispatch(randomUUID(), 'evidence.collect', params)).data.entry
+-    const metadataPath = path.join(directory, 'connection.json')
+     await writeFile(metadataPath, JSON.stringify({ baseUrl: fixture.baseUrl, ownerToken: fixture.ownerToken,
+       viewerToken: fixture.viewerToken, workspaceId, entryId: entry.id, mapId: graph.mapId,
+       mapRevision: graph.revision }, null, 2), { mode: 0o600 })
+     process.stdout.write(JSON.stringify({ baseUrl: fixture.baseUrl, metadataPath }) + '\n')
+   } catch (error) {
+-    await close()
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], RelationPreviewMessage.CLEANUP_FAILED) }
+     throw error
+   }
+ }
+ 
+ void start().catch((/* 预览启动失败的原始诊断。 */ error) => {
+   // 启动异常向调用者报告，不留下测试资源或令牌。
+-  process.stderr.write(String(error) + '\n')
++  console.error(error)
+   process.exitCode = 1
+ })
+--- 104-baseline/experiments/evidence-library-tests/stress.ts
++++ current/experiments/evidence-library-tests/stress.ts
+@@ -83,7 +83,7 @@
+ 
+ function buckets(): Record<Operation, Bucket> {
+   // 每轮重新建立计数器；预热数据不会混进正式分位数。
+-  const make = (): Bucket => { /* 建立单类操作的空计数器。 */ return { attempted: 0, succeeded: 0, failed: 0, timeouts: 0, latenciesMs: [], errors: {} } }
++  const make = (): Bucket => { /* 建立单类操作的空计数器。 */ return { attempted: 0, succeeded: 0, failed: 0, timeouts: 0, latenciesMs: [], errors: Object.create(null) } }
+   return { search: make(), get: make(), collect: make(), cite: make(), snapshot: make() }
+ }
+ 
+@@ -94,7 +94,7 @@
+   // 无测量就返回 null；不能以 0 毫秒代替缺失指标。
+   if (!values.length) return null
+   const sorted = [...values].sort(/* 两个延迟样本。 */ (left, right) => /* 数值升序。 */ left - right)
+-  return sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? null
++  return sorted[Math.ceil(sorted.length * fraction) - 1]
+ }
+ 
+ async function prepareJobs(
+--- 104-baseline/experiments/evidence-library-tests/ui-fixture.ts
++++ current/experiments/evidence-library-tests/ui-fixture.ts
+@@ -94,7 +94,8 @@
+     return { baseUrl, ownerToken, viewerToken, ownerId: owner.userId, viewerId: viewer.userId,
+       workspaceId, otherWorkspaceId, gateway: connectedGateway, createClaim, close }
+   } catch (error) {
+-    await close()
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], UiFixtureMessage.CLEANUP_FAILED) }
+     throw error
+   }
+ }
+--- 104-baseline/experiments/evidence-library-tests/ui-preview.ts
++++ current/experiments/evidence-library-tests/ui-preview.ts
+@@ -13,16 +13,20 @@
+ async function start(): Promise<void> {
+   // 建立真实预览环境并完成样本准备，再保持进程供浏览器验收。
+   const fixture = await evidenceCreateUiFixture()
+-  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-evidence-preview-'))
+-  const metadataPath = path.join(directory, 'connection.json')
++  let directory: string | undefined
+   let closing: Promise<void> | undefined
+ 
+   function close(): Promise<void> {
+     // 多种退出原因共享一个关闭 Promise，令牌文件与真实服务均由本进程清理。
+     return closing ??= (async () => {
+       // 清理每个自有资源后再报告全部失败，保留已执行关闭的事实。
+-      const results = await Promise.allSettled([fixture.close(), rm(directory, { recursive: true, force: true })])
+-      const errors = results.flatMap((/* 单个自有资源的实际清理结果。 */ result) => /* 保留失败的原始原因。 */ result.status === 'rejected' ? [result.reason] : [])
++      process.removeListener('SIGINT', stop)
++      process.removeListener('SIGTERM', stop)
++      const errors: unknown[] = []
++      try { await fixture.close() } catch (error) { errors.push(error) }
++      if (directory !== undefined) {
++        try { await rm(directory, { recursive: true, force: true }) } catch (error) { errors.push(error) }
++      }
+       if (errors.length) throw new AggregateError(errors, PreviewMessage.CLEANUP_FAILED)
+     })()
+   }
+@@ -31,7 +35,7 @@
+     // 收到进程退出信号后等待有界服务清理，再结束这个验收进程。
+     void close().then(() => /* 清理完成后结束预览进程。 */ process.exit(0), (/* 资源清理错误。 */ error) => {
+       // 只输出清理失败，不输出身份令牌或业务凭据。
+-      process.stderr.write(String(error) + '\n')
++      console.error(error)
+       process.exit(1)
+     })
+   }
+@@ -39,6 +43,8 @@
+   process.once('SIGTERM', stop)
+ 
+   try {
++    directory = await mkdtemp(path.join(tmpdir(), 'chongming-evidence-preview-'))
++    const metadataPath = path.join(directory, 'connection.json')
+     // 展示正确、错误和长正文三类固定条目，再留一份未收录 Claim 验收表单。
+     const samples = [
+       { content: '澄川公交试点包含十二条线路。', confidence: 1 as const },
+@@ -57,13 +63,14 @@
+       uncollected }, null, 2), { mode: 0o600 })
+     process.stdout.write(JSON.stringify({ baseUrl: fixture.baseUrl, metadataPath }) + '\n')
+   } catch (error) {
+-    await close()
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], PreviewMessage.CLEANUP_FAILED) }
+     throw error
+   }
+ }
+ 
+ void start().catch((/* 预览启动或样本准备失败。 */ error) => {
+   // 启动失败只输出错误，令牌不进入标准输出。
+-  process.stderr.write(String(error) + '\n')
++  console.error(error)
+   process.exitCode = 1
+ })
+--- 104-baseline/experiments/evidence-library-tests/usage-fixture.ts
++++ current/experiments/evidence-library-tests/usage-fixture.ts
+@@ -222,11 +222,9 @@
+     ): Promise<Record<string, unknown>> {
+       // 产物沿用当前已发布Opinion payload，库引用只位于通用候选元信息。
+       const data = await readWork(grant)
+-      const type = await shared.readType(scope.workspaceId, scope.opinionType.id)
+-      const field = type.schema.properties?.evidenceClaimIds ? 'evidenceClaimIds' : 'evidenceIds'
+       return { mapId: grant.mapId, operationId: grant.operationId, id: data.proposalId, specHash: data.specHash,
+         kind: 'outputs', reason: '核查产物明确声明选材依据。', outputs: [{ key: 'opinion', port: 'opinions',
+-          typeRef: scope.opinionType, payload: { score: 0.5, reason: '保留意见原始0.5。', [field]: [] },
++          typeRef: scope.opinionType, payload: { score: 0.5, reason: '保留意见原始0.5。', evidenceClaimIds: [] },
+           ...(refs === undefined ? {} : { libraryClaimRefs: refs }) }] }
+     }
+ 
+@@ -257,7 +255,11 @@
+ 
+     return { ...shared, createScope, createLibraryEntry, createTarget, startRun, claimWork, readWork, outputProposal,
+       propose, editMetadata, query, post, close }
+-  } catch (error) { await close(); throw error }
++  } catch (error) {
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], UsageFixtureMessage.CLEANUP_FAILED) }
++    throw error
++  }
+ }
+ 
+ export function usageRef(
+--- 104-baseline/experiments/evidence-library-tests/usage-preview.ts
++++ current/experiments/evidence-library-tests/usage-preview.ts
+@@ -5,32 +5,40 @@
+ 
+ import { evidenceCreateUsageFixture, usageRef, usageResponseData } from './usage-fixture'
+ 
+-enum UsagePreviewMessage { CONSUMER_MISSING = 'Usage preview did not publish its consumer.' }
++enum UsagePreviewMessage { CONSUMER_MISSING = 'Usage preview did not publish its consumer.', CLEANUP_FAILED = 'Usage preview cleanup failed.' }
+ 
+ async function start(): Promise<void> {
+   // 使用真实公开/内部HTTP完成核查发布及消费者编辑，不用浏览器mock或修改用户数据库。
+   const fixture = await evidenceCreateUsageFixture()
+-  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-usage-preview-'))
++  let directory: string | undefined
+   let closing: Promise<void> | undefined
+   function close(): Promise<void> {
+     // 所有退出路径共用一次清理，服务结束后删除临时认证文件。
+     return closing ??= (async () => {
+       // 保证服务清理异常也不会遗留预览凭据。
+-      try { await fixture.close() }
+-      finally { await rm(directory, { recursive: true, force: true }) }
++      process.removeListener('SIGINT', stop)
++      process.removeListener('SIGTERM', stop)
++      const errors: unknown[] = []
++      try { await fixture.close() } catch (error) { errors.push(error) }
++      if (directory !== undefined) {
++        try { await rm(directory, { recursive: true, force: true }) } catch (error) { errors.push(error) }
++      }
++      if (errors.length) throw new AggregateError(errors, UsagePreviewMessage.CLEANUP_FAILED)
+     })()
+   }
+   function stop(): void {
+     // 信号等待本进程拥有的Mongo与HTTP关闭，再返回实际退出状态。
+     void close().then(() => /* 自有资源关闭后正常退出。 */ process.exit(0), (/* 清理诊断。 */ error) => {
+       // 只报告资源关闭失败，不打印认证文件内容。
+-      process.stderr.write(String(error) + '\n')
++      console.error(error)
+       process.exit(1)
+     })
+   }
+   process.once('SIGINT', stop)
+   process.once('SIGTERM', stop)
+   try {
++    directory = await mkdtemp(path.join(tmpdir(), 'chongming-usage-preview-'))
++    const metadataPath = path.join(directory, 'connection.json')
+     const scope = await fixture.createScope()
+     const incorrect = await fixture.createLibraryEntry(scope, 0, '澄川公交试点在所有周末免费。')
+     const correct = await fixture.createLibraryEntry(scope, 1, '澄川公交试点覆盖十二条线路。')
+@@ -48,19 +56,19 @@
+       payload: { ...consumer.payload, score: 1 },
+       libraryClaimRefs: [usageRef(incorrect.entry, '人工复核保留该固定反证，更新本次使用说明。')],
+     }]))
+-    const metadataPath = path.join(directory, 'connection.json')
+     await writeFile(metadataPath, JSON.stringify({ baseUrl: fixture.baseUrl, ownerToken: fixture.ownerToken,
+       viewerToken: fixture.viewerToken, workspaceId: scope.workspaceId, entryId: incorrect.entry.id,
+       secondEntryId: correct.entry.id, mapId: target.mapId, consumerNodeId: consumer.id }, null, 2), { mode: 0o600 })
+     process.stdout.write(JSON.stringify({ baseUrl: fixture.baseUrl, metadataPath }) + '\n')
+   } catch (error) {
+-    await close()
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], UsagePreviewMessage.CLEANUP_FAILED) }
+     throw error
+   }
+ }
+ 
+ void start().catch((/* 预览启动失败的实际诊断。 */ error) => {
+   // 启动失败不留下测试服务，退出码明确表示本次预览未就绪。
+-  process.stderr.write(String(error) + '\n')
++  console.error(error)
+   process.exitCode = 1
+ })
+--- 104-baseline/tests/apps/config/local-settings.spec.ts
++++ current/tests/apps/config/local-settings.spec.ts
+@@ -119,3 +119,17 @@
+     { env: { ...process.env, CHONGMING_CONFIG_DIR: directory, OPENAI_API_KEY: secret } },
+   )).rejects.toMatchObject({ code: 1, stdout: '' })
+ })
++
++it('rejects malformed UTF-8 JSON while preserving valid Unicode configuration', async () => {
++  // 字节解码不能把非法字节替换为有效字符串后当成用户路径保存。
++  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-local-encoding-'))
++  directories.push(directory)
++  vi.stubEnv('CHONGMING_CONFIG_DIR', directory)
++  const filename = path.join(directory, 'settings.json')
++  await writeFile(filename, Buffer.concat([Buffer.from('{"dshHome":"'), Buffer.from([0xff]), Buffer.from('"}')]))
++  await expect(localReadConfiguration()).rejects.toThrow('Invalid local configuration')
++  await writeFile(filename, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{\"dshHome\":\"valid\"}')]))
++  await expect(localReadConfiguration()).rejects.toThrow('Invalid local configuration')
++  await writeFile(filename, JSON.stringify({ dshHome: '沙箱/café' }))
++  expect((await localReadConfiguration()).settings.dshHome).toBe('沙箱/café')
++})
+--- 104-baseline/tests/apps/desktop/credential-store.spec.ts
++++ current/tests/apps/desktop/credential-store.spec.ts
+@@ -30,6 +30,9 @@
+     const filename = path.join(f.directory, 'client-connection.json')
+     await writeFile(filename, '{broken')
+     expect(await f.store.load()).toBeNull()
++    await writeFile(filename, Buffer.concat([Buffer.from('{\"version\":1,\"baseUrl\":\"https://example.test\",\"encryptedToken\":\"'), Buffer.from([0xff]), Buffer.from(Buffer.from('os-encrypted-payload').toString('base64') + '\"}')]))
++    expect(await f.store.load()).toBeNull()
++    expect(f.secure.decryptString).not.toHaveBeenCalled()
+     await rm(filename)
+     await mkdir(filename)
+     await expect(f.store.load()).rejects.toMatchObject({ code: 'EISDIR' })
+--- 104-baseline/tests/apps/graph-server/startup-lifecycle.spec.ts
++++ current/tests/apps/graph-server/startup-lifecycle.spec.ts
+@@ -0,0 +1,52 @@
++// 从真实进程入口交接 seam 调用启动函数，保留原错误并观察实际诊断序列化。
++import { afterEach, expect, it, vi } from 'vitest'
++
++const state = vi.hoisted(() => ({
++  primary: Object.assign(new Error('controlled graph initialization failure'), { code: 'CONTROLLED_START_FAILED' }),
++  secondary: Object.assign(new Error('controlled connection cleanup failure'), { code: 'CONTROLLED_CLOSE_FAILED' }),
++  close: vi.fn(), start: vi.fn(), lines: [] as Array<{ name: string; failure?: { code?: string } }>,
++}))
++vi.mock('../../../backend/adapters/storage/mongo/connection', () => ({
++  /* 仅替换外部连接，启动与清理的编排仍执行实际入口。 */ storeCreateConnection: async () => ({ close: state.close }),
++}))
++vi.mock('../../../apps/graph-server/application', () => ({
++  /* 初始化在真实可拒绝的异步边界失败，构造函数自身不抛错。 */ applicationCreateService: () => ({ initialize: async () => { throw state.primary } }),
++}))
++vi.mock('../../../apps/config/local-settings', () => ({
++  /* 不读取本机用户配置，部署地址由本例明确提供。 */ localReadConfiguration: async () => ({ settings: {}, secrets: {} }),
++}))
++vi.mock('../../../platform/node/process-boundary', () => ({
++  /* 保存进程入口接到的实际start回调，不注册全局退出监听。 */ processRunEntry: (/* 实际入口参数。 */ input) => { state.start.mockImplementation(input.start) },
++  /* 第一阶段初始化失败不会进入后续关闭期限流程。 */ processRunClose: vi.fn(),
++}))
++vi.mock('../../../platform/node/diagnostics', async (/* 真实诊断模块。 */ original) => {
++  const actual = await original<typeof import('../../../platform/node/diagnostics')>()
++  return { ...actual, diagnosticCreateReporter: () => ({
++    report(/* 真实启动代码上报的错误。 */ event) {
++      // 保留生产脱敏/编码规则，只把输出收进本例内存。
++      const output = actual.diagnosticReadLine('graph-test', 'test', event)
++      state.lines.push(JSON.parse(output.line))
++      return output.errorId
++    }, close: async () => { /* 没有文件句柄。 */ },
++  }) }
++})
++afterEach(() => /* 恢复部署变量。 */ vi.unstubAllEnvs())
++
++it.each([false, true])('preserves graph startup failure when connection close fails=%s', async (
++  /* 主失败之后连接清理是否也失败。 */ closeFails,
++) => {
++  // 清理诊断要可见，入口本身继续抛同一原始初始化对象。
++  vi.resetModules()
++  state.lines.length = 0
++  state.close.mockReset()
++  if (closeFails) state.close.mockRejectedValueOnce(state.secondary)
++  else state.close.mockResolvedValueOnce(undefined)
++  vi.stubEnv('CHONGMING_AMQP_URL', 'amqp://unused-fixture')
++  await import('../../../apps/graph-server/main')
++  await expect(state.start()).rejects.toBe(state.primary)
++  expect(state.close).toHaveBeenCalledOnce()
++  if (closeFails) expect(state.lines).toContainEqual(expect.objectContaining({
++    name: 'startup.connection.close.failed', failure: expect.objectContaining({ code: state.secondary.code }),
++  }))
++  else expect(state.lines).toEqual([])
++})
+--- 104-baseline/tests/apps/local-server/runtime-lifecycle.spec.ts
++++ current/tests/apps/local-server/runtime-lifecycle.spec.ts
+@@ -0,0 +1,73 @@
++// 通过真实 SQLite 所有者及已有初始化/关闭 seam 验证双失败保留和完整清理。
++import { mkdtemp, rm } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import path from 'node:path'
++import { expect, it, vi } from 'vitest'
++
++import * as applications from '../../../apps/local-server/application'
++import { localCreateRuntime } from '../../../apps/local-server/runtime'
++import * as storage from '../../../backend/adapters/storage/sqlite/persistence'
++import { diagnosticReadLine } from '../../../platform/node/diagnostics'
++
++it.each([false, true])('retains startup and cleanup failures with reporter=%s', async (
++  /* 是否装配真实诊断序列化；不得改变运行时拒绝类型。 */ withReporter,
++) => {
++  // 初始化错误不能被真实数据库释放后报告的次生错误取代。
++  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-runtime-errors-'))
++  const primary = Object.assign(new Error('controlled initialization failure'), { code: 'CONTROLLED_START_FAILED' })
++  const secondary = Object.assign(new Error('controlled database close failure'), { code: 'CONTROLLED_CLOSE_FAILED' })
++  const lines: Array<{ name: string; failure?: { code?: string } }> = []
++  const reporter = { report: (/* 运行时上报的实际主错或清理错误。 */ event) => {
++    // 使用生产诊断序列化确认原生错误身份没有被聚合栈替代。
++    const output = diagnosticReadLine('runtime-test', 'test', event)
++    lines.push(JSON.parse(output.line))
++    return output.errorId
++  }, close: async () => { /* 内存诊断没有外部资源。 */ } }
++  const createDatabase = storage.sqliteCreatePersistence
++  const createApplication = applications.applicationCreateLocalService
++  const messagingClosed = vi.fn()
++  vi.spyOn(storage, 'sqliteCreatePersistence').mockImplementation((/* 本例独占 SQLite 目录。 */ location) => {
++    // 先保存并执行实际关闭，故障不会遗留真实数据库资源。
++    const database = createDatabase(location)
++    const close = database.close.bind(database)
++    vi.spyOn(database, 'close').mockImplementation(async () => {
++      // 完成真实释放后模拟关闭诊断失败。
++      await close()
++      throw secondary
++    })
++    return database
++  })
++  vi.spyOn(applications, 'applicationCreateLocalService').mockImplementation((/* 原持久化所有者。 */ database, /* 原应用选项。 */ options) => {
++    // 只控制初始化故障，其他装配与清理继续走真实实现。
++    const application = createApplication(database, options)
++    vi.spyOn(application, 'initialize').mockRejectedValue(primary)
++    const close = application.closeMessaging.bind(application)
++    vi.spyOn(application, 'closeMessaging').mockImplementation(async () => {
++      // 标记消息清理已尝试，随后完成真实释放。
++      messagingClosed()
++      await close()
++    })
++    return application
++  })
++  try {
++    const problem = await localCreateRuntime({ directory, reporter: withReporter ? reporter : undefined }).then(
++      () => { /* 这份受控初始化必须拒绝，不能返回运行时。 */ throw new Error('Expected startup rejection') },
++      (/* 实际启动拒绝值。 */ error: unknown) => /* 保留原对象供后续身份断言。 */ error,
++    )
++    expect(problem).toBeInstanceOf(AggregateError)
++    if (!(problem instanceof AggregateError)) throw new Error('Expected aggregated startup failure')
++    expect(problem.errors[0]).toBe(primary)
++    expect(problem.errors[1]).toBeInstanceOf(AggregateError)
++    expect(problem.errors[1].errors).toEqual([secondary])
++    expect(messagingClosed).toHaveBeenCalledOnce()
++    if (withReporter) {
++      expect(lines).toEqual(expect.arrayContaining([
++        expect.objectContaining({ name: 'runtime.start.failed', failure: expect.objectContaining({ code: primary.code }) }),
++        expect.objectContaining({ name: 'runtime.resource.close.failed', failure: expect.objectContaining({ code: secondary.code }) }),
++      ]))
++    }
++  } finally {
++    vi.restoreAllMocks()
++    await rm(directory, { recursive: true, force: true })
++  }
++})
+--- 104-baseline/tests/backend/adapters/http/request-encoding.spec.ts
++++ current/tests/backend/adapters/http/request-encoding.spec.ts
+@@ -0,0 +1,80 @@
++// 从真实 HTTP 字节入口验证非法 UTF-8 不进入业务，而合法 Unicode 保持原文。
++import { randomUUID } from 'node:crypto'
++import { mkdtemp, rm } from 'node:fs/promises'
++import type { Server } from 'node:http'
++import { tmpdir } from 'node:os'
++import path from 'node:path'
++import { expect, it, vi } from 'vitest'
++
++import { applicationCreateLocalService } from '../../../../apps/local-server/application'
++import { apiCreateServer } from '../../../../backend/adapters/http/graph-http-server'
++import { dshHttpCreateServer } from '../../../../backend/adapters/http/dsh-diagnostic-server'
++import { sqliteCreatePersistence } from '../../../../backend/adapters/storage/sqlite/persistence'
++
++async function listen(/* 本例拥有的真实 HTTP 服务。 */ server: Server): Promise<string> {
++  // 仅监听本机随机端口，由调用者在 finally 关闭。
++  await new Promise<void>((/* 监听完成入口。 */ resolve) => /* 绑定隔离的回环端口。 */ server.listen(0, '127.0.0.1', resolve))
++  const address = server.address()
++  if (!address || typeof address === 'string') throw new Error('Expected isolated HTTP port')
++  return `http://127.0.0.1:${address.port}`
++}
++async function close(/* 本例拥有的 HTTP 服务。 */ server: Server): Promise<void> {
++  // 断开测试连接后等待监听资源释放。
++  server.closeAllConnections()
++  await new Promise<void>((/* 正常关闭入口。 */ resolve, /* 关闭错误入口。 */ reject) => {
++    server.close((/* 实际原生关闭错误。 */ error) => /* 传播真实关闭结果。 */ error ? reject(error) : resolve())
++  })
++}
++
++it('rejects malformed command bytes before dispatch and preserves a valid Unicode command', async () => {
++  // 应用装配保持真实，只观察其已有 dispatch seam；本例不初始化或读写业务数据库。
++  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-request-bytes-'))
++  const database = sqliteCreatePersistence(directory)
++  const application = applicationCreateLocalService(database)
++  const dispatch = vi.spyOn(application, 'dispatch').mockResolvedValue({ data: {}, replayed: false })
++  const server = apiCreateServer(application)
++  const origin = await listen(server)
++  const requestId = randomUUID(), id = randomUUID()
++  const raw = Buffer.from(JSON.stringify({ requestId, method: 'workspace.create', params: { id, name: 'MARKER', description: '', agentSource: 'empty' } }))
++  const marker = raw.indexOf('MARKER')
++  const bad = Buffer.concat([raw.subarray(0, marker), Buffer.from([0xff]), raw.subarray(marker + 6)])
++  try {
++    const rejected = await fetch(origin + '/api/v1/command', { method: 'POST', headers: { authorization: 'Bearer fixture' }, body: bad })
++    expect(rejected.status).toBe(400)
++    expect(await rejected.json()).toMatchObject({ ok: false, error: { code: 'INVALID_JSON' } })
++    expect(dispatch).not.toHaveBeenCalled()
++    const bom = await fetch(origin + '/api/v1/command', { method: 'POST', headers: { authorization: 'Bearer fixture' }, body: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), raw]) })
++    expect(bom.status).toBe(400)
++    expect(await bom.json()).toMatchObject({ error: { code: 'INVALID_JSON' } })
++    expect(dispatch).not.toHaveBeenCalled()
++    const name = '沙箱 café'
++    const accepted = await fetch(origin + '/api/v1/command', { method: 'POST', headers: { authorization: 'Bearer fixture' },
++      body: JSON.stringify({ requestId, method: 'workspace.create', params: { id, name, description: '', agentSource: 'empty' } }) })
++    expect(accepted.status).toBe(201)
++    expect(dispatch).toHaveBeenCalledWith('fixture', expect.objectContaining({ params: expect.objectContaining({ name }) }))
++  } finally {
++    dispatch.mockRestore()
++    await close(server)
++    await database.close()
++    await rm(directory, { recursive: true, force: true })
++  }
++})
++
++it('rejects malformed diagnostic prompt bytes before starting the runtime', async () => {
++  // 诊断流尚未开始时按原输入失败响应拒绝，合法提示词仍启动一次运行。
++  const run = vi.fn(async (/* 已通过诊断 HTTP 解析的执行输入。 */ input) => {
++    return { sessionId: 'session', finalResponse: input.prompt, events: [] }
++  })
++  const server = dshHttpCreateServer({ start: async () => { /* 没有真实执行进程。 */ }, run,
++    close: async () => { /* 没有外部运行时资源。 */ } })
++  const origin = await listen(server)
++  try {
++    const invalid = await fetch(origin + '/runtime/dsh/run', { method: 'POST', body: Buffer.concat([Buffer.from('{"prompt":"'), Buffer.from([0xff]), Buffer.from('"}')]) })
++    expect(invalid.status).toBe(400)
++    expect(run).not.toHaveBeenCalled()
++    const valid = await fetch(origin + '/runtime/dsh/run', { method: 'POST', body: JSON.stringify({ prompt: '原文 café' }) })
++    expect(valid.status).toBe(200)
++    expect(await valid.text()).toContain('原文 café')
++    expect(run).toHaveBeenCalledWith({ prompt: '原文 café', sessionId: undefined }, expect.any(Function))
++  } finally { await close(server) }
++})
+--- 104-baseline/tests/backend/adapters/messaging/queue.spec.ts
++++ current/tests/backend/adapters/messaging/queue.spec.ts
+@@ -126,6 +126,26 @@
+     await vi.waitFor(() => /* 等待消费者收到唯一的目标工作。 */  expect(seen).toEqual([item]))
+     await vi.waitFor(async () => /* 检查 broker 队列直到已确认消息被移除。 */  expect((await f.channel.checkQueue(f.config.namespace + '.work')).messageCount).toBe(0))
+     stop.abort(); await running; await stopA(); await stopB()
++  })
++
++  it('drops malformed UTF-8 change bytes and still delivers valid Unicode activity', async () => {
++    // 同一原生通道依次投递坏字节与合法对照；收到后者证明前者已被处理而非尚未到达。
++    const f = await fixture(), subscriber = await f.open()
++    const mapId = randomUUID(), deploymentId = randomUUID()
++    const message: QueueChange = { version: 1, deploymentId, kind: 'activity', mapId, holderId: randomUUID(), activity: {
++      mapId, runId: randomUUID(), operationId: 'operation', nodeId: 'node', workId: 'work', stageId: 'stage', slotId: 'slot',
++      agentName: 'MARKER', status: 'preparing', fence: 1, sequence: 1, updatedAt: new Date().toISOString(),
++    } }
++    const seen: QueueChange[] = []
++    const unsubscribe = await subscriber.subscribeChanges((/* 已通过字节和消息边界的活动。 */ event) => /* 保留原文供对照。 */ seen.push(event))
++    try {
++      const raw = Buffer.from(JSON.stringify(message)), marker = raw.indexOf('MARKER')
++      f.channel.publish(f.config.namespace + '.events', '', Buffer.concat([raw.subarray(0, marker), Buffer.from([0xff]), raw.subarray(marker + 6)]))
++      const valid = { ...message, activity: { ...message.activity, agentName: '沙箱 café' } }
++      f.channel.publish(f.config.namespace + '.events', '', Buffer.from(JSON.stringify(valid)))
++      await vi.waitFor(() => /* 同通道合法后继已到达，坏字节不得成为替换字符活动。 */ expect(seen).toEqual([valid]))
++      expect(subscriber.signal.aborted).toBe(false)
++    } finally { await unsubscribe() }
+   })
+ 
+   it('drops malformed change hints but aborts the transport when application handler code throws', async () => {
+--- 104-baseline/tests/backend/adapters/storage/branch-migration.spec.ts
++++ current/tests/backend/adapters/storage/branch-migration.spec.ts
+@@ -334,3 +334,21 @@
+     } finally { await rm(directory, { recursive: true, force: true }) }
+   })
+ })
++
++it.each(['ordinary-node', '__proto__', 'constructor'])('preserves legacy producer metadata for admitted node identity %s', (
++  /* 合法旧字符串身份，含与原型属性同名的显式键。 */ id,
++) => {
++  // 迁移元信息必须保持自有数据键，不能接受节点后静默丢弃旧 producer。
++  const time = '2026-09-02T00:00:00.000Z'
++  const producer = { marker: 'original producer' }
++  const source = { _id: randomUUID(), revision: 0, nodes: [{ id, revision: 0,
++    data: { kind: 'claim', content: 'Archived claim', category: null }, producer, createdAt: time, updatedAt: time }], edges: [] }
++  const plan = migrationPlanBranchGraph(source, now)
++  expect(plan.status).toBe('migrate')
++  if (plan.status !== 'migrate') throw new Error('Expected an admitted legacy Claim migration')
++  const metadata = plan.document.migration as { legacyProducers: Record<string, unknown> }
++  expect(Object.hasOwn(metadata.legacyProducers, id)).toBe(true)
++  expect(metadata.legacyProducers[id]).toEqual(producer)
++  expect(metadata.legacyProducers[id]).not.toBe(producer)
++  expect(source.nodes[0].producer).toEqual(producer)
++})
+--- 104-baseline/tests/backend/execution/dsh.spec.ts
++++ current/tests/backend/execution/dsh.spec.ts
+@@ -51,6 +51,25 @@
+     request.mockResolvedValueOnce(new Response('proxy unavailable', { status: 502 }))
+     await expect(dshRunWork(workInput())).rejects.toMatchObject({ name: 'WorkAccessError' })
+     expect(request).toHaveBeenCalledTimes(5)
++  })
++
++  it('separates malformed UTF-8 replies from transport failures and preserves Fetch BOM handling', async () => {
++    // 同一合法已接受状态对照：坏完整字节是协议错误；读流中断仍可重试，BOM保持原Fetch语义。
++    const input = workInput(), request = vi.spyOn(globalThis, 'fetch')
++    const raw = Buffer.from(JSON.stringify({ ok: true, data: { workId: input.grant.workId, status: 'accepted', note: 'MARKER' } }))
++    const marker = raw.indexOf('MARKER')
++    request.mockResolvedValueOnce(new Response(Buffer.concat([raw.subarray(0, marker), Buffer.from([0xff]), raw.subarray(marker + 6)])))
++    await expect(dshRunWork(input)).rejects.toMatchObject({ name: 'Error', message: 'Work API returned invalid JSON' })
++    request.mockResolvedValueOnce(new Response(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), raw])))
++    await expect(dshRunWork(input)).resolves.toMatchObject({ status: 'accepted' })
++    request.mockResolvedValueOnce(new Response(new ReadableStream({
++      start(/* 实际响应正文读流控制器。 */ controller) {
++        // 只在读取字节时失败，不能被误分类为已经读完的非法JSON。
++        controller.error(new Error('controlled body transport failure'))
++      },
++    })))
++    await expect(dshRunWork(input)).rejects.toMatchObject({ name: 'WorkAccessError' })
++    expect(request).toHaveBeenCalledTimes(3)
+   })
+ 
+   it('also classifies input-read failures after a valid ready-work confirmation', async () => {
+--- 104-baseline/tests/backend/execution/host-protocol.spec.ts
++++ current/tests/backend/execution/host-protocol.spec.ts
+@@ -0,0 +1,120 @@
++// 使用既有队列与执行器 seam，验证未知 HTTP 授权先建立字符串身份再交给 runner。
++import { afterEach, expect, it, vi } from 'vitest'
++
++import { hostCreateWorker } from '../../../backend/execution/host-worker'
++import type { WorkChannel } from '../../../backend/ports/messaging'
++
++// 每个用例独占 fetch 替身，结束后恢复真实网络入口。
++afterEach(() => /* 撤销当前用例的网络替身。 */ vi.unstubAllGlobals())
++
++it.each(['runId', 'operationId', 'stageId', 'slotId', 'specHash', null])('validates initial grant field %s before execution', async (
++  /* 数字故障注入字段；null 是同一完整授权的合法对照。 */ invalidField,
++) => {
++  // 两份响应中的字段即使相同，也不能把真值数字当作授权字符串。
++  const controller = new AbortController()
++  const methods: string[] = []
++  const closed = new Promise<void>((/* 通道关闭后的完成回调。 */ resolve) => {
++    controller.signal.addEventListener('abort', () => /* 本通道没有其他异步资源。 */ resolve(), { once: true })
++  })
++  const channel: WorkChannel = {
++    signal: controller.signal, closed,
++    async consumeWork(/* Host 的真实投递处理器。 */ handler, /* Host 生命周期信号。 */ stop) {
++      // 投递一次实际 notice；成功路径等 Host 主动关闭，永久错误由 Host 自己停止。
++      await handler({ version: 1, deploymentId: 'deployment', mapId: 'map', workId: 'work' }, controller.signal)
++      if (!stop?.aborted) await new Promise<void>((/* Host 停止后的消费完成回调。 */ resolve) => {
++        stop?.addEventListener('abort', () => /* 停止信号结束本次消费。 */ resolve(), { once: true })
++      })
++    },
++    async close() {
++      // 结束本通道独占的通知与投递生命周期。
++      controller.abort()
++    },
++  }
++  vi.stubGlobal('fetch', vi.fn(async (/* 请求地址，区分消息配置与工作命令。 */ url, /* 工作命令携带的请求体。 */ init) => {
++    // 返回真实序列化后的未知响应，由 Host 实际 HTTP 入口读取。
++    if (String(url).endsWith('/messaging')) return Response.json({ ok: true, data: { version: 1, deploymentId: 'deployment', namespace: 'test.deployment', enabled: true } })
++    const command = JSON.parse(String(init.body))
++    methods.push(command.method)
++    const grant = { mapId: 'map', workId: 'work', runId: 'run', operationId: 'operation', stageId: 'stage', slotId: 'slot', specHash: 'spec',
++      hostId: 'host', holderId: command.params.holderId, fence: 1, leaseMs: 5000, expiresAt: '2026-10-20T00:00:00.000Z' }
++    if (invalidField !== null) Object.assign(grant, { [invalidField]: 17 })
++    return Response.json({ ok: true, data: command.method === 'claim' ? { status: 'claimed', grant } : { released: true } })
++  }))
++  const runner = vi.fn(async (/* 已通过 Host 边界的完整执行输入。 */ input) => {
++    // 合法对照完成工作，故障输入不得进入此处。
++    return { ...input.grant, status: 'accepted' as const, sessionId: null, finalResponse: '' }
++  })
++  const worker = hostCreateWorker({ hostId: 'host', dataApiUrl: 'http://127.0.0.1', token: 'fixture', dshHome: '/unused',
++    queue: { namespace: 'test', open: async () => /* 返回本例独占通道。 */ channel } }, runner)
++  try {
++    await worker.start()
++    if (invalidField === null) {
++      await vi.waitFor(() => /* 等待合法授权完成执行并释放。 */ expect(methods).toContain('release'))
++      expect(runner).toHaveBeenCalledOnce()
++    } else {
++      expect(await worker.finished()).toMatchObject({ name: 'HostProtocolError' })
++      expect(runner).not.toHaveBeenCalled()
++      expect(methods).toEqual(['claim'])
++    }
++  } finally { await worker.close() }
++})
++
++it.each(['invalid-duration', 'changed-slot'])('preserves renewal failure classification for %s', async (
++  /* 租约时长非法保持可重投，身份变更保持致命协议错误。 */ problem,
++) => {
++  // 续租不再创建整份冻结 grant，仍区分时长错误与不可变身份错误。
++  const controller = new AbortController(), errors: unknown[] = []
++  const closed = new Promise<void>((/* 通道关闭后的完成回调。 */ resolve) => {
++    controller.signal.addEventListener('abort', () => /* 本通道没有其他异步资源。 */ resolve(), { once: true })
++  })
++  const channel: WorkChannel = { signal: controller.signal, closed,
++    async consumeWork(/* Host实际处理器。 */ handler, /* Host停止信号。 */ stop) {
++      // 有效领取后保持消费生命周期，等待续租取消及Host最终停止。
++      await handler({ version: 1, deploymentId: 'deployment', mapId: 'map', workId: 'work' }, controller.signal)
++      if (!stop?.aborted) await new Promise<void>((/* 消费停止后完成。 */ resolve) => {
++        stop?.addEventListener('abort', () => /* Host结束消费。 */ resolve(), { once: true })
++      })
++    },
++    async close() { /* 本通道拥有全部通知资源。 */ controller.abort() },
++  }
++  let grant: Record<string, unknown>
++  vi.stubGlobal('fetch', vi.fn(async (/* 消息配置或Work路由。 */ url, /* 请求体内的真实holder与方法。 */ init) => {
++    // 每个回复都经过实际Response字节解码；续租只破坏一个目标条件。
++    if (String(url).endsWith('/messaging')) return Response.json({ ok: true, data: { version: 1, deploymentId: 'deployment', namespace: 'test.deployment', enabled: true } })
++    const command = JSON.parse(String(init.body))
++    if (command.method === 'claim') {
++      grant = { mapId: 'map', workId: 'work', runId: 'run', operationId: 'operation', stageId: 'stage', slotId: 'slot', specHash: 'spec',
++        hostId: 'host', holderId: command.params.holderId, fence: 1, leaseMs: 180, expiresAt: '2026-10-20T00:00:00.000Z' }
++      return Response.json({ ok: true, data: { status: 'claimed', grant } })
++    }
++    if (command.method === 'renew') return Response.json({ ok: true, data: { ...grant, ...(problem === 'invalid-duration' ? { leaseMs: 0 } : { slotId: 'different-slot' }) } })
++    return Response.json({ ok: true, data: { released: true } })
++  }))
++  const worker = hostCreateWorker({ hostId: 'host', dataApiUrl: 'http://127.0.0.1', token: 'fixture', dshHome: '/unused',
++    queue: { namespace: 'test', open: async () => /* 当前唯一连接。 */ channel },
++    reporter: { report: (/* 当前Host诊断，保留原错误身份。 */ event) => {
++      // 只观察实际续租错误，不能以错误文本猜分类。
++      if (event.name === 'host.lease.renew.failed') errors.push(event.error)
++      return 'test-event'
++    }, close: async () => { /* 报告器没有外部资源。 */ } },
++  }, async (/* 实际Host建立的执行与取消信号。 */ input) => {
++    // 与真实runner一样等待取消，再把同一取消原因向Host传播。
++    await new Promise<void>((/* 取消后的执行完成入口。 */ resolve) => {
++      input.signal?.addEventListener('abort', () => /* 结束等待。 */ resolve(), { once: true })
++    })
++    throw input.signal?.reason
++  })
++  let finished = false
++  try {
++    await worker.start()
++    void worker.finished().then(() => { /* 标记Host是否因协议错误终止。 */ finished = true })
++    await vi.waitFor(() => /* 等待真实续租定时器及响应处理完成。 */ expect(errors).toHaveLength(1))
++    expect(errors[0]).toMatchObject({ name: problem === 'invalid-duration' ? 'Error' : 'HostProtocolError' })
++    if (problem === 'changed-slot') {
++      expect(await worker.finished()).toBe(errors[0])
++    } else {
++      await new Promise<void>((/* 下一事件轮次供退出状态结算。 */ resolve) => /* 不等待任意固定延迟。 */ setImmediate(resolve))
++      expect(finished).toBe(false)
++    }
++  } finally { await worker.close() }
++})
+--- 104-baseline/tests/backend/fixtures/rabbitmq-lifecycle.spec.ts
++++ current/tests/backend/fixtures/rabbitmq-lifecycle.spec.ts
+@@ -0,0 +1,48 @@
++// 在Docker初始化和目录回收既有边界制造双失败，不启动真实容器。
++import { afterEach, expect, it, vi } from 'vitest'
++
++const faults = vi.hoisted(() => ({
++  primary: new Error('controlled broker initialization failure'), secondary: new Error('controlled directory cleanup failure'),
++  closeFails: false, removed: vi.fn(),
++}))
++vi.mock('node:util', async (/* 真实工具模块。 */ original) => {
++  // 只替换本fixture的execFile Promise适配边界，避免运行外部Docker。
++  const actual = await original<typeof import('node:util')>()
++  return { ...actual, promisify: () => async (/* 被测引擎命令。 */ _file: string, /* 确定启动阶段的命令参数。 */ args: string[]) => {
++    if (args[0] === 'context') return { stdout: 'unix:///unused-test-engine' }
++    if (args[0] === 'info') return { stdout: 'test-engine' }
++    throw faults.primary
++  } }
++})
++vi.mock('node:fs/promises', async (/* 实际文件系统。 */ original) => {
++  // 清理自己的真实临时目录后才抛次错，测试结束不留资源。
++  const actual = await original<typeof import('node:fs/promises')>()
++  return { ...actual, rm: async (/* fixture实际取得的临时目录。 */ target, /* 原始删除选项。 */ options) => {
++    await actual.rm(target, options)
++    faults.removed()
++    if (faults.closeFails) throw faults.secondary
++  } }
++})
++import { rabbitCreateBroker } from './rabbitmq'
++afterEach(() => /* 恢复共享代理环境变量。 */ vi.unstubAllEnvs())
++
++it.each([false, true])('preserves broker startup failure with cleanup failure=%s', async (
++  /* 真实目录移除后是否仍报告清理错误。 */ closeFails,
++) => {
++  // 没有次错时抛原对象；双失败按顺序保留原始错误及清理失败。
++  vi.stubEnv('CHONGMING_TEST_BROKER_FILE', undefined)
++  faults.removed.mockClear()
++  faults.closeFails = closeFails
++  const problem = await rabbitCreateBroker().then(
++    () => { /* Docker启动故障必须拒绝。 */ throw new Error('Expected broker startup failure') },
++    (/* 被测fixture实际拒绝值。 */ error: unknown) => /* 原样保留其错误身份。 */ error,
++  )
++  expect(faults.removed).toHaveBeenCalledOnce()
++  if (!closeFails) expect(problem).toBe(faults.primary)
++  else {
++    expect(problem).toBeInstanceOf(AggregateError)
++    if (!(problem instanceof AggregateError)) throw new Error('Expected aggregated broker failure')
++    expect(problem.errors[0]).toBe(faults.primary)
++    expect(problem.errors[1].errors).toEqual([faults.secondary])
++  }
++})
+--- 104-baseline/tests/backend/fixtures/rabbitmq.ts
++++ current/tests/backend/fixtures/rabbitmq.ts
+@@ -1,3 +1,4 @@
++import { RuntimeMessage } from '../../../contracts/messages'
+ // 为测试创建或复用隔离 RabbitMQ，并限定本机引擎和测试命名空间的清理范围。
+ import { randomBytes, randomUUID } from 'node:crypto'
+ import { execFile } from 'node:child_process'
+@@ -75,8 +76,11 @@
+   let closing: Promise<void> | undefined
+   const close = () => /* 合并重复关闭请求，返回同一次容器及临时目录清理过程。 */ closing ??= (async () => {
+     // 删除本次创建的容器，并在删除失败时仍清理临时凭据目录。
++    const errors: unknown[] = []
+     try { if (containerId) await rabbitExecute('docker', ['rm', '-f', '-v', containerId], { timeout: 30_000 }) }
+-    finally { await rm(directory, { recursive: true, force: true }) }
++    catch (error) { errors.push(error) }
++    try { await rm(directory, { recursive: true, force: true }) } catch (error) { errors.push(error) }
++    if (errors.length) throw new AggregateError(errors, RuntimeMessage.RESOURCE_CLEANUP_FAILED)
+   })()
+   try {
+     const username = 'cm_test_' + randomBytes(6).toString('hex'), password = randomBytes(24).toString('base64url')
+@@ -92,7 +96,11 @@
+     await writeFile(file, JSON.stringify({ amqpUrl: url, containerId, containerName: name, image }), { mode: 0o600 })
+     await rabbitReadReady(url)
+     return { file, url, close }
+-  } catch (error) { await close(); throw error }
++  } catch (error) {
++    try { await close() }
++    catch (cleanupError) { throw new AggregateError([error, cleanupError], RuntimeMessage.RESOURCE_CLEANUP_FAILED) }
++    throw error
++  }
+ }
+ 
+ export async function rabbitCreateFixture(): Promise<{
+--- 104-baseline/tests/experiments/evidence-fixture-lifecycle.spec.ts
++++ current/tests/experiments/evidence-fixture-lifecycle.spec.ts
+@@ -0,0 +1,34 @@
++// 实际实验工厂在已存在的 Mongo 启停 seam 同时失败时保留原错误。
++import { expect, it, vi } from 'vitest'
++
++const faults = vi.hoisted(() => {
++  // 每个工厂调用都创建同样的受控进程边界，不连接真实 Mongo。
++  return { primary: new Error('fixture startup failed'), secondary: new Error('fixture shutdown failed'), stopped: vi.fn() }
++})
++vi.mock('mongodb-memory-server', () => {
++  // 仅替换第三方进程生命周期，工厂的所有权与 catch/close 仍执行实际源码。
++  return { MongoMemoryReplSet: class {
++    async start() { /* 模拟真实 mongod 启动拒绝。 */ throw faults.primary }
++    async stop() { /* 模拟关闭也失败并记录已尝试释放。 */ faults.stopped(); throw faults.secondary }
++  } }
++})
++
++import { evidenceCreateUiFixture } from '../../experiments/evidence-library-tests/ui-fixture'
++import { evidenceCreateRelationFixture } from '../../experiments/evidence-library-tests/relations-fixture'
++
++it.each([evidenceCreateUiFixture, evidenceCreateRelationFixture])('keeps both lifecycle failures from %s', async (
++  /* 实际 UI 或关系工厂，不复制其清理实现。 */ create,
++) => {
++  // 主错误为 errors 首项，次生清理保留在其后，不能伪装初始化成功。
++  faults.stopped.mockClear()
++  const problem = await create().then(
++    () => { /* 受控进程启动必须失败。 */ throw new Error('Expected fixture startup rejection') },
++    (/* 真实工厂抛出的聚合错误。 */ error: unknown) => /* 保持错误身份不经字符串化。 */ error,
++  )
++  expect(problem).toBeInstanceOf(AggregateError)
++  if (!(problem instanceof AggregateError)) throw new Error('Expected aggregated fixture failure')
++  expect(problem.errors[0]).toBe(faults.primary)
++  expect(problem.errors[1]).toBeInstanceOf(AggregateError)
++  expect(problem.errors[1].errors).toContain(faults.secondary)
++  expect(faults.stopped).toHaveBeenCalledOnce()
++})
+--- 104-baseline/tests/experiments/evidence-preview-lifecycle.spec.ts
++++ current/tests/experiments/evidence-preview-lifecycle.spec.ts
+@@ -0,0 +1,40 @@
++// 验证 preview 获取真实工厂资源后、临时目录创建失败时立即承担清理责任。
++import { afterEach, expect, it, vi } from 'vitest'
++
++const fixture = vi.hoisted(() => {
++  // 测试仅注入工厂和文件系统两个既有异步边界，preview 本身使用实际实现。
++  return { close: vi.fn(async () => { /* 自有服务关闭完成。 */ }), mkdir: vi.fn() }
++})
++vi.mock('node:fs/promises', async (/* 真实文件系统加载入口。 */ original) => {
++  // 只控制临时目录创建失败，其余文件函数保持真实实现。
++  return { ...await original<typeof import('node:fs/promises')>(), mkdtemp: fixture.mkdir }
++})
++vi.mock('../../experiments/evidence-library-tests/ui-fixture', () => ({
++  /* 交还 preview 本次拥有的服务。 */ evidenceCreateUiFixture: async () => ({ close: fixture.close }),
++}))
++vi.mock('../../experiments/evidence-library-tests/relations-fixture', () => ({
++  /* 交还 relation preview 本次拥有的服务。 */ evidenceCreateRelationFixture: async () => ({ close: fixture.close }),
++}))
++vi.mock('../../experiments/evidence-library-tests/usage-fixture', () => ({
++  /* 交还 usage preview 本次拥有的服务。 */ evidenceCreateUsageFixture: async () => ({ close: fixture.close }),
++}))
++const priorExitCode = process.exitCode
++afterEach(() => {
++  // 退出状态属于启动脚本，避免故障注入影响本测试进程。
++  process.exitCode = priorExitCode
++  vi.restoreAllMocks()
++})
++
++it.each(['ui', 'relations', 'usage'])('closes %s preview when temporary directory creation fails', async (
++  /* 三个实际预览入口的稳定文件名前缀。 */ name,
++) => {
++  // 已取得 fixture 后的真实可拒绝 FS 阶段，不能绕过清理直接退出。
++  vi.resetModules()
++  fixture.close.mockClear()
++  const primary = new Error('temporary directory unavailable')
++  fixture.mkdir.mockRejectedValueOnce(primary)
++  const report = vi.spyOn(console, 'error').mockImplementation(() => { /* 只捕获诊断，不打印受控故障。 */ })
++  await import(`../../experiments/evidence-library-tests/${name}-preview.ts`)
++  await vi.waitFor(() => /* 等待入口的已观察拒绝完成清理及诊断。 */ expect(report).toHaveBeenCalledWith(primary))
++  expect(fixture.close).toHaveBeenCalledOnce()
++})
+--- 104-baseline/tests/experiments/load-target.spec.ts
++++ current/tests/experiments/load-target.spec.ts
+@@ -0,0 +1,35 @@
++// 验证动态工厂的 unknown 枚举边界；替身只提供接入能力，不实现证据业务。
++import path from 'node:path'
++import { afterEach, expect, it, vi } from 'vitest'
++
++const factory = vi.hoisted(() => ({ create: vi.fn() }))
++vi.mock('../../experiments/evidence-library-tests/mongo-target', () => ({
++  /* 返回本例明确指定的未知工厂结果。 */ createEvidenceTestTarget: factory.create,
++}))
++import { HarnessMessage } from '../../experiments/evidence-library-tests/test-contract'
++import { createTestEnvironment } from '../../experiments/evidence-library-tests/load-target'
++
++afterEach(() => /* 恢复动态工厂定位变量。 */ vi.unstubAllEnvs())
++
++it.each([['remote'], 'remote', 'pooled', 'single-owner'])('accepts only a scalar executionModel: %s', async (
++  /* 真实枚举对照，数组是故意提供的未知边界输入。 */ executionModel,
++) => {
++  // 数组不能经 String 转换取得合法枚举身份，拒绝时仍关闭已取得的工厂资源。
++  vi.stubEnv('EVIDENCE_TEST_TARGET', path.resolve('experiments/evidence-library-tests/mongo-target.ts'))
++  const close = vi.fn(async () => { /* 释放这个测试拥有的工厂资源。 */ })
++  const unused = async () => { /* 本例不进行任何业务请求或数据准备。 */ }
++  factory.create.mockResolvedValue({ info: { name: 'boundary probe', isolated: true, backend: 'mongo', executionModel },
++    workspaceId: 'workspace', otherWorkspaceId: 'other', request: unused, close,
++    fixtures: { createNode: unused, updateClaim: unused, deleteClaim: unused, deleteMap: unused, createAsset: unused,
++      deleteAsset: unused, revoke: unused, failNextCommit: unused, seed: unused },
++    inspect: { counts: unused, telemetry: unused } })
++  if (Array.isArray(executionModel)) {
++    await expect(createTestEnvironment('mongo')).rejects.toThrow(HarnessMessage.TARGET_INVALID)
++    expect(close).toHaveBeenCalledOnce()
++  } else {
++    const environment = await createTestEnvironment('mongo')
++    try { expect(environment.target.info.executionModel).toBe(executionModel) }
++    finally { await environment.dispose() }
++    expect(close).toHaveBeenCalledOnce()
++  }
++})
+--- 104-baseline/tests/experiments/stress-errors.spec.ts
++++ current/tests/experiments/stress-errors.spec.ts
+@@ -0,0 +1,46 @@
++// 只验证压力驱动自身的失败统计与报告；模拟请求始终失败，不生成虚假成功性能结果。
++import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import path from 'node:path'
++import { afterEach, expect, it, vi } from 'vitest'
++
++const seam = vi.hoisted(() => ({ environment: vi.fn() }))
++vi.mock('../../experiments/evidence-library-tests/load-target', () => ({
++  /* 使用驱动原有目标加载 seam 注入受控失败，不模拟存储实现。 */ createTestEnvironment: seam.environment,
++  /* 报告中的后端标签只属于本例失败驱动。 */ testBackend: () => 'mongo',
++}))
++import { runStressCase } from '../../experiments/evidence-library-tests/stress'
++import { STRESS_SCENARIOS } from '../../experiments/evidence-library-tests/scenarios'
++import { PRESSURE_QUERY } from '../../experiments/evidence-library-tests/fixtures'
++
++afterEach(() => /* 报告目录仅在本例内使用。 */ vi.unstubAllEnvs())
++
++it.each(['ordinary', 'constructor', '__proto__'])('preserves the original failure code %s as an own numeric counter', async (
++  /* 目标服务可以返回的普通或原型同名错误码。 */ code,
++) => {
++  // 同一真实驱动调用必须失败；只检查失败报告能准确保留类别，不宣称真实业务通过。
++  const directory = await mkdtemp(path.join(tmpdir(), 'chongming-driver-errors-'))
++  vi.stubEnv('EVIDENCE_STRESS_REPORT_DIR', directory)
++  const dispose = vi.fn(async () => { /* 本例目标没有外部资源。 */ })
++  seam.environment.mockResolvedValue({ dispose, target: {
++    info: { name: 'controlled failing driver target', backend: 'mongo', executionModel: 'remote', isolated: true }, workspaceId: 'workspace',
++    fixtures: { seed: async () => ({ entries: 2, usages: 0, entryRefs: [{ entryId: 'entry-a', contentDigest: 'a' }, { entryId: 'entry-b', contentDigest: 'b' }],
++      sampleEntries: [{ confidence: 0 }, { confidence: 1 }], query: PRESSURE_QUERY, expectedQueryIds: ['entry-a'] }) },
++    inspect: { counts: async () => ({ entries: 2, usages: 0 }), telemetry: async () => ({ storageBytes: 0, targetRssBytes: 0, queryObservation: null }) },
++    request: async () => { /* 请求明确失败，驱动不能把它计为成功。 */ throw Object.assign(new Error('controlled request failure'), { code }) },
++  } })
++  try {
++    await expect(runStressCase({ ...STRESS_SCENARIOS[0], entries: 2, usages: 0, hitEvery: 2, concurrency: [1], warmupOperations: 0,
++      operationsPerRound: 1, rounds: 1, maxOperationsPerSecond: 1000 }, 1)).rejects.toBeInstanceOf(AggregateError)
++    const files = await readdir(directory)
++    expect(files).toHaveLength(1)
++    const report = JSON.parse(await readFile(path.join(directory, files[0]), 'utf8'))
++    expect(report.status).toBe('failed')
++    const bucket = report.rounds[0].operations.search
++    expect(bucket.failed).toBe(1)
++    expect(bucket.succeeded).toBe(0)
++    expect(Object.hasOwn(bucket.errors, code)).toBe(true)
++    expect(bucket.errors[code]).toBe(1)
++    expect(dispose).toHaveBeenCalledOnce()
++  } finally { await rm(directory, { recursive: true, force: true }) }
++})

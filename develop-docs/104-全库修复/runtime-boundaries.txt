@@ -1,0 +1,33 @@
+
+> chongming@0.2.0 test:boundaries
+> node scripts/check-architecture.mjs && node scripts/check-runtime-messages.mjs
+
+{
+  "checkedModules": 136,
+  "localModules": 82,
+  "localExternal": [
+    "@deepseek-ai/dsh-sdk-client",
+    "node:crypto",
+    "node:dns/promises",
+    "node:events",
+    "node:fs",
+    "node:fs/promises",
+    "node:http",
+    "node:https",
+    "node:module",
+    "node:net",
+    "node:path",
+    "node:sqlite",
+    "node:stream",
+    "node:stream/promises",
+    "node:timers/promises",
+    "node:url",
+    "node:util"
+  ],
+  "boundaries": "passed"
+}
+{
+  "checkedFiles": 123,
+  "hardCodedMessages": 0,
+  "messages": "passed"
+}

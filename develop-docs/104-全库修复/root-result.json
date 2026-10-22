@@ -1,0 +1,266 @@
+{
+  "scope": "root",
+  "status": "fixed-reviewed-validation-recorded",
+  "changes": [
+    {
+      "rawId": "P02",
+      "status": "fixed",
+      "files": [
+        "backend/modules/shared/input-validation.ts",
+        "tests/backend/modules/shared/input-validation.spec.ts"
+      ],
+      "change": "用find结果是否为undefined判断未知键，空字符串字段按同一白名单拒绝。",
+      "retained": [
+        "合法白名单空键仍可明确允许",
+        "对象/UUID/版本等独立边界保留"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "P03",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-input.ts",
+        "tests/backend/modules/evidence-library/evidence-input.spec.ts"
+      ],
+      "change": "已收窄的信封params与basis对象只检查所属分支字段，不再重复普通对象形状检查。",
+      "retained": [
+        "未知输入仍严格普通对象解析",
+        "Receipt先于固定业务参数",
+        "各依据未知ref独立验证"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "P04",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-service.ts",
+        "backend/modules/shared/data-definition.ts"
+      ],
+      "change": "freezeNode复用同次完整parse产出的独立definition和payload，metadata独立clone；精确类型由parser建立，移除同一类型重复查找。",
+      "retained": [
+        "schema/JSON/版本/工作区/附件验证",
+        "固定材料副本独立于来源",
+        "未知类型错误仍映射为库领域错误"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "P05",
+      "status": "fixed",
+      "files": [
+        "scripts/check-desktop-runtime.ts",
+        "tests/apps/desktop/runtime-check.spec.ts"
+      ],
+      "change": "验证主错与次错有序保留，逐项清理网关/服务/环境/provider/目录；单错保持原错误身份。脚本原函数可导入，直接执行入口保留。",
+      "retained": [
+        "真实错误仍失败",
+        "目录仅移除自有临时目录",
+        "provider与服务分别释放"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PM01",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-input.ts"
+      ],
+      "change": "理由内容只判一次，UTF-8字节上限共用真实文本边界。",
+      "retained": [
+        "专用EVIDENCE_REASON_REQUIRED错误",
+        "原文及字节预算"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PM02",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-input.ts",
+        "backend/modules/evidence-library/evidence-record.ts"
+      ],
+      "change": "字面量collect入口返回精确类型，移除固定collect解析后永不成立的方法保护。",
+      "retained": [
+        "仍执行完整真实输入解析与体积预算",
+        "未知存储字段/状态/摘要验证"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PM03",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-service.ts"
+      ],
+      "change": "私有来源Map缓存在所有freeze路径必填，删除可选与静默不缓存分支。",
+      "retained": [
+        "同事务缓存归属",
+        "真实缓存未命中仍读图并验证工作区"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PM04",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-record.ts"
+      ],
+      "change": "自有键确认后直接读取一次对象字段或规范数组下标，删除全容器枚举查同键。",
+      "retained": [
+        "缺失/非容器拒绝",
+        "数组length和01等非规范元素别名不接纳",
+        "合法原型同名自有键仍可读"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PM05",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-input.ts"
+      ],
+      "change": "同一时间范围from/to各解析一次。",
+      "retained": [
+        "非法日期、NaN及反向区间仍拒绝",
+        "客户端部分由UI区完成"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PT01",
+      "status": "fixed",
+      "files": [
+        "tests/backend/fixtures/graph-api.ts",
+        "tests/backend/fixtures/graph-api.spec.ts"
+      ],
+      "change": "资源取得后立即登记清理，Mongo/连接/消息/HTTP失败均由同一所有者逆序释放全部已取得资源。",
+      "retained": [
+        "借用broker关闭不删除共享代理",
+        "namespace只在initialize建立后登记",
+        "保留主错和全部次错"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "PTM01",
+      "status": "fixed",
+      "files": [
+        "tests/backend/fixtures/graph-api.ts"
+      ],
+      "change": "必填parse/split种子直接装配，删除猜测缺失形状分支。",
+      "retained": [
+        "promptVars/defaultPriority/claimCategory真实可选字段默认保留"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "B01",
+      "status": "fixed",
+      "files": [
+        "tests/browser/workspace-recovery-fixture.ts"
+      ],
+      "change": "恢复Vite配置沿普通fixture使用可用端口，去掉零端口误假设与固定端口strict失败。",
+      "retained": [
+        "真实回环监听地址确认",
+        "应用重启保留同一Web地址与原存储"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "B02",
+      "status": "fixed",
+      "files": [
+        "tests/browser/workspace-performance.spec.ts"
+      ],
+      "change": "私有非空且有效分位调用链直接取经验次序值，移除恒不可达零回落及多余clamp。",
+      "retained": [
+        "空观测仍unavailable",
+        "不修改样本或百分位含义"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "D03",
+      "status": "fixed",
+      "files": [
+        "backend/modules/evidence-library/evidence-relations.ts"
+      ],
+      "change": "证据关系直接使用正文解析已展开的具体reference.path，不重复通配展开再按值反向匹配。",
+      "retained": [
+        "声明路径仍保留于definition",
+        "实际路径转义、去重与稳定排序",
+        "parent不写入持久化协议"
+      ],
+      "validation": []
+    },
+    {
+      "rawId": "R07",
+      "status": "fixed",
+      "files": [
+        "tests/browser/workspace-recovery.spec.ts"
+      ],
+      "change": "recoveryOpenPage初始化与context.close双失败有序保留，正常close不改变主错。",
+      "retained": [
+        "SSE次生取消部分由UI区U11完成",
+        "原浏览器实际上下文归属"
+      ],
+      "validation": [],
+      "part": "browser-recovery"
+    },
+    {
+      "rawId": "U14",
+      "part": "browser-acceptance",
+      "status": "fixed",
+      "files": [
+        "tests/browser/workspace-acceptance.spec.ts"
+      ],
+      "change": "两处评分选择从DOM value改为公开label=1，适配类型保真的索引option身份，原score=1正文/版本断言不变。",
+      "retained": [
+        "不将枚举DOM内部ID当成JSON协议值",
+        "真实保存、授权、来源与范围断言"
+      ],
+      "validation": [
+        "browser-enum-focused.txt 双项目通过"
+      ]
+    }
+  ],
+  "validation": [
+    {
+      "name": "root focused",
+      "files": 4,
+      "tests": 9,
+      "status": "passed"
+    },
+    {
+      "name": "vue-tsc production",
+      "status": "passed"
+    },
+    {
+      "name": "root new test types",
+      "status": "passed"
+    },
+    {
+      "name": "core current supported Mongo",
+      "tests": 70,
+      "status": "passed",
+      "excludedByExistingScope": 44
+    },
+    {
+      "name": "evidence HTTP/relations/usage/local",
+      "tests": [
+        8,
+        27,
+        33,
+        3
+      ],
+      "status": "passed"
+    },
+    {
+      "name": "packaged Node/SQLite/DSH restart and parent disconnect",
+      "status": "passed"
+    }
+  ],
+  "finalValidation": "validation.json"
+}
