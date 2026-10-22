@@ -165,6 +165,17 @@ node --import tsx tests/client/ui-fixture.ts
 
 该脚本启动临时 Mongo、真实 API/Host/DSH 及本机测试模型，输出端口和临时凭证文件路径；将端口设置为浏览器开发代理目标即可验收。按 Ctrl+C 清理。测试结果不代表正式模型的核查质量。
 
+## 仓颉证据图检查与报告导出
+
+新增独立命令行模块，用仓颉检查图结构与核查引用并生成中文报告；不调用模型或修改图数据。支持本地快照及公共API的只读`map.get`，当前构建验证平台为macOS arm64。安装、命令及检查边界见[模块说明](./apps/evidence-audit-cj/README.md)。
+
+```bash
+npm run evidence:audit -- --input apps/evidence-audit-cj/examples/completed.json
+npm run test:evidence-audit
+```
+
+第二条为需要先构建真实仓颉程序的专用验收入口；普通Node回归不要求安装仓颉SDK。
+
 ## 数据与文档
 
 旧固定 `data.kind` 图以及此前使用单个 `run` 字段的通用图必须显式迁移。迁移不在正常启动时执行；单 Run 文档会转换为 `runs[]`，并保留执行身份、历史和可验证授权。停机、备份、Mongo/SQLite 预览差异、阻断条件和应用命令见 [显式数据迁移与修复](./docs/operations/data-migrations.md)。

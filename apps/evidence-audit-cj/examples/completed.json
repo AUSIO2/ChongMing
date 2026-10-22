@@ -1,0 +1,17 @@
+{
+  "mapId": "audit-demo",
+  "workspaceId": "audit-workspace",
+  "name": "重明仓颉模块演示",
+  "revision": 1,
+  "nodes": [
+    {"id":"news","revision":0,"typeId":"factcheck.news","typeVersion":1,"payload":{"content":"演示材料包含一条算术陈述：2 + 2 = 4。","context":{}}},
+    {"id":"claim","revision":0,"typeId":"factcheck.claim","typeVersion":1,"payload":{"content":"2 + 2 = 4。","category":"data"}},
+    {"id":"opinion","revision":0,"typeId":"factcheck.opinion","typeVersion":1,"payload":{"score":1,"reason":"演示用核查意见：整数加法结果为4。","evidenceClaimIds":[]},"payloadReferences":[]},
+    {"id":"verification","revision":0,"typeId":"factcheck.verification","typeVersion":1,"payload":{"score":1,"reason":"演示用结论，供结构检查与报告导出测试。","opinionIds":["opinion"]},"payloadReferences":[{"path":"/opinionIds/*","targetId":"opinion"}]}
+  ],
+  "edges": [
+    {"id":"news-claim","kind":"successor","from":"news","to":"claim"},
+    {"id":"claim-opinion","kind":"successor","from":"claim","to":"opinion"},
+    {"id":"opinion-verification","kind":"successor","from":"opinion","to":"verification"}
+  ]
+}

@@ -29,7 +29,10 @@
     "desktop:prepare": "node scripts/prepare-desktop-runtime.mjs",
     "test:desktop-runtime": "npm run desktop:prepare && node --import tsx scripts/check-desktop-runtime.ts",
     "test:boundaries": "node scripts/check-architecture.mjs && node scripts/check-runtime-messages.mjs",
-    "test:faults": "node --import tsx tests/run.ts tests/platform/diagnostics.spec.ts tests/backend/adapters/http/error-boundary.spec.ts tests/backend/execution/host.spec.ts tests/backend/adapters/messaging/queue.spec.ts tests/client/stream.spec.ts tests/client/session.spec.ts tests/apps/desktop/ipc-handlers.spec.ts tests/apps/desktop/local-service-process.spec.ts"
+    "test:faults": "node --import tsx tests/run.ts tests/platform/diagnostics.spec.ts tests/backend/adapters/http/error-boundary.spec.ts tests/backend/execution/host.spec.ts tests/backend/adapters/messaging/queue.spec.ts tests/client/stream.spec.ts tests/client/session.spec.ts tests/apps/desktop/ipc-handlers.spec.ts tests/apps/desktop/local-service-process.spec.ts",
+    "evidence:audit:build": "node scripts/build-evidence-audit.mjs",
+    "evidence:audit": "node --import tsx apps/evidence-audit/main.ts",
+    "test:evidence-audit": "vitest run --config apps/evidence-audit-cj/vitest.config.ts"
   },
   "dependencies": {
     "@deepseek-ai/dsh-sdk-client": "0.1.5-rc.1",

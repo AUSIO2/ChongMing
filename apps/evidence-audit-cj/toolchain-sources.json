@@ -1,0 +1,47 @@
+{
+  "platform": "macOS arm64",
+  "sdk": {
+    "version": "1.1.3",
+    "url": "https://cangjie-lang.cn/v1/files/auth/downLoad?nsId=142267&fileName=cangjie-sdk-mac-aarch64-1.1.3.tar.gz&objectKey=6a19312721f5a8178d6fd225",
+    "sha256": "7eff8d3b9119535cf3d05cb81526c5df391137dce908d744449f4edb99da3199",
+    "shaSource": "https://csdnimg.cn/release/devpress-cangjie/public/js/chunk/organization/download/version.f405f0c6.js",
+    "license": "Apache-2.0 with Runtime Library Exception",
+    "runtimeFilesSha256": {
+      "runtime/lib/darwin_aarch64_cjnative/libcangjie-runtime.dylib": "b68920039044741ffa91f6bc1d5a545ae9c6101661d23560684558f59f16b09f",
+      "runtime/lib/darwin_aarch64_cjnative/libboundscheck.dylib": "8e0b24d1c91e4cdc6df59c2d06677030aa432cac35aba2188e34367bb54bd155"
+    }
+  },
+  "stdx": {
+    "version": "1.1.3.1",
+    "tagCommit": "8fa4b04b4cb1753e8f3581e4935cf72ad145fedc",
+    "url": "https://codeload.github.com/cangjielanguage/cangjie_stdx/tar.gz/refs/tags/v1.1.3.1",
+    "sha256": "afaf5f11dc5a48b551f0fc6c3303d1fd93add4592ab96424789126c40b3b55f5",
+    "shaSource": "Computed from retrieved official source tarball; commit separately verified via GitHub tags API",
+    "packages": [
+      "stdx.serialization.serialization",
+      "stdx.encoding.json",
+      "stdx.encoding.jsonFFI"
+    ],
+    "license": "Apache-2.0 with Runtime Library Exception",
+    "sourceFilesSha256": {
+      "src/stdx/encoding/json/json_exception.cj": "0ee9dad262557e0d03c077c371eb72ad90199aa091e5d586c3e51496e4b61532",
+      "src/stdx/encoding/json/json_object.cj": "2c6fbfabaaa8fe469627d282e5b03e1854b419b6bb9da82db83d72e389753160",
+      "src/stdx/encoding/json/json_value.cj": "07d27b8921b19cd8f06adea9b670defa6632306bb99004defbac521a3c808d02",
+      "src/stdx/encoding/json/native/json_string_escape.c": "47e3850b94c2fe854cf7c9de70d38d2979e3c8b8e9ffb44102a996961d0cb090",
+      "src/stdx/encoding/json/native/json_string_escape.h": "f3ad135452f62c2b63cb501aca7e5a63d042aa6c610f57840128825d1008a1ab",
+      "src/stdx/encoding/json/native.cj": "374eba5503c1ce5049dd404ef5d6973e5014aafcdea6250a33efd47cd18c6307",
+      "src/stdx/encoding/json/to_json.cj": "f9189962173aa31f428aa27f4ebcbdfce1d5b711eee44979d8bcb200a7fff85c",
+      "src/stdx/encoding/json/write_buffer.cj": "78b5b5c951809beb1f01ad53165cd7841e6a17940c29db581a0c8a430fc28493",
+      "src/stdx/serialization/serialization/data_model.cj": "a8867818cfef0891d0d9f5eedcef382e7f5d77b8a25bec10f30e0c97732338ac",
+      "src/stdx/serialization/serialization/serializable.cj": "80225338de6a645b13d6c88aec69b9158ec35f67581826cdcccb41c4aa59fa68"
+    }
+  },
+  "libboundscheck": {
+    "sourceEvidence": "https://raw.githubusercontent.com/cangjielanguage/cangjie_runtime/v1.1.3/runtime/third_party/README.md",
+    "upstream": "https://gitcode.com/openharmony/third_party_bounds_checking_function",
+    "version": "OpenHarmony-v6.0-Release",
+    "licenseURL": "https://raw.githubusercontent.com/openharmony/third_party_bounds_checking_function/OpenHarmony-v6.0-Release/LICENSE",
+    "license": "MulanPSL-2.0"
+  },
+  "schemaVersion": 1
+}

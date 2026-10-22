@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.spec.ts'],
     // 浏览器用例由 Playwright 执行，保留 Vitest 原有的依赖/产物排除规则。
-    exclude: [...configDefaults.exclude, 'tests/browser/**'],
+    exclude: [...configDefaults.exclude, 'tests/browser/**', 'tests/apps/evidence-audit/native.spec.ts'],
     globals: false,
     // 真实 Mongo、RabbitMQ 与 DSH 套件会启动子进程；限制文件并发，避免资源争用制造假超时。
     maxWorkers: 1,

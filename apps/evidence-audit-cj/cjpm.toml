@@ -1,0 +1,12 @@
+# 先通过仓库的 evidence:audit:build 命令构建匹配版本的JSON依赖。
+# 此描述文件用于仓颉工程识别；可运行交付物及运行库由该构建脚本生成。
+[package]
+name = "evidence_audit"
+version = "0.1.0"
+cjc-version = "1.1.3"
+description = "重明证据图结构检查与中文报告导出"
+output-type = "executable"
+src-dir = "src"
+target-dir = "target"
+compile-option = "--import-path target/deps"
+link-option = "-L target/deps -lstdx.encoding.json -lstdx.serialization.serialization -lstdx.encoding.jsonFFI"
